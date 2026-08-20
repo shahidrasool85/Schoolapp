@@ -196,18 +196,22 @@ export default function ApplicationDetailPage() {
       </table>
 
       <h2>Status</h2>
-      <form className="card form-grid" onSubmit={changeStatus}>
-        <label>
-          New status
-          <select name="status" key={app.status} defaultValue={app.status}>
-            {STATUSES.map((s) => (
-              <option key={s} value={s} disabled={s === "enrolled"}>{s.replaceAll("_", " ")}</option>
-            ))}
-          </select>
-        </label>
-        <label>Reason / note<input name="reason" /></label>
-        <div><button type="submit">Change status</button></div>
-      </form>
+      {app.status === "enrolled" ? (
+        <p className="muted">Enrolled. Status can no longer be changed here; conversion is complete.</p>
+      ) : (
+        <form className="card form-grid" onSubmit={changeStatus}>
+          <label>
+            New status
+            <select name="status" key={app.status} defaultValue={app.status}>
+              {STATUSES.filter((s) => s !== "enrolled").map((s) => (
+                <option key={s} value={s}>{s.replaceAll("_", " ")}</option>
+              ))}
+            </select>
+          </label>
+          <label>Reason / note<input name="reason" /></label>
+          <div><button type="submit">Change status</button></div>
+        </form>
+      )}
       <p>
         <button type="button" className="secondary" onClick={() => waitlist().catch((err: Error) => setError(err.message))}>
           Place on waiting list

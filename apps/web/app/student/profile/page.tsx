@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "../../lib/api";
-import type { PortalChild } from "../../lib/portal";
+import { api } from "../../../lib/api";
+import type { PortalChild } from "../../../lib/portal";
 
 export default function StudentProfilePage() {
   const [student, setStudent] = useState<PortalChild | null>(null);

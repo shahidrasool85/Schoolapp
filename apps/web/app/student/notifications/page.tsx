@@ -1,6 +1,6 @@
 "use client";
 
-import NotificationsInbox from "../../components/notifications-inbox";
+import NotificationsInbox from "../../../components/notifications-inbox";
 
 export default function StudentNotificationsPage() {
   return (

@@ -1,4 +1,4 @@
-import { ComingLaterCard } from "../../components/coming-later";
+import { ComingLaterCard } from "../../../components/coming-later";
 
 export default function StudentLearningPage() {
   return (

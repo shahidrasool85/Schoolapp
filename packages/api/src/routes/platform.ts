@@ -17,7 +17,7 @@ const provisionSchema = z.object({
 
 const supportSchema = z.object({
   reason: z.string().trim().min(8),
-  scope: z.string().min(1).default("organisation_metadata"),
+  scope: z.enum(["organisation", "organisation_metadata"]).default("organisation_metadata"),
   ttlMinutes: z.number().int().min(5).max(24 * 60).default(60),
 });
 

@@ -1,5 +1,12 @@
 import { z } from "zod";
-import { ACCESS_COOKIE, hashPassword, signAccessToken, verifyPassword } from "@schoolapp/auth";
+import {
+  accessCookieHeader,
+  clearAccessCookieHeader,
+  hashPassword,
+  signAccessToken,
+  verifyAccessToken,
+  verifyPassword,
+} from "@schoolapp/auth";
 import { AppError, pgErrorToAppError } from "@schoolapp/core";
 import { withTenantContext } from "@schoolapp/db";
 import type { SchoolappApi } from "../types";
@@ -60,10 +67,7 @@ export function registerAuthRoutes(app: SchoolappApi) {
       config.tokenTtlSeconds,
     );
 
-    c.header(
-      "Set-Cookie",
-      `${ACCESS_COOKIE}=${accessToken}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${config.tokenTtlSeconds}`,
-    );
+    c.header("Set-Cookie", accessCookieHeader(accessToken, config.tokenTtlSeconds));
 
     return c.json({
       accessToken,
@@ -76,10 +80,18 @@ export function registerAuthRoutes(app: SchoolappApi) {
   });
 
   app.post("/auth/logout", async (c) => {
-    c.header("Set-Cookie", `${ACCESS_COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`);
+    c.header("Set-Cookie", clearAccessCookieHeader());
     const token = readAccessToken(c);
     if (token) {
-      // Best-effort; unauthenticated logout still clears the cookie.
+      try {
+        const payload = await verifyAccessToken(c.get("config").authSecret, token);
+        await c.get("config").pools.app.query("select revoke_auth_session($1, $2)", [
+          payload.sub,
+          payload.sid,
+        ]);
+      } catch {
+        // Cookie is already cleared; revocation is best-effort.
+      }
     }
     return c.json({ ok: true });
   });
@@ -89,9 +101,42 @@ export function registerAuthRoutes(app: SchoolappApi) {
     if (!parsed.success) {
       throw new AppError(400, "validation_failed", "Invalid invitation payload");
     }
-    const passwordHash = await hashPassword(parsed.data.password);
+    const config = c.get("config");
     try {
-      const result = await c.get("config").pools.app.query(
+      const preview = await config.pools.app.query<{
+        invitation_id: string;
+        email: string | null;
+        existing_user_id: string | null;
+        existing_user_status: string | null;
+        has_credentials: boolean;
+      }>("select * from lookup_invitation_for_accept($1)", [parsed.data.token]);
+      const invite = preview.rows[0];
+      if (!invite) {
+        throw new AppError(404, "not_found", "Not found");
+      }
+
+      let passwordHash = "";
+      if (invite.existing_user_id) {
+        if (invite.existing_user_status !== "active") {
+          throw new AppError(403, "forbidden", "This account cannot accept invitations");
+        }
+        if (!invite.has_credentials || !invite.email) {
+          throw new AppError(409, "invitation_conflict", "This account cannot be claimed via invite");
+        }
+        const lookup = await config.pools.app.query(
+          "select * from local_auth_lookup($1)",
+          [invite.email],
+        );
+        const row = lookup.rows[0] as { password_hash: string } | undefined;
+        const ok = row ? await verifyPassword(row.password_hash, parsed.data.password) : false;
+        if (!ok) {
+          throw new AppError(401, "unauthenticated", "Invalid email or password");
+        }
+      } else {
+        passwordHash = await hashPassword(parsed.data.password);
+      }
+
+      const result = await config.pools.app.query(
         "select * from accept_invitation($1, $2, $3)",
         [parsed.data.token, parsed.data.fullName, passwordHash],
       );
@@ -101,6 +146,7 @@ export function registerAuthRoutes(app: SchoolappApi) {
       };
       return c.json({ userId: row.accepted_user_id, organisationId: row.accepted_organisation_id });
     } catch (error) {
+      if (error instanceof AppError) throw error;
       throw pgErrorToAppError(error) ?? new AppError(400, "validation_failed", "Could not accept invitation");
     }
   });

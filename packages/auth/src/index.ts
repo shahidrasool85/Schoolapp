@@ -43,3 +43,15 @@ export async function verifyAccessToken(
 }
 
 export const ACCESS_COOKIE = "schoolapp_access";
+
+function cookieSecurityFlags(): string {
+  return process.env.NODE_ENV === "production" ? "; Secure" : "";
+}
+
+export function accessCookieHeader(token: string, maxAgeSeconds: number): string {
+  return `${ACCESS_COOKIE}=${token}; HttpOnly; Path=/; SameSite=Lax${cookieSecurityFlags()}; Max-Age=${maxAgeSeconds}`;
+}
+
+export function clearAccessCookieHeader(): string {
+  return `${ACCESS_COOKIE}=; HttpOnly; Path=/; SameSite=Lax${cookieSecurityFlags()}; Max-Age=0`;
+}

@@ -327,7 +327,35 @@ describe("Phase 1 foundation", () => {
         "X-Organisation-Id": org.rows[0]!.id,
       },
     });
-    expect(allowed.status).toBe(200);
+    expect(allowed.status).toBe(403);
+
+    const fullGrant = await app.request(`/api/v1/platform/organisations/${org.rows[0]!.id}/support-access`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        reason: "Need full tenant access to reproduce the login issue",
+        scope: "organisation",
+        ttlMinutes: 30,
+      }),
+    });
+    expect(fullGrant.status).toBe(201);
+
+    const allowedFull = await app.request("/api/v1/organisation", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-Organisation-Id": org.rows[0]!.id,
+      },
+    });
+    expect(allowedFull.status).toBe(200);
+    const allowedBody = (await allowedFull.json()) as {
+      settings: unknown;
+      subscription: unknown;
+    };
+    expect(allowedBody.settings).not.toBeNull();
+    expect(allowedBody.subscription).toBeNull();
 
     const audit = await pools.owner.query<{ action: string; priority: string }>(
       `select action, priority from audit_events
@@ -386,5 +414,179 @@ describe("Phase 1 foundation", () => {
     expect(set.has(PERMISSIONS.ORG_SETTINGS_MANAGE)).toBe(false);
     expect(set.has(PERMISSIONS.STUDENTS_PROFILES_READ)).toBe(true);
     expect(set.has(PERMISSIONS.ORG_SETTINGS_READ)).toBe(true);
+    expect(set.has(PERMISSIONS.ORG_BILLING_READ)).toBe(false);
+  });
+
+  it("does not reset an existing user's password when they accept an invitation", async () => {
+    const id = suffix();
+    await insertUser(pools.owner, {
+      email: `existing-${id}@example.com`,
+      password: "original-pass-1",
+      fullName: "Existing User",
+      kind: "staff",
+    });
+    const platformId = await insertUser(pools.owner, {
+      email: `plat-invite-${id}@example.com`,
+      password: "platform-pass-1",
+      fullName: "Platform",
+      kind: "platform_admin",
+      platformAdmin: true,
+    });
+    const token = await login(app, `plat-invite-${id}@example.com`, "platform-pass-1");
+    const created = await app.request("/api/v1/platform/organisations", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: `Invite ${id}`,
+        slug: `invite-${id}`,
+        adminEmail: `existing-${id}@example.com`,
+        adminFullName: "Attacker Name",
+      }),
+    });
+    expect(created.status).toBe(201);
+    const createdBody = (await created.json()) as { invitationToken: string; organisationId: string };
+
+    const takeover = await app.request("/api/v1/invitations/accept", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: createdBody.invitationToken,
+        fullName: "Attacker Name",
+        password: "attacker-pass-99",
+      }),
+    });
+    expect(takeover.status).toBe(401);
+
+    const originalLogin = await login(app, `existing-${id}@example.com`, "original-pass-1");
+    expect(originalLogin).toBeTruthy();
+    await expect(login(app, `existing-${id}@example.com`, "attacker-pass-99")).rejects.toThrow();
+
+    const accepted = await app.request("/api/v1/invitations/accept", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: createdBody.invitationToken,
+        fullName: "Attacker Name",
+        password: "original-pass-1",
+      }),
+    });
+    expect(accepted.status).toBe(200);
+    const after = await login(app, `existing-${id}@example.com`, "original-pass-1");
+    const me = await app.request("/api/v1/me", {
+      headers: {
+        Authorization: `Bearer ${after}`,
+        "X-Organisation-Id": createdBody.organisationId,
+      },
+    });
+    expect(me.status).toBe(200);
+    const meBody = (await me.json()) as { user: { fullName: string } };
+    expect(meBody.user.fullName).toBe("Existing User");
+    void platformId;
+  });
+
+  it("rejects a JWT after logout or after the user is disabled", async () => {
+    const id = suffix();
+    const userId = await insertUser(pools.owner, {
+      email: `sess-${id}@example.com`,
+      password: "password-12x",
+      fullName: "Session User",
+      kind: "staff",
+    });
+    const token = await login(app, `sess-${id}@example.com`, "password-12x");
+    const before = await app.request("/api/v1/me/memberships", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(before.status).toBe(200);
+
+    const logout = await app.request("/api/v1/auth/logout", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(logout.status).toBe(200);
+    const afterLogout = await app.request("/api/v1/me/memberships", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(afterLogout.status).toBe(401);
+
+    const token2 = await login(app, `sess-${id}@example.com`, "password-12x");
+    await pools.owner.query("update users set status = 'disabled' where id = $1", [userId]);
+    const afterDisable = await app.request("/api/v1/me/memberships", {
+      headers: { Authorization: `Bearer ${token2}` },
+    });
+    expect(afterDisable.status).toBe(401);
+  });
+
+  it("hides billing from teachers and parents on GET /organisation", async () => {
+    const id = suffix();
+    const adminId = await insertUser(pools.owner, {
+      email: `org-admin-${id}@example.com`,
+      password: "password-12x",
+      fullName: "Admin",
+      kind: "staff",
+    });
+    const teacherId = await insertUser(pools.owner, {
+      email: `org-teacher-${id}@example.com`,
+      password: "password-12x",
+      fullName: "Teacher",
+      kind: "staff",
+    });
+    const parentId = await insertUser(pools.owner, {
+      email: `org-parent-${id}@example.com`,
+      password: "password-12x",
+      fullName: "Parent",
+      kind: "parent",
+    });
+    const org = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`orgperm-${id}`, "Perm School"],
+    );
+    await pools.owner.query("insert into organisation_settings (organisation_id) values ($1)", [
+      org.rows[0]!.id,
+    ]);
+    const plan = await pools.owner.query<{ id: string }>("select id from plans where key = 'default'");
+    await pools.owner.query(
+      `insert into organisation_subscriptions (organisation_id, plan_id, status)
+       values ($1, $2, 'active')`,
+      [org.rows[0]!.id, plan.rows[0]!.id],
+    );
+    await addMembership(pools.owner, org.rows[0]!.id, adminId, "school.admin");
+    await addMembership(pools.owner, org.rows[0]!.id, teacherId, "school.teacher");
+    await addMembership(pools.owner, org.rows[0]!.id, parentId, "school.parent");
+
+    const adminBody = (await (
+      await app.request("/api/v1/organisation", {
+        headers: {
+          Authorization: `Bearer ${await login(app, `org-admin-${id}@example.com`, "password-12x")}`,
+          "X-Organisation-Id": org.rows[0]!.id,
+        },
+      })
+    ).json()) as { settings: unknown; subscription: { plan_key: string } | null };
+    expect(adminBody.settings).not.toBeNull();
+    expect(adminBody.subscription?.plan_key).toBe("default");
+
+    const teacherRes = await app.request("/api/v1/organisation", {
+      headers: {
+        Authorization: `Bearer ${await login(app, `org-teacher-${id}@example.com`, "password-12x")}`,
+        "X-Organisation-Id": org.rows[0]!.id,
+      },
+    });
+    expect(teacherRes.status).toBe(200);
+    const teacherBody = (await teacherRes.json()) as { settings: unknown; subscription: unknown };
+    expect(teacherBody.settings).not.toBeNull();
+    expect(teacherBody.subscription).toBeNull();
+
+    const parentRes = await app.request("/api/v1/organisation", {
+      headers: {
+        Authorization: `Bearer ${await login(app, `org-parent-${id}@example.com`, "password-12x")}`,
+        "X-Organisation-Id": org.rows[0]!.id,
+      },
+    });
+    expect(parentRes.status).toBe(200);
+    const parentBody = (await parentRes.json()) as { settings: unknown; subscription: unknown };
+    expect(parentBody.settings).toBeNull();
+    expect(parentBody.subscription).toBeNull();
   });
 });

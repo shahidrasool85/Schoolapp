@@ -22,4 +22,4 @@ Outstanding product-owner items from the amended architecture were decided befor
 
 - `app_tenant_matches` is organisation-id equality only.
 - Platform listing of organisations is allowed only when platform admin **and** no tenant context is set.
-- Entering a tenant as platform staff requires an unexpired, unrevoked `support_access_grants` row.
+- Entering a tenant as platform staff requires an unexpired, unrevoked `support_access_grants` row whose **scope is `organisation`**. Scope `organisation_metadata` is recorded and auditable but does not set tenant RLS (Phase 1 RLS is organisation-wide).

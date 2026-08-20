@@ -1,5 +1,6 @@
--- Applied SQL lives in packages/db/migrations/ (source of truth).
--- This file is a review artefact and may lag the applied migrations.
+-- DO NOT APPLY THIS FILE.
+-- Applied SQL lives in packages/db/migrations/ (source of truth for the running app).
+-- This file is an architecture-review artefact and may lag the applied migrations.
 -- Schoolapp foundation schema.
 -- PostgreSQL 16+.
 --
@@ -68,6 +69,8 @@ as $$
 $$;
 
 -- Tenant isolation predicate reused by policies.
+-- NOTE: Live migrations in packages/db/migrations/0001_foundation.sql do NOT
+-- treat app_is_platform_admin() as a bypass. This review artefact is stale.
 create or replace function app_tenant_matches(p_organisation_id uuid)
 returns boolean
 language sql

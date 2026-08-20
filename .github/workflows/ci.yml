@@ -26,6 +26,7 @@ jobs:
       PGHOST: 127.0.0.1
       PGUSER: postgres
       PGPASSWORD: postgres
+      # CI-only placeholder. Production must set AUTH_SECRET from a secret store.
       AUTH_SECRET: ci-secret-ci-secret-ci-secret-ci-ok
       DATABASE_URL: postgres://schoolapp_app:schoolapp_app@127.0.0.1:5432/schoolapp
       DATABASE_OWNER_URL: postgres://schoolapp_owner:schoolapp_owner@127.0.0.1:5432/schoolapp

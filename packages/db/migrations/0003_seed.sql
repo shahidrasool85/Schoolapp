@@ -1,0 +1,127 @@
+-- Permission catalogue and system roles (source of truth with docs/permissions-catalogue.md).
+
+insert into permissions (key, description) values
+  ('platform.organisations.manage', 'Provision and suspend organisations'),
+  ('platform.support_access.manage', 'Open and revoke break-glass support access'),
+  ('org.settings.read', 'Read school settings'),
+  ('org.settings.manage', 'Change school settings and feature flags'),
+  ('org.members.read', 'List school members'),
+  ('org.members.manage', 'Invite and manage school members'),
+  ('org.roles.manage', 'Manage school roles and grants'),
+  ('org.support_access.read', 'Review platform support-access grants for this school'),
+  ('org.billing.read', 'Read subscription/entitlement metadata'),
+  ('academic.structure.read', 'Read year groups, classes, terms'),
+  ('academic.structure.manage', 'Manage academic structure'),
+  ('admissions.enquiries.manage', 'Manage admissions enquiries'),
+  ('admissions.applications.manage', 'Manage applications'),
+  ('admissions.offers.manage', 'Manage offers'),
+  ('students.profiles.read', 'School-wide student profile read'),
+  ('students.profiles.read_assigned', 'Read students via class/subject assignment'),
+  ('students.profiles.manage', 'Create and update student records'),
+  ('students.profiles.read_own_children', 'Parent: read linked children'),
+  ('students.profiles.read_self', 'Student: read own profile'),
+  ('students.restricted_contact.read', 'Read restricted-contact placeholder (not for teachers/parents/students)'),
+  ('guardianships.manage', 'Manage guardian relationships'),
+  ('attendance.record.manage', 'School-wide attendance management'),
+  ('attendance.record.manage_assigned', 'Attendance for assigned classes'),
+  ('attendance.record.read_own_children', 'Parent: read children attendance'),
+  ('lms.assignments.manage', 'School-wide assignment management'),
+  ('lms.assignments.manage_assigned', 'Assignments for assigned classes'),
+  ('lms.submissions.submit', 'Submit assignment work'),
+  ('lms.resources.read', 'Read learning resources'),
+  ('learning.activities.generate', 'Generate learning activities'),
+  ('learning.activities.publish', 'Publish learning activities'),
+  ('learning.activities.attempt', 'Attempt learning activities'),
+  ('gamification.leaderboards.configure', 'Configure leaderboards'),
+  ('audit.read', 'Read formal audit events'),
+  ('external_identifiers.upn.read', 'Read UPN and similar identifiers')
+on conflict (key) do nothing;
+
+insert into roles (key, name, description, is_system) values
+  ('school.admin', 'School Admin', 'Operational administration, configuration, users and school processes', true),
+  ('school.headteacher', 'Headteacher', 'Educational oversight and reporting', true),
+  ('school.teacher', 'Teacher', 'Teaching duties for assigned classes/subjects', true),
+  ('school.admissions', 'Admissions Staff', 'Admissions processes', true),
+  ('school.staff', 'School Staff', 'Narrow default authorised staff', true),
+  ('school.parent', 'Parent/Guardian', 'Parent portal access', true),
+  ('school.student', 'Student', 'Student portal access', true)
+on conflict (key) where organisation_id is null do nothing;
+
+insert into role_permissions (role_id, permission_key)
+select r.id, x.perm
+from roles r
+join (
+  values
+    ('school.admin', 'org.settings.read'),
+    ('school.admin', 'org.settings.manage'),
+    ('school.admin', 'org.members.read'),
+    ('school.admin', 'org.members.manage'),
+    ('school.admin', 'org.roles.manage'),
+    ('school.admin', 'org.support_access.read'),
+    ('school.admin', 'org.billing.read'),
+    ('school.admin', 'academic.structure.read'),
+    ('school.admin', 'academic.structure.manage'),
+    ('school.admin', 'admissions.enquiries.manage'),
+    ('school.admin', 'admissions.applications.manage'),
+    ('school.admin', 'admissions.offers.manage'),
+    ('school.admin', 'students.profiles.read'),
+    ('school.admin', 'students.profiles.manage'),
+    ('school.admin', 'students.restricted_contact.read'),
+    ('school.admin', 'guardianships.manage'),
+    ('school.admin', 'lms.resources.read'),
+    ('school.admin', 'audit.read'),
+    ('school.admin', 'external_identifiers.upn.read'),
+    ('school.headteacher', 'org.settings.read'),
+    ('school.headteacher', 'org.members.read'),
+    ('school.headteacher', 'org.support_access.read'),
+    ('school.headteacher', 'academic.structure.read'),
+    ('school.headteacher', 'academic.structure.manage'),
+    ('school.headteacher', 'admissions.offers.manage'),
+    ('school.headteacher', 'students.profiles.read'),
+    ('school.headteacher', 'attendance.record.manage'),
+    ('school.headteacher', 'lms.assignments.manage'),
+    ('school.headteacher', 'lms.resources.read'),
+    ('school.headteacher', 'learning.activities.generate'),
+    ('school.headteacher', 'learning.activities.publish'),
+    ('school.headteacher', 'gamification.leaderboards.configure'),
+    ('school.headteacher', 'audit.read'),
+    ('school.headteacher', 'external_identifiers.upn.read'),
+    ('school.teacher', 'org.settings.read'),
+    ('school.teacher', 'academic.structure.read'),
+    ('school.teacher', 'students.profiles.read_assigned'),
+    ('school.teacher', 'attendance.record.manage_assigned'),
+    ('school.teacher', 'lms.assignments.manage_assigned'),
+    ('school.teacher', 'lms.resources.read'),
+    ('school.teacher', 'learning.activities.generate'),
+    ('school.admissions', 'org.settings.read'),
+    ('school.admissions', 'org.members.read'),
+    ('school.admissions', 'academic.structure.read'),
+    ('school.admissions', 'admissions.enquiries.manage'),
+    ('school.admissions', 'admissions.applications.manage'),
+    ('school.admissions', 'admissions.offers.manage'),
+    ('school.admissions', 'students.profiles.read'),
+    ('school.admissions', 'students.profiles.manage'),
+    ('school.admissions', 'guardianships.manage'),
+    ('school.admissions', 'external_identifiers.upn.read'),
+    ('school.staff', 'org.settings.read'),
+    ('school.staff', 'lms.resources.read'),
+    ('school.parent', 'students.profiles.read_own_children'),
+    ('school.parent', 'attendance.record.read_own_children'),
+    ('school.parent', 'lms.resources.read'),
+    ('school.student', 'students.profiles.read_self'),
+    ('school.student', 'lms.submissions.submit'),
+    ('school.student', 'lms.resources.read'),
+    ('school.student', 'learning.activities.attempt')
+) as x(role_key, perm) on r.key = x.role_key and r.organisation_id is null
+on conflict do nothing;
+
+insert into plans (key, name, description, entitlements, pricing, sort_order)
+values (
+  'default',
+  'Default',
+  'Configurable per-school subscription. Pupil/licence bands and prices live in entitlements/pricing JSON, not in code.',
+  '{"pupilLicenceLimit": null}'::jsonb,
+  '{}'::jsonb,
+  0
+)
+on conflict (key) do nothing;

@@ -1,0 +1,21 @@
+{
+  "name": "@schoolapp/core",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@schoolapp/domain": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.5",
+    "pg": "^8.16.3",
+    "typescript": "^5.8.3"
+  }
+}

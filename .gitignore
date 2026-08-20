@@ -1,0 +1,36 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build
+dist/
+.next/
+.next-smoke/
+out/
+coverage/
+*.tsbuildinfo
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Supabase / local
+.supabase/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Test artefacts
+playwright-report/
+test-results/
+.turbo/

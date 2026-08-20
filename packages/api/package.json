@@ -1,0 +1,30 @@
+{
+  "name": "@schoolapp/api",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@schoolapp/auth": "workspace:*",
+    "@schoolapp/core": "workspace:*",
+    "@schoolapp/db": "workspace:*",
+    "@schoolapp/domain": "workspace:*",
+    "hono": "^4.8.5",
+    "pg": "^8.16.3",
+    "zod": "^3.25.67"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.5",
+    "argon2": "^0.43.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4",
+    "@types/node": "^22.17.0"
+  }
+}

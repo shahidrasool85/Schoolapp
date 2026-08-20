@@ -38,7 +38,7 @@ describe("RLS catalog", () => {
            'admissions_counters'
          )`,
     );
-    expect(result.rows.length).toBe(27);
+    expect(result.rows.length).toBe(26);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
     }

@@ -1043,7 +1043,7 @@ begin
           false,
           false,
           v_portal,
-          case when v_contact.is_primary then 1 else 2 end
+          case when v_contact.is_primary then 1 else 2 end::smallint
         );
       end if;
       update admissions_application_contacts c

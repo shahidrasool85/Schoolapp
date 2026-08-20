@@ -381,6 +381,13 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid enquiry payload");
       const existing = await client.query(`${ENQUIRY_SQL} and e.id = $2`, [orgId, id]);
       if (!existing.rows[0]) throw new AppError(404, "not_found", "Not found");
+      if (parsed.data.status === "converted" && !existing.rows[0].converted_application_id) {
+        throw new AppError(
+          400,
+          "validation_failed",
+          "Convert the enquiry with the dedicated convert endpoint",
+        );
+      }
       const updated = await client.query(
         `update admissions_enquiries
          set pupil_legal_name = coalesce($3, pupil_legal_name),
@@ -1050,7 +1057,7 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
            organisation_id, application_id, status, offered_academic_year_id, offered_year_group_id,
            intended_start_date, offer_made_on, response_deadline, notes, created_by
          ) values (
-           $1, $2, 'made', coalesce($3, $8), coalesce($4, $9), $5::date,
+           $1, $2, 'made', coalesce($3::uuid, $8::uuid), coalesce($4::uuid, $9::uuid), $5::date,
            coalesce($6::date, current_date), $7::date, $10, $11
          ) returning id`,
         [

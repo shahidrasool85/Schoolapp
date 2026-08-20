@@ -16,5 +16,6 @@ ADRs capture *why* we chose an approach. The narrative proposal is in [ARCHITECT
 | [0010](./0010-formal-audit-vs-application-logging.md) | Formal audit history vs application logging | Accepted |
 | [0011](./0011-product-owner-phase-1-decisions.md) | Product-owner Phase 1 decisions | Accepted |
 | [0012](./0012-in-app-notifications.md) | In-app notifications are per-recipient and organisation-scoped | Accepted |
+| [0013](./0013-admissions-conversion.md) | Admissions workflow and applicant-to-student conversion | Accepted |
 
 Convention: one decision per file. If a decision is reversed, mark it **Superseded** and add a new ADR — do not silently edit history.

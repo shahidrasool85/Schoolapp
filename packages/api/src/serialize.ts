@@ -152,3 +152,142 @@ export function mapStaffAssignment(row: Record<string, unknown>) {
     subjects: row.subjects ?? [],
   };
 }
+
+export function mapEnquiry(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    reference: row.reference,
+    status: row.status,
+    pupilLegalName: row.pupil_legal_name,
+    pupilPreferredName: row.pupil_preferred_name ?? null,
+    dateOfBirth: row.date_of_birth ?? null,
+    intendedAcademicYearId: row.intended_academic_year_id ?? null,
+    intendedAcademicYearName: row.intended_academic_year_name ?? null,
+    intendedYearGroupId: row.intended_year_group_id ?? null,
+    intendedYearGroupName: row.intended_year_group_name ?? null,
+    guardianFullName: row.guardian_full_name,
+    guardianEmail: row.guardian_email ?? null,
+    guardianTelephone: row.guardian_telephone ?? null,
+    enquiryDate: row.enquiry_date,
+    source: row.source ?? null,
+    notes: row.notes ?? null,
+    assignedStaffProfileId: row.assigned_staff_profile_id ?? null,
+    assignedStaffName: row.assigned_staff_name ?? null,
+    convertedApplicationId: row.converted_application_id ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function mapApplication(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    reference: row.reference,
+    status: row.status,
+    enquiryId: row.enquiry_id ?? null,
+    pupilLegalName: row.pupil_legal_name,
+    pupilPreferredName: row.pupil_preferred_name ?? null,
+    dateOfBirth: row.date_of_birth ?? null,
+    intendedAcademicYearId: row.intended_academic_year_id ?? null,
+    intendedAcademicYearName: row.intended_academic_year_name ?? null,
+    intendedYearGroupId: row.intended_year_group_id ?? null,
+    intendedYearGroupName: row.intended_year_group_name ?? null,
+    intendedEntryDate: row.intended_entry_date ?? null,
+    previousSchool: row.previous_school ?? null,
+    currentSchool: row.current_school ?? null,
+    applicationDate: row.application_date ?? null,
+    submittedAt: row.submitted_at ?? null,
+    source: row.source ?? null,
+    internalNotes: row.internal_notes ?? null,
+    assignedStaffProfileId: row.assigned_staff_profile_id ?? null,
+    assignedStaffName: row.assigned_staff_name ?? null,
+    convertedStudentProfileId: row.converted_student_profile_id ?? null,
+    convertedAt: row.converted_at ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function mapApplicationContact(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    applicationId: row.application_id,
+    fullName: row.full_name,
+    email: row.email ?? null,
+    telephone: row.telephone ?? null,
+    relationship: row.relationship,
+    isPrimary: row.is_primary,
+    hasParentalResponsibility: row.has_parental_responsibility,
+    userId: row.user_id ?? null,
+  };
+}
+
+export function mapApplicationHistory(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    previousStatus: row.previous_status ?? null,
+    newStatus: row.new_status,
+    reason: row.reason ?? null,
+    actorUserId: row.actor_user_id ?? null,
+    actorName: row.actor_name ?? null,
+    createdAt: row.created_at,
+  };
+}
+
+export function mapAssessment(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    applicationId: row.application_id,
+    applicationReference: row.application_reference ?? null,
+    pupilLegalName: row.pupil_legal_name ?? null,
+    assessmentType: row.assessment_type,
+    status: row.status,
+    scheduledAt: row.scheduled_at ?? null,
+    completedAt: row.completed_at ?? null,
+    assignedStaffProfileId: row.assigned_staff_profile_id ?? null,
+    assignedStaffName: row.assigned_staff_name ?? null,
+    notes: row.notes ?? null,
+    outcome: row.outcome ?? null,
+    recommendation: row.recommendation ?? null,
+    createdAt: row.created_at,
+  };
+}
+
+export function mapWaitingListEntry(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    applicationId: row.application_id,
+    applicationReference: row.application_reference ?? null,
+    pupilLegalName: row.pupil_legal_name ?? null,
+    applicationStatus: row.application_status ?? null,
+    intendedAcademicYearId: row.intended_academic_year_id ?? null,
+    intendedAcademicYearName: row.intended_academic_year_name ?? null,
+    intendedYearGroupId: row.intended_year_group_id ?? null,
+    intendedYearGroupName: row.intended_year_group_name ?? null,
+    status: row.status,
+    priority: row.priority ?? null,
+    notes: row.notes ?? null,
+    addedAt: row.added_at,
+  };
+}
+
+export function mapOffer(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    applicationId: row.application_id,
+    applicationReference: row.application_reference ?? null,
+    pupilLegalName: row.pupil_legal_name ?? null,
+    status: row.status,
+    offeredAcademicYearId: row.offered_academic_year_id ?? null,
+    offeredAcademicYearName: row.offered_academic_year_name ?? null,
+    offeredYearGroupId: row.offered_year_group_id ?? null,
+    offeredYearGroupName: row.offered_year_group_name ?? null,
+    intendedStartDate: row.intended_start_date ?? null,
+    offerMadeOn: row.offer_made_on,
+    responseDeadline: row.response_deadline ?? null,
+    acceptedAt: row.accepted_at ?? null,
+    declinedAt: row.declined_at ?? null,
+    notes: row.notes ?? null,
+    createdAt: row.created_at,
+  };
+}

@@ -150,9 +150,42 @@ PATCH /api/v1/notifications/{notificationId}
 
 `PATCH` body: `{ "read": true }`. Rows are organisation-owned and recipient-specific. Cross-user or cross-tenant ids return **404**. Email, SMS, and push are not implemented.
 
-## Staff / LMS / admissions
+## Admissions (Phase 4)
 
-Same resources the web SIS uses, e.g. `/api/v1/admissions/applications`, `/api/v1/assignments`. A future teacher app reuses them unchanged.
+School-scoped staff APIs. Require `admissions.read` (or a more specific admissions manage/decide/convert key). Teachers, parents, and students receive **403**. Cross-tenant ids return **404**. `enrolled` cannot be set via the status endpoint.
+
+```http
+GET    /api/v1/admissions/dashboard
+GET    /api/v1/admissions/enquiries
+POST   /api/v1/admissions/enquiries
+GET    /api/v1/admissions/enquiries/{id}
+PATCH  /api/v1/admissions/enquiries/{id}
+POST   /api/v1/admissions/enquiries/{id}/convert
+GET    /api/v1/admissions/applications
+POST   /api/v1/admissions/applications
+GET    /api/v1/admissions/applications/{id}
+PATCH  /api/v1/admissions/applications/{id}
+POST   /api/v1/admissions/applications/{id}/status
+POST   /api/v1/admissions/applications/{id}/contacts
+GET    /api/v1/admissions/assessments
+POST   /api/v1/admissions/applications/{id}/assessments
+PATCH  /api/v1/admissions/assessments/{id}
+GET    /api/v1/admissions/waiting-list
+POST   /api/v1/admissions/applications/{id}/waiting-list
+PATCH  /api/v1/admissions/waiting-list/{id}
+GET    /api/v1/admissions/offers
+POST   /api/v1/admissions/applications/{id}/offers
+PATCH  /api/v1/admissions/offers/{id}
+POST   /api/v1/admissions/applications/{id}/enrol
+```
+
+`POST .../enrol` body may include `academicYearId`, `yearGroupId`, `classId`, `admissionNumber`, `existingStudentProfileId`, and `guardianLinks: [{ contactId, portalAccess }]`. Retrying returns the same student. The application record is not deleted.
+
+A future public school-website enquiry form should POST the same enquiry fields; the public unauthenticated endpoint is not implemented in Phase 4.
+
+## Staff / LMS
+
+Same resources the web SIS uses, e.g. `/api/v1/assignments`. A future teacher app reuses them unchanged.
 
 ## Files
 

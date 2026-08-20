@@ -29,6 +29,8 @@ pnpm typecheck
 pnpm --filter @schoolapp/web dev
 ```
 
+`pnpm test` runs API isolation tests against `schoolapp_api_test`, RLS catalog tests against `schoolapp_test`, and a Next.js smoke check (`/api/v1/health` and `/login`). `bash scripts/setup-db.sh` creates those databases.
+
 Then:
 
 - `GET http://127.0.0.1:3000/api/v1/health`

@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      AUTH_SECRET: ci-secret-ci-secret-ci-secret-ci-ok
+      DATABASE_URL: postgres://schoolapp_app:schoolapp_app@127.0.0.1:5432/schoolapp
+      DATABASE_OWNER_URL: postgres://schoolapp_owner:schoolapp_owner@127.0.0.1:5432/schoolapp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - run: pnpm install --frozen-lockfile
+      - run: bash scripts/setup-db.sh
+      - run: pnpm db:migrate
+      - run: pnpm test
+      - run: pnpm typecheck
+      - run: pnpm lint

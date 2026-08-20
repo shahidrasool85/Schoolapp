@@ -7,10 +7,10 @@ import type { SchoolappApi } from "./types";
 
 const ownerUrl =
   process.env.TEST_DATABASE_OWNER_URL ??
-  "postgres://schoolapp_owner:schoolapp_owner@127.0.0.1:5432/schoolapp_test";
+  "postgres://schoolapp_owner:schoolapp_owner@127.0.0.1:5432/schoolapp_api_test";
 const appUrl =
   process.env.TEST_DATABASE_URL ??
-  "postgres://schoolapp_app:schoolapp_app@127.0.0.1:5432/schoolapp_test";
+  "postgres://schoolapp_app:schoolapp_app@127.0.0.1:5432/schoolapp_api_test";
 
 export const TEST_AUTH_SECRET = "phase1-test-secret-phase1-test-secret";
 

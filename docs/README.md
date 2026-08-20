@@ -1,6 +1,6 @@
 # Schoolapp documentation
 
-Architecture **accepted**. Phase 1 foundation and Phase 2 people/school structure are implemented. Later product modules are not built yet.
+Architecture **accepted**. Phase 1 foundation, Phase 2 people/school structure, and Phase 3 parent/student portals are implemented. Later product modules are not built yet.
 
 | Document | Contents |
 | --- | --- |

@@ -91,3 +91,75 @@ export async function login(app: SchoolappApi, email: string, password: string):
   const body = (await res.json()) as { accessToken: string };
   return body.accessToken;
 }
+
+export async function loginAlias(
+  app: SchoolappApi,
+  organisationSlug: string,
+  username: string,
+  password: string,
+): Promise<string> {
+  const res = await app.request("/api/v1/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ organisationSlug, username, password }),
+  });
+  if (res.status !== 200) {
+    throw new Error(`alias login failed ${res.status} ${await res.text()}`);
+  }
+  const body = (await res.json()) as { accessToken: string };
+  return body.accessToken;
+}
+
+export async function insertNotification(
+  owner: pg.Pool,
+  input: {
+    organisationId: string;
+    recipientUserId: string;
+    type?: string;
+    category?: string;
+    title: string;
+    body: string;
+    actionTarget?: Record<string, unknown> | null;
+    createdBy?: string | null;
+  },
+): Promise<string> {
+  const result = await owner.query<{ id: string }>(
+    `insert into notifications (
+       organisation_id, recipient_user_id, type, category, title, body, action_target, created_by
+     ) values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
+     returning id`,
+    [
+      input.organisationId,
+      input.recipientUserId,
+      input.type ?? "general",
+      input.category ?? "general",
+      input.title,
+      input.body,
+      input.actionTarget ? JSON.stringify(input.actionTarget) : null,
+      input.createdBy ?? null,
+    ],
+  );
+  return result.rows[0]!.id;
+}
+
+export function assertPortalSafe(payload: unknown): void {
+  const json = JSON.stringify(payload);
+  const forbidden = [
+    "restricted_contact",
+    "restrictedContact",
+    "support_access",
+    "supportAccess",
+    "employeeNumber",
+    "employee_number",
+    "subscription",
+    "entitlements",
+    "billing",
+    "token_hash",
+    "password_hash",
+  ];
+  for (const key of forbidden) {
+    if (json.includes(key)) {
+      throw new Error(`portal payload leaked sensitive key ${key}: ${json}`);
+    }
+  }
+}

@@ -17,6 +17,7 @@ export const PERMISSIONS = {
   STUDENTS_PROFILES_READ_SELF: "students.profiles.read_self",
   STUDENTS_RESTRICTED_CONTACT_READ: "students.restricted_contact.read",
   GUARDIANSHIPS_MANAGE: "guardianships.manage",
+  NOTIFICATIONS_INBOX_READ: "notifications.inbox.read",
   AUDIT_READ: "audit.read",
 } as const;
 
@@ -136,3 +137,30 @@ export const GUARDIAN_RELATIONSHIPS = [
   "grandparent",
   "other",
 ] as const;
+
+export const NOTIFICATION_TYPES = [
+  "homework_assigned",
+  "homework_due",
+  "result_published",
+  "teacher_feedback",
+  "school_announcement",
+  "attendance_concern",
+  "competition_challenge",
+  "report_available",
+  "general",
+] as const;
+export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
+
+export const NOTIFICATION_CATEGORIES = [
+  "homework",
+  "results",
+  "feedback",
+  "announcement",
+  "attendance",
+  "competition",
+  "reports",
+  "general",
+] as const;
+export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
+
+export const PORTAL_COMING_LATER_MESSAGE = "Coming in a later phase.";

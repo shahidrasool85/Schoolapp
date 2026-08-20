@@ -57,6 +57,8 @@ fi
 
 health="$(curl -sS "http://127.0.0.1:${PORT}/api/v1/health")"
 code="$(curl -sS -o /tmp/schoolapp-smoke-login.html -w "%{http_code}" "http://127.0.0.1:${PORT}/login")"
+parent_code="$(curl -sS -o /dev/null -w "%{http_code}" "http://127.0.0.1:${PORT}/parent")"
+student_code="$(curl -sS -o /dev/null -w "%{http_code}" "http://127.0.0.1:${PORT}/student")"
 
 if [ "${health}" != '{"ok":true}' ]; then
   echo "unexpected health body: ${health}" >&2
@@ -66,9 +68,17 @@ if [ "${code}" != "200" ]; then
   echo "/login returned ${code}" >&2
   exit 1
 fi
+if [ "${parent_code}" != "200" ]; then
+  echo "/parent returned ${parent_code}" >&2
+  exit 1
+fi
+if [ "${student_code}" != "200" ]; then
+  echo "/student returned ${student_code}" >&2
+  exit 1
+fi
 if ! grep -q "Sign in" /tmp/schoolapp-smoke-login.html; then
   echo "/login HTML did not include Sign in" >&2
   exit 1
 fi
 
-echo "web smoke ok (health 200, /login 200)"
+echo "web smoke ok (health 200, /login 200, /parent 200, /student 200)"

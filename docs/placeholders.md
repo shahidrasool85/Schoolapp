@@ -1,6 +1,6 @@
 # Architectural placeholders (not implemented)
 
-These entities are **reserved in the foundation schema** so Phase 1 does not paint us into a corner. **No application behaviour, UI, billing integration, or notification delivery is built in this phase.**
+The in-app `notifications` inbox is implemented in Phase 3. `notification_preferences` remains the delivery-channel placeholder only.
 
 | Placeholder | Purpose | What is deferred |
 | --- | --- | --- |

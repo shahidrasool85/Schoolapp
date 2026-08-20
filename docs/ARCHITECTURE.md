@@ -1,6 +1,6 @@
 # Schoolapp — Platform Architecture
 
-**Status:** Phase 2 people and school structure implemented. Later modules (portals, admissions, LMS, AI, mobile) are not built.  
+**Status:** Phase 3 parent and student web portals (read-only) implemented. Later modules (admissions, LMS, AI, mobile) are not built.  
 **Audience:** Product owner and engineering.  
 **Scope:** Multi-tenant UK school SaaS (SIS + LMS + AI learning), web first, mobile-ready.
 
@@ -458,7 +458,8 @@ Only **Platform + People + Academic structure** should be implemented first. Oth
 - `guardianships` (relationship, parental responsibility, emergency contact, portal access, restricted-contact placeholder)
 - `academic_years`, `terms`, `half_terms`, `year_groups`, `houses`, `subjects`
 - `classes` (per academic year), `class_memberships` (dated), `class_staff_assignments` (dated), `class_subjects`
-- `notification_preferences` (placeholder)
+- `notification_preferences` (delivery-channel placeholder)
+- `notifications` (Phase 3 in-app inbox; no email/SMS/push)
 - `billing_accounts`, `organisation_subscriptions` (placeholders)
 - `inter_school_competition_networks` (+ members) (placeholder; no cross-tenant pupil access)
 - `audit_events` (formal audit, not application logs)
@@ -631,7 +632,7 @@ Detail: [roadmap.md](./roadmap.md).
 | **0 — this document** | Architecture agreed | No |
 | **1 — Foundation** | Monorepo, org, users, RBAC, formal audit writer, FORCE RLS, **mandatory** cross-tenant tests, `/api/v1/me` | Platform only |
 | **2 — People & school structure** | Staff, students, guardianships, years/terms/half-terms, historical enrolments, dated class memberships, teacher-class and class-subject links | Yes, narrow |
-| **3 — Portals (read)** | Parent/student web views of profile + school news | Yes, read-only |
+| **3 — Portals (read)** | Parent/student web views of profile + in-app notification inbox | Yes, read-only |
 | **4 — Admissions** | Enquiry to admitted pupil conversion | Yes |
 | **5 — Attendance & documents** | Registers, files | Yes |
 | **6 — LMS core** | Assignments, submissions, resources, marking | Yes |

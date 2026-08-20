@@ -149,3 +149,96 @@ th { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
   border-radius: 8px;
   margin-bottom: 1rem;
 }
+
+.stack {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.profile-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.85rem;
+  margin: 0;
+}
+
+.profile-list dt {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.profile-list dd {
+  margin: 0.15rem 0 0;
+  font-weight: 600;
+}
+
+.child-card, .student-tiles .card, a.card {
+  text-decoration: none;
+  color: inherit;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.coming-later strong {
+  font-size: 1.05rem;
+}
+
+.notice.unread {
+  border-color: var(--accent);
+}
+
+.notice.read {
+  opacity: 0.85;
+}
+
+.portal-student {
+  --brand: #0f6b4c;
+  --accent: #1f9d6a;
+}
+
+.portal-student .nav {
+  background: #0f6b4c;
+}
+
+.portal-student .content {
+  font-size: 1.05rem;
+}
+
+.portal-student h1 {
+  font-size: 1.8rem;
+}
+
+.portal-student .card {
+  padding: 1.15rem;
+}
+
+.portal-student button, .portal-student a.card, .portal-student .nav a {
+  min-height: 44px;
+}
+
+@media (max-width: 800px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  .nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .nav h1 {
+    width: 100%;
+    margin-bottom: 0.35rem;
+  }
+
+  .content {
+    padding: 1rem 1rem 2.5rem;
+  }
+
+  .portal-student .nav a {
+    flex: 1 1 40%;
+    text-align: center;
+  }
+}

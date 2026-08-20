@@ -178,6 +178,17 @@ Keep prospective people **out of** `class_memberships` and current `student_enro
 - `streaks` — per student per activity type
 - Leaderboards: **computed views** from ledgers, filtered by organisation and feature flags (`show_names`, `opt_in`, `disabled`)
 
+## Notification inbox (Phase 3)
+
+Per-recipient, organisation-scoped in-app messages. See [ADR 0012](./adr/0012-in-app-notifications.md).
+
+- `organisation_id`, `recipient_user_id`
+- `type` / `category` (homework, results, announcement, …)
+- `title`, `body` (minimised; no restricted-contact or admin-only data)
+- `read_at`, `created_at`, optional `action_target`
+
+Delivery preferences stay on the placeholder `notification_preferences` table. Email/push workers are later.
+
 ## Notification preferences (placeholder)
 
 - Per user, organisation, channel (`email | push | in_app`), category

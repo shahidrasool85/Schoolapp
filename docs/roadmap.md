@@ -41,14 +41,18 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 **Not in Phase 2:** parent/student portal UI, attendance, LMS, results, AI, competitions, Expo apps.
 
-## Phase 3 — Parent and student web portals (read)
+## Phase 3 — Parent and student web portals (implemented)
 
-- Parent: my children, basic profile, announcements placeholder
-- Student: home shell
-- Same `/api/v1/parent/*` and `/api/v1/student/*` that Expo will call later
-- Notification inbox table (delivery later)
+**Outcome:** a parent can sign in and see only children they are authorised to access; a student can sign in and see only their own record. The same `/api/v1` contract is ready for Expo.
 
-Proves the API-for-mobile rule **before** any native app.
+- Parent portal: dashboard, my children, child overview, notifications, account/school switcher
+- Student portal: home, my learning placeholder, notifications, profile
+- `GET /api/v1/parent/dashboard`, `GET /api/v1/parent/children`, `GET /api/v1/parent/children/{studentId}`
+- `GET /api/v1/student/me`, `GET /api/v1/student/dashboard`
+- In-app notification inbox table + `GET/PATCH /api/v1/notifications` (no email/SMS/push)
+- Mandatory tests: parent-child scoping, `portal_access`, student self-only, alias org-scoping, notification isolation, sensitive-field exclusion
+
+**Not in Phase 3:** attendance, LMS, results, AI, competitions, Expo apps, push/email delivery.
 
 ## Phase 4 — Admissions
 

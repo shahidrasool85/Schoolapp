@@ -51,6 +51,7 @@ export function registerAuthRoutes(app: SchoolappApi) {
           full_name: string;
           user_kind: string;
           status: string;
+          organisation_id?: string;
         }
       | undefined;
     if (!row || row.status !== "active") {
@@ -81,6 +82,7 @@ export function registerAuthRoutes(app: SchoolappApi) {
 
     return c.json({
       accessToken,
+      organisationId: parsed.data.organisationSlug ? row.organisation_id ?? null : null,
       user: {
         id: row.user_id,
         fullName: row.full_name,

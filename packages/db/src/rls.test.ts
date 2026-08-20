@@ -31,10 +31,10 @@ describe("RLS catalog", () => {
            'student_profiles', 'organisations', 'audit_events', 'organisation_memberships',
            'user_login_aliases', 'class_memberships', 'student_enrolments', 'guardianships',
            'staff_profiles', 'classes', 'class_staff_assignments', 'class_subjects',
-           'subjects', 'houses', 'year_groups', 'academic_years'
+           'subjects', 'houses', 'year_groups', 'academic_years', 'notifications'
          )`,
     );
-    expect(result.rows.length).toBe(16);
+    expect(result.rows.length).toBe(17);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
     }
@@ -215,5 +215,62 @@ describe("RLS catalog", () => {
       return rows.rows;
     });
     expect(visible).toEqual([{ organisation_id: orgA.rows[0]!.id, alias: "same.alias" }]);
+  });
+
+  it("keeps in-app notifications isolated by tenant and recipient", async () => {
+    const id = randomUUID().slice(0, 8);
+    const orgA = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-note-a-${id}`, "Notes A"],
+    );
+    const orgB = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-note-b-${id}`, "Notes B"],
+    );
+    const userA = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Parent A', 'parent', 'active') returning id`,
+      [`rls-note-a-${id}@example.com`],
+    );
+    const userB = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Parent B', 'parent', 'active') returning id`,
+      [`rls-note-b-${id}@example.com`],
+    );
+    await pools.owner.query(
+      `insert into organisation_memberships (organisation_id, user_id, status)
+       values ($1, $2, 'active'), ($1, $3, 'active'), ($4, $2, 'active')`,
+      [orgA.rows[0]!.id, userA.rows[0]!.id, userB.rows[0]!.id, orgB.rows[0]!.id],
+    );
+    const noteA = await pools.owner.query<{ id: string }>(
+      `insert into notifications (organisation_id, recipient_user_id, type, category, title, body)
+       values ($1, $2, 'general', 'general', 'For A in A', 'Hello A') returning id`,
+      [orgA.rows[0]!.id, userA.rows[0]!.id],
+    );
+    await pools.owner.query(
+      `insert into notifications (organisation_id, recipient_user_id, type, category, title, body)
+       values ($1, $2, 'general', 'general', 'For B in A', 'Hello B'),
+              ($3, $4, 'general', 'general', 'For A in B', 'Other school')`,
+      [orgA.rows[0]!.id, userB.rows[0]!.id, orgB.rows[0]!.id, userA.rows[0]!.id],
+    );
+
+    const visible = await withTenantContext(pools.app, userA.rows[0]!.id, orgA.rows[0]!.id, async (client) => {
+      const rows = await client.query<{ id: string; title: string }>(
+        "select id, title from notifications order by title",
+      );
+      return rows.rows;
+    });
+    expect(visible).toEqual([{ id: noteA.rows[0]!.id, title: "For A in A" }]);
+
+    await withTenantContext(pools.app, userA.rows[0]!.id, orgA.rows[0]!.id, async (client) => {
+      const updated = await client.query(
+        "update notifications set read_at = now() where id = $1 returning id",
+        [noteA.rows[0]!.id],
+      );
+      expect(updated.rows).toHaveLength(1);
+      await expect(
+        client.query("update notifications set title = 'hacked' where id = $1", [noteA.rows[0]!.id]),
+      ).rejects.toThrow();
+    });
   });
 });

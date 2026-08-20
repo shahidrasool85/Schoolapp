@@ -44,9 +44,12 @@ Platform Super Admin does **not** silently receive pupil read. Tenant data requi
 | `learning.activities.attempt` | — | — | — | — | — | — | — | F |
 | `gamification.leaderboards.configure` | — | — | F | — | — | — | — | — |
 | `audit.read` | F | F | F | — | — | — | — | — |
+| `notifications.inbox.read` | — | F | F | F | F | F | F | F |
 | `external_identifiers.upn.read` | — | F | F | — | R | — | — | — |
 
-`students.restricted_contact.read` is **not** granted to Teacher, Parent, or Student. No Phase 1 API exposes the column to those roles.
+`students.restricted_contact.read` is **not** granted to Teacher, Parent, or Student. No Phase 1–3 API exposes the column to those roles.
+
+`notifications.inbox.read` is own-inbox only. RLS still requires `organisation_id` plus `recipient_user_id = current user`.
 
 Assigned permissions (`*_assigned`) deny access when the teacher has no matching class/subject assignment. Headteacher uses the non-assigned (school-wide) educational keys instead.
 

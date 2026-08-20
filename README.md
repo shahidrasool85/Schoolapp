@@ -2,7 +2,7 @@
 
 Multi-tenant school management, LMS, and AI learning platform for UK schools (through approximately Year 8, including 11+ preparation).
 
-**Current status:** Phase 2 people and school structure is implemented (staff, students, guardianships, academic years/year groups/classes/subjects, historical enrolments, School Admin UI). Admissions, LMS, AI, and mobile are not built yet.
+**Current status:** Phase 3 parent and student web portals are implemented on the Phase 1–2 foundation (tenancy, RBAC, RLS, people, school structure). Admissions, LMS, AI, and mobile are not built yet.
 
 Start here: **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)**
 

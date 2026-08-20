@@ -95,17 +95,23 @@ POST /api/v1/students/{id}/enrolments
 POST /api/v1/students/{id}/class-memberships
 POST /api/v1/students/{id}/guardians
 GET  /api/v1/guardians
+GET  /api/v1/parent/dashboard
 GET  /api/v1/parent/children
 GET  /api/v1/parent/children/{studentId}
+GET  /api/v1/student/me
+GET  /api/v1/student/dashboard
+GET  /api/v1/notifications
+PATCH /api/v1/notifications/{notificationId}
 ```
 
-Student login (optional per year group) uses the same `POST /api/v1/auth/login` contract with `organisationSlug` + `username` instead of email. Parent and student users share this identity model; there is no second auth stack.
+Student login (optional per year group) uses the same `POST /api/v1/auth/login` contract with `organisationSlug` + `username` instead of email. Alias login returns `organisationId` for the school that authenticated the username so clients do not have to guess context. Parent and student users share this identity model; there is no second auth stack.
 
 ## Parent portal (web now, Expo later)
 
-All routes check `school.parent` + guardianship.
+All routes require an active organisation membership, `students.profiles.read_own_children`, and an active guardianship with `portal_access = true` in the current organisation. Knowing a child id is not sufficient. Cross-org and unlinked ids return **404**.
 
 ```http
+GET /api/v1/parent/dashboard
 GET /api/v1/parent/children
 GET /api/v1/parent/children/{studentId}
 GET /api/v1/parent/children/{studentId}/attendance
@@ -115,15 +121,15 @@ GET /api/v1/parent/children/{studentId}/feedback
 GET /api/v1/parent/children/{studentId}/reports
 GET /api/v1/parent/children/{studentId}/achievements
 GET /api/v1/parent/announcements
-GET /api/v1/parent/notifications
 ```
 
-Only `/parent/children` is in scope near-term; the rest must exist as API routes **when** those modules are built — not as Next.js-only pages.
+Phase 3 implements dashboard, children list, and child overview (profile + school/year/form + viewer guardianship). Later child modules remain unimplemented. Responses never include `restricted_contact`, admin notes, billing, or other organisations' children.
 
 ## Student portal
 
 ```http
-GET  /api/v1/student/home
+GET  /api/v1/student/me
+GET  /api/v1/student/dashboard
 GET  /api/v1/student/assignments
 POST /api/v1/student/assignments/{id}/submissions
 GET  /api/v1/student/resources
@@ -131,6 +137,18 @@ GET  /api/v1/student/activities
 POST /api/v1/student/activities/{id}/attempts
 GET  /api/v1/student/progress
 ```
+
+Phase 3 implements `me` and `dashboard` for the authenticated student's own profile in the current organisation. Spoofing `X-Organisation-Id` for a school the pupil does not belong to returns `org_membership_required`. Login aliases remain organisation-scoped.
+
+## Notifications (in-app inbox)
+
+```http
+GET   /api/v1/notifications
+GET   /api/v1/notifications?unreadOnly=true
+PATCH /api/v1/notifications/{notificationId}
+```
+
+`PATCH` body: `{ "read": true }`. Rows are organisation-owned and recipient-specific. Cross-user or cross-tenant ids return **404**. Email, SMS, and push are not implemented.
 
 ## Staff / LMS / admissions
 

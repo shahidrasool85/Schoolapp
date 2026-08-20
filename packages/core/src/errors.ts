@@ -72,6 +72,21 @@ export function pgErrorToAppError(error: unknown): AppError | null {
   if (message.includes("student_already_in_form_class")) {
     return new AppError(409, "conflict", "Student already has an active form class in this academic year");
   }
+  if (message.includes("invalid_status_transition") || message.includes("application_status_invalid")) {
+    return new AppError(409, "invalid_status_transition", "This application status change is not allowed");
+  }
+  if (message.includes("application_not_accepted")) {
+    return new AppError(409, "conflict", "Only an accepted application can be enrolled");
+  }
+  if (message.includes("application_already_converted")) {
+    return new AppError(409, "conflict", "This application has already been converted");
+  }
+  if (message.includes("enquiry_already_converted")) {
+    return new AppError(409, "conflict", "This enquiry has already been converted");
+  }
+  if (message.includes("admissions_enrolment_required")) {
+    return new AppError(400, "validation_failed", "Enrolment must use the dedicated conversion endpoint");
+  }
   if (code === "23505") {
     return new AppError(409, "conflict", "Resource already exists");
   }

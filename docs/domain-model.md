@@ -138,18 +138,22 @@ Registers, homework, and reports must use membership **as of a date** (or year/t
 
 Timetable entries belong to a later LMS/operations phase.
 
-## Admissions (Phase 4 — do not implement now)
+## Admissions (Phase 4)
 
-State machine, all org-scoped:
+State machine, all org-scoped. See [ADR 0013](./adr/0013-admissions-conversion.md).
 
 ```text
 Enquiry → Application → Assessment? → Waitlist? → Offer → Accepted/Declined/Expired
-Accepted + complete checks → provision User + Student profile + membership + optional parent invite
+Accepted → enrol_admitted_applicant → User + Student profile + membership + optional explicit guardianship
 ```
 
-Entities: `enquiries`, `applications`, `application_people`, `admissions_assessments`, `waiting_list_entries`, `offers`.
+Entities: `admissions_enquiries`, `admissions_applications`, `admissions_application_contacts`, `admissions_application_status_history`, `admissions_assessments`, `admissions_waiting_list_entries`, `admissions_offers`, `admissions_documents` (object-storage metadata only).
 
-Keep prospective people **out of** `class_memberships` and current `student_enrolments` until admitted.
+Application statuses: `enquiry | draft | submitted | under_review | information_required | assessment_pending | assessment_completed | waiting_list | offer_pending | offer_made | accepted | deferred | rejected | withdrawn | enrolled`.
+
+Keep prospective people **out of** `class_memberships` and current `student_enrolments` until conversion. Application contacts are not guardianships; `portal_access` is granted only when conversion lists a contact with `portalAccess: true`.
+
+The original application remains after enrolment and records `converted_student_profile_id`. The student profile records `admitted_from_application_id`.
 
 ## Operations (Phase 5+)
 

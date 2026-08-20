@@ -31,10 +31,14 @@ describe("RLS catalog", () => {
            'student_profiles', 'organisations', 'audit_events', 'organisation_memberships',
            'user_login_aliases', 'class_memberships', 'student_enrolments', 'guardianships',
            'staff_profiles', 'classes', 'class_staff_assignments', 'class_subjects',
-           'subjects', 'houses', 'year_groups', 'academic_years', 'notifications'
+           'subjects', 'houses', 'year_groups', 'academic_years', 'notifications',
+           'admissions_enquiries', 'admissions_applications', 'admissions_application_contacts',
+           'admissions_application_status_history', 'admissions_assessments',
+           'admissions_waiting_list_entries', 'admissions_offers', 'admissions_documents',
+           'admissions_counters'
          )`,
     );
-    expect(result.rows.length).toBe(17);
+    expect(result.rows.length).toBe(26);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
     }
@@ -272,5 +276,148 @@ describe("RLS catalog", () => {
         client.query("update notifications set title = 'hacked' where id = $1", [noteA.rows[0]!.id]),
       ).rejects.toThrow();
     });
+  });
+
+  it("keeps admissions tables tenant-isolated and rejects cross-school relationships", async () => {
+    const id = randomUUID().slice(0, 8);
+    const orgA = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-adm-a-${id}`, "Admissions A"],
+    );
+    const orgB = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-adm-b-${id}`, "Admissions B"],
+    );
+    const userA = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Admissions A', 'staff', 'active') returning id`,
+      [`rls-adm-a-${id}@example.com`],
+    );
+    const userB = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Admissions B', 'staff', 'active') returning id`,
+      [`rls-adm-b-${id}@example.com`],
+    );
+    await pools.owner.query(
+      `insert into organisation_memberships (organisation_id, user_id, status)
+       values ($1, $2, 'active'), ($3, $4, 'active')`,
+      [orgA.rows[0]!.id, userA.rows[0]!.id, orgB.rows[0]!.id, userB.rows[0]!.id],
+    );
+    const enquiryA = await pools.owner.query<{ id: string }>(
+      `insert into admissions_enquiries (
+         organisation_id, reference, pupil_legal_name, guardian_full_name
+       ) values ($1, 'ENQ-A', 'Pupil A', 'Parent A') returning id`,
+      [orgA.rows[0]!.id],
+    );
+    const enquiryB = await pools.owner.query<{ id: string }>(
+      `insert into admissions_enquiries (
+         organisation_id, reference, pupil_legal_name, guardian_full_name
+       ) values ($1, 'ENQ-B', 'Pupil B', 'Parent B') returning id`,
+      [orgB.rows[0]!.id],
+    );
+    const appA = await pools.owner.query<{ id: string }>(
+      `insert into admissions_applications (
+         organisation_id, reference, pupil_legal_name, status
+       ) values ($1, 'APP-A', 'Pupil A', 'draft') returning id`,
+      [orgA.rows[0]!.id],
+    );
+    const appB = await pools.owner.query<{ id: string }>(
+      `insert into admissions_applications (
+         organisation_id, reference, pupil_legal_name, status
+       ) values ($1, 'APP-B', 'Pupil B', 'draft') returning id`,
+      [orgB.rows[0]!.id],
+    );
+    await pools.owner.query(
+      `insert into admissions_assessments (organisation_id, application_id, assessment_type)
+       values ($1, $2, 'school_visit')`,
+      [orgB.rows[0]!.id, appB.rows[0]!.id],
+    );
+    await pools.owner.query(
+      `insert into admissions_offers (organisation_id, application_id)
+       values ($1, $2)`,
+      [orgB.rows[0]!.id, appB.rows[0]!.id],
+    );
+    await pools.owner.query(
+      `insert into admissions_waiting_list_entries (organisation_id, application_id)
+       values ($1, $2)`,
+      [orgB.rows[0]!.id, appB.rows[0]!.id],
+    );
+
+    const visible = await withTenantContext(pools.app, userA.rows[0]!.id, orgA.rows[0]!.id, async (client) => {
+      const enquiries = await client.query("select reference from admissions_enquiries");
+      const applications = await client.query("select reference from admissions_applications");
+      const assessments = await client.query("select id from admissions_assessments");
+      const offers = await client.query("select id from admissions_offers");
+      const waiting = await client.query("select id from admissions_waiting_list_entries");
+      return {
+        enquiries: enquiries.rows.map((row) => row.reference),
+        applications: applications.rows.map((row) => row.reference),
+        assessments: assessments.rowCount,
+        offers: offers.rowCount,
+        waiting: waiting.rowCount,
+      };
+    });
+    expect(visible).toEqual({
+      enquiries: ["ENQ-A"],
+      applications: ["APP-A"],
+      assessments: 0,
+      offers: 0,
+      waiting: 0,
+    });
+
+    await expect(
+      pools.owner.query(
+        `insert into admissions_assessments (organisation_id, application_id, assessment_type)
+         values ($1, $2, 'school_visit')`,
+        [orgA.rows[0]!.id, appB.rows[0]!.id],
+      ),
+    ).rejects.toThrow(/organisation_mismatch/);
+    await expect(
+      pools.owner.query(
+        `insert into admissions_offers (organisation_id, application_id) values ($1, $2)`,
+        [orgA.rows[0]!.id, appB.rows[0]!.id],
+      ),
+    ).rejects.toThrow(/organisation_mismatch/);
+    await expect(
+      pools.owner.query(
+        `insert into admissions_waiting_list_entries (organisation_id, application_id) values ($1, $2)`,
+        [orgA.rows[0]!.id, appB.rows[0]!.id],
+      ),
+    ).rejects.toThrow(/organisation_mismatch/);
+    await expect(
+      pools.owner.query(
+        `insert into admissions_applications (
+           organisation_id, reference, enquiry_id, pupil_legal_name
+         ) values ($1, 'APP-X', $2, 'Nope')`,
+        [orgA.rows[0]!.id, enquiryB.rows[0]!.id],
+      ),
+    ).rejects.toThrow(/organisation_mismatch/);
+    void enquiryA;
+  });
+
+  it("rejects invalid application status transitions at the database", async () => {
+    const id = randomUUID().slice(0, 8);
+    const org = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-st-${id}`, "Status"],
+    );
+    const app = await pools.owner.query<{ id: string }>(
+      `insert into admissions_applications (
+         organisation_id, reference, pupil_legal_name, status
+       ) values ($1, 'APP-ST', 'Pupil', 'draft') returning id`,
+      [org.rows[0]!.id],
+    );
+    await expect(
+      pools.owner.query(
+        "update admissions_applications set status = 'enrolled' where id = $1",
+        [app.rows[0]!.id],
+      ),
+    ).rejects.toThrow(/invalid_status_transition|admissions_enrolment_required/);
+    await expect(
+      pools.owner.query(
+        "update admissions_applications set status = 'accepted' where id = $1",
+        [app.rows[0]!.id],
+      ),
+    ).rejects.toThrow(/invalid_status_transition/);
   });
 });

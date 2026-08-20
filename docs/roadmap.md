@@ -54,11 +54,22 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 **Not in Phase 3:** attendance, LMS, results, AI, competitions, Expo apps, push/email delivery.
 
-## Phase 4 — Admissions
+## Phase 4 — Admissions (implemented)
 
-- Enquiries, applications, simple assessments, waiting list, offers
-- Conversion to active student + parent invite
-- Admissions staff role matrix
+**Outcome:** a school can manage enquiries, applications, lightweight assessments/interviews, waiting lists, offers, and a controlled conversion of an accepted applicant into the canonical student/enrolment model.
+
+- Admissions dashboard (counts + filtered-list links)
+- Enquiries (staff API designed for a future public website form; public form not built)
+- Applications with stable references, contacts, status history, and extensible `extra_fields`
+- Controlled status machine (including deferred); `enrolled` only via conversion
+- Assessments/interviews (not an exam engine)
+- Waiting list without automatic ranking
+- Offers (no payments/deposits)
+- `POST /api/v1/admissions/applications/{id}/enrol` — idempotent conversion
+- Permissions: `admissions.read`, `admissions.enquiries.manage`, `admissions.applications.manage`, `admissions.offers.manage`, `admissions.decide`, `admissions.convert`
+- In-app notifications for a few events when the contact already has a user identity
+
+**Not in Phase 4:** attendance, LMS, results, AI, payments, document binaries, public website form, ranking algorithms, email/SMS/push.
 
 ## Phase 5 — Attendance, documents, announcements
 

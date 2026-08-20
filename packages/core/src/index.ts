@@ -12,6 +12,22 @@ export {
 
 export { assertPermission, assertAnyPermission, notFound } from "./permissions.js";
 
+export {
+  ADMISSIONS_READ_PERMISSIONS,
+  canReadAdmissions,
+  canManageEnquiries,
+  canManageApplications,
+  canManageOffers,
+  canDecideAdmissions,
+  canConvertAdmissions,
+  allowedApplicationTransitions,
+  isApplicationStatusTransitionAllowed,
+  transitionRequiresDecide,
+  assertApplicationStatusTransition,
+  createInboxNotification,
+  auditAdmissions,
+} from "./admissions.js";
+
 export { AppError, pgErrorToAppError } from "./errors.js";
 
 export {

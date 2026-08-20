@@ -22,9 +22,12 @@ Platform Super Admin does **not** silently receive pupil read. Tenant data requi
 | `org.support_access.read` | — | F | F | — | — | — | — | — |
 | `org.billing.read` | — | F | — | — | — | — | — | — |
 | `academic.structure.manage` | — | F | F | R | R | — | — | — |
-| `admissions.enquiries.manage` | — | F | R | — | F | — | — | — |
-| `admissions.applications.manage` | — | F | R | — | F | — | — | — |
+| `admissions.read` | — | F | F | — | F | — | — | — |
+| `admissions.enquiries.manage` | — | F | — | — | F | — | — | — |
+| `admissions.applications.manage` | — | F | — | — | F | — | — | — |
 | `admissions.offers.manage` | — | F | F | — | F | — | — | — |
+| `admissions.decide` | — | F | F | — | F | — | — | — |
+| `admissions.convert` | — | F | — | — | F | — | — | — |
 | `students.profiles.read` | — | F | F | — | R | — | — | — |
 | `students.profiles.read_assigned` | — | — | — | F | — | — | — | — |
 | `students.profiles.manage` | — | F | — | — | F (pre-enrol) | — | — | — |
@@ -47,7 +50,9 @@ Platform Super Admin does **not** silently receive pupil read. Tenant data requi
 | `notifications.inbox.read` | — | F | F | F | F | F | F | F |
 | `external_identifiers.upn.read` | — | F | F | — | R | — | — | — |
 
-`students.restricted_contact.read` is **not** granted to Teacher, Parent, or Student. No Phase 1–3 API exposes the column to those roles.
+`admissions.convert` is the only path that creates the canonical student/enrolment from an accepted application. Teachers do not receive admissions keys. Parents and students never receive School Admin admissions access.
+
+`students.restricted_contact.read` is **not** granted to Teacher, Parent, or Student. No Phase 1–4 API exposes the column to those roles.
 
 `notifications.inbox.read` is own-inbox only. RLS still requires `organisation_id` plus `recipient_user_id = current user`.
 

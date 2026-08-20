@@ -15,6 +15,12 @@ import {
 
 const LINKS = [
   { href: "/school", label: "Dashboard" },
+  { href: "/school/admissions", label: "Admissions", permissionPrefix: "admissions." },
+  { href: "/school/admissions/enquiries", label: "Enquiries", permissionPrefix: "admissions." },
+  { href: "/school/admissions/applications", label: "Applications", permissionPrefix: "admissions." },
+  { href: "/school/admissions/assessments", label: "Assessments", permissionPrefix: "admissions." },
+  { href: "/school/admissions/waiting-list", label: "Waiting list", permissionPrefix: "admissions." },
+  { href: "/school/admissions/offers", label: "Offers", permissionPrefix: "admissions." },
   { href: "/school/students", label: "Students" },
   { href: "/school/staff", label: "Staff / Teachers" },
   { href: "/school/parents", label: "Parents / Guardians" },
@@ -30,6 +36,7 @@ export default function SchoolShell({ children }: { children: ReactNode }) {
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [orgId, setOrg] = useState<string | null>(null);
   const [canOpenParentPortal, setCanOpenParentPortal] = useState(false);
+  const [permissions, setPermissions] = useState<string[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
 
@@ -51,6 +58,11 @@ export default function SchoolShell({ children }: { children: ReactNode }) {
         setOrgId(current.organisationId);
         setOrg(current.organisationId);
         setCanOpenParentPortal(active.some((m) => hasParentRole(m.roleKeys)));
+        return api<{ permissions: string[] }>("/api/v1/me");
+      })
+      .then((me) => {
+        if (!me) return;
+        setPermissions(me.permissions ?? []);
         setReady(true);
       })
       .catch((err: Error) => {
@@ -91,11 +103,22 @@ export default function SchoolShell({ children }: { children: ReactNode }) {
             ))}
           </select>
         ) : null}
-        {LINKS.map((link) => (
+        {LINKS.filter((link) => {
+          if (!link.permissionPrefix) return true;
+          return permissions.some((key) => key.startsWith(link.permissionPrefix!));
+        }).map((link) => (
           <Link
             key={link.href}
             href={link.href}
-            className={pathname === link.href ? "active" : undefined}
+            className={
+              link.href === "/school"
+                ? pathname === "/school"
+                  ? "active"
+                  : undefined
+                : pathname === link.href || pathname.startsWith(`${link.href}/`)
+                  ? "active"
+                  : undefined
+            }
           >
             {link.label}
           </Link>

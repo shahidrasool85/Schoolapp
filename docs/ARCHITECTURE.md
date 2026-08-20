@@ -1,6 +1,6 @@
 # Schoolapp — Platform Architecture
 
-**Status:** Phase 3 parent and student web portals (read-only) implemented. Later modules (admissions, LMS, AI, mobile) are not built.  
+**Status:** Phase 4 admissions workflow implemented. Later modules (LMS, AI, mobile) are not built.  
 **Audience:** Product owner and engineering.  
 **Scope:** Multi-tenant UK school SaaS (SIS + LMS + AI learning), web first, mobile-ready.
 
@@ -467,22 +467,23 @@ Only **Platform + People + Academic structure** should be implemented first. Oth
 
 ### 6.3 Later entities (do not implement now; reserved names)
 
-- Admissions: `enquiries`, `applications`, `application_students`, `admissions_assessments`, `waiting_list_entries`, `offers`
+- Admissions: `admissions_enquiries`, `admissions_applications`, `admissions_application_contacts`, `admissions_application_status_history`, `admissions_assessments`, `admissions_waiting_list_entries`, `admissions_offers`, `admissions_documents` (metadata only)
 - Operations: `attendance_sessions`, `attendance_marks`, `progress_reports`, `documents`, `announcements`
 - LMS: `assignments`, `assignment_targets`, `submissions`, `learning_resources`, `timetable_entries`
 - Learning: `learning_activities`, `activity_items`, `activity_reviews`, `activity_attempts`, `competitions`, `points_ledger`, `badge_definitions`, `streaks`
 
 ### 6.4 Critical lifecycle: applicant → student
 
-Admission is a **state machine**, not an UPDATE that copies a name into `students`.
+Admission is a **state machine**, not an UPDATE that copies a name into `students`. See [ADR 0013](./adr/0013-admissions-conversion.md).
 
 ```text
 enquiry → application → (assessment) → waitlist? → offer → accepted
+  → enrol_admitted_applicant
   → provision student_profile + user + membership(student)
-  → optional parent invite + guardianship
+  → optional explicit guardian links (portal_access defaults off)
 ```
 
-Prospective pupils live in admissions tables until conversion. They must not appear in class registers or parent “my children” until admitted (or a school flag allows “pre-admit portal”).
+Prospective pupils live in admissions tables until conversion. They must not appear in class registers or parent “my children” until admitted. The application row is kept as history and records `converted_student_profile_id`.
 
 ### 6.5 Soft deletes and retention
 
@@ -633,7 +634,7 @@ Detail: [roadmap.md](./roadmap.md).
 | **1 — Foundation** | Monorepo, org, users, RBAC, formal audit writer, FORCE RLS, **mandatory** cross-tenant tests, `/api/v1/me` | Platform only |
 | **2 — People & school structure** | Staff, students, guardianships, years/terms/half-terms, historical enrolments, dated class memberships, teacher-class and class-subject links | Yes, narrow |
 | **3 — Portals (read)** | Parent/student web views of profile + in-app notification inbox | Yes, read-only |
-| **4 — Admissions** | Enquiry to admitted pupil conversion | Yes |
+| **4 — Admissions** | Enquiry to admitted pupil conversion | **Implemented** |
 | **5 — Attendance & documents** | Registers, files | Yes |
 | **6 — LMS core** | Assignments, submissions, resources, marking | Yes |
 | **7 — Assessment & reports** | Results, feedback, progress reports | Yes |

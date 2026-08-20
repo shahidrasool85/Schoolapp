@@ -21,6 +21,7 @@ A subscribing school.
 
 ### Organisation settings (placeholder)
 
+- `academic_year_start_month`, `locale`, **`max_year_group_code`** (default `8`, covering 11+ prep through Year 8)
 - Typed calendar/locale fields plus `extras` jsonb
 - Distinct from feature flags
 
@@ -39,6 +40,7 @@ A human identity, global.
 - `user_kind`: `platform_admin | staff | parent | student` (primary; a person can still hold mixed memberships)
 - `status`: `active | disabled`
 - `date_of_birth` only where needed (pupils); treat as personal data
+- Optional org-scoped `user_login_aliases` for pupil usernames (not a second identity provider)
 
 ### Organisation membership
 

@@ -12,10 +12,16 @@ import { withTenantContext } from "@schoolapp/db";
 import type { SchoolappApi } from "../types";
 import { readAccessToken } from "../auth-middleware";
 
-const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(8),
-});
+const loginSchema = z
+  .object({
+    email: z.string().email().optional(),
+    password: z.string().min(8),
+    organisationSlug: z.string().min(2).optional(),
+    username: z.string().min(1).optional(),
+  })
+  .refine((data) => Boolean(data.email) || Boolean(data.organisationSlug && data.username), {
+    message: "Email or organisation slug and username is required",
+  });
 
 const acceptSchema = z.object({
   token: z.string().min(16),
@@ -30,10 +36,14 @@ export function registerAuthRoutes(app: SchoolappApi) {
       throw new AppError(400, "validation_failed", "Invalid login payload");
     }
     const { config } = { config: c.get("config") };
-    const lookup = await config.pools.app.query(
-      "select * from local_auth_lookup($1)",
-      [parsed.data.email.toLowerCase()],
-    );
+    const lookup = parsed.data.email
+      ? await config.pools.app.query("select * from local_auth_lookup($1)", [
+          parsed.data.email.toLowerCase(),
+        ])
+      : await config.pools.app.query("select * from local_auth_lookup_alias($1, $2)", [
+          parsed.data.organisationSlug,
+          parsed.data.username,
+        ]);
     const row = lookup.rows[0] as
       | {
           user_id: string;

@@ -1,6 +1,6 @@
 # Schoolapp documentation
 
-Architecture **accepted with amendments**. Product modules are not implemented yet. Phase 1 application code is not scaffolded in this change.
+Architecture **accepted**. Phase 1 foundation and Phase 2 people/school structure are implemented. Later product modules are not built yet.
 
 | Document | Contents |
 | --- | --- |

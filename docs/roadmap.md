@@ -25,16 +25,21 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 **Not in Phase 1:** admissions, LMS, AI, parent portal content, mobile, billing collection, notification delivery, inter-school competitions.
 
-## Phase 2 — People and academic structure
+## Phase 2 — People and academic structure (implemented)
 
-- Staff profiles, student profiles, guardianships (incl. parental responsibility fields)
-- Academic years, **terms, half-terms**, year groups, houses, subjects
-- **Historical `student_enrolments`** (year group per academic year)
-- Classes per academic year; **dated `class_memberships`**; **`class_staff_assignments`**; **`class_subjects`**
-- No `class_id` on the student profile
-- School Admin invites teachers and parents
-- Student user provisioning (login optional per year group)
-- Staff UI: pupil list (org-scoped), using current-year derived class/year group
+**Outcome:** a school can manage staff, students, parents/guardians, academic years, year groups, classes, subjects, teacher assignments, and historical enrolments.
+
+- Staff profiles; School Admin invites teachers and other staff (same identity/auth as Phase 1)
+- Student profiles with **no `class_id`**; current year group/class derived from the current academic year
+- Historical `student_enrolments` (primary + optional secondary/exceptional) and dated `class_memberships`
+- Guardianships with parental-responsibility fields; parent identity remains global
+- Academic years, terms, year groups (Reception through the school's configured maximum year), houses, subjects
+- Classes per academic year; `class_staff_assignments`; `class_subjects`
+- Optional org-scoped student login aliases (same `/api/v1` auth as future mobile apps)
+- School Admin web screens: dashboard, Students, Staff, Parents, Academic Years, Year Groups, Classes, Subjects
+- Mandatory tests: tenant isolation, parent-child scoping, teacher assigned access, enrolment/class history
+
+**Not in Phase 2:** parent/student portal UI, attendance, LMS, results, AI, competitions, Expo apps.
 
 ## Phase 3 — Parent and student web portals (read)
 

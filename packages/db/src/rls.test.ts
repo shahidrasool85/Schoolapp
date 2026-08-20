@@ -28,10 +28,11 @@ describe("RLS catalog", () => {
        join pg_namespace n on n.oid = c.relnamespace
        where n.nspname = 'public'
          and c.relname in (
-           'student_profiles', 'organisations', 'audit_events', 'organisation_memberships'
+           'student_profiles', 'organisations', 'audit_events', 'organisation_memberships',
+           'user_login_aliases', 'class_memberships', 'student_enrolments', 'guardianships'
          )`,
     );
-    expect(result.rows.length).toBe(4);
+    expect(result.rows.length).toBe(8);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
     }

@@ -1,51 +1,43 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { useRouter } from "next/navigation";
+import { api, setOrgId, setToken } from "../../lib/api";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [result, setResult] = useState("");
+  const [error, setError] = useState("");
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
-    const response = await fetch("/api/v1/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
-    const body = await response.json();
-    setResult(JSON.stringify(body, null, 2));
-    if (response.ok && body.accessToken) {
-      const me = await fetch("/api/v1/me", {
-        headers: { Authorization: `Bearer ${body.accessToken}` },
+    setError("");
+    try {
+      const body = await api<{ accessToken: string }>("/api/v1/auth/login", {
+        method: "POST",
+        orgId: null,
+        body: JSON.stringify({ email, password }),
       });
-      const memberships = await fetch("/api/v1/me/memberships", {
-        headers: { Authorization: `Bearer ${body.accessToken}` },
-      });
-      setResult(
-        JSON.stringify(
-          { login: body, me: await me.json(), memberships: await memberships.json() },
-          null,
-          2,
-        ),
-      );
+      setToken(body.accessToken);
+      const memberships = await api<{
+        memberships: Array<{ organisationId: string; status: string }>;
+      }>("/api/v1/me/memberships", { orgId: null });
+      const first = memberships.memberships.find((m) => m.status === "active");
+      if (first) setOrgId(first.organisationId);
+      router.push("/school");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Sign in failed");
     }
   }
 
   return (
-    <main style={{ fontFamily: "system-ui", maxWidth: 640, margin: "2rem auto", padding: 16 }}>
+    <main style={{ fontFamily: "system-ui", maxWidth: 480, margin: "4rem auto", padding: 16 }}>
       <h1>Sign in</h1>
-      <form onSubmit={onSubmit} style={{ display: "grid", gap: 12 }}>
+      <form onSubmit={onSubmit} className="form-grid">
         <label>
           Email
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            style={{ display: "block", width: "100%" }}
-          />
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         </label>
         <label>
           Password
@@ -55,12 +47,11 @@ export default function LoginPage() {
             onChange={(e) => setPassword(e.target.value)}
             required
             minLength={8}
-            style={{ display: "block", width: "100%" }}
           />
         </label>
         <button type="submit">Sign in</button>
       </form>
-      {result ? <pre>{result}</pre> : null}
+      {error ? <p className="error">{error}</p> : null}
     </main>
   );
 }

@@ -2,7 +2,7 @@
 
 Multi-tenant school management, LMS, and AI learning platform for UK schools (through approximately Year 8, including 11+ preparation).
 
-**Current status:** architecture proposed for review. Product modules are not implemented yet.
+**Current status:** architecture accepted with amendments. Product modules are not implemented yet.
 
 Start here: **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)**
 

@@ -1,6 +1,6 @@
 # ADR 0003: Global identity with per-organisation memberships
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-08-20
 
 ## Context

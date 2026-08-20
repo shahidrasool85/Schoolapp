@@ -1,8 +1,8 @@
 # Domain model (initial)
 
-This is the **logical** model for review. Physical SQL for the foundation is in [schema/001_foundation.sql](./schema/001_foundation.sql). Later modules add tables in their own phases; names are reserved here so we do not paint ourselves into a corner.
+This is the **logical** model for review. Physical SQL for the foundation is in [schema/001_foundation.sql](./schema/001_foundation.sql). Later modules add tables in their own phases; names are reserved here so we do not paint ourselves into a corner. Placeholders: [placeholders.md](./placeholders.md).
 
-Convention: UUIDs as primary keys; `organisation_id` on tenant data; `created_at` / `updated_at`; `created_by` where a person initiated the row.
+Convention: UUIDs as primary keys; `organisation_id` on tenant data; `created_at` / `updated_at`; `created_by` where a person initiated the row. **A student is never permanently assigned to one class.**
 
 ## Platform
 
@@ -13,7 +13,21 @@ A subscribing school.
 - `id`, `slug` (unique, URL-safe), `name`, `legal_name`
 - `country_code` default `GB`, `timezone` default `Europe/London`
 - `status`: `provisioning | active | suspended | closed`
-- `settings` (typed JSON): feature flags (leaderboards, AI, student login by year group), branding, academic year start month (default September)
+
+### Organisation identifiers (placeholder)
+
+- `system` + `identifier` (DfE URN, establishment number, Companies House, …)
+- No validation product in this phase
+
+### Organisation settings (placeholder)
+
+- Typed calendar/locale fields plus `extras` jsonb
+- Distinct from feature flags
+
+### Organisation feature flags (placeholder)
+
+- `flag_key`, `enabled`, `config`
+- Defaults remain high-privacy (leaderboards off, AI auto-publish off)
 
 ### User
 
@@ -31,6 +45,7 @@ A human identity, global.
 - `(organisation_id, user_id)` unique
 - `status`: `invited | active | suspended`
 - `ended_at` for leavers (keep history)
+- Revalidated from the database on every school-scoped request
 
 ### RBAC
 
@@ -45,11 +60,16 @@ A human identity, global.
 - email or existing user id, organisation, intended roles, expiry, inviter
 - Student invites may be username-based, sent to a parent instead
 
-### Audit event
+### Formal audit event (not application logging)
 
 - `organisation_id` nullable (platform actions)
-- `actor_user_id`, `action`, `entity_type`, `entity_id`, `metadata` (no secrets)
-- Append-only
+- `actor_user_id`, `actor_membership_id`, `occurred_at`, `request_id`
+- `action`, `entity_type`, `entity_id`
+- `before_data` / `after_data` jsonb (meaningful snapshots; no secrets/passwords)
+- Optional `prev_hash` / `row_hash` for later tamper evidence
+- Append-only for the runtime role (`INSERT`/`SELECT` only)
+
+Application logs (stdout) are a different stream: diagnostics, not evidence.
 
 ### External identifier
 
@@ -57,43 +77,62 @@ A human identity, global.
 - Unique per `(organisation_id, system, identifier)`
 - UPN reads require a dedicated permission
 
+### Billing (placeholder)
+
+- `billing_accounts` — who pays (platform-level)
+- `organisation_subscriptions` — plan, status, licensed seats
+- No payment processor in this phase; pupil tenancy remains `organisation_id`
+
 ## People
 
 ### Staff profile
 
 - Per organisation: job title, employee number, start date
 - Linked to `user_id`
+- Teaching duties are **class_staff_assignments**, not a field on the staff row
 
 ### Student profile
 
-- Per organisation: admission number, year group, house, enrolment status (`prospective | admitted | enrolled | left | alumni`)
+- Per organisation: admission number, enrolment status (`prospective | admitted | enrolled | left | alumni`)
 - Linked to `user_id` once provisioned
+- **No `class_id`. No permanent year-group FK.** Current year group is derived from `student_enrolments` for the current academic year
 - **Do not** store SEN, FSM, ethnicity, medical in v1
+
+### Student enrolment (historical)
+
+- One row per student per academic year (default unique)
+- `year_group_id`, optional `house_id`, `status`, `started_on`, `ended_on`
+- Last year’s Year 3 remains queryable after they become Year 4
 
 ### Guardianship
 
-- `guardian_user_id` → `student_profile_id`
-- `organisation_id` (school where the relationship applies)
+- `guardian_user_id` → `student_profile_id` at an organisation
 - `relationship` (mother, father, carer, other)
-- `has_parental_responsibility` (boolean)
-- `portal_access` (boolean; a guardian might be listed but not log in)
-- `priority` (who is primary contact)
-- Unique `(student_profile_id, guardian_user_id)`
+- `has_parental_responsibility`
+- `is_emergency_contact`, `lives_with_student`
+- `restricted_contact` (placeholder flag; no court-order workflow yet)
+- `portal_access` (a guardian might be listed but not log in)
+- `priority` (primary contact)
+- Optional `started_on` / `ended_on`
 
-A parent’s children **in the current organisation** = guardianships for `guardian_user_id` with `portal_access` and active student status.
+A parent’s children **in the current organisation** = guardianships for `guardian_user_id` with `portal_access`, not ended, and an appropriate student status.
 
 ## Academic structure
 
-UK-oriented, not US “grades”.
+UK-oriented, not US “grades”. See [ADR 0009](./adr/0009-academic-year-scoped-enrolments.md).
 
 - **Academic year** — e.g. 2026/27, starts ~1 September
-- **Term** — autumn, spring, summer (schools may customise)
-- **Year group** — `N, R, 1…8` plus display name; `key_stage` 0–3
+- **Term** — autumn, spring, summer (schools may customise keys)
+- **Half-term** — subdivision of a term (optional to populate; model supports it)
+- **Year group** — catalogue `N, R, 1…8` plus display name; `key_stage` 0–3
 - **House** — optional; used later for house competitions
-- **Class** — form class or teaching group; `class_type` `form | teaching`
-- **Class enrolment** — student + class + academic year
+- **Class** — belongs to **one academic year**; `class_type` `form | teaching`. Not an eternal room
+- **Class membership** — dated student↔class link; history retained when `ended_on` is set; a pupil may be in a form class and several teaching groups
+- **Class staff assignment** — dated staff↔class link (`form_tutor`, `co_tutor`, `subject_teacher`, …)
+- **Class subject** — what the class teaches
 - **Subject** — school catalogue (`mathematics`, `english`, `science`, `physics`, …)
-- **Subject offering** — subject + year group + academic year (who is taught what)
+
+Registers, homework, and reports must use membership **as of a date** (or year/term), not “the student’s class column”.
 
 Timetable entries belong to a later LMS/operations phase.
 
@@ -108,18 +147,19 @@ Accepted + complete checks → provision User + Student profile + membership + o
 
 Entities: `enquiries`, `applications`, `application_people`, `admissions_assessments`, `waiting_list_entries`, `offers`.
 
-Keep prospective people **out of** `class_enrolments` until admitted.
+Keep prospective people **out of** `class_memberships` and current `student_enrolments` until admitted.
 
 ## Operations (Phase 5+)
 
 - Attendance session (class/date) and marks (present, absent, late, authorised — UK-style codes configurable)
-- Documents (metadata + storage key)
+- Documents (metadata + storage key on the S3-compatible adapter)
 - Announcements (audience: school, year, class, parents, students)
 - Progress reports and teacher feedback records
+- All of the above formally audited on change
 
 ## LMS (Phase 6+)
 
-- Assignment (title, due, year/class/student targets, resource links)
+- Assignment (title, due, year/class/student targets via current memberships, resource links)
 - Submission (student, files, timestamps, status)
 - Mark / feedback
 - Learning resource (file or URL, year/subject tags)
@@ -130,11 +170,21 @@ Keep prospective people **out of** `class_enrolments` until admitted.
 - `activity_items` — questions/cards; versioned so attempts stay consistent
 - `activity_reviews` — reviewer, decision, comments
 - `activity_attempts` — student, scores, timestamps (feeds personalisation later)
-- `competitions` — scope `students | classes | houses | school` (school-vs-school **not** in v1)
+- `competitions` — scope `students | classes | houses | school` (school-vs-school **not** implemented; see governance placeholders)
 - `points_ledger` / `xp_ledger` — append-only; never “set points =”
 - `badge_definitions` + `badge_awards`
 - `streaks` — per student per activity type
-- Leaderboards: **computed views** from ledgers, filtered by organisation and school settings (`show_names`, `opt_in`, `disabled`)
+- Leaderboards: **computed views** from ledgers, filtered by organisation and feature flags (`show_names`, `opt_in`, `disabled`)
+
+## Notification preferences (placeholder)
+
+- Per user, organisation, channel (`email | push | in_app`), category
+- No delivery worker in this phase
+
+## Inter-school competition governance (placeholder)
+
+- Networks and member organisations, data-sharing acceptance timestamp
+- **Must not** join pupil, attempt, or leaderboard rows across `organisation_id`
 
 ## Relationships that must not be violated
 
@@ -143,10 +193,12 @@ Keep prospective people **out of** `class_enrolments` until admitted.
 3. A student can only read/write their own submissions and attempts.
 4. Platform Super Admin does not use a “default school” silently; platform routes are separate.
 5. Published learning activities are visible to pupils only if `status = published` and year/subject rules match.
+6. Client organisation headers and JWT org claims are never sufficient for tenant access.
 
 ## Identifier strategy
 
 - Internal PK: UUID
 - Human-facing: admission number, invite codes
 - DfE UPN: external identifier, optional, restricted
+- School URN: organisation identifier, placeholder
 - Never use email as PK (pupils may not have one; parents change emails)

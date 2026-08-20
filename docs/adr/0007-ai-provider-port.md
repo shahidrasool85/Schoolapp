@@ -1,6 +1,6 @@
 # ADR 0007: AI provider port and human approval
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-08-20
 
 ## Context

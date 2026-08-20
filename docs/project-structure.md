@@ -20,7 +20,7 @@ schoolapp/
 │   └── ui/                       # Web components (not React Native)
 ├── supabase/                     # Optional local config; not used by core
 ├── infra/
-│   ├── docker-compose.yml        # postgres, minio, web, worker
+│   ├── docker-compose.yml        # postgres, web, worker (object storage is configured, not required in Compose)
 │   └── nginx/                    # Sample reverse proxy for Plesk/Linux
 ├── docs/                         # Architecture (this tree)
 ├── pnpm-workspace.yaml
@@ -34,7 +34,7 @@ schoolapp/
 | --- | --- |
 | `domain` | nothing internal |
 | `core` | `domain`, port *interfaces* |
-| `db`, `auth`, `storage`, `ai` | `domain`, their driver SDKs |
+| `db`, `auth`, `storage`, `ai` | `domain`, their driver SDKs (`storage` = S3-compatible client, any vendor) |
 | `api-client` | `api-contract` types |
 | `apps/web` | `core`, `api-client`, `auth` adapter wiring, `ui` |
 | `apps/worker` | `core`, adapters |

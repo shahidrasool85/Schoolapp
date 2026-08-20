@@ -1,6 +1,6 @@
 # Schoolapp documentation
 
-Architecture proposal for a multi-tenant UK school SaaS (operations, LMS, AI learning). **No product modules are implemented in this phase.**
+Architecture **accepted with amendments**. Product modules are not implemented yet. Phase 1 application code is not scaffolded in this change.
 
 | Document | Contents |
 | --- | --- |
@@ -13,5 +13,6 @@ Architecture proposal for a multi-tenant UK school SaaS (operations, LMS, AI lea
 | [roadmap.md](./roadmap.md) | Phased delivery |
 | [project-structure.md](./project-structure.md) | Intended monorepo |
 | [permissions-catalogue.md](./permissions-catalogue.md) | Seed RBAC matrix |
+| [placeholders.md](./placeholders.md) | Reserved entities (billing, flags, competitions governance, …) |
 
 Please review [ARCHITECTURE.md](./ARCHITECTURE.md) first, then the ADRs you disagree with.

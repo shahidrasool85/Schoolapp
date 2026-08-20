@@ -1,6 +1,6 @@
 # Schoolapp — Platform Architecture
 
-**Status:** Proposed for review. No product modules have been implemented yet.  
+**Status:** Accepted with amendments (2026-08-20). No product modules have been implemented yet.  
 **Audience:** Product owner and engineering.  
 **Scope:** Multi-tenant UK school SaaS (SIS + LMS + AI learning), web first, mobile-ready.
 
@@ -16,6 +16,7 @@ This document answers the ten architecture questions for the first phase of work
 | [Roadmap](./roadmap.md) | Phased delivery; what we will *not* build yet |
 | [Project structure](./project-structure.md) | Intended monorepo layout |
 | [Permission catalogue](./permissions-catalogue.md) | Seed RBAC matrix for system roles |
+| [Placeholders](./placeholders.md) | Reserved entities (billing, flags, inter-school governance, …) |
 
 ---
 
@@ -43,7 +44,7 @@ The first customers are **independent UK schools** educating pupils roughly thro
 | Possible self-hosting on Linux/Plesk | Standard PostgreSQL, Docker-friendly Node processes, no Vercel/Supabase-only features in domain code |
 | AI without permanent vendor lock-in | Port/adapter around generation, moderation, and embeddings |
 | Extensible roles | Permission catalogue + role bindings, not hardcoded `if (role === 'teacher')` throughout the app |
-| Children’s data in the UK | Data minimisation, DPIA, UK/EU residency, audit, age-appropriate design, teacher review of AI content |
+| Children’s data in the UK | Data minimisation, DPIA, high-privacy defaults, Children’s Code; UK/EU residency as a **preferred deployment policy**; international transfers only with appropriate safeguards |
 
 ### 1.3 Explicitly out of scope for the first implementation waves
 
@@ -54,7 +55,7 @@ These must shape the model now, but must not be built yet:
 - School census / CTF import-export
 - Finance, invoicing, and lunch money
 - Safeguarding case management (beyond audit-friendly foundations)
-- School-to-school competitions (until intra-school competitions are proven)
+- School-to-school competitions (until intra-school competitions are proven; **governance placeholders only**)
 - Direct pupil–pupil messaging
 
 Trying to ship all modules at once is the largest product risk. The schema and API boundaries below are designed so later modules plug in without rewriting tenancy or auth.
@@ -99,7 +100,7 @@ flowchart TB
   subgraph infra [Adapters]
     Auth["Auth adapter — GoTrue / Supabase Auth / later alternative"]
     DB["Postgres adapter — Drizzle + RLS"]
-    Files["File adapter — S3-compatible or local disk"]
+    Files["File adapter — S3-compatible (managed or self-hosted)"]
     Mail["Email adapter"]
     AI["AI adapter — provider ports"]
     Jobs["Background jobs — Postgres-backed queue"]
@@ -129,21 +130,27 @@ flowchart TB
 | **Web app** | Server-rendered and client UI for platform admin, school staff, parents, students | Next.js. Talks only to the public API + cookie session for browsers |
 | **HTTP API** | Auth, tenancy context, authorisation, OpenAPI-documented resources | Initially Next.js Route Handlers under `/api/v1`. Extractable to a standalone Node server later |
 | **Core services** | Use cases: “admit applicant”, “record attendance”, “publish activity” | No React, no Supabase client, no Next.js imports |
-| **PostgreSQL** | System of record, RLS, audit | Standard Postgres 16+. Hosted by Supabase or self-hosted |
+| **PostgreSQL** | System of record, RLS (FORCE on tenant tables), formal audit | Standard Postgres 16+. Hosted by Supabase or self-hosted |
 | **Auth service** | Passwords, sessions, MFA, recovery | Start with Supabase Auth (GoTrue). Web: cookies. Mobile: PKCE + refresh tokens |
-| **Object storage** | Documents, submission files, avatars | S3 API (MinIO on self-host, Supabase Storage or any S3 in cloud) |
+| **Object storage** | Documents, submission files, avatars | S3-compatible API via adapter. Managed bucket or operator-provided self-hosted store. MinIO optional, not required |
 | **Worker** | AI generation, notifications, report PDFs | Same codebase, separate process; Postgres job table |
+| **Application logs** | Diagnostics, errors, performance | stdout/structured logs; not evidence |
+| **Formal audit** | Attributable before/after history | `audit_events`; append-only for the app role |
 | **Expo apps** | Not built now | Will use API + Auth only; no direct database access |
 
-### 2.3 Request path (every authenticated call)
+### 2.3 Request path (every authenticated school-scoped call)
 
-1. Client sends session (cookie) or `Authorization: Bearer`.
+1. Client sends session (cookie) or `Authorization: Bearer`. It **may** send `X-Organisation-Id` as a **requested** context. That header is never written to the database session as-is.
 2. API validates the token via the auth adapter and loads the **user**.
-3. API resolves **organisation context** (`X-Organisation-Id` or stored last-used org). Platform Super Admin may omit org for platform routes only.
-4. API sets the database session: `app.user_id`, `app.organisation_id`, `app.is_platform_admin`.
-5. Use case runs with an explicit `Actor` (`userId`, `organisationId`, `permissions[]`).
-6. Queries always include `organisation_id` in application code **and** RLS rejects mismatches.
-7. Mutations write an **audit** row for sensitive actions.
+3. API **revalidates memberships from the database** (not from the header, not from JWT org claims). `list_memberships_for_user` (or equivalent) runs without tenant context.
+4. If the route is school-scoped and no organisation was requested → `org_context_required`. If requested but no **active** membership → `org_membership_required`. Platform Super Admin on `/platform/*` omits org. Entering a tenant as Super Admin is an explicit, audited path, not a default.
+5. API `BEGIN`s a transaction and calls `set_tenant_context(user_id, organisation_id, is_platform_admin)` which:
+   - re-checks membership (or `platform_admins`) inside the database
+   - `set_config(..., is_local := true)` only — **transaction-local**
+6. Use case runs with an explicit `Actor` (`userId`, `organisationId`, `permissions[]`).
+7. Queries always include `organisation_id` in application code **and** RLS (FORCE) rejects mismatches.
+8. Sensitive mutations write a **formal `audit_events` row** (actor, time, before/after) in the same transaction. Ordinary application logs are separate.
+9. `COMMIT` discards tenant GUCs so pooled connections cannot leak context.
 
 Defence in depth: application checks + RLS. Neither is sufficient alone. Application checks encode role logic; RLS is the last barrier against a missed `WHERE organisation_id = …`.
 
@@ -210,13 +217,14 @@ Every school-owned table has `organisation_id uuid not null`. Global tables (use
 
 ### 4.2 Organisations are schools (and only schools at first)
 
-`organisations` is the tenant. Fields include legal name, display name, slug, `country_code` (default `GB`), `timezone` (default `Europe/London`), academic calendar config, and feature flags (leaderboards on/off, AI generation on/off, student login on/off).
+`organisations` is the tenant. Display name, slug, `country_code` (default `GB`), and `timezone` (default `Europe/London`) live on the org row. **Identifiers**, **typed settings**, and **feature flags** are separate placeholder tables (see [placeholders.md](./placeholders.md)) so we do not dump everything into one untyped JSON blob.
 
 Trust boundaries:
 
 - **Platform** — Super Admin: create/suspend organisations, impersonation only via a break-glass audited flow (not in v1 UI).
 - **Organisation** — all pupil, staff, LMS, and admissions data.
-- **No default school-to-school data path.** Cross-school competitions, if ever enabled, must be an explicit, separately modelled feature with its own consent and RLS, not a JOIN across `organisation_id`.
+- **Commercial** — `billing_accounts` / `organisation_subscriptions` define who pays; they are not a second tenant id for pupil data.
+- **No default school-to-school data path.** `inter_school_competition_*` tables are governance placeholders only. They must not be used to JOIN pupil rows across `organisation_id` until a dedicated ADR and DPIA exist.
 
 ### 4.3 Identity is global; access is per organisation
 
@@ -238,47 +246,59 @@ erDiagram
 - An **organisation membership** is that person’s relationship to a school, with status `invited | active | suspended`.
 - **Roles bind to memberships**, not to the user globally (except platform Super Admin).
 - A **student profile** is the school’s pupil record. The same human should not normally be a pupil at two schools at once; the model still uses `user_id` + `organisation_id` so transfers and dual registration can be represented later.
-- A **guardianship** links a parent user to a student profile **at a school**. A parent with one child at School A and another at School B has two memberships and two guardianships.
+- A **guardianship** links a parent/guardian user to a student profile **at a school**, including parental responsibility and related flags (see domain model). A parent with one child at School A and another at School B has two memberships and two guardianships.
 
 Switching school in the UI (and later in the mobile app) changes `organisation_id` context. Tokens should not permanently hard-code a single school.
 
 ### 4.4 RLS policy pattern
 
-Postgres session variables (set by the API after auth, never by the client):
+**Who may set tenant context**
 
-- `app.user_id`
-- `app.organisation_id`
-- `app.is_platform_admin`
+| Actor | May set `app.organisation_id`? |
+| --- | --- |
+| Browser / Expo / `X-Organisation-Id` | No. Hint only; ignored until membership is loaded from Postgres |
+| JWT custom claims (`org_ids`) | No. Never treated as authority; memberships can be revoked |
+| Trusted API after DB revalidation | Yes, by calling `set_tenant_context` inside an open transaction |
+| SQL clients as `schoolapp_app` | Must not; no direct `set_config` convention. Function is the API |
 
-Illustrative policy:
+`set_tenant_context` uses **`set_config(..., is_local := true)` only** (transaction-local). Session-lasting `SET` is forbidden so PgBouncer/poolers cannot leak School A into School B’s next request.
+
+Runtime role **`schoolapp_app`**: not table owner, **no `BYPASSRLS`**.  
+Owner role **`schoolapp_owner`**: `BYPASSRLS` solely for migrations and the SECURITY DEFINER bootstrap functions (`set_tenant_context`, `list_memberships_for_user`).
+
+**FORCE ROW LEVEL SECURITY** is applied to suitable tenant tables (pupil, academic, settings, flags, audit, memberships, subscriptions, and related). Table-owner interactive sessions therefore cannot skip policies unless they use the dedicated BYPASSRLS owner role.
+
+Illustrative isolation policy (installed on tenant tables):
 
 ```sql
 create policy student_profiles_tenant_isolation
   on student_profiles
   for all
-  using (
-    current_setting('app.is_platform_admin', true) = 'true'
-    or organisation_id = nullif(current_setting('app.organisation_id', true), '')::uuid
-  )
-  with check (
-    current_setting('app.is_platform_admin', true) = 'true'
-    or organisation_id = nullif(current_setting('app.organisation_id', true), '')::uuid
-  );
+  using (app_tenant_matches(organisation_id))
+  with check (app_tenant_matches(organisation_id));
 ```
 
-**Parent reads** are not “all rows in my org”. After tenant isolation, a second layer restricts parents to student profiles listed in `guardianships` for that user. Teachers are restricted by class assignment or a school-configurable “all pupils” permission. RLS can encode the parent restriction; teacher-class restrictions may start in application code and be promoted into RLS when the class model is stable.
+**Parent reads** are not “all rows in my org”. After tenant isolation, a second layer restricts parents to student profiles listed in `guardianships` for that user. Teachers are restricted by **class staff assignments** (and dated class memberships) or a school-configurable “all pupils” permission. Teacher-class restrictions start in application code in Phase 2 and may be promoted into RLS once tests prove the class model. Parent vs classmate leakage tests are mandatory.
 
-**Never** use the browser or mobile app to set `organisation_id` inside SQL. The client may *request* a context; the API verifies membership before setting the session variable.
+### 4.5 Isolation tests (mandatory; Phase 1 merge gate)
 
-### 4.5 Isolation tests (must exist before any portal ships)
+Automated tests **must** exist before any portal ships and **must** fail CI if they fail. They are not optional hardening.
 
-Automated tests will:
+HTTP / API:
 
-1. Seed School A and School B with pupils.
-2. Authenticate a teacher at A and assert HTTP 404/403 (not empty 200 with extra rows) for B’s ids.
-3. Authenticate a parent with children in A and B; assert they can switch context and never see non-child pupils.
-4. Attempt to pass School B’s `organisation_id` while holding only School A membership; assert rejection.
-5. Run the same cases at SQL level with forged session variables where possible.
+1. Seed School A and School B with pupils, classes, and memberships.
+2. Authenticate a teacher at A and assert **404** (not empty 200, not 403) for B’s ids.
+3. Authenticate a parent with children in A and B; assert they can switch requested context and never see non-child pupils.
+4. Send School B’s `X-Organisation-Id` while holding only School A membership; assert `org_membership_required` (or equivalent) and **no** tenant GUC set for B.
+5. Omit the header on a school-scoped route; assert `org_context_required`.
+6. Suspend a membership and assert a still-valid JWT **cannot** enter that org (DB revalidation).
+
+SQL / pooling:
+
+7. As `schoolapp_app`, `BEGIN; SELECT set_tenant_context(A); COMMIT;` then query tenant tables on the same connection without a new `set_tenant_context` and assert **zero** pupil rows (local GUC discarded).
+8. Call `set_config('app.organisation_id', '<school-b>', true)` from the app role **without** going through membership checks and assert policies still do not reveal B if the function is the only granted path — or that the app never uses raw `set_config`. Prefer granting `EXECUTE` only on `set_tenant_context`.
+9. Confirm `FORCE` is on the tenant tables under test (migration assertion).
+10. Confirm the app role cannot `UPDATE` or `DELETE` `audit_events`.
 
 Returning **404** for cross-tenant IDs (instead of 403) avoids confirming that a UUID exists in another school.
 
@@ -385,10 +405,12 @@ flowchart LR
   end
 
   subgraph academic [Academic]
-    Years[Academic years / terms]
+    Years[Academic years / terms / half-terms]
     YG[Year groups]
-    Classes[Classes / enrolments]
-    Subjects[Subjects]
+    Enroll[Historical student enrolments]
+    Classes[Classes / dated memberships]
+    Teach[Teacher-class assignments]
+    Subj[Class-subject links]
   end
 
   subgraph admissions [Admissions]
@@ -423,18 +445,23 @@ flowchart LR
   academic --> learning
 ```
 
-Only **Platform + People + Academic structure** should be implemented first. Other contexts get **tables only when that phase starts**, but the foundation schema already includes extension points (`external_identifiers`, `audit_events`, organisation `settings` JSON for feature flags).
+Only **Platform + People + Academic structure** should be implemented first. Other contexts get **tables only when that phase starts**, except **architectural placeholders** already in the foundation schema (identifiers, settings, feature flags, notification preferences, billing boundaries, inter-school competition governance). See [placeholders.md](./placeholders.md).
 
 ### 6.2 Foundation entities (Phase 1–2)
 
-- `organisations`, `organisation_settings`
-- `users`, `user_credentials_aliases` (student usernames)
+- `organisations`, `organisation_identifiers` (placeholder), `organisation_settings` (placeholder), `organisation_feature_flags` (placeholder)
+- `users`, `user_credentials_aliases` (student usernames; may land with auth adapter)
 - `organisation_memberships`, `roles`, `permissions`, `role_permissions`, `membership_roles`
 - `invitations`
-- `staff_profiles`, `student_profiles`
-- `guardianships` (relationship, parental responsibility, portal access, priority)
-- `academic_years`, `terms`, `year_groups`, `houses`, `classes`, `class_enrolments`, `subjects`
-- `audit_events`
+- `staff_profiles`, `student_profiles` (**no permanent class_id**)
+- `student_enrolments` (historical year group / house per academic year)
+- `guardianships` (relationship, parental responsibility, emergency contact, portal access, restricted-contact placeholder)
+- `academic_years`, `terms`, `half_terms`, `year_groups`, `houses`, `subjects`
+- `classes` (per academic year), `class_memberships` (dated), `class_staff_assignments` (dated), `class_subjects`
+- `notification_preferences` (placeholder)
+- `billing_accounts`, `organisation_subscriptions` (placeholders)
+- `inter_school_competition_networks` (+ members) (placeholder; no cross-tenant pupil access)
+- `audit_events` (formal audit, not application logs)
 - `external_identifiers` (UPN, MIS ids — optional, access-restricted)
 
 ### 6.3 Later entities (do not implement now; reserved names)
@@ -460,6 +487,15 @@ Prospective pupils live in admissions tables until conversion. They must not app
 
 Prefer `status` + `archived_at` over hard deletes for pupils and attendance. UK schools often have legal retention duties that conflict with a naive GDPR “erase everything” button. Erasure becomes a **workflow** (export, anonymise, retain legally required records) — see compliance doc.
 
+### 6.6 Formal audit vs application logging
+
+| Stream | Store | Purpose |
+| --- | --- | --- |
+| Application logs | stdout / log drain | Errors, latency, request ids. UUIDs not PII. Rotated. **Not** evidence |
+| Formal audit | `audit_events` | Who changed what, when, before/after. Append-only for `schoolapp_app` |
+
+Required formal audit on change: student records (profile, enrolment, class membership, guardianship), permissions/roles, attendance, results, progress reports, and pupil-facing feature flags/settings. See [ADR 0010](./adr/0010-formal-audit-vs-application-logging.md).
+
 ---
 
 ## 7. API / service layer for future mobile apps
@@ -477,7 +513,7 @@ GraphQL is not the v1 choice: authorisation and tenancy on a graph are easy to g
 
 1. **JSON in / JSON out.** No HTML forms as the only write path.
 2. **Bearer tokens work.** Cookie auth is additive for the browser, not exclusive.
-3. **Organisation context is explicit.** Header `X-Organisation-Id` on school-scoped routes. The client lists `GET /v1/me/memberships` and selects one.
+3. **Organisation context is requested, not trusted.** Header `X-Organisation-Id` on school-scoped routes is a hint. The server revalidates active membership and then sets transaction-local tenant context. The client lists `GET /v1/me/memberships` (no tenant GUC required) and selects one.
 4. **Pagination, ETags/updated_at, and idempotency keys** on submissions and attendance writes (mobile networks retry).
 5. **Error envelope** `{ error: { code, message, details? } }` with stable codes (`forbidden`, `org_context_required`, `child_not_linked`).
 6. **No Superbase/PostgREST from the mobile app.** Mobile never holds the database anon key as a path to tables. That would force every policy to be perfect and would leak schema. The BFF/API is the only data plane.
@@ -521,7 +557,7 @@ If Next.js on Plesk becomes awkward, move `apps/web/app/api/v1` to `apps/api` (H
 | --- | --- | --- |
 | Database | PostgreSQL | Drizzle + SQL migrations; no Prisma Accelerate, no Neon-only features |
 | Auth | Supabase Auth / GoTrue | `packages/auth` port; JWT is a standard |
-| Files | S3 API | Adapter; MinIO for self-host |
+| Files | S3-compatible API via `packages/storage` | Managed or self-hosted S3-compatible buckets; MinIO optional, **not required** |
 | Realtime | Optional later | Prefer polling/SSE from our API before binding to Supabase Realtime |
 | Email | SMTP or provider API | Adapter |
 | AI | OpenAI or similar | `packages/ai` with `AiProvider` interface; store provider name + model on each generation record |
@@ -545,7 +581,7 @@ Inappropriate uses:
 - Edge Functions for core admissions/LMS logic
 - Supabase-specific TypeScript types leaking into `packages/core`
 
-Self-host path: Docker Compose with `postgres`, `web`, `worker`, `minio`, and either hosted GoTrue or a later auth adapter. Plesk can run Docker or a Node app + remote managed Postgres.
+Self-host path: Docker Compose with `postgres`, `web`, `worker`, and either hosted GoTrue or a later auth adapter. Object storage is whatever S3-compatible endpoint is configured (managed cloud, or self-hosted if the operator already runs it). Plesk can run Docker or a Node app + remote managed Postgres.
 
 ### 8.4 AI port (sketch)
 
@@ -574,14 +610,15 @@ These are **engineering requirements**, not a legal opinion. A DPO / solicitor s
 | Age of pupils (~4–13) | Parental consent/legitimate interest documented; student accounts recoverable by parent/school; no public profiles |
 | Special category data | Do **not** model ethnicity, health, SEN, religion in Phase 1. When added, separate tables, stricter permissions, extra audit |
 | KCSIE / safeguarding | Audit who viewed sensitive records; no unsupervised pupil–pupil chat; staff actions attributable to a user id |
-| Data residency | Default region United Kingdom / EU; do not send pupil PII to US-only AI without appropriate transfer tooling and contracts |
+| Data residency | **Preferred** deployment in the UK/EU for operational simplicity and school expectations. This is **not** an absolute UK GDPR requirement. Transfers outside the UK/EU need appropriate safeguards (adequacy, IDTA/Addendum, SCCs, etc.) |
 | Retention | Soft delete + retention policy engine later; not unbounded “keep forever”, not instant hard delete |
-| Security of processing | MFA for privileged staff; RLS; 404 on cross-tenant; secrets never in Expo app; penetration test before GA |
-| Contracts | School is typically controller, we are processor — DPA, SCCs if needed, subprocessors list (hosting, email, AI) |
-| DfE identifiers | UPN in `external_identifiers`, not as primary key; restricted read permission |
+| Security of processing | MFA for privileged staff; FORCE RLS; 404 on cross-tenant; secrets never in Expo app; mandatory isolation tests; penetration test before GA |
+| Contracts | School is typically controller, we are processor — DPA, transfer tools if needed, subprocessors list (hosting, email, AI) |
+| DfE identifiers | UPN in `external_identifiers`; school URN etc. in `organisation_identifiers` (placeholder); restricted read permission |
 | Leaderboards | School-configurable; class/house scope; ability to hide names or disable entirely — children’s competitive ranking is a privacy and welfare issue |
+| Formal audit | Separate from application logs; attributable actor/time/before-after on sensitive changes |
 
-**Logging:** no full names, emails, or UPNs in application logs by default; use UUIDs. Audit table is separate and access-controlled.
+**Logging vs audit:** application logs use UUIDs, not emails or names. `audit_events` is the evidence table, access-controlled, append-only for the runtime role.
 
 ---
 
@@ -592,8 +629,8 @@ Detail: [roadmap.md](./roadmap.md).
 | Phase | Outcome | Build product modules? |
 | --- | --- | --- |
 | **0 — this document** | Architecture agreed | No |
-| **1 — Foundation** | Monorepo, org, users, RBAC, audit, RLS tests, `/api/v1/me` | Platform only |
-| **2 — People & school structure** | Staff, students, parents, year groups, classes | Yes, narrow |
+| **1 — Foundation** | Monorepo, org, users, RBAC, formal audit writer, FORCE RLS, **mandatory** cross-tenant tests, `/api/v1/me` | Platform only |
+| **2 — People & school structure** | Staff, students, guardianships, years/terms/half-terms, historical enrolments, dated class memberships, teacher-class and class-subject links | Yes, narrow |
 | **3 — Portals (read)** | Parent/student web views of profile + school news | Yes, read-only |
 | **4 — Admissions** | Enquiry to admitted pupil conversion | Yes |
 | **5 — Attendance & documents** | Registers, files | Yes |
@@ -610,28 +647,46 @@ Each phase ships behind feature flags per organisation. Mobile starts only when 
 
 ## 11. Important technical decisions and risks
 
-### Decisions to confirm before implementation
+### Decisions accepted (do not reopen without a new ADR)
 
-1. **Shared-schema multi-tenancy with RLS** (not database-per-school).
-2. **Global users + per-school memberships** (required for multi-school parents).
-3. **API-first `/api/v1`** as the mobile contract; Next.js is the first client.
-4. **Supabase as optional infrastructure**, not the public data API.
-5. **Drizzle + SQL migrations** for Postgres portability.
-6. **Permission catalogue** rather than hardcoded roles.
-7. **No special-category pupil fields in Phase 1.**
-8. **AI outputs are drafts** until a human with `learning.activities.publish` approves, unless a school explicitly allows auto-publish (off by default).
-9. **Leaderboards off by default.**
-10. **Self-host shape = Docker Compose + nginx + Node + Postgres.**
+1. Shared-schema multi-tenancy with RLS; transaction-local context; client headers are not authority; memberships revalidated server-side; FORCE RLS on suitable tenant tables; mandatory cross-tenant tests.
+2. Global users + per-school memberships (required for multi-school parents).
+3. API-first `/api/v1` as the mobile contract; Next.js is the first client.
+4. Supabase as optional infrastructure, not the public data API.
+5. Drizzle + SQL migrations for Postgres portability.
+6. Permission catalogue rather than hardcoded roles.
+7. No special-category pupil fields in Phase 1.
+8. AI outputs are drafts until a human with `learning.activities.publish` approves, unless a school explicitly allows auto-publish (off by default).
+9. Leaderboards off by default.
+10. S3-compatible file port; MinIO not required.
+11. Students are not permanently assigned to one class; enrolments and class memberships are historical and academic-year-scoped.
+12. Formal audit is separate from application logging.
+13. UK/EU residency is a preferred deployment policy; international transfers need safeguards.
+14. Inter-school competitions remain unimplemented; governance placeholders only.
+
+### Still requiring product-owner approval
+
+See the summary at the end of this PR / chat response. Highlights:
+
+- Exact Headteacher vs School Admin permission matrix (catalogue is a starting proposal)
+- Commercial model for `organisation_subscriptions` (per school vs per pupil vs seats)
+- Whether Phase 1 needs hash-chain / WORM audit or append-only + revoked UPDATE/DELETE is enough
+- Whether a pupil may have more than one year-group enrolment in a single academic year
+- Whether teachers without a class assignment may see all pupils (school flag)
+- Whether Super Admin break-glass into tenant data exists in v1 at all
+- Whether `restricted_contact` should remain even as a placeholder column
+- First production hosting region (preferred UK/EU vs another region with transfer safeguards)
 
 ### Risks (honest)
 
 | Risk | Why it matters | Mitigation |
 | --- | --- | --- |
 | Scope explosion | SIS + LMS + AI is several commercial products | Strict phases; architecture now, modules later |
-| Cross-tenant parent bugs | Highest impact security defect | Isolation tests; explicit org header; 404 on foreign IDs |
+| Cross-tenant parent bugs | Highest impact security defect | Mandatory isolation tests; header is not authority; 404 on foreign IDs; FORCE RLS |
+| Tenant GUC leak via pooling | School A data on School B’s request | `SET LOCAL` only; test COMMIT then empty read |
 | RLS vs performance | Naive policies on large attendance tables | Tenant column first in indexes; policy tests; `organisation_id` always in WHERE |
-| Children’s Code vs gamification | Leaderboards and streaks can be harmful or non-compliant if public/personalised by default | Flags, school control, no public internet leaderboards |
-| AI data leakage | Providers may train on or retain prompts | Strip PII; DPA; UK/EU endpoints; log generations without pupil names |
+| Children’s Code vs gamification | Leaderboards and streaks can be harmful if public/personalised by default | Flags, school control, no public internet leaderboards |
+| AI data leakage | Providers may train on or retain prompts | Strip PII; DPA; prefer UK/EU endpoints; safeguards if transferred; log generations without pupil names |
 | Next.js on Plesk | Not a first-class host | `next start` + reverse proxy; extraction path to `apps/api` |
 | Student login for young children | Usability vs security | Optional student login per year group; parent-managed |
 | Replacing the school MIS | Schools still need finance, census, safeguarding tools | Position as complementary until integrations exist; stable `external_identifiers` |
@@ -644,9 +699,10 @@ Each phase ships behind feature flags per organisation. Mobile starts only when 
 If this architecture is accepted, Phase 1 implementation should be a **thin vertical slice**:
 
 - pnpm monorepo + `apps/web` hello-world
-- `organisations`, `users`, memberships, RBAC seed
-- RLS enabled and tested
+- `organisations`, users, memberships, RBAC seed
+- RLS **enabled and FORCEd** on tenant tables; `set_tenant_context` + mandatory isolation tests
 - `GET /api/v1/me` and `GET /api/v1/me/memberships`
+- Formal audit writer (append-only); not a substitute logging table
 - Platform Super Admin can create a school; School Admin can invite a user
 
 No admissions, LMS, or AI in that slice.

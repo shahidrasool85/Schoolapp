@@ -1,6 +1,6 @@
 # ADR 0004: RBAC with an extensible permission catalogue
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-08-20
 
 ## Context

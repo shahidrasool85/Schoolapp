@@ -5,7 +5,7 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 ## Phase 0 — Architecture (current)
 
 **Deliverable:** this `docs/` tree, ADRs, proposed schema, API conventions.  
-**Exit:** product owner accepts or amends ADRs. No production code required.
+**Exit:** remaining product-owner items in ARCHITECTURE.md §11 are decided or explicitly deferred. No production code required.
 
 ## Phase 1 — Platform foundation
 
@@ -14,23 +14,27 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 - Monorepo (pnpm, Turborepo, TypeScript, ESLint, Prettier)
 - `apps/web` with login shell and platform/school route groups
 - Postgres + Drizzle; apply foundation schema
-- RLS + automated isolation tests
+- `set_tenant_context` (transaction-local); FORCE RLS on suitable tables
+- **Mandatory automated cross-tenant security tests** (HTTP + pooling/GUC leak + audit privileges) as a merge gate
 - Auth adapter (GoTrue/Supabase) with web cookies
-- Permission seed + Actor
+- Permission seed + Actor; memberships revalidated from DB every school-scoped request
 - `GET /api/v1/me`, `GET /api/v1/me/memberships`
 - Platform Super Admin: create organisation, invite School Admin
-- Audit log writer
-- Docker Compose for local Postgres (and optional Supabase local)
+- Formal `audit_events` writer (append-only); application logs remain stdout
+- Docker Compose for local Postgres (and optional Supabase local). Object storage via configured S3-compatible endpoint; MinIO not required
 
-**Not in Phase 1:** admissions, LMS, AI, parent portal content, mobile.
+**Not in Phase 1:** admissions, LMS, AI, parent portal content, mobile, billing collection, notification delivery, inter-school competitions.
 
 ## Phase 2 — People and academic structure
 
-- Staff profiles, student profiles, guardianships
-- Academic years, year groups, houses, classes, enrolments, subjects
+- Staff profiles, student profiles, guardianships (incl. parental responsibility fields)
+- Academic years, **terms, half-terms**, year groups, houses, subjects
+- **Historical `student_enrolments`** (year group per academic year)
+- Classes per academic year; **dated `class_memberships`**; **`class_staff_assignments`**; **`class_subjects`**
+- No `class_id` on the student profile
 - School Admin invites teachers and parents
 - Student user provisioning (login optional per year group)
-- Staff UI: pupil list (org-scoped)
+- Staff UI: pupil list (org-scoped), using current-year derived class/year group
 
 ## Phase 3 — Parent and student web portals (read)
 
@@ -77,7 +81,7 @@ Proves the API-for-mobile rule **before** any native app.
 ## Phase 9 — Gamification
 
 - Points/XP ledgers, badges, streaks
-- Competitions: student, class, house (not school-vs-school)
+- Competitions: student, class, house (not school-vs-school; network tables remain governance placeholders)
 - Leaderboards honouring school flags and Children’s Code defaults (off)
 
 ## Phase 10 — Mobile clients
@@ -103,7 +107,9 @@ Parents will not pay for AI quizzes if they cannot see **their child and homewor
 ## Definition of done (every phase)
 
 - OpenAPI updated for any parent/student/staff capability
-- RLS or equivalent isolation test for new tables
+- New tenant tables have `organisation_id`, ENABLE + FORCE RLS, and cross-tenant tests
+- Formal audit events for sensitive mutations (before/after), not only application logs
 - Permissions added to the catalogue with default role grants
 - No special-category fields unless explicitly in scope
 - Feature flagged per organisation where behaviour varies
+- Client org headers never treated as tenant authority

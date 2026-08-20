@@ -2,6 +2,8 @@
 
 This is a **design influence** document, not legal advice. Before processing live pupil data, complete a DPIA and a processor/controller contract review with qualified counsel or a DPO.
 
+Unchanged requirements: **DPIA** for high-risk processing, **controller/processor** analysis, **Children’s Code** consideration, **data minimisation**, and **high-privacy defaults**. UK/EU hosting is preferred policy, not a statutory “UK servers only” rule — see residency below.
+
 ## Roles
 
 - **School (customer):** typically the **controller** of pupil and parent personal data.
@@ -26,7 +28,7 @@ Special category or highly sensitive education fields:
 
 - Ethnicity, religion, health/medical, SEN/EHCP detail, pupil premium / FSM, safeguarding case notes, court orders beyond a simple “restricted contact” flag if absolutely required later
 
-When they are added: **separate tables**, dedicated permissions, extra audit, and DPIA updates. Do not shove them into `student_profiles.settings` JSON.
+When they are added: **separate tables**, dedicated permissions, extra **formal** audit, and DPIA updates. Do not shove them into `student_profiles.settings` JSON.
 
 ## Children’s Code — product defaults
 
@@ -55,19 +57,33 @@ Gamification (streaks, points) is a **nudge**. Keep it school-configurable and a
 
 - TLS everywhere.
 - Encryption at rest on Postgres and object storage.
-- RLS + application checks (see architecture).
+- RLS + application checks; FORCE RLS on suitable tenant tables; memberships revalidated every request (see architecture).
 - Secrets in environment, never in git or mobile apps.
 - Rate limits on login and student attempt endpoints.
 - Dependency scanning and a plan for penetration testing before general availability.
 
+## Data residency and international transfers
+
+**UK/EU residency is a preferred deployment policy**, not an absolute requirement of UK GDPR. Schools and our own risk appetite may still choose UK/EU regions first.
+
+UK GDPR **permits** international transfers when **appropriate safeguards** are in place (for example: adequacy regulations, the UK International Data Transfer Agreement / Addendum, Standard Contractual Clauses where applicable, plus transfer risk assessment). “The database must physically sit in the UK” is **not** what the law always demands; “we know where the data goes and we have a lawful transfer tool” is.
+
+Engineering defaults:
+
+- Prefer UK/EU regions for Postgres, object storage, and logs when it is practical.
+- Treat AI providers, email, and error trackers as possible importers/exporters of personal data.
+- Do not send pupil PII in prompts regardless of region.
+- If a subprocessor is outside the UK/EU, record it, put safeguards in the DPA/subprocessor list, and minimise what is sent.
+- Do not block a deployment solely because a managed S3-compatible bucket or auth vendor offers a non-UK region — escalate for transfer review instead.
+
 ## International transfers and AI
 
-If an AI provider stores or processes prompts outside the UK/EU, that is a transfer. Options:
+If an AI provider stores or processes prompts outside the UK/EU, that is a transfer and needs the same safeguards analysis. Options:
 
 1. Do not send personal data in prompts (required regardless).
-2. Use UK/EU regions (e.g. Azure OpenAI UK/EU).
+2. Prefer UK/EU regions (e.g. Azure OpenAI UK/EU) when available.
 3. Self-hosted/Ollama for sensitive workloads.
-4. Appropriate contracts (IDTA/Addendum) if a transfer remains.
+4. Contracts (IDTA/Addendum/SCCs as applicable) if a transfer remains.
 
 **Prompt rule:** year group, subject, topic, difficulty — not pupil name, UPN, or class lists.
 
@@ -79,16 +95,20 @@ If an AI provider stores or processes prompts outside the UK/EU, that is a trans
 
 ## Logging and audit
 
-- Application logs: UUIDs, not emails or names.
-- `audit_events` for: login failures at scale, permission changes, student record views of sensitive modules (later), admission decisions, AI publish, exports.
-- Audit access itself is restricted.
+These are **different** systems.
+
+- **Application logs:** request ids, errors, timings. UUIDs, not emails or names. Rotated. Not used as the school’s evidence trail.
+- **`audit_events`:** attributable actor, time, action, entity, organisation, **before/after** for mutations. Append-only for the application database role. Required for changes to student records, permissions, attendance, results, and reports (and pupil-facing settings/flags).
+- Audit access itself is restricted (`audit.read`).
+- Application log aggregators are not a substitute for `audit_events`.
 
 ## Hosting on Linux/Plesk
 
-- UK/EU VM region if the operator hosts.
+- Prefer a UK/EU VM region when the operator hosts; this is policy, not a statutory UK-only hosting mandate.
 - Backups encrypted, tested restores, tenant-aware backup access.
 - Separate production and development data; never use real pupil data in dev.
 - WAF/rate limit at nginx.
+- Object storage: any configured S3-compatible endpoint (managed or self-hosted). MinIO is not required.
 
 ## Accessibility and year groups
 

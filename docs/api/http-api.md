@@ -12,7 +12,7 @@ The web app and future Expo apps are **clients of this API**. OpenAPI YAML will 
 | IDs | UUID strings |
 | Auth (web) | HTTP-only cookie session |
 | Auth (mobile) | `Authorization: Bearer <access_token>` |
-| Tenant | `X-Organisation-Id: <uuid>` on all school-scoped routes |
+| Tenant | `X-Organisation-Id: <uuid>` **requests** context on school-scoped routes. It is **not** authority. The server revalidates active membership in Postgres, then sets transaction-local RLS context. JWT org claims are likewise non-authoritative |
 | Idempotency | `Idempotency-Key` on POSTs that create submissions, attendance, payments (later) |
 | Pagination | `?cursor=` or `?page=&pageSize=` — pick cursor for large lists in implementation |
 | Errors | `{ "error": { "code": "forbidden", "message": "...", "details": {} } }` |
@@ -42,7 +42,7 @@ POST /api/v1/me/devices          # reserve for Expo push tokens; stub later
 
 `GET /api/v1/me` returns the user and does **not** require `X-Organisation-Id`.
 
-`GET /api/v1/me/memberships` returns schools the user may enter (`organisationId`, `name`, `roles[]`, `kind`).
+`GET /api/v1/me/memberships` returns schools the user may enter (`organisationId`, `name`, `roles[]`, `kind`). It runs **without** tenant GUCs (security-definer listing). Spoofing an org id that is not in this list must not set tenant context.
 
 School-scoped example:
 
@@ -52,7 +52,7 @@ X-Organisation-Id: 0c1e…
 Authorization: Bearer …
 ```
 
-If the membership is missing, `org_membership_required`. If the student is in another org, `not_found`.
+If the header is missing, `org_context_required`. If the membership is missing, suspended, or ended, `org_membership_required`. If the student is in another org, `not_found`.
 
 ## Platform Super Admin
 

@@ -9,7 +9,7 @@ import {
 } from "@schoolapp/core";
 import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
-import { routeParam, withSchoolActor } from "../school-context";
+import { uuidRouteParam, withSchoolActor } from "../school-context";
 
 const patchSchema = z.object({
   read: z.literal(true),
@@ -37,7 +37,7 @@ export function registerNotificationRoutes(app: SchoolappApi) {
         client,
         orgId,
         userId,
-        routeParam(c, "notificationId"),
+        uuidRouteParam(c, "notificationId"),
       );
       return c.json({ notification });
     }),

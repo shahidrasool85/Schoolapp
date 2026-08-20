@@ -91,3 +91,17 @@ export function routeParam(c: { req: { param: (name: string) => string | undefin
   }
   return value;
 }
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function uuidRouteParam(
+  c: { req: { param: (name: string) => string | undefined } },
+  name: string,
+): string {
+  const value = routeParam(c, name);
+  if (!UUID_RE.test(value)) {
+    throw new AppError(404, "not_found", "Not found");
+  }
+  return value;
+}

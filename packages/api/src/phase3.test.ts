@@ -245,6 +245,11 @@ describe("Phase 3 parent and student portals", () => {
     });
     expect(spoofOrg.status).toBe(403);
 
+    const malformed = await app.request("/api/v1/parent/children/not-a-uuid", {
+      headers: parentA,
+    });
+    expect(malformed.status).toBe(404);
+
     const staffApi = await app.request("/api/v1/students", { headers: parentA });
     expect(staffApi.status).toBe(403);
     const studentApi = await app.request("/api/v1/student/me", { headers: parentA });
@@ -664,6 +669,17 @@ describe("Phase 3 parent and student portals", () => {
       headers: { Authorization: `Bearer ${tokenA}` },
     });
     expect(missingOrg.status).toBe(400);
+
+    const badId = await app.request("/api/v1/notifications/not-a-uuid", {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${tokenA}`,
+        "Content-Type": "application/json",
+        "X-Organisation-Id": schoolA.orgId,
+      },
+      body: JSON.stringify({ read: true }),
+    });
+    expect(badId.status).toBe(404);
 
     const spoof = await app.request("/api/v1/notifications", {
       headers: {

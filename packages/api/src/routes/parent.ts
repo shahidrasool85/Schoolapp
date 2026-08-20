@@ -15,7 +15,7 @@ import {
 } from "@schoolapp/core";
 import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
-import { withSchoolActor, routeParam } from "../school-context";
+import { withSchoolActor, uuidRouteParam } from "../school-context";
 
 export function registerParentRoutes(app: SchoolappApi) {
   app.get("/parent/dashboard", requireUser, async (c) =>
@@ -49,7 +49,7 @@ export function registerParentRoutes(app: SchoolappApi) {
   app.get("/parent/children/:studentId", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       assertPermission(actor, PERMISSIONS.STUDENTS_PROFILES_READ_OWN_CHILDREN);
-      const studentId = routeParam(c, "studentId");
+      const studentId = uuidRouteParam(c, "studentId");
       await requireLinkedChild(client, userId, orgId, studentId);
       const student = await loadPortalStudent(client, orgId, studentId);
       if (!student) {

@@ -36,7 +36,6 @@ export type PortalStudentView = {
 export const PORTAL_STUDENT_SQL = `
   select
     sp.id,
-    sp.user_id,
     sp.legal_name,
     u.preferred_name,
     u.date_of_birth::text,

@@ -44,7 +44,8 @@ export function registerParentRoutes(app: SchoolappApi) {
            where cm.student_profile_id = sp.id
              and cm.ended_on is null
              and c.class_type = 'form'
-             and (ay.id is null or cm.academic_year_id = ay.id)
+             and ay.id is not null
+             and cm.academic_year_id = ay.id
            limit 1
          ) form on true
          where sp.organisation_id = $1
@@ -94,7 +95,7 @@ export function registerParentRoutes(app: SchoolappApi) {
            from class_memberships cm
            join classes c on c.id = cm.class_id
            where cm.student_profile_id = sp.id and cm.ended_on is null and c.class_type = 'form'
-             and (ay.id is null or cm.academic_year_id = ay.id)
+             and ay.id is not null and cm.academic_year_id = ay.id
            limit 1
          ) form on true
          where sp.id = $1 and sp.organisation_id = $2`,

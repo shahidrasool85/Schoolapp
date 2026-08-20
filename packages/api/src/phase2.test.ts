@@ -1044,4 +1044,306 @@ describe("Phase 2 people and school structure", () => {
     });
     expect(hiddenDetail.status).toBe(404);
   });
+
+  it("does not rewrite another year's form membership when adding a form class", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "X-Organisation-Id": school.orgId,
+    };
+    const yearOne = (await (
+      await app.request("/api/v1/academic-years", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          name: "2025/26",
+          startsOn: "2025-09-01",
+          endsOn: "2026-07-31",
+          isCurrent: true,
+        }),
+      })
+    ).json()) as { academicYear: { id: string } };
+    await app.request("/api/v1/year-groups/seed", { method: "POST", headers, body: "{}" });
+    const groups = (await (await app.request("/api/v1/year-groups", { headers })).json()) as {
+      yearGroups: Array<{ id: string; code: string }>;
+    };
+    const y3 = groups.yearGroups.find((g) => g.code === "3")!;
+    const y4 = groups.yearGroups.find((g) => g.code === "4")!;
+    const classA = (await (
+      await app.request("/api/v1/classes", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          name: "3A",
+          academicYearId: yearOne.academicYear.id,
+          yearGroupId: y3.id,
+          classType: "form",
+        }),
+      })
+    ).json()) as { class: { id: string } };
+    const student = (await (
+      await app.request("/api/v1/students", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          legalName: "Year Move Pupil",
+          academicYearId: yearOne.academicYear.id,
+          yearGroupId: y3.id,
+          classId: classA.class.id,
+        }),
+      })
+    ).json()) as { student: { id: string } };
+    const yearTwo = (await (
+      await app.request("/api/v1/academic-years", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          name: "2026/27",
+          startsOn: "2026-09-01",
+          endsOn: "2027-07-31",
+          isCurrent: true,
+        }),
+      })
+    ).json()) as { academicYear: { id: string } };
+    const classNext = (await (
+      await app.request("/api/v1/classes", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          name: "4A",
+          academicYearId: yearTwo.academicYear.id,
+          yearGroupId: y4.id,
+          classType: "form",
+        }),
+      })
+    ).json()) as { class: { id: string } };
+    const added = await app.request(`/api/v1/students/${student.student.id}/class-memberships`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ classId: classNext.class.id, startedOn: "2026-09-01" }),
+    });
+    expect(added.status).toBe(201);
+
+    const detail = await app.request(`/api/v1/students/${student.student.id}`, { headers });
+    const body = (await detail.json()) as {
+      student: { currentFormClassName: string | null };
+      classMemberships: Array<{ className: string; endedOn: string | null }>;
+    };
+    expect(body.student.currentFormClassName).toBe("4A");
+    expect(body.classMemberships.find((m) => m.className === "3A")?.endedOn).toBeNull();
+    expect(body.classMemberships.find((m) => m.className === "4A")?.endedOn).toBeNull();
+  });
+
+  it("hides current form when no academic year is current, and closes class seats when a primary enrolment ends", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const adminToken = await login(app, school.adminEmail, "password-12x");
+    const headers = {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+      "X-Organisation-Id": school.orgId,
+    };
+    const year = (await (
+      await app.request("/api/v1/academic-years", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          name: "2026/27",
+          startsOn: "2026-01-01",
+          endsOn: "2026-12-31",
+          isCurrent: true,
+        }),
+      })
+    ).json()) as { academicYear: { id: string } };
+    await app.request("/api/v1/year-groups/seed", { method: "POST", headers, body: "{}" });
+    const groups = (await (await app.request("/api/v1/year-groups", { headers })).json()) as {
+      yearGroups: Array<{ id: string; code: string }>;
+    };
+    const yg = groups.yearGroups.find((g) => g.code === "2")!;
+    const cls = (await (
+      await app.request("/api/v1/classes", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          name: "2A",
+          academicYearId: year.academicYear.id,
+          yearGroupId: yg.id,
+          classType: "form",
+        }),
+      })
+    ).json()) as { class: { id: string } };
+    const student = (await (
+      await app.request("/api/v1/students", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          legalName: "Leaver Pupil",
+          academicYearId: year.academicYear.id,
+          yearGroupId: yg.id,
+          classId: cls.class.id,
+        }),
+      })
+    ).json()) as { student: { id: string } };
+    const teacher = (await (
+      await app.request("/api/v1/staff", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          email: `leave-${id}@example.com`,
+          fullName: "Leave Teacher",
+          roleKeys: ["school.teacher"],
+        }),
+      })
+    ).json()) as { staffProfileId: string; invitationToken: string };
+    await app.request("/api/v1/invitations/accept", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: teacher.invitationToken,
+        fullName: "Leave Teacher",
+        password: "teacher-pass-1",
+      }),
+    });
+    await app.request(`/api/v1/classes/${cls.class.id}/staff`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ staffProfileId: teacher.staffProfileId, assignmentRole: "form_tutor" }),
+    });
+
+    const unset = await app.request(`/api/v1/academic-years/${year.academicYear.id}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ isCurrent: false }),
+    });
+    expect(unset.status).toBe(200);
+    const withoutCurrent = (await (
+      await app.request(`/api/v1/students/${student.student.id}`, { headers })
+    ).json()) as { student: { currentFormClassName: string | null; currentYearGroupName: string | null } };
+    expect(withoutCurrent.student.currentFormClassName).toBeNull();
+    expect(withoutCurrent.student.currentYearGroupName).toBeNull();
+
+    await app.request(`/api/v1/academic-years/${year.academicYear.id}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ isCurrent: true }),
+    });
+    const enrolments = (await (
+      await app.request(`/api/v1/students/${student.student.id}`, { headers })
+    ).json()) as { enrolments: Array<{ id: string; endedOn: string | null }> };
+    const open = enrolments.enrolments.find((e) => e.endedOn === null);
+    expect(open).toBeTruthy();
+    const ended = await app.request(`/api/v1/student-enrolments/${open!.id}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ endedOn: "2026-08-01", status: "withdrawn" }),
+    });
+    expect(ended.status).toBe(200);
+
+    const afterLeave = (await (
+      await app.request(`/api/v1/students/${student.student.id}`, { headers })
+    ).json()) as {
+      student: { currentFormClassName: string | null };
+      classMemberships: Array<{ className: string; endedOn: string | null }>;
+    };
+    expect(afterLeave.student.currentFormClassName).toBeNull();
+    expect(afterLeave.classMemberships.find((m) => m.className === "2A")?.endedOn).toBe("2026-08-01");
+
+    const teacherToken = await login(app, `leave-${id}@example.com`, "teacher-pass-1");
+    const teacherList = (await (
+      await app.request("/api/v1/students", {
+        headers: { Authorization: `Bearer ${teacherToken}`, "X-Organisation-Id": school.orgId },
+      })
+    ).json()) as { students: Array<{ legalName: string }> };
+    expect(teacherList.students).toEqual([]);
+  });
+
+  it("clears nullable student, staff, and guardianship fields when PATCH sends null", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "X-Organisation-Id": school.orgId,
+    };
+    const student = (await (
+      await app.request("/api/v1/students", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ legalName: "Nullable Pupil", admissionNumber: `ADM-${id}` }),
+      })
+    ).json()) as { student: { id: string; admissionNumber: string | null } };
+    expect(student.student.admissionNumber).toBe(`ADM-${id}`);
+    const clearedStudent = await app.request(`/api/v1/students/${student.student.id}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ admissionNumber: null }),
+    });
+    expect(clearedStudent.status).toBe(200);
+    const studentAfter = (await (
+      await app.request(`/api/v1/students/${student.student.id}`, { headers })
+    ).json()) as { student: { admissionNumber: string | null } };
+    expect(studentAfter.student.admissionNumber).toBeNull();
+
+    const staff = (await (
+      await app.request("/api/v1/staff", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          email: `job-${id}@example.com`,
+          fullName: "Job Staff",
+          roleKeys: ["school.teacher"],
+          jobTitle: "Tutor",
+        }),
+      })
+    ).json()) as { staffProfileId: string; invitationToken: string };
+    await app.request("/api/v1/invitations/accept", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: staff.invitationToken,
+        fullName: "Job Staff",
+        password: "teacher-pass-1",
+      }),
+    });
+    const clearedStaff = await app.request(`/api/v1/staff/${staff.staffProfileId}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ jobTitle: null }),
+    });
+    expect(clearedStaff.status).toBe(200);
+    const staffAfter = (await (
+      await app.request(`/api/v1/staff/${staff.staffProfileId}`, { headers })
+    ).json()) as { staff: { jobTitle: string | null } };
+    expect(staffAfter.staff.jobTitle).toBeNull();
+
+    const guardian = (await (
+      await app.request(`/api/v1/students/${student.student.id}/guardians`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          email: `end-${id}@example.com`,
+          fullName: "End Parent",
+          relationship: "mother",
+        }),
+      })
+    ).json()) as { guardianshipId: string };
+    const ended = await app.request(`/api/v1/guardianships/${guardian.guardianshipId}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ endedOn: "2026-06-01" }),
+    });
+    expect(ended.status).toBe(200);
+    const reopened = await app.request(`/api/v1/guardianships/${guardian.guardianshipId}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ endedOn: null }),
+    });
+    expect(reopened.status).toBe(200);
+    const reopenedBody = (await reopened.json()) as { guardianship: { endedOn: string | null } };
+    expect(reopenedBody.guardianship.endedOn).toBeNull();
+  });
 });

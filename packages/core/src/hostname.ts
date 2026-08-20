@@ -109,7 +109,12 @@ export function selectRequestHost(input: {
   // so a client cannot override a real Host with a spoofed forwarded header.
   const parsedConnection = parseHostHeader(connectionHost);
   if (!parsedConnection) {
-    return forwarded;
+    // Missing Host may come from an internal hop. A present-but-malformed Host
+    // must not unlock X-Forwarded-Host (direct-to-origin spoofing).
+    if (!connectionHost?.trim()) {
+      return forwarded;
+    }
+    return connectionHost;
   }
   const classified = classifyHostname(parsedConnection.hostname, input.platformDomain);
   if (

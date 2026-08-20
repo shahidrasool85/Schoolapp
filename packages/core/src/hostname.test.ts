@@ -81,6 +81,14 @@ describe("hostname parsing", () => {
         platformDomain: "localhost",
       }),
     ).toBe("greenwood.localhost:3000");
+    expect(
+      selectRequestHost({
+        host: "evil.com/login",
+        forwardedHost: "greenwood.localhost",
+        trustProxy: true,
+        platformDomain: "localhost",
+      }),
+    ).toBe("evil.com/login");
   });
 });
 

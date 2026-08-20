@@ -469,10 +469,18 @@ describe("Phase 2 people and school structure", () => {
     expect(body.enrolments.some((e) => e.academicYearName === "2025/26" && e.yearGroupName === "Year 3")).toBe(
       true,
     );
+    const yearOneEnrolment = body.enrolments.find(
+      (e) => e.academicYearName === "2025/26" && e.yearGroupName === "Year 3",
+    );
+    expect(yearOneEnrolment?.endedOn).toBe("2026-09-01");
+    const yearTwoEnrolment = body.enrolments.find(
+      (e) => e.academicYearName === "2026/27" && e.yearGroupName === "Year 4",
+    );
+    expect(yearTwoEnrolment?.endedOn).toBeNull();
     const formA = body.classMemberships.find((m) => m.className === "3A");
     const formB = body.classMemberships.find((m) => m.className === "3B");
     expect(formA?.endedOn).toBe("2026-01-12");
-    expect(formB?.endedOn).toBeNull();
+    expect(formB?.endedOn).toBe("2026-09-01");
   });
 
   it("scopes parent children to the requested organisation and keeps student login org-scoped", async () => {
@@ -676,5 +684,364 @@ describe("Phase 2 people and school structure", () => {
     expect(set.has(PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE)).toBe(true);
     expect(set.has(PERMISSIONS.ORG_MEMBERS_MANAGE)).toBe(false);
     expect(set.has(PERMISSIONS.STUDENTS_PROFILES_READ)).toBe(true);
+  });
+
+  it("does not expose unassigned class rosters to teachers", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const adminToken = await login(app, school.adminEmail, "password-12x");
+    const headers = {
+      Authorization: `Bearer ${adminToken}`,
+      "Content-Type": "application/json",
+      "X-Organisation-Id": school.orgId,
+    };
+    const year = (await (
+      await app.request("/api/v1/academic-years", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          name: "2026/27",
+          startsOn: "2026-09-01",
+          endsOn: "2027-07-31",
+          isCurrent: true,
+        }),
+      })
+    ).json()) as { academicYear: { id: string } };
+    await app.request("/api/v1/year-groups/seed", { method: "POST", headers, body: "{}" });
+    const groups = (await (await app.request("/api/v1/year-groups", { headers })).json()) as {
+      yearGroups: Array<{ id: string; code: string }>;
+    };
+    const yg = groups.yearGroups.find((g) => g.code === "5")!;
+    const classA = (await (
+      await app.request("/api/v1/classes", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          name: "5A",
+          academicYearId: year.academicYear.id,
+          yearGroupId: yg.id,
+          classType: "form",
+        }),
+      })
+    ).json()) as { class: { id: string } };
+    const classB = (await (
+      await app.request("/api/v1/classes", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          name: "5B",
+          academicYearId: year.academicYear.id,
+          yearGroupId: yg.id,
+          classType: "form",
+        }),
+      })
+    ).json()) as { class: { id: string } };
+
+    await app.request("/api/v1/students", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        legalName: "Assigned Five",
+        academicYearId: year.academicYear.id,
+        yearGroupId: yg.id,
+        classId: classA.class.id,
+      }),
+    });
+    await app.request("/api/v1/students", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        legalName: "Unassigned Five",
+        academicYearId: year.academicYear.id,
+        yearGroupId: yg.id,
+        classId: classB.class.id,
+      }),
+    });
+
+    const teacher = (await (
+      await app.request("/api/v1/staff", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          email: `roster-${id}@example.com`,
+          fullName: "Roster Teacher",
+          roleKeys: ["school.teacher"],
+        }),
+      })
+    ).json()) as { staffProfileId: string; invitationToken: string };
+    await app.request("/api/v1/invitations/accept", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: teacher.invitationToken,
+        fullName: "Roster Teacher",
+        password: "teacher-pass-1",
+      }),
+    });
+    await app.request(`/api/v1/classes/${classA.class.id}/staff`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ staffProfileId: teacher.staffProfileId, assignmentRole: "form_tutor" }),
+    });
+
+    const teacherToken = await login(app, `roster-${id}@example.com`, "teacher-pass-1");
+    const teacherHeaders = {
+      Authorization: `Bearer ${teacherToken}`,
+      "X-Organisation-Id": school.orgId,
+    };
+    const assignedClass = (await (
+      await app.request(`/api/v1/classes/${classA.class.id}`, { headers: teacherHeaders })
+    ).json()) as { members: Array<{ legalName: string }> };
+    const otherClass = (await (
+      await app.request(`/api/v1/classes/${classB.class.id}`, { headers: teacherHeaders })
+    ).json()) as { members: Array<{ legalName: string }> };
+    expect(assignedClass.members.map((m) => m.legalName)).toEqual(["Assigned Five"]);
+    expect(otherClass.members).toEqual([]);
+    expect(JSON.stringify(otherClass)).not.toContain("Unassigned Five");
+  });
+
+  it("activates an invited parent membership after they obtain credentials elsewhere", async () => {
+    const id = suffix();
+    const a = await createSchool(pools.owner, `ga-${id}`);
+    const b = await createSchool(pools.owner, `gb-${id}`);
+    const tokenA = await login(app, a.adminEmail, "password-12x");
+    const tokenB = await login(app, b.adminEmail, "password-12x");
+    const headersA = {
+      Authorization: `Bearer ${tokenA}`,
+      "Content-Type": "application/json",
+      "X-Organisation-Id": a.orgId,
+    };
+    const headersB = {
+      Authorization: `Bearer ${tokenB}`,
+      "Content-Type": "application/json",
+      "X-Organisation-Id": b.orgId,
+    };
+
+    const childA1 = (await (
+      await app.request("/api/v1/students", {
+        method: "POST",
+        headers: headersA,
+        body: JSON.stringify({ legalName: "Child A1" }),
+      })
+    ).json()) as { student: { id: string } };
+    const childA2 = (await (
+      await app.request("/api/v1/students", {
+        method: "POST",
+        headers: headersA,
+        body: JSON.stringify({ legalName: "Child A2" }),
+      })
+    ).json()) as { student: { id: string } };
+    const childB = (await (
+      await app.request("/api/v1/students", {
+        method: "POST",
+        headers: headersB,
+        body: JSON.stringify({ legalName: "Child B" }),
+      })
+    ).json()) as { student: { id: string } };
+
+    await app.request(`/api/v1/students/${childA1.student.id}/guardians`, {
+      method: "POST",
+      headers: headersA,
+      body: JSON.stringify({
+        email: `late-${id}@example.com`,
+        fullName: "Late Parent",
+        relationship: "mother",
+      }),
+    });
+    const inviteB = (await (
+      await app.request(`/api/v1/students/${childB.student.id}/guardians`, {
+        method: "POST",
+        headers: headersB,
+        body: JSON.stringify({
+          email: `late-${id}@example.com`,
+          fullName: "Late Parent",
+          relationship: "mother",
+        }),
+      })
+    ).json()) as { invitationToken: string };
+    const accepted = await app.request("/api/v1/invitations/accept", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: inviteB.invitationToken,
+        fullName: "Late Parent",
+        password: "parent-pass-1",
+      }),
+    });
+    expect(accepted.status).toBe(200);
+
+    const secondLink = await app.request(`/api/v1/students/${childA2.student.id}/guardians`, {
+      method: "POST",
+      headers: headersA,
+      body: JSON.stringify({
+        email: `late-${id}@example.com`,
+        fullName: "Late Parent",
+        relationship: "mother",
+      }),
+    });
+    expect(secondLink.status).toBe(201);
+
+    const parentToken = await login(app, `late-${id}@example.com`, "parent-pass-1");
+    const inA = await app.request("/api/v1/parent/children", {
+      headers: { Authorization: `Bearer ${parentToken}`, "X-Organisation-Id": a.orgId },
+    });
+    expect(inA.status).toBe(200);
+    const inABody = (await inA.json()) as { children: Array<{ legalName: string }> };
+    expect(inABody.children.map((c) => c.legalName).sort()).toEqual(["Child A1", "Child A2"]);
+  });
+
+  it("refuses student alias login when the current year group disables it, and keeps aliases org-unique", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "X-Organisation-Id": school.orgId,
+    };
+    const year = (await (
+      await app.request("/api/v1/academic-years", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          name: "2026/27",
+          startsOn: "2026-09-01",
+          endsOn: "2027-07-31",
+          isCurrent: true,
+        }),
+      })
+    ).json()) as { academicYear: { id: string } };
+    const createdGroup = await app.request("/api/v1/year-groups", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ code: "6", name: "Year 6", studentLoginEnabled: true }),
+    });
+    expect(createdGroup.status).toBe(201);
+    const group = (await createdGroup.json()) as { yearGroup: { id: string } };
+    const first = await app.request("/api/v1/students", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        legalName: "Alias Pupil",
+        academicYearId: year.academicYear.id,
+        yearGroupId: group.yearGroup.id,
+        loginAlias: `alias.${id}`,
+        password: "student-pass-1",
+      }),
+    });
+    expect(first.status).toBe(201);
+    const duplicate = await app.request("/api/v1/students", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        legalName: "Other Alias Pupil",
+        academicYearId: year.academicYear.id,
+        yearGroupId: group.yearGroup.id,
+        loginAlias: `alias.${id}`,
+        password: "student-pass-2",
+      }),
+    });
+    expect(duplicate.status).toBe(409);
+
+    const enabledLogin = await app.request("/api/v1/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        organisationSlug: school.slug,
+        username: `alias.${id}`,
+        password: "student-pass-1",
+      }),
+    });
+    expect(enabledLogin.status).toBe(200);
+
+    const disabled = await app.request(`/api/v1/year-groups/${group.yearGroup.id}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ studentLoginEnabled: false }),
+    });
+    expect(disabled.status).toBe(200);
+    const disabledLogin = await app.request("/api/v1/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        organisationSlug: school.slug,
+        username: `alias.${id}`,
+        password: "student-pass-1",
+      }),
+    });
+    expect(disabledLogin.status).toBe(401);
+  });
+
+  it("hides a child from the parent portal when portal access is off, even with parental responsibility", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "X-Organisation-Id": school.orgId,
+    };
+    const visible = (await (
+      await app.request("/api/v1/students", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ legalName: "Visible Child" }),
+      })
+    ).json()) as { student: { id: string } };
+    const hidden = (await (
+      await app.request("/api/v1/students", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ legalName: "Hidden Child" }),
+      })
+    ).json()) as { student: { id: string } };
+
+    const invite = (await (
+      await app.request(`/api/v1/students/${visible.student.id}/guardians`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          email: `pr-${id}@example.com`,
+          fullName: "PR Parent",
+          relationship: "father",
+          hasParentalResponsibility: true,
+          portalAccess: true,
+        }),
+      })
+    ).json()) as { invitationToken: string };
+    await app.request("/api/v1/invitations/accept", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: invite.invitationToken,
+        fullName: "PR Parent",
+        password: "parent-pass-1",
+      }),
+    });
+    await app.request(`/api/v1/students/${hidden.student.id}/guardians`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        email: `pr-${id}@example.com`,
+        fullName: "PR Parent",
+        relationship: "father",
+        hasParentalResponsibility: true,
+        portalAccess: false,
+      }),
+    });
+
+    const parentToken = await login(app, `pr-${id}@example.com`, "parent-pass-1");
+    const parentHeaders = {
+      Authorization: `Bearer ${parentToken}`,
+      "X-Organisation-Id": school.orgId,
+    };
+    const children = (await (
+      await app.request("/api/v1/parent/children", { headers: parentHeaders })
+    ).json()) as { children: Array<{ legalName: string }> };
+    expect(children.children.map((c) => c.legalName)).toEqual(["Visible Child"]);
+    const hiddenDetail = await app.request(`/api/v1/parent/children/${hidden.student.id}`, {
+      headers: parentHeaders,
+    });
+    expect(hiddenDetail.status).toBe(404);
   });
 });

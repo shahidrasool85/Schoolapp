@@ -4,6 +4,8 @@ import {
   AppError,
   assertAnyPermission,
   assertPermission,
+  canListAllStudents,
+  isAssignedToClass,
   writeAudit,
 } from "@schoolapp/core";
 import type { SchoolappApi } from "../types";
@@ -418,8 +420,9 @@ export function registerAcademicRoutes(app: SchoolappApi) {
   );
 
   app.get("/classes/:id", requireUser, async (c) =>
-    withSchoolActor(c, async ({ client, actor, orgId }) => {
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       assertAnyPermission(actor, academicReadPermissions);
+      const classId = routeParam(c, "id");
       const cls = await client.query(
         `select c.id, c.name, c.class_type, c.academic_year_id, c.year_group_id,
                 yg.name as year_group_name, ay.name as academic_year_name
@@ -427,7 +430,7 @@ export function registerAcademicRoutes(app: SchoolappApi) {
          join academic_years ay on ay.id = c.academic_year_id
          left join year_groups yg on yg.id = c.year_group_id
          where c.id = $1 and c.organisation_id = $2`,
-        [c.req.param("id"), orgId],
+        [classId, orgId],
       );
       if (!cls.rows[0]) throw new AppError(404, "not_found", "Not found");
       const subjects = await client.query(
@@ -436,7 +439,7 @@ export function registerAcademicRoutes(app: SchoolappApi) {
          join subjects s on s.id = cs.subject_id
          where cs.class_id = $1 and cs.organisation_id = $2
          order by s.name`,
-        [c.req.param("id"), orgId],
+        [classId, orgId],
       );
       const staff = await client.query(
         `select csa.id, csa.staff_profile_id, csa.assignment_role,
@@ -446,16 +449,22 @@ export function registerAcademicRoutes(app: SchoolappApi) {
          join users u on u.id = sp.user_id
          where csa.class_id = $1 and csa.organisation_id = $2
          order by csa.ended_on nulls first, u.full_name`,
-        [c.req.param("id"), orgId],
+        [classId, orgId],
       );
-      const members = await client.query(
-        `select cm.id, cm.student_profile_id, cm.started_on::text, cm.ended_on::text, sp.legal_name
-         from class_memberships cm
-         join student_profiles sp on sp.id = cm.student_profile_id
-         where cm.class_id = $1 and cm.organisation_id = $2
-         order by cm.ended_on nulls first, sp.legal_name`,
-        [c.req.param("id"), orgId],
-      );
+      const canSeeMembers =
+        canListAllStudents(actor) ||
+        (actor.permissions.has(PERMISSIONS.STUDENTS_PROFILES_READ_ASSIGNED) &&
+          (await isAssignedToClass(client, userId, orgId, classId)));
+      const members = canSeeMembers
+        ? await client.query(
+            `select cm.id, cm.student_profile_id, cm.started_on::text, cm.ended_on::text, sp.legal_name
+             from class_memberships cm
+             join student_profiles sp on sp.id = cm.student_profile_id
+             where cm.class_id = $1 and cm.organisation_id = $2
+             order by cm.ended_on nulls first, sp.legal_name`,
+            [classId, orgId],
+          )
+        : { rows: [] };
       return c.json({
         class: mapClass(cls.rows[0]),
         subjects: subjects.rows.map(mapSubject),

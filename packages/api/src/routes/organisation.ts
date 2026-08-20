@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { PERMISSIONS, YEAR_GROUP_CODES } from "@schoolapp/domain";
-import { AppError, pgErrorToAppError, assertPermission } from "@schoolapp/core";
+import { AppError, pgErrorToAppError, assertPermission, assignedStudentIds } from "@schoolapp/core";
 import { withTenantContext } from "@schoolapp/db";
 import type { SchoolappApi } from "../types";
 import { requestedOrganisationId, requireUser } from "../auth-middleware";
@@ -145,7 +145,7 @@ export function registerOrganisationRoutes(app: SchoolappApi) {
   );
 
   app.get("/dashboard", requireUser, async (c) =>
-    withSchoolActor(c, async ({ client, actor, orgId }) => {
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       const year = await client.query(
         `select id, name, starts_on::text, ends_on::text, is_current
          from academic_years
@@ -162,18 +162,7 @@ export function registerOrganisationRoutes(app: SchoolappApi) {
         );
         counts.students = students.rows[0]?.n ?? 0;
       } else if (actor.permissions.has(PERMISSIONS.STUDENTS_PROFILES_READ_ASSIGNED)) {
-        const students = await client.query<{ n: number }>(
-          `select count(distinct cm.student_profile_id)::int as n
-           from class_staff_assignments csa
-           join staff_profiles sp on sp.id = csa.staff_profile_id
-           join class_memberships cm on cm.class_id = csa.class_id
-           where sp.user_id = $1
-             and sp.organisation_id = $2
-             and (csa.ended_on is null or csa.ended_on >= current_date)
-             and (cm.ended_on is null or cm.ended_on >= current_date)`,
-          [c.get("userId"), orgId],
-        );
-        counts.students = students.rows[0]?.n ?? 0;
+        counts.students = (await assignedStudentIds(client, userId, orgId)).size;
       }
       if (actor.permissions.has(PERMISSIONS.ORG_MEMBERS_READ)) {
         const staff = await client.query<{ n: number }>(

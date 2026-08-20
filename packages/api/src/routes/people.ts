@@ -309,13 +309,21 @@ export function registerPeopleRoutes(app: SchoolappApi) {
       if (isPrimary) {
         await client.query(
           `update student_enrolments
-           set ended_on = $4::date, status = 'completed'
+           set ended_on = $3::date, status = 'completed'
            where student_profile_id = $1
-             and academic_year_id = $2
-             and organisation_id = $3
+             and organisation_id = $2
              and is_primary
              and ended_on is null`,
-          [studentId, parsed.data.academicYearId, orgId, startedOn],
+          [studentId, orgId, startedOn],
+        );
+        await client.query(
+          `update class_memberships
+           set ended_on = $3::date
+           where student_profile_id = $1
+             and organisation_id = $2
+             and academic_year_id <> $4
+             and ended_on is null`,
+          [studentId, orgId, startedOn, parsed.data.academicYearId],
         );
       }
 
@@ -431,15 +439,14 @@ export function registerPeopleRoutes(app: SchoolappApi) {
       if (cls.rows[0].class_type === "form") {
         await client.query(
           `update class_memberships cm
-           set ended_on = $4::date
+           set ended_on = $3::date
            from classes c
            where cm.class_id = c.id
              and cm.student_profile_id = $1
-             and cm.academic_year_id = $2
-             and cm.organisation_id = $3
+             and cm.organisation_id = $2
              and cm.ended_on is null
              and c.class_type = 'form'`,
-          [c.req.param("id"), cls.rows[0].academic_year_id, orgId, startedOn],
+          [c.req.param("id"), orgId, startedOn],
         );
       }
       const inserted = await client.query(

@@ -60,6 +60,10 @@ export async function assignedStudentIds(
      from class_staff_assignments csa
      join staff_profiles sp on sp.id = csa.staff_profile_id
      join class_memberships cm on cm.class_id = csa.class_id
+     join academic_years ay
+       on ay.id = cm.academic_year_id
+      and ay.organisation_id = $2
+      and ay.is_current
      where sp.user_id = $1
        and sp.organisation_id = $2
        and cm.organisation_id = $2
@@ -68,6 +72,27 @@ export async function assignedStudentIds(
     [actorUserId, organisationId],
   );
   return new Set(result.rows.map((row) => row.student_profile_id));
+}
+
+export async function isAssignedToClass(
+  client: pg.PoolClient,
+  actorUserId: string,
+  organisationId: string,
+  classId: string,
+): Promise<boolean> {
+  const result = await client.query(
+    `select 1
+     from class_staff_assignments csa
+     join staff_profiles sp on sp.id = csa.staff_profile_id
+     where sp.user_id = $1
+       and sp.organisation_id = $2
+       and csa.organisation_id = $2
+       and csa.class_id = $3
+       and (csa.ended_on is null or csa.ended_on >= current_date)
+     limit 1`,
+    [actorUserId, organisationId, classId],
+  );
+  return result.rows.length > 0;
 }
 
 export async function guardianChildIds(

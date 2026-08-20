@@ -2,6 +2,7 @@ export {
   canReadStudentProfile,
   canReadRestrictedContact,
   assignedStudentIds,
+  isAssignedToClass,
   guardianChildIds,
   canListAllStudents,
   canManageStudents,

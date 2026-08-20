@@ -9,6 +9,7 @@ import {
   hasStaffRole,
   homePath,
   pickMembership,
+  pickPortalMembership,
   type Membership,
 } from "../../lib/portal";
 
@@ -25,6 +26,7 @@ export default function ParentShell({ children }: { children: ReactNode }) {
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [orgId, setOrg] = useState<string | null>(null);
   const [canOpenSchoolAdmin, setCanOpenSchoolAdmin] = useState(false);
+  const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -34,21 +36,21 @@ export default function ParentShell({ children }: { children: ReactNode }) {
     }
     api<{ memberships: Membership[] }>("/api/v1/me/memberships", { orgId: null })
       .then((body) => {
-        const parentMemberships = body.memberships.filter(
-          (m) => m.status === "active" && hasParentRole(m.roleKeys),
-        );
-        setMemberships(parentMemberships);
-        const current = pickMembership(parentMemberships, getOrgId());
+        const current = pickPortalMembership(body.memberships, "parent", getOrgId());
         if (!current) {
           const fallback = pickMembership(body.memberships, getOrgId());
           router.replace(fallback ? homePath(fallback.roleKeys) : "/login");
           return;
         }
+        setMemberships(
+          body.memberships.filter((m) => m.status === "active" && hasParentRole(m.roleKeys)),
+        );
         setOrgId(current.organisationId);
         setOrg(current.organisationId);
         setCanOpenSchoolAdmin(
           body.memberships.some((m) => m.status === "active" && hasStaffRole(m.roleKeys)),
         );
+        setReady(true);
       })
       .catch(() => {
         setError("Could not load your schools.");
@@ -116,7 +118,7 @@ export default function ParentShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
       <main className="content">
-        {error ? <p className="error">{error}</p> : children}
+        {error ? <p className="error">{error}</p> : ready ? children : <p>Loading…</p>}
       </main>
     </div>
   );

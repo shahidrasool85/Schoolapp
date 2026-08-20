@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
 import { api, getOrgId, getToken, setOrgId, setToken } from "../../lib/api";
-import { hasStudentRole, homePath, pickMembership, type Membership } from "../../lib/portal";
+import { homePath, pickMembership, pickPortalMembership, type Membership } from "../../lib/portal";
 
 const LINKS = [
   { href: "/student", label: "Home" },
@@ -17,6 +17,7 @@ export default function StudentShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [schoolName, setSchoolName] = useState("My school");
+  const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -26,10 +27,7 @@ export default function StudentShell({ children }: { children: ReactNode }) {
     }
     api<{ memberships: Membership[] }>("/api/v1/me/memberships", { orgId: null })
       .then((body) => {
-        const studentMemberships = body.memberships.filter(
-          (m) => m.status === "active" && hasStudentRole(m.roleKeys),
-        );
-        const current = pickMembership(studentMemberships, getOrgId());
+        const current = pickPortalMembership(body.memberships, "student", getOrgId());
         if (!current) {
           const fallback = pickMembership(body.memberships, getOrgId());
           router.replace(fallback ? homePath(fallback.roleKeys) : "/login");
@@ -37,6 +35,7 @@ export default function StudentShell({ children }: { children: ReactNode }) {
         }
         setOrgId(current.organisationId);
         setSchoolName(current.name);
+        setReady(true);
       })
       .catch(() => {
         setError("Could not load your school.");
@@ -82,7 +81,7 @@ export default function StudentShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
       <main className="content">
-        {error ? <p className="error">{error}</p> : children}
+        {error ? <p className="error">{error}</p> : ready ? children : <p>Loading…</p>}
       </main>
     </div>
   );

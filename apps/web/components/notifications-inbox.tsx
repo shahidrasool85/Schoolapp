@@ -7,7 +7,8 @@ import type { InboxNotification } from "../lib/portal";
 export default function NotificationsInbox() {
   const [items, setItems] = useState<InboxNotification[] | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [actionError, setActionError] = useState("");
 
   async function load() {
     const body = await api<{ notifications: InboxNotification[]; unreadCount: number }>(
@@ -18,11 +19,11 @@ export default function NotificationsInbox() {
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    load().catch((err: Error) => setLoadError(err.message));
   }, []);
 
   async function markRead(id: string) {
-    setError("");
+    setActionError("");
     try {
       await api(`/api/v1/notifications/${id}`, {
         method: "PATCH",
@@ -30,15 +31,16 @@ export default function NotificationsInbox() {
       });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not update notification");
+      setActionError(err instanceof Error ? err.message : "Could not update notification");
     }
   }
 
-  if (error) return <p className="error">{error}</p>;
+  if (loadError) return <p className="error">{loadError}</p>;
   if (!items) return <p>Loading…</p>;
 
   return (
     <>
+      {actionError ? <p className="error">{actionError}</p> : null}
       <p className="muted">
         {unreadCount === 0
           ? "You are up to date."

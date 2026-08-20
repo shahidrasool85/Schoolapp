@@ -34,6 +34,26 @@ export function homePath(roleKeys: string[]): string {
   return "/login";
 }
 
+export type PortalKind = "staff" | "parent" | "student";
+
+export function pickPortalMembership(
+  memberships: Membership[],
+  portal: PortalKind,
+  preferredOrgId: string | null,
+): Membership | null {
+  const eligible = memberships.filter((m) => {
+    if (m.status !== "active") return false;
+    if (portal === "staff") return hasStaffRole(m.roleKeys);
+    if (portal === "parent") return hasParentRole(m.roleKeys);
+    return hasStudentRole(m.roleKeys);
+  });
+  if (preferredOrgId) {
+    const preferred = eligible.find((m) => m.organisationId === preferredOrgId);
+    if (preferred) return preferred;
+  }
+  return eligible[0] ?? null;
+}
+
 export function pickMembership(
   memberships: Membership[],
   preferredOrgId: string | null,

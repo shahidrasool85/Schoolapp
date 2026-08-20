@@ -3,7 +3,13 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, setOrgId, setToken } from "../../lib/api";
-import { homePath, pickMembership, type Membership } from "../../lib/portal";
+import {
+  hasStudentRole,
+  homePath,
+  pickMembership,
+  pickPortalMembership,
+  type Membership,
+} from "../../lib/portal";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,26 +24,39 @@ export default function LoginPage() {
     event.preventDefault();
     setError("");
     try {
-      const body = await api<{ accessToken: string }>("/api/v1/auth/login", {
-        method: "POST",
-        orgId: null,
-        body: JSON.stringify(
-          mode === "email"
-            ? { email, password }
-            : { organisationSlug, username, password },
-        ),
-      });
+      const body = await api<{ accessToken: string; organisationId: string | null }>(
+        "/api/v1/auth/login",
+        {
+          method: "POST",
+          orgId: null,
+          body: JSON.stringify(
+            mode === "email"
+              ? { email, password }
+              : { organisationSlug, username, password },
+          ),
+        },
+      );
       setToken(body.accessToken);
       const memberships = await api<{ memberships: Membership[] }>("/api/v1/me/memberships", {
         orgId: null,
       });
-      const current = pickMembership(memberships.memberships, null);
+      const current =
+        mode === "student"
+          ? pickPortalMembership(memberships.memberships, "student", body.organisationId) ??
+            memberships.memberships.find(
+              (m) =>
+                m.status === "active" &&
+                m.slug === organisationSlug &&
+                hasStudentRole(m.roleKeys),
+            ) ??
+            null
+          : pickMembership(memberships.memberships, body.organisationId);
       if (!current) {
         setError("No active school membership was found for this account.");
         return;
       }
       setOrgId(current.organisationId);
-      router.push(homePath(current.roleKeys));
+      router.push(mode === "student" ? "/student" : homePath(current.roleKeys));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign in failed");
     }

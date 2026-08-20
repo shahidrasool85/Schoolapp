@@ -428,6 +428,18 @@ describe("Phase 3 parent and student portals", () => {
     const pupilB = (await studentB.json()) as { student: { id: string } };
 
     const token = await loginAlias(app, schoolA.slug, `sam.${id}`, "student-pass-1");
+    const studentLogin = await app.request("/api/v1/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        organisationSlug: schoolA.slug,
+        username: `sam.${id}`,
+        password: "student-pass-1",
+      }),
+    });
+    expect(studentLogin.status).toBe(200);
+    const loginBody = (await studentLogin.json()) as { organisationId: string | null };
+    expect(loginBody.organisationId).toBe(schoolA.orgId);
     const studentHeaders = {
       Authorization: `Bearer ${token}`,
       "X-Organisation-Id": schoolA.orgId,

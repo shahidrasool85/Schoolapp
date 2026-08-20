@@ -9,6 +9,7 @@ import {
   hasStaffRole,
   homePath,
   pickMembership,
+  pickPortalMembership,
   type Membership,
 } from "../../lib/portal";
 
@@ -29,6 +30,7 @@ export default function SchoolShell({ children }: { children: ReactNode }) {
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [orgId, setOrg] = useState<string | null>(null);
   const [canOpenParentPortal, setCanOpenParentPortal] = useState(false);
+  const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -39,17 +41,17 @@ export default function SchoolShell({ children }: { children: ReactNode }) {
     api<{ memberships: Membership[] }>("/api/v1/me/memberships", { orgId: null })
       .then((body) => {
         const active = body.memberships.filter((m) => m.status === "active");
-        const staffMemberships = active.filter((m) => hasStaffRole(m.roleKeys));
-        const current = pickMembership(staffMemberships, getOrgId());
+        const current = pickPortalMembership(active, "staff", getOrgId());
         if (!current) {
           const fallback = pickMembership(active, getOrgId());
           router.replace(fallback ? homePath(fallback.roleKeys) : "/login");
           return;
         }
-        setMemberships(staffMemberships);
+        setMemberships(active.filter((m) => hasStaffRole(m.roleKeys)));
         setOrgId(current.organisationId);
         setOrg(current.organisationId);
         setCanOpenParentPortal(active.some((m) => hasParentRole(m.roleKeys)));
+        setReady(true);
       })
       .catch((err: Error) => {
         setError(err.message);
@@ -106,7 +108,7 @@ export default function SchoolShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
       <main className="content">
-        {error ? <p className="error">{error}</p> : children}
+        {error ? <p className="error">{error}</p> : ready ? children : <p>Loading…</p>}
       </main>
     </div>
   );

@@ -16,7 +16,7 @@ Phase 4 adds a school admissions workflow. An applicant must not become an enrol
 - Additional future fields live in `extra_fields` jsonb. Uploaded files are **not** stored in PostgreSQL; `admissions_documents` holds object-storage metadata (`storage_key`, content type, size) only.
 - Application contacts may point at an existing `user_id` when that user is already visible in the organisation. Conversion uses `link_guardian`, which reuses global identities by email and **does not** overwrite passwords, user kind, or existing memberships.
 - Guardianships and `portal_access` are created only from an explicit `guardianLinks` payload. An application contact never grants parent-portal access by itself.
-- Conversion is idempotent: row lock + unique `converted_student_profile_id` / `admitted_from_application_id`. The application row is retained as history.
+- Conversion is idempotent: row lock + unique `converted_student_profile_id` / `admitted_from_application_id`. `enrol_admitted_applicant` returns `newly_converted` so inbox notifications fire only for the conversion that actually created the student. The application row is retained as history.
 - Permissions follow the existing catalogue style: `admissions.read`, existing `admissions.*.manage` keys, plus `admissions.decide` and `admissions.convert`. Teachers, parents, and students receive none of these.
 
 ## Alternatives considered

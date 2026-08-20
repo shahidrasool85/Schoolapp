@@ -827,6 +827,10 @@ grant execute on function create_inbox_notification(
 -- Conversion: accepted applicant → canonical student (idempotent)
 -- ---------------------------------------------------------------------------
 
+drop function if exists enrol_admitted_applicant(
+  uuid, uuid, uuid, uuid, uuid, uuid, text, uuid, jsonb
+);
+
 create or replace function enrol_admitted_applicant(
   p_actor_user_id uuid,
   p_organisation_id uuid,
@@ -838,7 +842,10 @@ create or replace function enrol_admitted_applicant(
   p_existing_student_profile_id uuid,
   p_guardian_links jsonb
 )
-returns uuid
+returns table (
+  student_profile_id uuid,
+  newly_converted boolean
+)
 language plpgsql
 security definer
 set search_path = pg_catalog, public
@@ -849,6 +856,7 @@ declare
   v_link jsonb;
   v_contact admissions_application_contacts%rowtype;
   v_portal boolean;
+  v_newly boolean;
 begin
   if not actor_has_permission(p_actor_user_id, p_organisation_id, 'admissions.convert') then
     raise exception 'forbidden' using errcode = '42501';
@@ -863,7 +871,8 @@ begin
   end if;
 
   if v_app.converted_student_profile_id is not null then
-    return v_app.converted_student_profile_id;
+    return query select v_app.converted_student_profile_id, false;
+    return;
   end if;
   select id into v_profile_id
   from student_profiles
@@ -877,7 +886,9 @@ begin
         converted_by = coalesce(converted_by, p_actor_user_id),
         status = 'enrolled'
     where id = p_application_id and converted_student_profile_id is null;
-    return v_profile_id;
+    v_newly := found;
+    return query select v_profile_id, v_newly;
+    return;
   end if;
   if v_app.status is distinct from 'accepted' then
     raise exception 'application_not_accepted' using errcode = '22023';
@@ -1000,7 +1011,8 @@ begin
     select converted_student_profile_id into v_profile_id
     from admissions_applications
     where id = p_application_id;
-    return v_profile_id;
+    return query select v_profile_id, false;
+    return;
   end if;
 
   update admissions_waiting_list_entries
@@ -1077,7 +1089,7 @@ begin
     )
   );
 
-  return v_profile_id;
+  return query select v_profile_id, true;
 end;
 $$;
 

@@ -12,10 +12,16 @@ import { withTenantContext } from "@schoolapp/db";
 import type { SchoolappApi } from "../types";
 import { readAccessToken } from "../auth-middleware";
 
-const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(8),
-});
+const loginSchema = z
+  .object({
+    email: z.string().email().optional(),
+    password: z.string().min(8),
+    organisationSlug: z.string().min(2).optional(),
+    username: z.string().min(1).optional(),
+  })
+  .refine((data) => Boolean(data.email) || Boolean(data.organisationSlug && data.username), {
+    message: "Email or organisation slug and username is required",
+  });
 
 const acceptSchema = z.object({
   token: z.string().min(16),
@@ -30,10 +36,14 @@ export function registerAuthRoutes(app: SchoolappApi) {
       throw new AppError(400, "validation_failed", "Invalid login payload");
     }
     const { config } = { config: c.get("config") };
-    const lookup = await config.pools.app.query(
-      "select * from local_auth_lookup($1)",
-      [parsed.data.email.toLowerCase()],
-    );
+    const lookup = parsed.data.email
+      ? await config.pools.app.query("select * from local_auth_lookup($1)", [
+          parsed.data.email.toLowerCase(),
+        ])
+      : await config.pools.app.query("select * from local_auth_lookup_alias($1, $2)", [
+          parsed.data.organisationSlug,
+          parsed.data.username,
+        ]);
     const row = lookup.rows[0] as
       | {
           user_id: string;
@@ -120,17 +130,21 @@ export function registerAuthRoutes(app: SchoolappApi) {
         if (invite.existing_user_status !== "active") {
           throw new AppError(403, "forbidden", "This account cannot accept invitations");
         }
-        if (!invite.has_credentials || !invite.email) {
-          throw new AppError(409, "invitation_conflict", "This account cannot be claimed via invite");
-        }
-        const lookup = await config.pools.app.query(
-          "select * from local_auth_lookup($1)",
-          [invite.email],
-        );
-        const row = lookup.rows[0] as { password_hash: string } | undefined;
-        const ok = row ? await verifyPassword(row.password_hash, parsed.data.password) : false;
-        if (!ok) {
-          throw new AppError(401, "unauthenticated", "Invalid email or password");
+        if (invite.has_credentials) {
+          if (!invite.email) {
+            throw new AppError(409, "invitation_conflict", "This account cannot be claimed via invite");
+          }
+          const lookup = await config.pools.app.query(
+            "select * from local_auth_lookup($1)",
+            [invite.email],
+          );
+          const row = lookup.rows[0] as { password_hash: string } | undefined;
+          const ok = row ? await verifyPassword(row.password_hash, parsed.data.password) : false;
+          if (!ok) {
+            throw new AppError(401, "unauthenticated", "Invalid email or password");
+          }
+        } else {
+          passwordHash = await hashPassword(parsed.data.password);
         }
       } else {
         passwordHash = await hashPassword(parsed.data.password);

@@ -68,18 +68,38 @@ POST /api/v1/platform/organisations/{id}/suspend
 
 ```http
 GET  /api/v1/organisation
-PATCH /api/v1/organisation
+PATCH /api/v1/organisation/settings
+GET  /api/v1/dashboard
 GET  /api/v1/members
 POST /api/v1/invitations
 GET  /api/v1/roles
+GET  /api/v1/academic-years
+POST /api/v1/academic-years
+PATCH /api/v1/academic-years/{id}
 GET  /api/v1/year-groups
 POST /api/v1/year-groups
+POST /api/v1/year-groups/seed
+GET  /api/v1/subjects
+POST /api/v1/subjects
 GET  /api/v1/classes
+POST /api/v1/classes
+GET  /api/v1/classes/{id}
+POST /api/v1/classes/{id}/staff
+POST /api/v1/classes/{id}/subjects
+GET  /api/v1/staff
+POST /api/v1/staff
 GET  /api/v1/students
 POST /api/v1/students
 GET  /api/v1/students/{id}
+POST /api/v1/students/{id}/enrolments
+POST /api/v1/students/{id}/class-memberships
 POST /api/v1/students/{id}/guardians
+GET  /api/v1/guardians
+GET  /api/v1/parent/children
+GET  /api/v1/parent/children/{studentId}
 ```
+
+Student login (optional per year group) uses the same `POST /api/v1/auth/login` contract with `organisationSlug` + `username` instead of email. Parent and student users share this identity model; there is no second auth stack.
 
 ## Parent portal (web now, Expo later)
 

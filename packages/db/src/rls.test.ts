@@ -28,10 +28,13 @@ describe("RLS catalog", () => {
        join pg_namespace n on n.oid = c.relnamespace
        where n.nspname = 'public'
          and c.relname in (
-           'student_profiles', 'organisations', 'audit_events', 'organisation_memberships'
+           'student_profiles', 'organisations', 'audit_events', 'organisation_memberships',
+           'user_login_aliases', 'class_memberships', 'student_enrolments', 'guardianships',
+           'staff_profiles', 'classes', 'class_staff_assignments', 'class_subjects',
+           'subjects', 'houses', 'year_groups', 'academic_years'
          )`,
     );
-    expect(result.rows.length).toBe(4);
+    expect(result.rows.length).toBe(16);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
     }
@@ -172,5 +175,45 @@ describe("RLS catalog", () => {
         [org.rows[0]!.id, student.rows[0]!.id, guardian.rows[0]!.id],
       ),
     ).rejects.toThrow();
+  });
+
+  it("keeps login aliases isolated to the current organisation", async () => {
+    const id = randomUUID().slice(0, 8);
+    const orgA = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-alias-a-${id}`, "Alias A"],
+    );
+    const orgB = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-alias-b-${id}`, "Alias B"],
+    );
+    const userA = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Alias A', 'student', 'active') returning id`,
+      [`rls-alias-a-${id}@example.com`],
+    );
+    const userB = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Alias B', 'student', 'active') returning id`,
+      [`rls-alias-b-${id}@example.com`],
+    );
+    await pools.owner.query(
+      `insert into organisation_memberships (organisation_id, user_id, status)
+       values ($1, $2, 'active'), ($3, $4, 'active')`,
+      [orgA.rows[0]!.id, userA.rows[0]!.id, orgB.rows[0]!.id, userB.rows[0]!.id],
+    );
+    await pools.owner.query(
+      `insert into user_login_aliases (organisation_id, user_id, alias)
+       values ($1, $2, 'same.alias'), ($3, $4, 'same.alias')`,
+      [orgA.rows[0]!.id, userA.rows[0]!.id, orgB.rows[0]!.id, userB.rows[0]!.id],
+    );
+
+    const visible = await withTenantContext(pools.app, userA.rows[0]!.id, orgA.rows[0]!.id, async (client) => {
+      const rows = await client.query<{ organisation_id: string; alias: string }>(
+        "select organisation_id, alias from user_login_aliases",
+      );
+      return rows.rows;
+    });
+    expect(visible).toEqual([{ organisation_id: orgA.rows[0]!.id, alias: "same.alias" }]);
   });
 });

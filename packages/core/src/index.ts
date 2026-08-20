@@ -31,6 +31,25 @@ export {
 export { AppError, pgErrorToAppError } from "./errors.js";
 
 export {
+  normalizePlatformDomain,
+  parseHostHeader,
+  selectRequestHost,
+  firstForwardedHost,
+  classifyHostname,
+  schoolPublicHostname,
+  originForHostname,
+  formatHostname,
+  type ParsedHost,
+  type HostClassification,
+} from "./hostname.js";
+
+export {
+  bindOrganisationHint,
+  headerMatchesHostSlug,
+  type BoundOrganisation,
+} from "./tenancy.js";
+
+export {
   writeAudit,
   currentAcademicYear,
   endDatedRow,

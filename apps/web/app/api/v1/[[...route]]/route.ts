@@ -16,6 +16,8 @@ const app = createApiApp({
   pools,
   authSecret,
   tokenTtlSeconds: Number(process.env.AUTH_TOKEN_TTL_SECONDS ?? 900),
+  platformDomain: (process.env.PLATFORM_DOMAIN ?? "localhost").trim().toLowerCase(),
+  trustProxy: process.env.TRUST_PROXY === "true",
 });
 
 export const runtime = "nodejs";

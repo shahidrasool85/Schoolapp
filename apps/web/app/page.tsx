@@ -1,10 +1,46 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { loadPublicTenant, type PublicTenant } from "../lib/tenant";
+
 export default function HomePage() {
+  const [tenant, setTenant] = useState<PublicTenant | { kind: "unknown" } | null>(null);
+
+  useEffect(() => {
+    loadPublicTenant()
+      .then(setTenant)
+      .catch(() => setTenant({ kind: "unknown" }));
+  }, []);
+
+  if (tenant?.kind === "unknown") {
+    return (
+      <main style={{ fontFamily: "system-ui", maxWidth: 720, margin: "2rem auto", padding: 16 }}>
+        <h1>School not found</h1>
+        <p>This address is not an active school on the platform.</p>
+      </main>
+    );
+  }
+
+  if (tenant?.kind === "school") {
+    return (
+      <main style={{ fontFamily: "system-ui", maxWidth: 720, margin: "2rem auto", padding: 16 }}>
+        <h1>{tenant.organisation.name}</h1>
+        <p>Sign in to your school.</p>
+        <ul>
+          <li>
+            <a href="/login">Sign in</a>
+          </li>
+        </ul>
+      </main>
+    );
+  }
+
   return (
     <main style={{ fontFamily: "system-ui", maxWidth: 720, margin: "2rem auto", padding: 16 }}>
       <h1>Schoolapp</h1>
       <p>
-        Multi-tenant school platform. Phase 3 adds read-only parent and student web portals on the
-        same <code>/api/v1</code> identity, permissions, and database used by future mobile apps.
+        Multi-tenant school platform. Each school uses the same application on its own subdomain.
+        This is the platform entry point.
       </p>
       <ul>
         <li>

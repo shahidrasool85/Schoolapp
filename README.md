@@ -2,7 +2,7 @@
 
 Multi-tenant school management, LMS, and AI learning platform for UK schools (through approximately Year 8, including 11+ preparation).
 
-**Current status:** Phase 4 admissions is implemented on the Phase 1–3 foundation (tenancy, RBAC, RLS, people, school structure, parent/student portals). LMS, AI, and mobile are not built yet.
+**Current status:** Phase 5 SaaS hostname tenancy is implemented on the Phase 1–4 foundation (tenancy, RBAC, RLS, people, school structure, parent/student portals, admissions). Attendance, LMS, AI, and mobile are not built yet.
 
 Start here: **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)**
 
@@ -34,12 +34,16 @@ pnpm --filter @schoolapp/web dev
 Then:
 
 - `GET http://127.0.0.1:3000/api/v1/health`
+- `GET http://localhost:3000/api/v1/public/tenant` (platform context)
+- `GET http://greenwood.localhost:3000/api/v1/public/tenant` after provisioning slug `greenwood`
 - `POST /api/v1/auth/login` with the platform admin email/password
 - `POST /api/v1/platform/organisations` to create a school (returns a one-time invitation token)
 - `POST /api/v1/invitations/accept` then login as the school admin
-- `GET /api/v1/me/memberships` then `GET /api/v1/me` with header `X-Organisation-Id`
+- `GET /api/v1/me/memberships` then `GET /api/v1/me` with header `X-Organisation-Id` **on the platform host**, or visit `http://<slug>.localhost:3000` without spoofing another school's header
 
-`X-Organisation-Id` is a **request**, not authority. Memberships are revalidated in Postgres via `set_tenant_context`.
+`X-Organisation-Id` is a **request**, not authority. On a school hostname it must match the resolved organisation. Memberships are revalidated in Postgres via `set_tenant_context`. See [ADR 0014](./docs/adr/0014-saas-hostname-tenancy.md) for slug rules, local `*.localhost` routing, trusted-proxy behaviour, and later wildcard DNS/TLS.
+
+Production deployment will later require wildcard DNS similar to `*.<PLATFORM_DOMAIN>` and wildcard TLS. Do not hard-code the final domain.
 
 ## Documentation
 

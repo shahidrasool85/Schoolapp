@@ -4,6 +4,7 @@ The in-app `notifications` inbox is implemented in Phase 3. `notification_prefer
 
 | Placeholder | Purpose | What is deferred |
 | --- | --- | --- |
+| `organisation_hostnames` | Future custom school domains (verification token + activation) | Automated DNS/TXT checks, certificate provisioning |
 | `organisation_identifiers` | School URN, DfE number, Companies House, admissions codes | Validation, uniqueness across the platform, MIS sync |
 | `organisation_settings` | Typed school settings (timezone already on org; calendar, locale, branding later) | Settings UI beyond what Phase 1 needs to provision a school |
 | `organisation_feature_flags` | Per-school flags (leaderboards, AI, student login, auto-publish) | Flag admin UX; evaluation lives in core once modules exist |

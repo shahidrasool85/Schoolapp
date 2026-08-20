@@ -1,3 +1,16 @@
+export {
+  SLUG_MIN_LENGTH,
+  SLUG_MAX_LENGTH,
+  SLUG_PATTERN,
+  RESERVED_SUBDOMAINS,
+  RESERVED_SUBDOMAIN_SET,
+  normalizeSlugInput,
+  isReservedSubdomain,
+  validateOrganisationSlug,
+  slugValidationMessage,
+  type SlugValidationError,
+} from "./slugs.js";
+
 export const PERMISSIONS = {
   PLATFORM_ORGANISATIONS_MANAGE: "platform.organisations.manage",
   PLATFORM_SUPPORT_ACCESS_MANAGE: "platform.support_access.manage",

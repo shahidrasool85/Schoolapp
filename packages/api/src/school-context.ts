@@ -4,7 +4,7 @@ import { PERMISSIONS, type Actor, type UserKind } from "@schoolapp/domain";
 import { AppError, pgErrorToAppError } from "@schoolapp/core";
 import { withTenantContext } from "@schoolapp/db";
 import type { ApiEnv } from "./types";
-import { requestedOrganisationId } from "./auth-middleware";
+import { requireBoundOrganisationId } from "./tenant-resolver";
 
 export type SchoolCtx = {
   client: pg.PoolClient;
@@ -57,10 +57,7 @@ export async function withSchoolActor<T>(
   c: Context<ApiEnv>,
   fn: (ctx: SchoolCtx) => Promise<T>,
 ): Promise<T> {
-  const orgId = requestedOrganisationId(c);
-  if (!orgId) {
-    throw new AppError(400, "org_context_required", "X-Organisation-Id is required");
-  }
+  const orgId = requireBoundOrganisationId(c);
   const userId = c.get("userId");
   try {
     return await withTenantContext(c.get("config").pools.app, userId, orgId, async (client) => {

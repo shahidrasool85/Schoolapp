@@ -1,16 +1,13 @@
 import { z } from "zod";
-import { PERMISSIONS } from "@schoolapp/domain";
+import { PERMISSIONS, validateOrganisationSlug, slugValidationMessage } from "@schoolapp/domain";
 import { AppError, pgErrorToAppError } from "@schoolapp/core";
-import { withTenantContext } from "@schoolapp/db";
 import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
+import { requirePlatformHost } from "../tenant-resolver";
 
 const provisionSchema = z.object({
   name: z.string().min(1),
-  slug: z
-    .string()
-    .min(2)
-    .regex(/^[a-z0-9-]+$/),
+  slug: z.string().min(1),
   adminEmail: z.string().email(),
   adminFullName: z.string().min(1),
 });
@@ -23,6 +20,7 @@ const supportSchema = z.object({
 
 export function registerPlatformRoutes(app: SchoolappApi) {
   app.get("/platform/organisations", requireUser, async (c) => {
+    requirePlatformHost(c);
     const config = c.get("config");
     const userId = c.get("userId");
     try {
@@ -44,9 +42,18 @@ export function registerPlatformRoutes(app: SchoolappApi) {
   });
 
   app.post("/platform/organisations", requireUser, async (c) => {
+    requirePlatformHost(c);
     const parsed = provisionSchema.safeParse(await c.req.json());
     if (!parsed.success) {
       throw new AppError(400, "validation_failed", "Invalid organisation payload");
+    }
+    const slug = validateOrganisationSlug(parsed.data.slug);
+    if (!slug.ok) {
+      throw new AppError(
+        400,
+        slug.error === "reserved" ? "reserved_slug" : "validation_failed",
+        slugValidationMessage(slug.error),
+      );
     }
     const userId = c.get("userId");
     try {
@@ -55,7 +62,7 @@ export function registerPlatformRoutes(app: SchoolappApi) {
         [
           userId,
           parsed.data.name,
-          parsed.data.slug,
+          slug.slug,
           parsed.data.adminEmail.toLowerCase(),
           parsed.data.adminFullName,
         ],
@@ -79,6 +86,7 @@ export function registerPlatformRoutes(app: SchoolappApi) {
   });
 
   app.post("/platform/organisations/:organisationId/support-access", requireUser, async (c) => {
+    requirePlatformHost(c);
     const parsed = supportSchema.safeParse(await c.req.json());
     if (!parsed.success) {
       throw new AppError(400, "validation_failed", "Invalid support-access payload");
@@ -102,10 +110,62 @@ export function registerPlatformRoutes(app: SchoolappApi) {
   });
 
   app.post("/platform/support-access/:grantId/revoke", requireUser, async (c) => {
+    requirePlatformHost(c);
     try {
       await c.get("config").pools.app.query("select revoke_support_access($1, $2)", [
         c.get("userId"),
         c.req.param("grantId"),
+      ]);
+      return c.json({ ok: true });
+    } catch (error) {
+      throw pgErrorToAppError(error) ?? error;
+    }
+  });
+
+  app.post("/platform/organisations/:organisationId/slug", requireUser, async (c) => {
+    requirePlatformHost(c);
+    const parsed = z.object({ slug: z.string().min(1) }).safeParse(await c.req.json());
+    if (!parsed.success) {
+      throw new AppError(400, "validation_failed", "Invalid slug payload");
+    }
+    const slug = validateOrganisationSlug(parsed.data.slug);
+    if (!slug.ok) {
+      throw new AppError(
+        400,
+        slug.error === "reserved" ? "reserved_slug" : "validation_failed",
+        slugValidationMessage(slug.error),
+      );
+    }
+    try {
+      const result = await c.get("config").pools.app.query(
+        "select change_organisation_slug_as_platform($1, $2, $3) as slug",
+        [c.get("userId"), c.req.param("organisationId"), slug.slug],
+      );
+      return c.json({ slug: result.rows[0].slug as string });
+    } catch (error) {
+      throw pgErrorToAppError(error) ?? error;
+    }
+  });
+
+  app.post("/platform/organisation-hostnames/:hostnameId/activate", requireUser, async (c) => {
+    requirePlatformHost(c);
+    try {
+      await c.get("config").pools.app.query("select activate_organisation_hostname($1, $2)", [
+        c.get("userId"),
+        c.req.param("hostnameId"),
+      ]);
+      return c.json({ ok: true });
+    } catch (error) {
+      throw pgErrorToAppError(error) ?? error;
+    }
+  });
+
+  app.post("/platform/organisation-hostnames/:hostnameId/deactivate", requireUser, async (c) => {
+    requirePlatformHost(c);
+    try {
+      await c.get("config").pools.app.query("select deactivate_organisation_hostname($1, $2)", [
+        c.get("userId"),
+        c.req.param("hostnameId"),
       ]);
       return c.json({ ok: true });
     } catch (error) {

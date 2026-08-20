@@ -56,12 +56,22 @@ if [ "${ok}" -ne 1 ]; then
 fi
 
 health="$(curl -sS "http://127.0.0.1:${PORT}/api/v1/health")"
+tenant="$(curl -sS "http://127.0.0.1:${PORT}/api/v1/public/tenant")"
+unknown_code="$(curl -sS -o /dev/null -w "%{http_code}" -H "Host: nosuch.localhost:${PORT}" "http://127.0.0.1:${PORT}/api/v1/public/tenant")"
 code="$(curl -sS -o /tmp/schoolapp-smoke-login.html -w "%{http_code}" "http://127.0.0.1:${PORT}/login")"
 parent_code="$(curl -sS -o /dev/null -w "%{http_code}" "http://127.0.0.1:${PORT}/parent")"
 student_code="$(curl -sS -o /dev/null -w "%{http_code}" "http://127.0.0.1:${PORT}/student")"
 
 if [ "${health}" != '{"ok":true}' ]; then
   echo "unexpected health body: ${health}" >&2
+  exit 1
+fi
+if ! echo "${tenant}" | grep -q '"kind":"platform"'; then
+  echo "unexpected public tenant on 127.0.0.1: ${tenant}" >&2
+  exit 1
+fi
+if [ "${unknown_code}" != "404" ]; then
+  echo "unknown school host returned ${unknown_code}" >&2
   exit 1
 fi
 if [ "${code}" != "200" ]; then
@@ -81,4 +91,4 @@ if ! grep -q "Sign in" /tmp/schoolapp-smoke-login.html; then
   exit 1
 fi
 
-echo "web smoke ok (health 200, /login 200, /parent 200, /student 200)"
+echo "web smoke ok (health 200, platform tenant, unknown host 404, /login 200, /parent 200, /student 200)"

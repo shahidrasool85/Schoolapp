@@ -62,6 +62,7 @@ describe("hostname parsing", () => {
         host: "greenwood.localhost:3000",
         forwardedHost: "oakacademy.localhost",
         trustProxy: false,
+        platformDomain: "localhost",
       }),
     ).toBe("greenwood.localhost:3000");
     expect(
@@ -69,6 +70,15 @@ describe("hostname parsing", () => {
         host: "127.0.0.1:3000",
         forwardedHost: "greenwood.localhost:3000, spoof.example",
         trustProxy: true,
+        platformDomain: "localhost",
+      }),
+    ).toBe("greenwood.localhost:3000");
+    expect(
+      selectRequestHost({
+        host: "greenwood.localhost:3000",
+        forwardedHost: "oakacademy.localhost",
+        trustProxy: true,
+        platformDomain: "localhost",
       }),
     ).toBe("greenwood.localhost:3000");
   });

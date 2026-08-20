@@ -57,6 +57,7 @@ export async function resolveTenantFromRequest(
     host: c.req.header("host"),
     forwardedHost: c.req.header("x-forwarded-host"),
     trustProxy: config.trustProxy,
+    platformDomain: config.platformDomain,
   });
   if (!rawHost) {
     return {

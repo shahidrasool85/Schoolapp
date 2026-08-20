@@ -93,12 +93,33 @@ export function selectRequestHost(input: {
   host: string | null | undefined;
   forwardedHost: string | null | undefined;
   trustProxy: boolean;
+  platformDomain: string;
 }): string | null {
-  if (input.trustProxy) {
-    const forwarded = firstForwardedHost(input.forwardedHost);
-    if (forwarded) return forwarded;
+  const connectionHost = input.host ?? null;
+  if (!input.trustProxy) {
+    return connectionHost;
   }
-  return input.host ?? null;
+  const forwarded = firstForwardedHost(input.forwardedHost);
+  if (!forwarded) {
+    return connectionHost;
+  }
+  // Only honour X-Forwarded-Host when the immediate Host is a proxy/origin
+  // terminator (IP, localhost, platform apex, or reserved platform label).
+  // If the connection already presents a school or unknown public host, use it
+  // so a client cannot override a real Host with a spoofed forwarded header.
+  const parsedConnection = parseHostHeader(connectionHost);
+  if (!parsedConnection) {
+    return forwarded;
+  }
+  const classified = classifyHostname(parsedConnection.hostname, input.platformDomain);
+  if (
+    classified.kind === "platform" ||
+    classified.kind === "reserved" ||
+    classified.kind === "invalid"
+  ) {
+    return forwarded;
+  }
+  return connectionHost;
 }
 
 export function firstForwardedHost(raw: string | null | undefined): string | null {

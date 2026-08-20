@@ -56,11 +56,13 @@ The apex host does not auto-select a school. It is the foundation for a future m
 
 ### Custom domains (foundation only)
 
-`organisation_hostnames` stores custom hostnames with organisation ownership, uniqueness, verification status, activation flag, and a future DNS TXT token. Automated DNS/TLS provisioning is **not** implemented. Only a platform administrator can activate a hostname. Unverified rows never resolve.
+`organisation_hostnames` stores custom hostnames with organisation ownership, uniqueness **for verified and active rows**, verification status, activation flag, and a future DNS TXT token. Automated DNS/TLS provisioning is **not** implemented. Pending registrations do not globally squat a hostname: another school may also register it as pending. Only a platform administrator can activate a hostname, and activation fails if that hostname is already verified and active. Unverified rows never resolve.
 
 ### Trusted proxy
 
 Default: **do not trust `X-Forwarded-Host`**. For future Plesk/nginx, set `TRUST_PROXY=true` only when the reverse proxy **overwrites** `X-Forwarded-Host` / `X-Forwarded-Proto` from the connection it terminated. Do not pass through client-supplied forwarded headers.
+
+When `TRUST_PROXY=true`, forwarded hosts are honoured only if the immediate `Host` is a proxy terminator (IP, localhost, platform apex, or reserved label). A connection that already presents a school hostname cannot be overridden by `X-Forwarded-Host`.
 
 ### Local development
 

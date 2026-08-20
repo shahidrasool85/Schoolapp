@@ -424,6 +424,20 @@ describe("Phase 5 SaaS hostname tenancy", () => {
     });
     expect(pending.status).toBe(404);
 
+    const otherSchool = await seedSchool(pools.owner, `customb-${id}`, "Other Custom");
+    const otherAdmin = await login(app, otherSchool.adminEmail, "password-12x");
+    const squat = await app.request("/api/v1/organisation/hostnames", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${otherAdmin}`,
+        "Content-Type": "application/json",
+        Host: `${otherSchool.slug}.localhost:3000`,
+      },
+      body: JSON.stringify({ hostname }),
+    });
+    expect(squat.status).toBe(201);
+    const squatBody = (await squat.json()) as { id: string };
+
     const platformSubdomainCustom = await app.request("/api/v1/organisation/hostnames", {
       method: "POST",
       headers: {
@@ -459,6 +473,18 @@ describe("Phase 5 SaaS hostname tenancy", () => {
     expect(verifiedBody.kind).toBe("school");
     expect(verifiedBody.source).toBe("custom_domain");
     expect(verifiedBody.organisation.id).toBe(school.orgId);
+
+    const secondActivate = await app.request(
+      `/api/v1/platform/organisation-hostnames/${squatBody.id}/activate`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${platformToken}`,
+          Host: "localhost:3000",
+        },
+      },
+    );
+    expect(secondActivate.status).toBe(409);
   });
 
   it("onboards a school transactionally and blocks public signup", async () => {

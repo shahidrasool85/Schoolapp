@@ -45,7 +45,7 @@ type Option = { id: string; name: string };
 const STATUSES = [
   "enquiry", "draft", "submitted", "under_review", "information_required",
   "assessment_pending", "assessment_completed", "waiting_list", "offer_pending",
-  "offer_made", "accepted", "deferred", "rejected", "withdrawn",
+  "offer_made", "accepted", "deferred", "rejected", "withdrawn", "enrolled",
 ];
 
 export default function ApplicationDetailPage() {
@@ -199,8 +199,10 @@ export default function ApplicationDetailPage() {
       <form className="card form-grid" onSubmit={changeStatus}>
         <label>
           New status
-          <select name="status" defaultValue={app.status}>
-            {STATUSES.map((s) => <option key={s} value={s}>{s.replaceAll("_", " ")}</option>)}
+          <select name="status" key={app.status} defaultValue={app.status}>
+            {STATUSES.map((s) => (
+              <option key={s} value={s} disabled={s === "enrolled"}>{s.replaceAll("_", " ")}</option>
+            ))}
           </select>
         </label>
         <label>Reason / note<input name="reason" /></label>

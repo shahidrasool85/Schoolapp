@@ -242,7 +242,7 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
            where organisation_id = $1 and status = 'submitted'
          union all
          select 'awaiting_review', count(*)::int from admissions_applications
-           where organisation_id = $1 and status in ('submitted', 'under_review', 'information_required')
+           where organisation_id = $1 and status = 'under_review'
          union all
          select 'assessments_due', count(*)::int from admissions_assessments
            where organisation_id = $1 and status = 'scheduled'
@@ -251,7 +251,7 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
            where organisation_id = $1 and status = 'active'
          union all
          select 'offers_made', count(*)::int from admissions_offers
-           where organisation_id = $1 and status in ('made', 'accepted')
+           where organisation_id = $1 and status = 'made'
          union all
          select 'offers_awaiting_response', count(*)::int from admissions_offers
            where organisation_id = $1 and status = 'made'
@@ -1130,6 +1130,28 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
       const existing = await client.query(`${OFFER_SQL} and o.id = $2`, [orgId, id]);
       if (!existing.rows[0]) throw new AppError(404, "not_found", "Not found");
       const nextStatus = parsed.data.status;
+      const currentStatus = existing.rows[0].status as string;
+      const applicationId = existing.rows[0].application_id as string;
+      const statusChanged = Boolean(nextStatus && nextStatus !== currentStatus);
+      if (statusChanged && (nextStatus === "accepted" || nextStatus === "declined" || nextStatus === "expired" || nextStatus === "withdrawn")) {
+        if (currentStatus !== "made") {
+          throw new AppError(
+            409,
+            "conflict",
+            "Offer can only be accepted, declined, expired, or withdrawn while it is still made",
+          );
+        }
+      }
+      const application = await loadApplication(client, orgId, applicationId);
+      if (statusChanged && (nextStatus === "expired" || nextStatus === "withdrawn")) {
+        if (application.status === "accepted" || application.status === "enrolled") {
+          throw new AppError(
+            409,
+            "conflict",
+            "Cannot expire or withdraw an offer after the application has been accepted",
+          );
+        }
+      }
       const updated = await client.query(
         `update admissions_offers
          set status = coalesce($3, status),
@@ -1153,9 +1175,7 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
         ],
       );
       if (!updated.rows[0]) throw new AppError(404, "not_found", "Not found");
-      const applicationId = updated.rows[0].application_id as string;
-      const application = await loadApplication(client, orgId, applicationId);
-      if (nextStatus === "accepted") {
+      if (statusChanged && nextStatus === "accepted") {
         assertApplicationStatusTransition(actor, application.status as ApplicationStatus, "accepted");
         await setTransitionReason(client, "Offer accepted");
         await client.query(
@@ -1163,7 +1183,7 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
            where id = $1 and organisation_id = $2`,
           [applicationId, orgId],
         );
-      } else if (nextStatus === "declined") {
+      } else if (statusChanged && nextStatus === "declined") {
         const to = parsed.data.waitlistOnDecline ? "waiting_list" : "rejected";
         assertApplicationStatusTransition(actor, application.status as ApplicationStatus, to);
         await setTransitionReason(client, parsed.data.waitlistOnDecline ? "Offer declined; waiting list" : "Offer declined");
@@ -1172,7 +1192,7 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
            where id = $1 and organisation_id = $2`,
           [applicationId, orgId, to],
         );
-      } else if (nextStatus === "expired" || nextStatus === "withdrawn") {
+      } else if (statusChanged && (nextStatus === "expired" || nextStatus === "withdrawn")) {
         await setTransitionReason(client, `Offer ${nextStatus}`);
         await client.query(
           `update admissions_applications set status = 'withdrawn'
@@ -1183,12 +1203,12 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
       await writeAudit(client, {
         organisationId: orgId,
         actorUserId: userId,
-        action: `admissions.offer.${nextStatus ?? "updated"}`,
+        action: `admissions.offer.${statusChanged ? nextStatus : "updated"}`,
         entityType: "admissions_offer",
         entityId: id,
         after: parsed.data,
       });
-      if (nextStatus === "accepted" || nextStatus === "declined") {
+      if (statusChanged && (nextStatus === "accepted" || nextStatus === "declined")) {
         await notifyApplicationContacts(
           client,
           orgId,
@@ -1229,9 +1249,8 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
       if (application.status !== "accepted" && application.status !== "enrolled") {
         throw new AppError(409, "conflict", "Only an accepted application can be enrolled");
       }
-      const alreadyEnrolled = application.status === "enrolled" && application.converted_student_profile_id;
-      const converted = await client.query<{ enrol_admitted_applicant: string }>(
-        `select enrol_admitted_applicant($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
+      const converted = await client.query<{ student_profile_id: string; newly_converted: boolean }>(
+        `select * from enrol_admitted_applicant($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
         [
           userId,
           orgId,
@@ -1249,7 +1268,7 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
           ),
         ],
       );
-      if (!alreadyEnrolled) {
+      if (converted.rows[0]!.newly_converted) {
         await notifyApplicationContacts(
           client,
           orgId,
@@ -1262,7 +1281,7 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
       const listed = await client.query(`${APPLICATION_SQL} and a.id = $2`, [orgId, id]);
       return c.json({
         application: mapApplication(listed.rows[0]!),
-        studentProfileId: converted.rows[0]!.enrol_admitted_applicant,
+        studentProfileId: converted.rows[0]!.student_profile_id,
       });
     }),
   );

@@ -195,7 +195,17 @@ async function insertContacts(
 ) {
   for (const contact of contacts) {
     const existingUser = contact.email
-      ? await client.query("select id from users where email = $1", [contact.email.toLowerCase()])
+      ? await client.query<{ id: string }>(
+          `select u.id
+           from users u
+           join organisation_memberships m on m.user_id = u.id
+           where u.email = $1
+             and m.organisation_id = $2
+             and m.status in ('active', 'invited')
+             and m.ended_at is null
+           limit 1`,
+          [contact.email.toLowerCase(), orgId],
+        )
       : { rows: [] as Array<{ id: string }> };
     await client.query(
       `insert into admissions_application_contacts (
@@ -1219,6 +1229,7 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
       if (application.status !== "accepted" && application.status !== "enrolled") {
         throw new AppError(409, "conflict", "Only an accepted application can be enrolled");
       }
+      const alreadyEnrolled = application.status === "enrolled" && application.converted_student_profile_id;
       const converted = await client.query<{ enrol_admitted_applicant: string }>(
         `select enrol_admitted_applicant($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
         [
@@ -1238,14 +1249,16 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
           ),
         ],
       );
-      await notifyApplicationContacts(
-        client,
-        orgId,
-        userId,
-        id,
-        `Enrolment ${application.reference}`,
-        "The applicant has been enrolled at the school.",
-      );
+      if (!alreadyEnrolled) {
+        await notifyApplicationContacts(
+          client,
+          orgId,
+          userId,
+          id,
+          `Enrolment ${application.reference}`,
+          "The applicant has been enrolled at the school.",
+        );
+      }
       const listed = await client.query(`${APPLICATION_SQL} and a.id = $2`, [orgId, id]);
       return c.json({
         application: mapApplication(listed.rows[0]!),

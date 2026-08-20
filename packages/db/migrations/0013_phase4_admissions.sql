@@ -466,7 +466,7 @@ as $$
     when p_to = 'enrolled' then p_from = 'accepted'
     when p_from = 'enquiry' then p_to in ('draft', 'submitted', 'withdrawn')
     when p_from = 'draft' then p_to in ('submitted', 'withdrawn')
-    when p_from = 'submitted' then p_to in ('under_review', 'information_required', 'withdrawn')
+    when p_from = 'submitted' then p_to in ('under_review', 'information_required', 'assessment_pending', 'withdrawn')
     when p_from = 'under_review' then p_to in (
       'information_required', 'assessment_pending', 'offer_pending', 'offer_made', 'waiting_list',
       'rejected', 'withdrawn', 'deferred'
@@ -1045,6 +1045,15 @@ begin
           v_portal,
           case when v_contact.is_primary then 1 else 2 end::smallint
         );
+      elsif v_portal then
+        update guardianships g
+        set portal_access = true
+        where g.student_profile_id = v_profile_id
+          and g.organisation_id = p_organisation_id
+          and g.ended_on is null
+          and g.guardian_user_id = (
+            select u.id from users u where u.email = v_contact.email
+          );
       end if;
       update admissions_application_contacts c
       set user_id = u.id

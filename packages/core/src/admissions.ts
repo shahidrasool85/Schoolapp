@@ -20,7 +20,7 @@ export const ADMISSIONS_READ_PERMISSIONS = [
 const MANAGE_TRANSITIONS: Record<ApplicationStatus, readonly ApplicationStatus[]> = {
   enquiry: ["draft", "submitted", "withdrawn"],
   draft: ["submitted", "withdrawn"],
-  submitted: ["under_review", "information_required", "withdrawn"],
+  submitted: ["under_review", "information_required", "assessment_pending", "withdrawn"],
   under_review: [
     "information_required",
     "assessment_pending",

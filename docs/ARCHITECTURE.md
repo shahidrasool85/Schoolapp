@@ -1,6 +1,6 @@
 # Schoolapp — Platform Architecture
 
-**Status:** Accepted with amendments (2026-08-20). No product modules have been implemented yet.  
+**Status:** Phase 1 foundation implemented. Later modules are not built.  
 **Audience:** Product owner and engineering.  
 **Scope:** Multi-tenant UK school SaaS (SIS + LMS + AI learning), web first, mobile-ready.
 
@@ -664,18 +664,16 @@ Each phase ships behind feature flags per organisation. Mobile starts only when 
 13. UK/EU residency is a preferred deployment policy; international transfers need safeguards.
 14. Inter-school competitions remain unimplemented; governance placeholders only.
 
-### Still requiring product-owner approval
+### Product-owner Phase 1 decisions (ADR 0011)
 
-See the summary at the end of this PR / chat response. Highlights:
-
-- Exact Headteacher vs School Admin permission matrix (catalogue is a starting proposal)
-- Commercial model for `organisation_subscriptions` (per school vs per pupil vs seats)
-- Whether Phase 1 needs hash-chain / WORM audit or append-only + revoked UPDATE/DELETE is enough
-- Whether a pupil may have more than one year-group enrolment in a single academic year
-- Whether teachers without a class assignment may see all pupils (school flag)
-- Whether Super Admin break-glass into tenant data exists in v1 at all
-- Whether `restricted_contact` should remain even as a placeholder column
-- First production hosting region (preferred UK/EU vs another region with transfer safeguards)
+15. School Admin and Headteacher stay separate roles with separate catalogue grants.
+16. Billing is a per-school subscription with configurable plan entitlements/pricing (no hardcoded bands).
+17. Phase 1 audit is append-only; hash chain/WORM can be added later without redesign.
+18. One primary year-group enrolment per student per year, plus optional secondary/exceptional placements.
+19. Teachers have no school-wide pupil visibility; assigned access only.
+20. Platform Super Admin uses break-glass support access, not routine tenant browsing.
+21. `restricted_contact` is a tightly permissioned placeholder, not exposed to teachers/parents/students.
+22. Preferred first production region is the United Kingdom where available.
 
 ### Risks (honest)
 

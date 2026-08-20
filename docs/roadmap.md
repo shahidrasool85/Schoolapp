@@ -2,12 +2,12 @@
 
 Do **not** implement the whole product in one operation. Each phase has an exit criterion. Architecture (Phase 0) is this documentation set.
 
-## Phase 0 — Architecture (current)
+## Phase 0 — Architecture (accepted)
 
 **Deliverable:** this `docs/` tree, ADRs, proposed schema, API conventions.  
-**Exit:** remaining product-owner items in ARCHITECTURE.md §11 are decided or explicitly deferred. No production code required.
+**Exit:** product-owner decisions recorded in [ADR 0011](./adr/0011-product-owner-phase-1-decisions.md).
 
-## Phase 1 — Platform foundation
+## Phase 1 — Platform foundation (implemented)
 
 **Outcome:** a school can be provisioned; a user can log in; tenancy is enforced.
 

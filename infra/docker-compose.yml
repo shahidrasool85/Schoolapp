@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: schoolapp
+    ports:
+      - "5432:5432"
+    volumes:
+      - schoolapp_pg:/var/lib/postgresql/data
+    # Object storage is not required. Configure an S3-compatible bucket via env when needed.
+
+volumes:
+  schoolapp_pg:

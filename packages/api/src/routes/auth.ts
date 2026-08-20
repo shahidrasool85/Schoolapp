@@ -130,17 +130,21 @@ export function registerAuthRoutes(app: SchoolappApi) {
         if (invite.existing_user_status !== "active") {
           throw new AppError(403, "forbidden", "This account cannot accept invitations");
         }
-        if (!invite.has_credentials || !invite.email) {
-          throw new AppError(409, "invitation_conflict", "This account cannot be claimed via invite");
-        }
-        const lookup = await config.pools.app.query(
-          "select * from local_auth_lookup($1)",
-          [invite.email],
-        );
-        const row = lookup.rows[0] as { password_hash: string } | undefined;
-        const ok = row ? await verifyPassword(row.password_hash, parsed.data.password) : false;
-        if (!ok) {
-          throw new AppError(401, "unauthenticated", "Invalid email or password");
+        if (invite.has_credentials) {
+          if (!invite.email) {
+            throw new AppError(409, "invitation_conflict", "This account cannot be claimed via invite");
+          }
+          const lookup = await config.pools.app.query(
+            "select * from local_auth_lookup($1)",
+            [invite.email],
+          );
+          const row = lookup.rows[0] as { password_hash: string } | undefined;
+          const ok = row ? await verifyPassword(row.password_hash, parsed.data.password) : false;
+          if (!ok) {
+            throw new AppError(401, "unauthenticated", "Invalid email or password");
+          }
+        } else {
+          passwordHash = await hashPassword(parsed.data.password);
         }
       } else {
         passwordHash = await hashPassword(parsed.data.password);

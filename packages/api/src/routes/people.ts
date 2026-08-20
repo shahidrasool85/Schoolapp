@@ -511,14 +511,14 @@ export function registerPeopleRoutes(app: SchoolappApi) {
         guardianship_id: string;
         invitation_id: string | null;
         invitation_token: string | null;
-        guardian_user_id: string;
+        created_user_id: string;
       };
       return c.json(
         {
           guardianshipId: row.guardianship_id,
           invitationId: row.invitation_id,
           invitationToken: row.invitation_token,
-          guardianUserId: row.guardian_user_id,
+          guardianUserId: row.created_user_id,
         },
         201,
       );
@@ -647,14 +647,14 @@ export function registerPeopleRoutes(app: SchoolappApi) {
         staff_profile_id: string;
         invitation_id: string;
         invitation_token: string;
-        user_id: string;
+        created_user_id: string;
       };
       return c.json(
         {
           staffProfileId: row.staff_profile_id,
           invitationId: row.invitation_id,
           invitationToken: row.invitation_token,
-          userId: row.user_id,
+          userId: row.created_user_id,
         },
         201,
       );

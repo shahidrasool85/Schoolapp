@@ -626,6 +626,13 @@ begin
     if v_status <> 'active' then
       raise exception 'invitation_user_disabled' using errcode = '42501';
     end if;
+    if not exists (select 1 from user_credentials c where c.user_id = v_user_id) then
+      if p_password_hash is null or char_length(p_password_hash) < 16 then
+        raise exception 'invitation_password_required' using errcode = '22023';
+      end if;
+      insert into user_credentials (user_id, password_hash)
+      values (v_user_id, p_password_hash);
+    end if;
   end if;
 
   insert into organisation_memberships (organisation_id, user_id, status)
@@ -825,7 +832,7 @@ returns table (
   staff_profile_id uuid,
   invitation_id uuid,
   invitation_token text,
-  user_id uuid
+  created_user_id uuid
 )
 language plpgsql
 security definer
@@ -919,7 +926,7 @@ begin
   staff_profile_id := v_profile_id;
   invitation_id := v_inv_id;
   invitation_token := v_token;
-  user_id := v_user_id;
+  created_user_id := v_user_id;
   return next;
 end;
 $$;
@@ -944,7 +951,7 @@ returns table (
   guardianship_id uuid,
   invitation_id uuid,
   invitation_token text,
-  guardian_user_id uuid
+  created_user_id uuid
 )
 language plpgsql
 security definer
@@ -1040,7 +1047,7 @@ begin
   guardianship_id := v_guard_id;
   invitation_id := v_inv_id;
   invitation_token := v_token;
-  guardian_user_id := v_user_id;
+  created_user_id := v_user_id;
   return next;
 end;
 $$;

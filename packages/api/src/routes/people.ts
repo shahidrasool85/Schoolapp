@@ -99,7 +99,8 @@ const STUDENT_LIST_SQL = `
     where cm.student_profile_id = sp.id
       and cm.ended_on is null
       and c.class_type = 'form'
-      and (ay.id is null or cm.academic_year_id = ay.id)
+      and ay.id is not null
+      and cm.academic_year_id = ay.id
     limit 1
   ) form on true
   where sp.organisation_id = $1
@@ -250,15 +251,16 @@ export function registerPeopleRoutes(app: SchoolappApi) {
       const updated = await client.query(
         `update student_profiles
          set legal_name = coalesce($3, legal_name),
-             admission_number = coalesce($4, admission_number),
-             enrolment_status = coalesce($5, enrolment_status)
+             admission_number = case when $4::boolean then $5::text else admission_number end,
+             enrolment_status = coalesce($6, enrolment_status)
          where id = $1 and organisation_id = $2
          returning id`,
         [
           c.req.param("id"),
           orgId,
           parsed.data.legalName ?? null,
-          parsed.data.admissionNumber === undefined ? null : parsed.data.admissionNumber,
+          parsed.data.admissionNumber !== undefined,
+          parsed.data.admissionNumber ?? null,
           parsed.data.enrolmentStatus ?? null,
         ],
       );
@@ -405,6 +407,22 @@ export function registerPeopleRoutes(app: SchoolappApi) {
         [c.req.param("id"), orgId, parsed.data.endedOn, parsed.data.status],
       );
       if (!updated.rows[0]) throw new AppError(404, "not_found", "Not found");
+      if (updated.rows[0].is_primary) {
+        await client.query(
+          `update class_memberships
+           set ended_on = $4::date
+           where student_profile_id = $1
+             and organisation_id = $2
+             and academic_year_id = $3
+             and ended_on is null`,
+          [
+            updated.rows[0].student_profile_id,
+            orgId,
+            updated.rows[0].academic_year_id,
+            parsed.data.endedOn,
+          ],
+        );
+      }
       await writeAudit(client, {
         organisationId: orgId,
         actorUserId: userId,
@@ -439,14 +457,15 @@ export function registerPeopleRoutes(app: SchoolappApi) {
       if (cls.rows[0].class_type === "form") {
         await client.query(
           `update class_memberships cm
-           set ended_on = $3::date
+           set ended_on = $4::date
            from classes c
            where cm.class_id = c.id
              and cm.student_profile_id = $1
-             and cm.organisation_id = $2
+             and cm.academic_year_id = $2
+             and cm.organisation_id = $3
              and cm.ended_on is null
              and c.class_type = 'form'`,
-          [c.req.param("id"), orgId, startedOn],
+          [c.req.param("id"), cls.rows[0].academic_year_id, orgId, startedOn],
         );
       }
       const inserted = await client.query(
@@ -555,7 +574,7 @@ export function registerPeopleRoutes(app: SchoolappApi) {
              lives_with_student = coalesce($6, lives_with_student),
              portal_access = coalesce($7, portal_access),
              priority = coalesce($8, priority),
-             ended_on = coalesce($9::date, ended_on)
+             ended_on = case when $9::boolean then $10::date else ended_on end
          where id = $1 and organisation_id = $2
          returning id, student_profile_id, guardian_user_id, relationship,
                    has_parental_responsibility, is_emergency_contact, lives_with_student,
@@ -569,6 +588,7 @@ export function registerPeopleRoutes(app: SchoolappApi) {
           parsed.data.livesWithStudent ?? null,
           parsed.data.portalAccess ?? null,
           parsed.data.priority ?? null,
+          parsed.data.endedOn !== undefined,
           parsed.data.endedOn ?? null,
         ],
       );
@@ -723,16 +743,19 @@ export function registerPeopleRoutes(app: SchoolappApi) {
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid staff payload");
       const updated = await client.query(
         `update staff_profiles
-         set job_title = coalesce($3, job_title),
-             employee_number = coalesce($4, employee_number),
-             started_on = coalesce($5::date, started_on)
+         set job_title = case when $3::boolean then $4::text else job_title end,
+             employee_number = case when $5::boolean then $6::text else employee_number end,
+             started_on = case when $7::boolean then $8::date else started_on end
          where id = $1 and organisation_id = $2
          returning id`,
         [
           c.req.param("id"),
           orgId,
+          parsed.data.jobTitle !== undefined,
           parsed.data.jobTitle ?? null,
+          parsed.data.employeeNumber !== undefined,
           parsed.data.employeeNumber ?? null,
+          parsed.data.startedOn !== undefined,
           parsed.data.startedOn ?? null,
         ],
       );

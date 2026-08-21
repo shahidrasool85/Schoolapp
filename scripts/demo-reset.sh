@@ -8,6 +8,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# shellcheck source=lib-postgres.sh
+source "$ROOT/scripts/lib-postgres.sh"
+
 if [ "${NODE_ENV:-}" = "production" ]; then
   echo "Refusing to reset demo data because NODE_ENV=production." >&2
   exit 1
@@ -43,16 +46,6 @@ if [ -f "$ROOT/.env" ]; then
   GUARD_ARGS+=("$ROOT/.env")
 fi
 pnpm --filter @schoolapp/db exec tsx src/demo-guard.ts -- "${GUARD_ARGS[@]}"
-
-psql_super() {
-  if [ -n "${PGHOST:-}" ]; then
-    PGPASSWORD="${PGPASSWORD:-postgres}" psql -U "${PGUSER:-postgres}" -v ON_ERROR_STOP=1 "$@"
-  elif command -v sudo >/dev/null && id postgres >/dev/null 2>&1; then
-    sudo -u postgres psql -v ON_ERROR_STOP=1 "$@"
-  else
-    psql -U postgres -v ON_ERROR_STOP=1 "$@"
-  fi
-}
 
 echo "Dropping local database schoolapp (test databases are left alone)..."
 psql_super <<'SQL'

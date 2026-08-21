@@ -25,6 +25,8 @@ pnpm demo:start
 
 Then open http://localhost:3000 and the school URLs http://greenwood.localhost:3000 and http://oakacademy.localhost:3000. Logins, URLs, and what to click are in **[docs/demo.md](./docs/demo.md)**.
 
+On Windows, install [Git for Windows](https://git-scm.com/) and start Docker Desktop first. `pnpm demo:setup` works from Git Bash, and from PowerShell it launches Git Bash when `bash.exe` is available. Docker Desktop is enough — you do not need a local PostgreSQL install. See the Windows notes in [docs/demo.md](./docs/demo.md).
+
 `pnpm demo:reset` recreates the local `schoolapp` database and loads the same demo data again. This path will not run in production.
 
 ## Phase 1 — local setup

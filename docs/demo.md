@@ -9,10 +9,20 @@ Demo seed will refuse to run in production, against a remote database, or when `
 - Node.js 22
 - [pnpm 9](https://pnpm.io/installation)
 - PostgreSQL 16, either:
-  - Docker Desktop (recommended), or
+  - Docker Desktop (recommended — you do **not** need a local PostgreSQL install or `pg_isready` on the host), or
   - Postgres installed on your computer
 
 You do not need to edit configuration files for the default local demo.
+
+### Windows
+
+1. Install [Git for Windows](https://git-scm.com/) so **Git Bash** is available.
+2. Start **Docker Desktop** and wait until it is running (`docker ps` should work).
+3. From the Schoolapp folder, run `pnpm install` then `pnpm demo:setup`.
+
+The demo scripts are Bash. In **Git Bash**, `pnpm demo:setup` runs them directly. From **PowerShell** or Command Prompt, the same `pnpm demo:setup` command launches Git Bash automatically when `bash.exe` is in the usual Git for Windows location (or on PATH). If you see a message that Bash is missing, install Git for Windows or open Git Bash and run the command there.
+
+You do not need to install PostgreSQL itself on Windows. Setup checks `pg_isready` on the host when it exists, and otherwise runs `pg_isready` inside the Docker `postgres` container (`infra-postgres-1`).
 
 ## 1. Install
 
@@ -70,6 +80,8 @@ Modern browsers treat `*.localhost` as your own computer. If a school URL will n
 ```text
 127.0.0.1 greenwood.localhost oakacademy.localhost
 ```
+
+On Windows that file is `C:\Windows\System32\drivers\etc\hosts` (open Notepad as Administrator to edit it).
 
 ## 5. Demo logins
 

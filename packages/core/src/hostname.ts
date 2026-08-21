@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { domainToASCII } from "node:url";
 import { isReservedSubdomain, validateOrganisationSlug } from "@schoolapp/domain";
 
@@ -14,7 +15,6 @@ export type HostClassification =
   | { kind: "custom"; hostname: string }
   | { kind: "unknown_subdomain"; hostname: string; label: string };
 
-const IPV4_RE = /^(?:\d{1,3}\.){3}\d{1,3}$/;
 const HOSTNAME_LABEL_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
 export function normalizePlatformDomain(raw: string | null | undefined): string {
@@ -67,14 +67,11 @@ export function parseHostHeader(raw: string | null | undefined): ParsedHost | nu
   if (hostname.endsWith(".")) hostname = hostname.slice(0, -1);
   if (!hostname) return null;
 
-  if (hostname.includes(":")) {
-    if (!isIpv6(hostname)) return null;
+  const ipKind = isIP(hostname);
+  if (ipKind === 4 || ipKind === 6) {
     return { hostname, port };
   }
-
-  if (IPV4_RE.test(hostname)) {
-    return isIpv4(hostname) ? { hostname, port } : null;
-  }
+  if (hostname.includes(":")) return null;
 
   let ascii: string;
   try {
@@ -117,11 +114,7 @@ export function selectRequestHost(input: {
     return connectionHost;
   }
   const classified = classifyHostname(parsedConnection.hostname, input.platformDomain);
-  if (
-    classified.kind === "platform" ||
-    classified.kind === "reserved" ||
-    classified.kind === "invalid"
-  ) {
+  if (classified.kind === "platform" || classified.kind === "reserved") {
     return forwarded;
   }
   return connectionHost;
@@ -197,15 +190,11 @@ function isDnsHostname(hostname: string): boolean {
 }
 
 function isIpv4(hostname: string): boolean {
-  if (!IPV4_RE.test(hostname)) return false;
-  return hostname.split(".").every((part) => {
-    const n = Number(part);
-    return n >= 0 && n <= 255 && String(n) === part;
-  });
+  return isIP(hostname) === 4;
 }
 
 function isIpv6(hostname: string): boolean {
-  return hostname.includes(":") && !hostname.includes("%");
+  return isIP(hostname) === 6;
 }
 
 function isIpAddress(hostname: string): boolean {

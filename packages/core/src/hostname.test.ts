@@ -45,6 +45,7 @@ describe("hostname parsing", () => {
       hostname: "schoolapp-domain.com",
       port: null,
     });
+    expect(parseHostHeader("aa:bb")).toBeNull();
     expect(parseHostHeader("[::1]:3000")).toEqual({ hostname: "::1", port: "3000" });
   });
 
@@ -81,6 +82,14 @@ describe("hostname parsing", () => {
         platformDomain: "localhost",
       }),
     ).toBe("greenwood.localhost:3000");
+    expect(
+      selectRequestHost({
+        host: "aa:bb",
+        forwardedHost: "greenwood.localhost",
+        trustProxy: true,
+        platformDomain: "localhost",
+      }),
+    ).toBe("aa:bb");
     expect(
       selectRequestHost({
         host: "evil.com/login",

@@ -179,7 +179,9 @@ PATCH  /api/v1/admissions/offers/{id}
 POST   /api/v1/admissions/applications/{id}/enrol
 ```
 
-`POST .../enrol` body may include `academicYearId`, `yearGroupId`, `classId`, `admissionNumber`, `existingStudentProfileId`, and `guardianLinks: [{ contactId, portalAccess }]`. Retrying returns the same student. The application record is not deleted.
+Dashboard counts match their list filters (`awaitingReview` is `under_review` only; `offersMade` is offer status `made` only). `PATCH /admissions/offers/{id}` accepts, declines, expires, or withdraws only from `made`; repeating a terminal status is a no-op and does not re-notify. Expire/withdraw is rejected after the application is accepted or enrolled.
+
+`POST .../enrol` body may include `academicYearId`, `yearGroupId`, `classId`, `admissionNumber`, `existingStudentProfileId`, and `guardianLinks: [{ contactId, portalAccess }]`. Retrying returns the same student and does not re-notify. The application record is not deleted.
 
 A future public school-website enquiry form should POST the same enquiry fields; the public unauthenticated endpoint is not implemented in Phase 4.
 

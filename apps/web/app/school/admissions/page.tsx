@@ -29,7 +29,7 @@ const CARDS: Array<{ key: keyof Dashboard["counts"]; label: string; href: string
   { key: "awaitingReview", label: "Awaiting review", href: "/school/admissions/applications?status=under_review" },
   { key: "assessmentsDue", label: "Assessments / interviews due", href: "/school/admissions/assessments?status=scheduled" },
   { key: "waitingList", label: "Waiting list", href: "/school/admissions/waiting-list" },
-  { key: "offersMade", label: "Offers made", href: "/school/admissions/offers" },
+  { key: "offersMade", label: "Offers made", href: "/school/admissions/offers?status=made" },
   { key: "offersAwaitingResponse", label: "Offers awaiting response", href: "/school/admissions/offers?status=made" },
   { key: "offersAccepted", label: "Offers accepted", href: "/school/admissions/offers?status=accepted" },
   { key: "rejected", label: "Rejected", href: "/school/admissions/applications?status=rejected" },

@@ -493,6 +493,81 @@ describe("Phase 6 attendance and student record", () => {
     expect(afterDisable.status).toBe(403);
   });
 
+  it("blocks student notification APIs when the student portal is disabled", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(token, school.orgId);
+    const seeded = await seedYearAndClasses(app, hdrs);
+    await app.request(`/api/v1/year-groups/${seeded.year3Id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ studentLoginEnabled: true }),
+    });
+    await createStudent(app, hdrs, {
+      legalName: "Notify Pupil",
+      academicYearId: seeded.yearId,
+      yearGroupId: seeded.year3Id,
+      loginAlias: `note.${id}`,
+      password: "student-pass-1",
+    });
+    const studentToken = await loginAlias(app, school.slug, `note.${id}`, "student-pass-1");
+    await app.request(`/api/v1/year-groups/${seeded.year3Id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ studentLoginEnabled: false }),
+    });
+    const inbox = await app.request("/api/v1/notifications", {
+      headers: headers(studentToken, school.orgId),
+    });
+    expect(inbox.status).toBe(403);
+  });
+
+  it("rejects alias login for former pupils even with a student-portal override", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(token, school.orgId);
+    const seeded = await seedYearAndClasses(app, hdrs);
+    await app.request(`/api/v1/year-groups/${seeded.year3Id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ studentLoginEnabled: true }),
+    });
+    const pupil = await createStudent(app, hdrs, {
+      legalName: "Former Pupil",
+      academicYearId: seeded.yearId,
+      yearGroupId: seeded.year3Id,
+      loginAlias: `former.${id}`,
+      password: "student-pass-1",
+    });
+    await pools.owner.query(
+      `update student_enrolments
+          set ended_on = started_on,
+              status = 'withdrawn'
+        where student_profile_id = $1
+          and academic_year_id = $2
+          and is_primary`,
+      [pupil.student.id, seeded.yearId],
+    );
+    await pools.owner.query(
+      `insert into student_portal_student_overrides (organisation_id, student_profile_id, enabled)
+       values ($1, $2, true)
+       on conflict (student_profile_id) do update set enabled = excluded.enabled`,
+      [school.orgId, pupil.student.id],
+    );
+    const res = await app.request("/api/v1/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        organisationSlug: school.slug,
+        username: `former.${id}`,
+        password: "student-pass-1",
+      }),
+    });
+    expect(res.status).toBe(401);
+  });
+
   it("keeps attendance history after a class move and isolates tenants", async () => {
     const id = suffix();
     const a = await createSchool(pools.owner, `a-${id}`);

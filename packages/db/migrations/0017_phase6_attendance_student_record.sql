@@ -330,6 +330,14 @@ as $$
   join student_profiles sp
     on sp.user_id = u.id
    and sp.organisation_id = o.id
+  join academic_years ay
+    on ay.organisation_id = o.id
+   and ay.is_current
+  join student_enrolments se
+    on se.student_profile_id = sp.id
+   and se.academic_year_id = ay.id
+   and se.is_primary
+   and se.ended_on is null
   where o.slug = p_slug
     and o.status = 'active'
     and student_portal_is_enabled(o.id, sp.id)

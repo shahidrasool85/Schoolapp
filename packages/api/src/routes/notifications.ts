@@ -6,6 +6,7 @@ import {
   countUnreadNotifications,
   listInboxNotifications,
   markNotificationRead,
+  requireStudentPortalEnabled,
 } from "@schoolapp/core";
 import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
@@ -19,6 +20,9 @@ export function registerNotificationRoutes(app: SchoolappApi) {
   app.get("/notifications", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       assertPermission(actor, PERMISSIONS.NOTIFICATIONS_INBOX_READ);
+      if (actor.userKind === "student") {
+        await requireStudentPortalEnabled(client, orgId, userId);
+      }
       const unreadOnly = c.req.query("unreadOnly") === "true";
       const notifications = await listInboxNotifications(client, orgId, userId, unreadOnly);
       const unreadCount = await countUnreadNotifications(client, orgId, userId);
@@ -29,6 +33,9 @@ export function registerNotificationRoutes(app: SchoolappApi) {
   app.patch("/notifications/:notificationId", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       assertPermission(actor, PERMISSIONS.NOTIFICATIONS_INBOX_READ);
+      if (actor.userKind === "student") {
+        await requireStudentPortalEnabled(client, orgId, userId);
+      }
       const parsed = patchSchema.safeParse(await c.req.json());
       if (!parsed.success) {
         throw new AppError(400, "validation_failed", "Invalid notification payload");

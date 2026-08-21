@@ -47,18 +47,38 @@ export default function ParentChildDetailPage() {
   const [data, setData] = useState<Detail | null>(null);
   const [attendance, setAttendance] = useState<Attendance | null>(null);
   const [error, setError] = useState("");
+  const [attendanceError, setAttendanceError] = useState("");
 
   useEffect(() => {
     if (!params.id) return;
+    let cancelled = false;
+    setAttendance(null);
+    setAttendanceError("");
     api<Detail>(`/api/v1/parent/children/${params.id}`)
       .then((detail) => {
+        if (cancelled) return;
         setData(detail);
-        return api<Attendance>(`/api/v1/parent/children/${params.id}/attendance`);
+        setError("");
+        return api<Attendance>(`/api/v1/parent/children/${params.id}/attendance`)
+          .then((history) => {
+            if (!cancelled) setAttendance(history);
+          })
+          .catch((err: Error) => {
+            if (!cancelled) {
+              setAttendanceError(
+                err instanceof ApiError && err.status === 404 ? "Attendance is not available." : err.message,
+              );
+            }
+          });
       })
-      .then(setAttendance)
       .catch((err: Error) => {
-        setError(err instanceof ApiError && err.status === 404 ? "Child not found." : err.message);
+        if (!cancelled) {
+          setError(err instanceof ApiError && err.status === 404 ? "Child not found." : err.message);
+        }
       });
+    return () => {
+      cancelled = true;
+    };
   }, [params.id]);
 
   if (error) return <p className="error">{error}</p>;
@@ -116,7 +136,9 @@ export default function ParentChildDetailPage() {
         </dl>
       </div>
       <h2>Attendance</h2>
-      {attendance ? (
+      {attendanceError ? (
+        <p className="error">{attendanceError}</p>
+      ) : attendance ? (
         <>
           <div className="cards">
             <div className="card"><span>Attendance</span><strong>{attendance.summary.attendancePercentage ?? "—"}{attendance.summary.attendancePercentage != null ? "%" : ""}</strong></div>

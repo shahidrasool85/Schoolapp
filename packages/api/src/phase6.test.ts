@@ -239,6 +239,49 @@ describe("Phase 6 attendance and student record", () => {
     expect(secondBody.marks[0]?.lateMinutes).toBe(12);
     expect(secondBody.marks[0]?.recordedBy).toBe(school.adminId);
 
+    const noted = await app.request("/api/v1/attendance/registers", {
+      method: "PUT",
+      headers: hdrs,
+      body: JSON.stringify({
+        classId: seeded.classAId,
+        date: "2026-09-01",
+        sessionTypeId: am.id,
+        marks: [
+          {
+            studentProfileId: pupil.student.id,
+            codeId: late.id,
+            note: "Office follow-up",
+            parentVisibleNote: "Arrived after assembly",
+            reason: "Traffic",
+          },
+        ],
+      }),
+    });
+    expect(noted.status).toBe(200);
+    const resaved = await app.request("/api/v1/attendance/registers", {
+      method: "PUT",
+      headers: hdrs,
+      body: JSON.stringify({
+        classId: seeded.classAId,
+        date: "2026-09-01",
+        sessionTypeId: am.id,
+        marks: [{ studentProfileId: pupil.student.id, codeId: late.id, lateMinutes: 12 }],
+      }),
+    });
+    expect(resaved.status).toBe(200);
+    const resavedBody = (await resaved.json()) as {
+      marks: Array<{
+        note: string | null;
+        parentNote: string | null;
+        reason: string | null;
+        lateMinutes: number | null;
+      }>;
+    };
+    expect(resavedBody.marks[0]?.note).toBe("Office follow-up");
+    expect(resavedBody.marks[0]?.parentNote).toBe("Arrived after assembly");
+    expect(resavedBody.marks[0]?.reason).toBe("Traffic");
+    expect(resavedBody.marks[0]?.lateMinutes).toBe(12);
+
     const unique = await pools.owner.query<{ n: string }>(
       `select count(*)::text as n from attendance_marks
        where organisation_id = $1 and student_profile_id = $2
@@ -253,7 +296,7 @@ describe("Phase 6 attendance and student record", () => {
     );
     expect(revisions.status).toBe(200);
     const revisionBody = (await revisions.json()) as { revisions: Array<{ code: string }> };
-    expect(revisionBody.revisions[0]?.code).toBe("present");
+    expect(revisionBody.revisions.some((row) => row.code === "present")).toBe(true);
     void present;
   });
 

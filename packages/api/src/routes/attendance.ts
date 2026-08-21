@@ -87,6 +87,10 @@ const registerBodySchema = z.object({
     .default([]),
 });
 
+function keepUnlessProvided<T>(incoming: T | undefined, existing: T | null | undefined): T | null {
+  return incoming !== undefined ? incoming : (existing ?? null);
+}
+
 const markPatchSchema = z.object({
   codeId: z.string().uuid().optional(),
   code: z.string().min(1).max(16).optional(),
@@ -589,13 +593,21 @@ export function registerAttendanceRoutes(app: SchoolappApi) {
         const codeId = exception
           ? await resolveCodeId(client, orgId, exception)
           : presentId!;
-        const before = await client.query(
+        const before = await client.query<{
+          id: string;
+          attendance_code_id: string;
+          reason: string | null;
+          note: string | null;
+          parent_visible_note: string | null;
+          late_minutes: number | null;
+        }>(
           `select id, attendance_code_id, reason, note, parent_visible_note, late_minutes
            from attendance_marks
            where organisation_id = $1 and student_profile_id = $2
              and mark_date = $3::date and session_type_id = $4`,
           [orgId, studentId, date, sessionTypeId],
         );
+        const existing = before.rows[0];
         const row = await upsertMark(client, {
           orgId,
           studentProfileId: studentId,
@@ -603,12 +615,14 @@ export function registerAttendanceRoutes(app: SchoolappApi) {
           sessionTypeId,
           date,
           codeId,
-          lateMinutes: exception?.lateMinutes ?? null,
-          reason: exception?.reason ?? null,
-          note: canWriteInternal ? (exception?.note ?? null) : (before.rows[0]?.note ?? null),
+          lateMinutes: keepUnlessProvided(exception?.lateMinutes, existing?.late_minutes),
+          reason: keepUnlessProvided(exception?.reason, existing?.reason),
+          note: canWriteInternal
+            ? keepUnlessProvided(exception?.note, existing?.note)
+            : (existing?.note ?? null),
           parentVisibleNote: canWriteInternal
-            ? (exception?.parentVisibleNote ?? null)
-            : (before.rows[0]?.parent_visible_note ?? null),
+            ? keepUnlessProvided(exception?.parentVisibleNote, existing?.parent_visible_note)
+            : (existing?.parent_visible_note ?? null),
           classId,
           yearGroupId: cls.year_group_id,
         });

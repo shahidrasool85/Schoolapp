@@ -97,8 +97,12 @@ export default function StudentDetailPage() {
     setGroups(yg.yearGroups);
     setClasses(cl.classes);
     if (detail.attendanceSummary) {
-      const history = await api<AttendanceHistory>(`/api/v1/attendance/students/${params.id}`);
-      setAttendance(history);
+      try {
+        const history = await api<AttendanceHistory>(`/api/v1/attendance/students/${params.id}`);
+        setAttendance(history);
+      } catch {
+        setAttendance(null);
+      }
     } else {
       setAttendance(null);
     }

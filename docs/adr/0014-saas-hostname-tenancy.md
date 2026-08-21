@@ -108,3 +108,4 @@ Production will need:
 - Mobile / platform-admin clients continue to use the apex or a reserved host (`api`) plus `X-Organisation-Id`.
 - School web UIs on a subdomain must not carry another school's context. Multi-school users switch by visiting the other host.
 - Isolation tests from Phases 1–4 remain a merge gate; Phase 5 adds hostname mismatch, reserved slugs, and custom-domain lookup tests.
+- Main already applied Phase 4 follow-up `0014_enrol_newly_converted.sql` before this phase. Phase 5 keeps `0014_phase5_saas_tenancy.sql` (and `0015` / `0016`) under their original filenames so already-applied rows in `schema_migrations` are not rewritten. Lexicographic order is `0014_enrol_…` then `0014_phase5_…` then `0015` / `0016`.

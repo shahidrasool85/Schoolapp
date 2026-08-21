@@ -47,6 +47,9 @@ export default function HomePage() {
           <a href="/login">Sign in</a>
         </li>
         <li>
+          <a href="/platform">Platform Admin</a>
+        </li>
+        <li>
           <a href="/school">School Admin</a>
         </li>
         <li>

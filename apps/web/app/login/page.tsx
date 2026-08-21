@@ -55,6 +55,7 @@ export default function LoginPage() {
         ),
       });
       setToken(body.accessToken);
+      const me = await api<{ isPlatformAdmin: boolean }>("/api/v1/me", { orgId: null });
       const memberships = await api<{ memberships: Membership[] }>("/api/v1/me/memberships", {
         orgId: null,
       });
@@ -72,6 +73,11 @@ export default function LoginPage() {
         }
         setOrgId(current.organisationId);
         router.push(mode === "student" ? "/student" : homePath(current.roleKeys));
+        return;
+      }
+      if (me.isPlatformAdmin) {
+        setOrgId(null);
+        router.push("/platform");
         return;
       }
       const current =

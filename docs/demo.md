@@ -1,0 +1,121 @@
+# Local demo (manual testing)
+
+This is a **local-only** staging setup so you can click through Schoolapp in a browser. It does **not** configure production DNS, TLS, Plesk, or a live domain. It does **not** start Phase 6.
+
+Demo seed will refuse to run in production, against a remote database, or when `PLATFORM_DOMAIN` is not `localhost`.
+
+## What you need
+
+- Node.js 22
+- [pnpm 9](https://pnpm.io/installation)
+- PostgreSQL 16, either:
+  - Docker Desktop (recommended), or
+  - Postgres installed on your computer
+
+You do not need to edit configuration files for the default local demo.
+
+## 1. Install
+
+In a terminal, from the Schoolapp folder:
+
+```bash
+pnpm install
+```
+
+## 2. Prepare demo data
+
+```bash
+pnpm demo:setup
+```
+
+That single command:
+
+- writes a local `.env` (and `apps/web/.env.local`) with **demo** values, not production secrets
+- starts PostgreSQL if Docker is available and nothing is already listening on port 5432
+- creates the local databases
+- runs migrations
+- loads two demo schools and labelled test logins
+
+To wipe the local `schoolapp` database and load the demo again:
+
+```bash
+pnpm demo:reset
+```
+
+`demo:reset` does not drop the automated test databases.
+
+## 3. Start the app
+
+```bash
+pnpm demo:start
+```
+
+Leave this terminal open. Open a browser when it says it is ready.
+
+## 4. URLs to open
+
+| What | URL |
+| --- | --- |
+| Platform / root | http://localhost:3000 |
+| Platform sign in | http://localhost:3000/login |
+| Greenwood Academy | http://greenwood.localhost:3000 |
+| Greenwood sign in | http://greenwood.localhost:3000/login |
+| Oak Academy | http://oakacademy.localhost:3000 |
+| Oak Academy sign in | http://oakacademy.localhost:3000/login |
+
+Use the **school** URL for school staff, parents, and students. Use **localhost** for the Platform Admin.
+
+Modern browsers treat `*.localhost` as your own computer. If a school URL will not open, add this line to your hosts file and retry:
+
+```text
+127.0.0.1 greenwood.localhost oakacademy.localhost
+```
+
+## 5. Demo logins
+
+All passwords are obviously labelled demo values. Do not use them anywhere live.
+
+| Role | School | How to sign in | Password |
+| --- | --- | --- | --- |
+| Platform Admin | Platform | Email `demo.platform@schoolapp.test` at http://localhost:3000/login | `DemoPass-Platform-1` |
+| Greenwood School Admin | Greenwood Academy | Email `demo.admin@greenwood.test` at http://greenwood.localhost:3000/login | `DemoPass-GreenwoodAdmin-1` |
+| Headteacher | Greenwood Academy | Email `demo.head@greenwood.test` | `DemoPass-Headteacher-1` |
+| Teacher | Greenwood Academy | Email `demo.teacher@greenwood.test` | `DemoPass-Teacher-1` |
+| Parent | Greenwood Academy | Email `demo.parent@greenwood.test` | `DemoPass-Parent-1` |
+| Student | Greenwood Academy | Choose **Student**, username `amelia.khan` (school code `greenwood` if asked) | `DemoPass-Student-1` |
+| Oak Academy School Admin | Oak Academy | Email `demo.admin@oakacademy.test` at http://oakacademy.localhost:3000/login | `DemoPass-OakAdmin-1` |
+
+Also created for isolation checks (optional):
+
+| Role | How to sign in | Password |
+| --- | --- | --- |
+| Oak teacher | `demo.teacher@oakacademy.test` | `DemoPass-OakTeacher-1` |
+| Oak parent | `demo.parent@oakacademy.test` | `DemoPass-OakParent-1` |
+| Oak student | username `niamh.okonkwo` at Oak Academy | `DemoPass-OakStudent-1` |
+
+## 6. What to click through
+
+Sign in as **Greenwood School Admin** at http://greenwood.localhost:3000/login, then open:
+
+- School Admin dashboard (`/school`)
+- Students
+- Staff / Teachers
+- Parents / Guardians
+- Admissions (and Enquiries / Applications)
+
+Sign in as the Greenwood **parent** and open the parent portal (`/parent`). You should see Amelia Khan and Yusuf Khan, and at least one notification.
+
+Sign in as the Greenwood **student** (Student tab, username `amelia.khan`) and open the student portal (`/student`).
+
+Sign in as **Oak Academy School Admin** at http://oakacademy.localhost:3000/login. You should see Oak pupils such as Niamh Okonkwo, **not** Greenwood’s Amelia Khan.
+
+Sign in as **Platform Admin** at http://localhost:3000/login. You should land on `/platform` and see both schools listed. Platform Admin does not browse pupil records from here.
+
+## 7. Limitations
+
+- This is local demo data only. Names, emails, and passwords are fake and clearly labelled.
+- Attendance, documents, announcements, LMS, results, AI, and mobile apps are **not built yet**.
+- There is no production wildcard DNS, TLS, or Plesk setup in this path.
+- Each school host has its own browser session. Sign in again when you switch from `localhost` to `greenwood.localhost` or `oakacademy.localhost`.
+- Public school self-signup is disabled on purpose.
+- `pnpm demo:setup` will not run if `NODE_ENV=production`, if `PLATFORM_DOMAIN` is not `localhost`, or if the database is not on this computer.

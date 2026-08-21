@@ -229,6 +229,37 @@ describe("Phase 4 admissions", () => {
     });
     expect(accepted.status).toBe(200);
 
+    const notificationsAfterAccept = await pools.owner.query<{ n: number }>(
+      `select count(*)::int as n from notifications
+       where organisation_id = $1 and recipient_user_id = $2`,
+      [school.orgId, parentId],
+    );
+    const acceptAgain = await app.request(`/api/v1/admissions/offers/${offerBody.offer.id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ status: "accepted" }),
+    });
+    expect(acceptAgain.status).toBe(200);
+    const notificationsAfterRepeat = await pools.owner.query<{ n: number }>(
+      `select count(*)::int as n from notifications
+       where organisation_id = $1 and recipient_user_id = $2`,
+      [school.orgId, parentId],
+    );
+    expect(notificationsAfterRepeat.rows[0]!.n).toBe(notificationsAfterAccept.rows[0]!.n);
+
+    const expireAccepted = await app.request(`/api/v1/admissions/offers/${offerBody.offer.id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ status: "expired" }),
+    });
+    expect(expireAccepted.status).toBe(409);
+    const withdrawAccepted = await app.request(`/api/v1/admissions/offers/${offerBody.offer.id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ status: "withdrawn" }),
+    });
+    expect(withdrawAccepted.status).toBe(409);
+
     const detail = (await (
       await app.request(`/api/v1/admissions/applications/${application.application.id}`, { headers: hdrs })
     ).json()) as {
@@ -255,6 +286,13 @@ describe("Phase 4 admissions", () => {
     };
     expect(enrolBody.application.status).toBe("enrolled");
 
+    const notificationsAfterEnrol = await pools.owner.query<{ n: number }>(
+      `select count(*)::int as n from notifications
+       where organisation_id = $1 and recipient_user_id = $2`,
+      [school.orgId, parentId],
+    );
+    expect(notificationsAfterEnrol.rows[0]!.n).toBeGreaterThan(notificationsAfterRepeat.rows[0]!.n);
+
     const retry = await app.request(`/api/v1/admissions/applications/${application.application.id}/enrol`, {
       method: "POST",
       headers: hdrs,
@@ -263,6 +301,12 @@ describe("Phase 4 admissions", () => {
     expect(retry.status).toBe(200);
     const retryBody = (await retry.json()) as { studentProfileId: string };
     expect(retryBody.studentProfileId).toBe(enrolBody.studentProfileId);
+    const notificationsAfterRetry = await pools.owner.query<{ n: number }>(
+      `select count(*)::int as n from notifications
+       where organisation_id = $1 and recipient_user_id = $2`,
+      [school.orgId, parentId],
+    );
+    expect(notificationsAfterRetry.rows[0]!.n).toBe(notificationsAfterEnrol.rows[0]!.n);
 
     const stillThere = await app.request(`/api/v1/admissions/applications/${application.application.id}`, {
       headers: hdrs,
@@ -296,6 +340,138 @@ describe("Phase 4 admissions", () => {
 
     const dashboard = await app.request("/api/v1/admissions/dashboard", { headers: hdrs });
     expect(dashboard.status).toBe(200);
+    const dashboardBody = (await dashboard.json()) as {
+      counts: { recentlyEnrolled: number; offersMade: number; offersAccepted: number; awaitingReview: number };
+      links: { awaitingReview: string; offersMade: string };
+    };
+    expect(dashboardBody.counts.recentlyEnrolled).toBe(1);
+    expect(dashboardBody.counts.offersMade).toBe(0);
+    expect(dashboardBody.counts.offersAccepted).toBe(1);
+    expect(dashboardBody.counts.awaitingReview).toBe(0);
+    expect(dashboardBody.links.awaitingReview).toContain("status=under_review");
+    expect(dashboardBody.links.offersMade).toContain("status=made");
+  });
+
+  it("aligns dashboard counts with filters and rejects offer changes after acceptance", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(token, school.orgId);
+
+    const submitted = await app.request("/api/v1/admissions/applications", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ pupilLegalName: "Submitted Pupil", status: "submitted" }),
+    });
+    expect(submitted.status).toBe(201);
+
+    const review = await app.request("/api/v1/admissions/applications", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ pupilLegalName: "Review Pupil" }),
+    });
+    const reviewBody = (await review.json()) as { application: { id: string } };
+    await app.request(`/api/v1/admissions/applications/${reviewBody.application.id}/status`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ status: "submitted" }),
+    });
+    await app.request(`/api/v1/admissions/applications/${reviewBody.application.id}/status`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ status: "under_review" }),
+    });
+
+    const info = await app.request("/api/v1/admissions/applications", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ pupilLegalName: "Info Pupil" }),
+    });
+    const infoBody = (await info.json()) as { application: { id: string } };
+    await app.request(`/api/v1/admissions/applications/${infoBody.application.id}/status`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ status: "submitted" }),
+    });
+    await app.request(`/api/v1/admissions/applications/${infoBody.application.id}/status`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ status: "information_required" }),
+    });
+
+    const offered = await app.request("/api/v1/admissions/applications", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        pupilLegalName: "Offer Pupil",
+        contacts: [{ fullName: "Admin", email: school.adminEmail, relationship: "mother" }],
+      }),
+    });
+    const offeredBody = (await offered.json()) as { application: { id: string } };
+    await app.request(`/api/v1/admissions/applications/${offeredBody.application.id}/status`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ status: "submitted" }),
+    });
+    await app.request(`/api/v1/admissions/applications/${offeredBody.application.id}/status`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ status: "under_review" }),
+    });
+    const offer = await app.request(`/api/v1/admissions/applications/${offeredBody.application.id}/offers`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({}),
+    });
+    const offerBody = (await offer.json()) as { offer: { id: string } };
+
+    const before = (await (await app.request("/api/v1/admissions/dashboard", { headers: hdrs })).json()) as {
+      counts: {
+        applicationsSubmitted: number;
+        awaitingReview: number;
+        offersMade: number;
+        offersAccepted: number;
+        offersAwaitingResponse: number;
+      };
+    };
+    expect(before.counts.applicationsSubmitted).toBe(1);
+    expect(before.counts.awaitingReview).toBe(1);
+    expect(before.counts.offersMade).toBe(1);
+    expect(before.counts.offersAwaitingResponse).toBe(1);
+    expect(before.counts.offersAccepted).toBe(0);
+
+    const accepted = await app.request(`/api/v1/admissions/offers/${offerBody.offer.id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ status: "accepted" }),
+    });
+    expect(accepted.status).toBe(200);
+
+    const after = (await (await app.request("/api/v1/admissions/dashboard", { headers: hdrs })).json()) as {
+      counts: { awaitingReview: number; offersMade: number; offersAccepted: number };
+    };
+    expect(after.counts.awaitingReview).toBe(1);
+    expect(after.counts.offersMade).toBe(0);
+    expect(after.counts.offersAccepted).toBe(1);
+
+    const expired = await app.request(`/api/v1/admissions/offers/${offerBody.offer.id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ status: "expired" }),
+    });
+    expect(expired.status).toBe(409);
+    const declined = await app.request(`/api/v1/admissions/offers/${offerBody.offer.id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ status: "declined" }),
+    });
+    expect(declined.status).toBe(409);
+
+    const appDetail = (await (
+      await app.request(`/api/v1/admissions/applications/${offeredBody.application.id}`, { headers: hdrs })
+    ).json()) as { application: { status: string }; offers: Array<{ status: string }> };
+    expect(appDetail.application.status).toBe("accepted");
+    expect(appDetail.offers[0]!.status).toBe("accepted");
   });
 
   it("isolates admissions across schools and rejects spoofed organisation headers", async () => {

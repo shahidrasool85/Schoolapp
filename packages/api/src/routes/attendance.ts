@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type pg from "pg";
-import { PERMISSIONS } from "@schoolapp/domain";
+import { PERMISSIONS, type Actor } from "@schoolapp/domain";
 import {
   AppError,
   assertAnyPermission,
@@ -255,7 +255,7 @@ async function upsertMark(
   return listed.rows[0] as Record<string, unknown>;
 }
 
-function requireAttendanceRead(actor: { permissions: ReadonlySet<string> }) {
+function requireAttendanceRead(actor: Actor) {
   assertAnyPermission(actor, [
     PERMISSIONS.ATTENDANCE_RECORD_READ,
     PERMISSIONS.ATTENDANCE_RECORD_MANAGE,

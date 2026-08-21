@@ -67,14 +67,19 @@ export async function assignedStudentIds(
      where sp.user_id = $1
        and sp.organisation_id = $2
        and cm.organisation_id = $2
-       and csa.started_on <= coalesce($3::date, current_date)
-       and (csa.ended_on is null or csa.ended_on >= coalesce($3::date, current_date))
-       and cm.started_on <= coalesce($3::date, current_date)
-       and (cm.ended_on is null or cm.ended_on >= coalesce($3::date, current_date))
        and (
-         ay.is_current
+         (
+           $3::date is null
+           and (csa.ended_on is null or csa.ended_on >= current_date)
+           and (cm.ended_on is null or cm.ended_on >= current_date)
+           and ay.is_current
+         )
          or (
            $3::date is not null
+           and csa.started_on <= $3::date
+           and (csa.ended_on is null or csa.ended_on >= $3::date)
+           and cm.started_on <= $3::date
+           and (cm.ended_on is null or cm.ended_on >= $3::date)
            and ay.starts_on <= $3::date
            and ay.ends_on >= $3::date
          )
@@ -99,8 +104,17 @@ export async function isAssignedToClass(
        and sp.organisation_id = $2
        and csa.organisation_id = $2
        and csa.class_id = $3
-       and csa.started_on <= coalesce($4::date, current_date)
-       and (csa.ended_on is null or csa.ended_on >= coalesce($4::date, current_date))
+       and (
+         (
+           $4::date is null
+           and (csa.ended_on is null or csa.ended_on >= current_date)
+         )
+         or (
+           $4::date is not null
+           and csa.started_on <= $4::date
+           and (csa.ended_on is null or csa.ended_on >= $4::date)
+         )
+       )
      limit 1`,
     [actorUserId, organisationId, classId, asOfDate ?? null],
   );
@@ -120,8 +134,17 @@ export async function assignedClassIds(
      where sp.user_id = $1
        and sp.organisation_id = $2
        and csa.organisation_id = $2
-       and csa.started_on <= coalesce($3::date, current_date)
-       and (csa.ended_on is null or csa.ended_on >= coalesce($3::date, current_date))`,
+       and (
+         (
+           $3::date is null
+           and (csa.ended_on is null or csa.ended_on >= current_date)
+         )
+         or (
+           $3::date is not null
+           and csa.started_on <= $3::date
+           and (csa.ended_on is null or csa.ended_on >= $3::date)
+         )
+       )`,
     [actorUserId, organisationId, asOfDate ?? null],
   );
   return new Set(result.rows.map((row) => row.class_id));

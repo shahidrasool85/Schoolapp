@@ -289,6 +289,12 @@ describe("Phase 5 SaaS hostname tenancy", () => {
       [schoolA.orgId, parentId, childA.rows[0]!.id],
     );
 
+    await pools.owner.query(
+      `insert into student_portal_student_overrides (organisation_id, student_profile_id, enabled)
+       values ($1, $2, true)`,
+      [schoolA.orgId, childA.rows[0]!.id],
+    );
+
     const parentToken = await login(app, `parent-${id}@example.com`, "password-12x");
     const parentOk = await app.request("/api/v1/parent/children", {
       headers: {

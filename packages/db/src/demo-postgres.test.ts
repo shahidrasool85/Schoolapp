@@ -85,6 +85,8 @@ describe("demo postgres shell helper", () => {
     expect(helper).toMatch(/compose exec -T .*psql/);
     expect(helper).toContain("docker exec -i");
     expect(helper).toContain("docker exec \"$container\" pg_isready");
+    expect(helper).toContain("com.docker.compose.project");
+    expect(helper).not.toContain("publish=");
   });
 
   it("demo setup sources the helper instead of calling host pg_isready directly", () => {

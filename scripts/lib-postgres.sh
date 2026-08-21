@@ -36,7 +36,9 @@ postgres_ready_local() {
   pg_isready -h "${PGHOST:-127.0.0.1}" -p "${PGPORT:-5432}" -U "${PGUSER:-postgres}" >/dev/null 2>&1
 }
 
-# Name of a running Compose/Desktop postgres container, if any.
+# Name of this project's running Compose postgres container, if any.
+# Only the expected container name or this compose project/service — never
+# "whatever is publishing 5432", which could be another user's database.
 postgres_docker_container() {
   if ! has_cmd docker; then
     return 1
@@ -46,7 +48,10 @@ postgres_docker_container() {
     return 0
   fi
   local names
-  names="$(docker ps --filter "publish=${PGPORT:-5432}" --format '{{.Names}}' 2>/dev/null || true)"
+  names="$(docker ps \
+    --filter "label=com.docker.compose.project=${COMPOSE_PROJECT}" \
+    --filter "label=com.docker.compose.service=${COMPOSE_SERVICE}" \
+    --format '{{.Names}}' 2>/dev/null || true)"
   if [ -n "$names" ]; then
     printf '%s\n' "${names%%$'\n'*}"
     return 0

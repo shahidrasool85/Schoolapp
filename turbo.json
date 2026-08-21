@@ -19,6 +19,9 @@
     },
     "seed-platform": {
       "cache": false
+    },
+    "seed-demo": {
+      "cache": false
     }
   }
 }

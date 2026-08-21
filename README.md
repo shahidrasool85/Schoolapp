@@ -14,6 +14,19 @@ Start here: **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)**
 - Auth behind an adapter (Phase 1: local Argon2id + JWT; GoTrue can replace it)
 - Self-hostable on Linux (e.g. Plesk) via Node + Postgres + optional S3-compatible storage
 
+## Local demo (browser testing)
+
+After `pnpm install`, a non-developer can run:
+
+```bash
+pnpm demo:setup
+pnpm demo:start
+```
+
+Then open http://localhost:3000 and the school URLs http://greenwood.localhost:3000 and http://oakacademy.localhost:3000. Logins, URLs, and what to click are in **[docs/demo.md](./docs/demo.md)**.
+
+`pnpm demo:reset` recreates the local `schoolapp` database and loads the same demo data again. This path will not run in production.
+
 ## Phase 1 — local setup
 
 PostgreSQL 16 must be running (local install or `infra/docker-compose.yml`).

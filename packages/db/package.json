@@ -9,6 +9,7 @@
   "scripts": {
     "migrate": "tsx src/migrate.ts",
     "seed-platform": "tsx src/seed-platform.ts",
+    "seed-demo": "tsx src/seed-demo.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"

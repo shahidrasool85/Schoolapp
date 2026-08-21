@@ -13,6 +13,6 @@ Architecture **accepted**. Phases 1–5 (foundation, people/school structure, pa
 | [roadmap.md](./roadmap.md) | Phased delivery |
 | [project-structure.md](./project-structure.md) | Intended monorepo |
 | [permissions-catalogue.md](./permissions-catalogue.md) | Seed RBAC matrix |
-| [placeholders.md](./placeholders.md) | Reserved entities (billing, flags, competitions governance, …) |
+| [demo.md](./demo.md) | Local browser demo: install, seed, start, URLs, and test logins |
 
 Please review [ARCHITECTURE.md](./ARCHITECTURE.md) first, then the ADRs you disagree with.

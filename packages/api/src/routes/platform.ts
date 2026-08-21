@@ -147,6 +147,19 @@ export function registerPlatformRoutes(app: SchoolappApi) {
     }
   });
 
+  app.post("/platform/organisation-hostnames/:hostnameId/verify", requireUser, async (c) => {
+    requirePlatformHost(c);
+    try {
+      await c.get("config").pools.app.query("select verify_organisation_hostname($1, $2)", [
+        c.get("userId"),
+        c.req.param("hostnameId"),
+      ]);
+      return c.json({ ok: true });
+    } catch (error) {
+      throw pgErrorToAppError(error) ?? error;
+    }
+  });
+
   app.post("/platform/organisation-hostnames/:hostnameId/activate", requireUser, async (c) => {
     requirePlatformHost(c);
     try {

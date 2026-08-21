@@ -109,6 +109,13 @@ export function pgErrorToAppError(error: unknown): AppError | null {
   if (message.includes("hostname_not_pending")) {
     return new AppError(409, "conflict", "Only pending hostnames can be changed this way");
   }
+  if (message.includes("hostname_not_verified")) {
+    return new AppError(
+      409,
+      "conflict",
+      "Custom hostnames must be verified before they can be activated",
+    );
+  }
   if (message.includes("hostname_invalid")) {
     return new AppError(400, "validation_failed", "Hostname is not a valid DNS name");
   }

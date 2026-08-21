@@ -56,13 +56,22 @@ The apex host does not auto-select a school. It is the foundation for a future m
 
 ### Custom domains (foundation only)
 
-`organisation_hostnames` stores custom hostnames with organisation ownership, uniqueness **for verified and active rows**, verification status, activation flag, and a future DNS TXT token. Automated DNS/TLS provisioning is **not** implemented. Pending registrations do not globally squat a hostname: another school may also register it as pending. Only a platform administrator can activate a hostname, and activation fails if that hostname is already verified and active. Unverified rows never resolve.
+`organisation_hostnames` stores custom hostnames with organisation ownership, uniqueness **for verified and active rows**, verification status, activation flag, and a future DNS TXT token. Automated DNS/TLS provisioning is **not** implemented. Pending registrations do not globally squat a hostname: another school may also register it as pending.
+
+Resolution requires **both** `verification_status = verified` **and** `is_active`. Platform administrators must:
+
+1. **Verify** — operator attestation of control (manual until DNS TXT automation exists). Verified-but-inactive hostnames still do not resolve.
+2. **Activate** — only after verification. Activation fails (`409`) if another organisation already has that hostname verified and active.
+
+Activating a pending row does **not** implicitly mark it verified. Unverified rows never resolve.
+
+Infrastructure and special-use names (`localhost`, `*.localhost`, `*.local`, IPv4 literals, `invalid`, `test`, `example`, …) cannot be registered as custom domains and are never classified as custom hosts. `localhost` is always platform context, even when `PLATFORM_DOMAIN` is a public apex.
 
 ### Trusted proxy
 
 Default: **do not trust `X-Forwarded-Host`**. For future Plesk/nginx, set `TRUST_PROXY=true` only when the reverse proxy **overwrites** `X-Forwarded-Host` / `X-Forwarded-Proto` from the connection it terminated. Do not pass through client-supplied forwarded headers.
 
-When `TRUST_PROXY=true`, forwarded hosts are honoured only if the immediate `Host` is a proxy terminator (IP, localhost, platform apex, or reserved label). A connection that already presents a school hostname cannot be overridden by `X-Forwarded-Host`.
+When `TRUST_PROXY=true`, forwarded hosts are honoured only if the immediate `Host` is a proxy terminator (IP, localhost, platform apex, or reserved label). A connection that already presents a school hostname cannot be overridden by `X-Forwarded-Host`. A present-but-malformed Host (including garbage that is not a real IPv6 address) does not unlock forwarded hosts. The API logs a startup warning when `TRUST_PROXY` is enabled. Do not enable it unless the edge **replaces**, rather than forwards, client `X-Forwarded-*` headers.
 
 ### Local development
 

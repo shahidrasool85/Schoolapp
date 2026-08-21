@@ -449,6 +449,47 @@ describe("Phase 5 SaaS hostname tenancy", () => {
     });
     expect(platformSubdomainCustom.status).toBe(400);
 
+    const prodApp = testApp(pools, { platformDomain: "schoolapp-domain.com" });
+    const infraHost = await prodApp.request("/api/v1/organisation/hostnames", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        "Content-Type": "application/json",
+        Host: `${school.slug}.schoolapp-domain.com`,
+      },
+      body: JSON.stringify({ hostname: "portal.localhost" }),
+    });
+    expect(infraHost.status).toBe(400);
+
+    const activateUnverified = await app.request(
+      `/api/v1/platform/organisation-hostnames/${createdBody.id}/activate`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${platformToken}`,
+          Host: "localhost:3000",
+        },
+      },
+    );
+    expect(activateUnverified.status).toBe(409);
+
+    const verifiedOnly = await app.request(
+      `/api/v1/platform/organisation-hostnames/${createdBody.id}/verify`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${platformToken}`,
+          Host: "localhost:3000",
+        },
+      },
+    );
+    expect(verifiedOnly.status).toBe(200);
+
+    const verifiedInactive = await app.request("/api/v1/public/tenant", {
+      headers: { Host: hostname },
+    });
+    expect(verifiedInactive.status).toBe(404);
+
     const activated = await app.request(
       `/api/v1/platform/organisation-hostnames/${createdBody.id}/activate`,
       {
@@ -485,6 +526,29 @@ describe("Phase 5 SaaS hostname tenancy", () => {
       },
     );
     expect(secondActivate.status).toBe(409);
+
+    const secondVerify = await app.request(
+      `/api/v1/platform/organisation-hostnames/${squatBody.id}/verify`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${platformToken}`,
+          Host: "localhost:3000",
+        },
+      },
+    );
+    expect(secondVerify.status).toBe(200);
+    const secondVerifiedActivate = await app.request(
+      `/api/v1/platform/organisation-hostnames/${squatBody.id}/activate`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${platformToken}`,
+          Host: "localhost:3000",
+        },
+      },
+    );
+    expect(secondVerifiedActivate.status).toBe(409);
   });
 
   it("onboards a school transactionally and blocks public signup", async () => {

@@ -23,6 +23,11 @@ export function createApiApp(config: ApiConfig) {
     platformDomain: normalizePlatformDomain(config.platformDomain),
     trustProxy: Boolean(config.trustProxy),
   };
+  if (resolvedConfig.trustProxy && process.env.VITEST !== "true") {
+    console.warn(
+      "TRUST_PROXY is enabled. Honour X-Forwarded-Host only when the reverse proxy overwrites client-supplied forwarded headers; do not pass them through.",
+    );
+  }
   const app = new Hono<ApiEnv>().basePath("/api/v1");
 
   app.use("*", async (c, next) => {

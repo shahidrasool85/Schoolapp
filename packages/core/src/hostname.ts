@@ -1,6 +1,10 @@
 import { isIP } from "node:net";
 import { domainToASCII } from "node:url";
-import { isReservedSubdomain, validateOrganisationSlug } from "@schoolapp/domain";
+import {
+  isBlockedCustomHostname,
+  isReservedSubdomain,
+  validateOrganisationSlug,
+} from "@schoolapp/domain";
 
 export type ParsedHost = {
   hostname: string;
@@ -132,7 +136,9 @@ export function classifyHostname(
 ): HostClassification {
   const platform = normalizePlatformDomain(platformDomain);
   if (!hostname) return { kind: "invalid" };
-  if (isIpAddress(hostname)) return { kind: "platform", hostname };
+  if (isIpAddress(hostname) || hostname === "localhost") {
+    return { kind: "platform", hostname };
+  }
 
   if (hostname === platform || hostname === `www.${platform}`) {
     return { kind: "platform", hostname };
@@ -152,6 +158,10 @@ export function classifyHostname(
       return { kind: "unknown_subdomain", hostname, label: prefix };
     }
     return { kind: "school_subdomain", hostname, slug: slug.slug };
+  }
+
+  if (isBlockedCustomHostname(hostname)) {
+    return { kind: "unknown_subdomain", hostname, label: hostname };
   }
 
   return { kind: "custom", hostname };

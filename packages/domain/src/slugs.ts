@@ -107,6 +107,42 @@ export const RESERVED_SUBDOMAINS = [
 
 export const RESERVED_SUBDOMAIN_SET: ReadonlySet<string> = new Set(RESERVED_SUBDOMAINS);
 
+/**
+ * Special-use / infrastructure TLDs that must never be registered as custom
+ * school domains. Keep in sync with packages/db/migrations/0016_hostname_verify_and_blocklist.sql.
+ */
+export const BLOCKED_CUSTOM_HOSTNAME_TLDS = [
+  "localhost",
+  "local",
+  "localdomain",
+  "invalid",
+  "test",
+  "example",
+  "onion",
+  "intranet",
+  "internal",
+  "private",
+  "lan",
+  "home",
+  "corp",
+  "arpa",
+] as const;
+
+export const BLOCKED_CUSTOM_HOSTNAME_TLD_SET: ReadonlySet<string> = new Set(
+  BLOCKED_CUSTOM_HOSTNAME_TLDS,
+);
+
+export function isBlockedCustomHostname(hostname: string): boolean {
+  const host = normalizeSlugInput(hostname);
+  if (!host) return true;
+  if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(host)) return true;
+  const labels = host.split(".");
+  const tld = labels[labels.length - 1] ?? "";
+  if (BLOCKED_CUSTOM_HOSTNAME_TLD_SET.has(tld)) return true;
+  if (labels.length === 1 && isReservedSubdomain(host)) return true;
+  return false;
+}
+
 export type SlugValidationError =
   | "empty"
   | "too_short"

@@ -282,12 +282,16 @@ export function assertCustomHostnameAllowed(
   hostname: string,
   platformDomain: string,
 ): void {
-  const classified = classifyHostname(hostname, platformDomain);
+  const parsed = parseHostHeader(hostname);
+  if (!parsed || parsed.port) {
+    throw new AppError(400, "validation_failed", "Hostname is not a valid DNS name");
+  }
+  const classified = classifyHostname(parsed.hostname, platformDomain);
   if (classified.kind !== "custom") {
     throw new AppError(
       400,
       "validation_failed",
-      "Custom domains cannot use the platform domain or a reserved subdomain",
+      "Custom domains cannot use the platform domain, localhost, or a reserved name",
     );
   }
 }

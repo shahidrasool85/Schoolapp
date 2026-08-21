@@ -66,6 +66,7 @@ GET  /api/v1/platform/organisations
 POST /api/v1/platform/organisations
 POST /api/v1/platform/organisations/{id}/slug
 POST /api/v1/platform/organisations/{id}/suspend
+POST /api/v1/platform/organisation-hostnames/{id}/verify
 POST /api/v1/platform/organisation-hostnames/{id}/activate
 ```
 

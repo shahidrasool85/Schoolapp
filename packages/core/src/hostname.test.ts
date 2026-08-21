@@ -111,6 +111,13 @@ describe("hostname classification", () => {
     expect(classifyHostname("www.schoolapp-domain.com", "schoolapp-domain.com")).toMatchObject({
       kind: "platform",
     });
+    expect(classifyHostname("localhost", "schoolapp-domain.com")).toMatchObject({ kind: "platform" });
+    expect(classifyHostname("portal.localhost", "schoolapp-domain.com")).toMatchObject({
+      kind: "unknown_subdomain",
+    });
+    expect(classifyHostname("portal.greenwoodacademy.org.uk", "schoolapp-domain.com")).toMatchObject({
+      kind: "custom",
+    });
   });
 
   it("extracts a single-label school subdomain", () => {

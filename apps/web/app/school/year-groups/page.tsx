@@ -72,7 +72,8 @@ export default function YearGroupsPage() {
       <h1>Year groups</h1>
       <p className="muted">
         Reception through the school&apos;s configured maximum year (default Year 8, including 11+
-        preparation). Student login is off unless enabled for that year group.
+        preparation). Student portal access is configured as a school default with year-group
+        overrides — Reception, Year 1 and Year 2 can be enabled.
       </p>
       <form className="card form-grid" onSubmit={saveMax}>
         <label>

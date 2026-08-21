@@ -3,6 +3,8 @@ export {
   canReadRestrictedContact,
   assignedStudentIds,
   isAssignedToClass,
+  assignedClassIds,
+  classStudentIdsAsOf,
   guardianChildIds,
   canListAllStudents,
   canManageStudents,
@@ -77,3 +79,37 @@ export {
   countUnreadNotifications,
   markNotificationRead,
 } from "./notifications.js";
+
+export {
+  isAttendanceCategory,
+  roundAttendancePercentage,
+  attendancePercentage,
+  summariseAttendanceMarks,
+  emptyAttendanceSummary,
+  type AttendanceSummary,
+} from "./attendance.js";
+
+export {
+  resolveStudentPortalAccess,
+  yearGroupPortalEffective,
+  type StudentPortalPolicyInput,
+  type StudentPortalDecision,
+} from "./student-portal.js";
+
+export {
+  ATTENDANCE_SCHOOL_READ_PERMISSIONS,
+  ATTENDANCE_REGISTER_PERMISSIONS,
+  canReadSchoolAttendance,
+  canManageSchoolAttendance,
+  canCorrectAttendance,
+  canManageAssignedAttendance,
+  canManageAttendanceConfig,
+  canReadOwnChildrenAttendance,
+  canReadOwnAttendance,
+  assertCanAccessRegister,
+  assertCanReadStudentAttendance,
+  loadStudentPortalDecision,
+  requireStudentPortalEnabled,
+  studentDocumentVisibleToAudience,
+  buildStudentDocumentKey,
+} from "./attendance-access.js";

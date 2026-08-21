@@ -54,6 +54,7 @@ export async function assignedStudentIds(
   client: pg.PoolClient,
   actorUserId: string,
   organisationId: string,
+  asOfDate?: string,
 ): Promise<Set<string>> {
   const result = await client.query<{ student_profile_id: string }>(
     `select distinct cm.student_profile_id
@@ -63,13 +64,22 @@ export async function assignedStudentIds(
      join academic_years ay
        on ay.id = cm.academic_year_id
       and ay.organisation_id = $2
-      and ay.is_current
      where sp.user_id = $1
        and sp.organisation_id = $2
        and cm.organisation_id = $2
-       and (csa.ended_on is null or csa.ended_on >= current_date)
-       and (cm.ended_on is null or cm.ended_on >= current_date)`,
-    [actorUserId, organisationId],
+       and csa.started_on <= coalesce($3::date, current_date)
+       and (csa.ended_on is null or csa.ended_on >= coalesce($3::date, current_date))
+       and cm.started_on <= coalesce($3::date, current_date)
+       and (cm.ended_on is null or cm.ended_on >= coalesce($3::date, current_date))
+       and (
+         ay.is_current
+         or (
+           $3::date is not null
+           and ay.starts_on <= $3::date
+           and ay.ends_on >= $3::date
+         )
+       )`,
+    [actorUserId, organisationId, asOfDate ?? null],
   );
   return new Set(result.rows.map((row) => row.student_profile_id));
 }
@@ -79,6 +89,7 @@ export async function isAssignedToClass(
   actorUserId: string,
   organisationId: string,
   classId: string,
+  asOfDate?: string,
 ): Promise<boolean> {
   const result = await client.query(
     `select 1
@@ -88,11 +99,50 @@ export async function isAssignedToClass(
        and sp.organisation_id = $2
        and csa.organisation_id = $2
        and csa.class_id = $3
-       and (csa.ended_on is null or csa.ended_on >= current_date)
+       and csa.started_on <= coalesce($4::date, current_date)
+       and (csa.ended_on is null or csa.ended_on >= coalesce($4::date, current_date))
      limit 1`,
-    [actorUserId, organisationId, classId],
+    [actorUserId, organisationId, classId, asOfDate ?? null],
   );
   return result.rows.length > 0;
+}
+
+export async function assignedClassIds(
+  client: pg.PoolClient,
+  actorUserId: string,
+  organisationId: string,
+  asOfDate?: string,
+): Promise<Set<string>> {
+  const result = await client.query<{ class_id: string }>(
+    `select distinct csa.class_id
+     from class_staff_assignments csa
+     join staff_profiles sp on sp.id = csa.staff_profile_id
+     where sp.user_id = $1
+       and sp.organisation_id = $2
+       and csa.organisation_id = $2
+       and csa.started_on <= coalesce($3::date, current_date)
+       and (csa.ended_on is null or csa.ended_on >= coalesce($3::date, current_date))`,
+    [actorUserId, organisationId, asOfDate ?? null],
+  );
+  return new Set(result.rows.map((row) => row.class_id));
+}
+
+export async function classStudentIdsAsOf(
+  client: pg.PoolClient,
+  organisationId: string,
+  classId: string,
+  asOfDate: string,
+): Promise<Set<string>> {
+  const result = await client.query<{ student_profile_id: string }>(
+    `select cm.student_profile_id
+     from class_memberships cm
+     where cm.organisation_id = $1
+       and cm.class_id = $2
+       and cm.started_on <= $3::date
+       and (cm.ended_on is null or cm.ended_on >= $3::date)`,
+    [organisationId, classId, asOfDate],
+  );
+  return new Set(result.rows.map((row) => row.student_profile_id));
 }
 
 export async function guardianChildIds(

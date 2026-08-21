@@ -36,10 +36,13 @@ describe("RLS catalog", () => {
            'admissions_application_status_history', 'admissions_assessments',
            'admissions_waiting_list_entries', 'admissions_offers', 'admissions_documents',
            'admissions_counters', 'organisation_hostnames', 'organisation_slug_history',
-           'reserved_subdomains'
+           'reserved_subdomains', 'attendance_session_types', 'attendance_codes',
+           'attendance_marks', 'attendance_mark_revisions', 'student_documents',
+           'student_portal_policies', 'student_portal_year_group_overrides',
+           'student_portal_class_overrides', 'student_portal_student_overrides'
          )`,
     );
-    expect(result.rows.length).toBe(29);
+    expect(result.rows.length).toBe(38);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
     }
@@ -420,5 +423,155 @@ describe("RLS catalog", () => {
         [app.rows[0]!.id],
       ),
     ).rejects.toThrow(/invalid_status_transition/);
+  });
+
+  it("rejects cross-organisation attendance and portal-policy links", async () => {
+    const id = randomUUID().slice(0, 8);
+    const orgA = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-att-a-${id}`, "Att A"],
+    );
+    const orgB = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-att-b-${id}`, "Att B"],
+    );
+    const yearA = await pools.owner.query<{ id: string }>(
+      `insert into academic_years (organisation_id, name, starts_on, ends_on, is_current)
+       values ($1, '2026/27', '2026-09-01', '2027-07-31', true) returning id`,
+      [orgA.rows[0]!.id],
+    );
+    const pupilB = await pools.owner.query<{ id: string }>(
+      "insert into student_profiles (organisation_id, legal_name) values ($1, 'Oak Child') returning id",
+      [orgB.rows[0]!.id],
+    );
+    const sessionA = await pools.owner.query<{ id: string }>(
+      "select id from attendance_session_types where organisation_id = $1 and key = 'am'",
+      [orgA.rows[0]!.id],
+    );
+    const codeA = await pools.owner.query<{ id: string }>(
+      "select id from attendance_codes where organisation_id = $1 and code = 'present'",
+      [orgA.rows[0]!.id],
+    );
+    const actor = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Marker', 'staff', 'active') returning id`,
+      [`rls-att-${id}@example.com`],
+    );
+    await expect(
+      pools.owner.query(
+        `insert into attendance_marks (
+           organisation_id, student_profile_id, academic_year_id, session_type_id, mark_date,
+           attendance_code_id, recorded_by
+         ) values ($1, $2, $3, $4, '2026-09-01', $5, $6)`,
+        [
+          orgA.rows[0]!.id,
+          pupilB.rows[0]!.id,
+          yearA.rows[0]!.id,
+          sessionA.rows[0]!.id,
+          codeA.rows[0]!.id,
+          actor.rows[0]!.id,
+        ],
+      ),
+    ).rejects.toThrow(/organisation_mismatch/);
+
+    const yearB = await pools.owner.query<{ id: string }>(
+      "insert into year_groups (organisation_id, code, name) values ($1, '3', 'Year 3') returning id",
+      [orgB.rows[0]!.id],
+    );
+    await expect(
+      pools.owner.query(
+        `insert into student_portal_year_group_overrides (organisation_id, year_group_id, enabled)
+         values ($1, $2, true)`,
+        [orgA.rows[0]!.id, yearB.rows[0]!.id],
+      ),
+    ).rejects.toThrow(/organisation_mismatch/);
+  });
+
+  it("keeps FORCE RLS from leaking attendance marks across tenants", async () => {
+    const id = randomUUID().slice(0, 8);
+    const userA = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Admin A', 'staff', 'active') returning id`,
+      [`rls-att-admin-a-${id}@example.com`],
+    );
+    const userB = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Admin B', 'staff', 'active') returning id`,
+      [`rls-att-admin-b-${id}@example.com`],
+    );
+    const orgA = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-att-iso-a-${id}`, "Iso A"],
+    );
+    const orgB = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-att-iso-b-${id}`, "Iso B"],
+    );
+    await pools.owner.query(
+      `insert into organisation_memberships (organisation_id, user_id, status)
+       values ($1, $2, 'active'), ($3, $4, 'active')`,
+      [orgA.rows[0]!.id, userA.rows[0]!.id, orgB.rows[0]!.id, userB.rows[0]!.id],
+    );
+    const yearA = await pools.owner.query<{ id: string }>(
+      `insert into academic_years (organisation_id, name, starts_on, ends_on, is_current)
+       values ($1, '2026/27', '2026-09-01', '2027-07-31', true) returning id`,
+      [orgA.rows[0]!.id],
+    );
+    const yearB = await pools.owner.query<{ id: string }>(
+      `insert into academic_years (organisation_id, name, starts_on, ends_on, is_current)
+       values ($1, '2026/27', '2026-09-01', '2027-07-31', true) returning id`,
+      [orgB.rows[0]!.id],
+    );
+    const pupilA = await pools.owner.query<{ id: string }>(
+      "insert into student_profiles (organisation_id, legal_name) values ($1, 'Child A') returning id",
+      [orgA.rows[0]!.id],
+    );
+    const pupilB = await pools.owner.query<{ id: string }>(
+      "insert into student_profiles (organisation_id, legal_name) values ($1, 'Child B') returning id",
+      [orgB.rows[0]!.id],
+    );
+    const sessionA = await pools.owner.query<{ id: string }>(
+      "select id from attendance_session_types where organisation_id = $1 and key = 'am'",
+      [orgA.rows[0]!.id],
+    );
+    const sessionB = await pools.owner.query<{ id: string }>(
+      "select id from attendance_session_types where organisation_id = $1 and key = 'am'",
+      [orgB.rows[0]!.id],
+    );
+    const codeA = await pools.owner.query<{ id: string }>(
+      "select id from attendance_codes where organisation_id = $1 and code = 'present'",
+      [orgA.rows[0]!.id],
+    );
+    const codeB = await pools.owner.query<{ id: string }>(
+      "select id from attendance_codes where organisation_id = $1 and code = 'present'",
+      [orgB.rows[0]!.id],
+    );
+    await pools.owner.query(
+      `insert into attendance_marks (
+         organisation_id, student_profile_id, academic_year_id, session_type_id, mark_date,
+         attendance_code_id, recorded_by
+       ) values ($1,$2,$3,$4,'2026-09-01',$5,$6), ($7,$8,$9,$10,'2026-09-01',$11,$12)`,
+      [
+        orgA.rows[0]!.id,
+        pupilA.rows[0]!.id,
+        yearA.rows[0]!.id,
+        sessionA.rows[0]!.id,
+        codeA.rows[0]!.id,
+        userA.rows[0]!.id,
+        orgB.rows[0]!.id,
+        pupilB.rows[0]!.id,
+        yearB.rows[0]!.id,
+        sessionB.rows[0]!.id,
+        codeB.rows[0]!.id,
+        userB.rows[0]!.id,
+      ],
+    );
+
+    await withTenantContext(pools.app, userA.rows[0]!.id, orgA.rows[0]!.id, async (client) => {
+      const seen = await client.query<{ student_profile_id: string }>(
+        "select student_profile_id from attendance_marks",
+      );
+      expect(seen.rows.map((row) => row.student_profile_id)).toEqual([pupilA.rows[0]!.id]);
+    });
   });
 });

@@ -8,6 +8,7 @@ import {
   isAssignedToClass,
   writeAudit,
 } from "@schoolapp/core";
+import { upsertYearGroupPortalOverride } from "./student-portal";
 import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
 import { academicReadPermissions, withSchoolActor, routeParam } from "../school-context";
@@ -206,10 +207,15 @@ export function registerAcademicRoutes(app: SchoolappApi) {
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertAnyPermission(actor, academicReadPermissions);
       const rows = await client.query(
-        `select id, code, name, key_stage, sort_order, student_login_enabled
-         from year_groups
-         where organisation_id = $1
-         order by sort_order, code`,
+        `select yg.id, yg.code, yg.name, yg.key_stage, yg.sort_order,
+                ovr.enabled as portal_override,
+                coalesce(ovr.enabled, pol.default_enabled, false) as student_login_enabled
+         from year_groups yg
+         left join student_portal_year_group_overrides ovr
+           on ovr.year_group_id = yg.id and ovr.organisation_id = yg.organisation_id
+         left join student_portal_policies pol on pol.organisation_id = yg.organisation_id
+         where yg.organisation_id = $1
+         order by yg.sort_order, yg.code`,
         [orgId],
       );
       return c.json({ yearGroups: rows.rows.map(mapYearGroup) });
@@ -232,6 +238,14 @@ export function registerAcademicRoutes(app: SchoolappApi) {
           parsed.data.studentLoginEnabled ?? false,
         ],
       );
+      if (parsed.data.studentLoginEnabled !== undefined) {
+        await upsertYearGroupPortalOverride(
+          client,
+          orgId,
+          String(inserted.rows[0]!.id),
+          parsed.data.studentLoginEnabled,
+        );
+      }
       await writeAudit(client, {
         organisationId: orgId,
         actorUserId: userId,
@@ -252,8 +266,14 @@ export function registerAcademicRoutes(app: SchoolappApi) {
         [userId, orgId],
       );
       const rows = await client.query(
-        `select id, code, name, key_stage, sort_order, student_login_enabled
-         from year_groups where organisation_id = $1 order by sort_order, code`,
+        `select yg.id, yg.code, yg.name, yg.key_stage, yg.sort_order,
+                ovr.enabled as portal_override,
+                coalesce(ovr.enabled, pol.default_enabled, false) as student_login_enabled
+         from year_groups yg
+         left join student_portal_year_group_overrides ovr
+           on ovr.year_group_id = yg.id and ovr.organisation_id = yg.organisation_id
+         left join student_portal_policies pol on pol.organisation_id = yg.organisation_id
+         where yg.organisation_id = $1 order by yg.sort_order, yg.code`,
         [orgId],
       );
       return c.json({
@@ -287,6 +307,14 @@ export function registerAcademicRoutes(app: SchoolappApi) {
           parsed.data.studentLoginEnabled ?? null,
         ],
       );
+      if (parsed.data.studentLoginEnabled !== undefined) {
+        await upsertYearGroupPortalOverride(
+          client,
+          orgId,
+          String(updated.rows[0]!.id),
+          parsed.data.studentLoginEnabled,
+        );
+      }
       await writeAudit(client, {
         organisationId: orgId,
         actorUserId: userId,

@@ -46,12 +46,18 @@ export function pgErrorToAppError(error: unknown): AppError | null {
   if (message.includes("support_scope_invalid")) {
     return new AppError(400, "validation_failed", "Support access scope is invalid");
   }
-  if (message.includes("student_login_disabled")) {
+  if (message.includes("student_login_disabled") || message.includes("student_portal_disabled")) {
     return new AppError(
-      400,
-      "validation_failed",
-      "Student login is disabled for this year group",
+      401,
+      "unauthenticated",
+      "Invalid email or password",
     );
+  }
+  if (message.includes("attendance_date_outside_year")) {
+    return new AppError(400, "validation_failed", "Attendance date is outside the academic year");
+  }
+  if (message.includes("attendance_actor_required")) {
+    return new AppError(400, "validation_failed", "The request violates a data constraint");
   }
   if (message.includes("year_group_above_maximum")) {
     return new AppError(

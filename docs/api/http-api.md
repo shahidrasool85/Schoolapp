@@ -109,6 +109,7 @@ GET  /api/v1/parent/children
 GET  /api/v1/parent/children/{studentId}
 GET  /api/v1/student/me
 GET  /api/v1/student/dashboard
+GET  /api/v1/student/attendance
 GET  /api/v1/notifications
 PATCH /api/v1/notifications/{notificationId}
 ```
@@ -124,6 +125,7 @@ GET /api/v1/parent/dashboard
 GET /api/v1/parent/children
 GET /api/v1/parent/children/{studentId}
 GET /api/v1/parent/children/{studentId}/attendance
+GET /api/v1/parent/children/{studentId}/documents
 GET /api/v1/parent/children/{studentId}/assignments
 GET /api/v1/parent/children/{studentId}/results
 GET /api/v1/parent/children/{studentId}/feedback
@@ -132,13 +134,14 @@ GET /api/v1/parent/children/{studentId}/achievements
 GET /api/v1/parent/announcements
 ```
 
-Phase 3 implements dashboard, children list, and child overview (profile + school/year/form + viewer guardianship). Later child modules remain unimplemented. Responses never include `restricted_contact`, admin notes, billing, or other organisations' children.
+Phase 3 implements dashboard, children list, and child overview (profile + school/year/form + viewer guardianship). Phase 6 implements child attendance (parent-visible notes only). Later child modules remain unimplemented. Responses never include `restricted_contact`, admin notes, billing, or other organisations' children.
 
 ## Student portal
 
 ```http
 GET  /api/v1/student/me
 GET  /api/v1/student/dashboard
+GET  /api/v1/student/attendance
 GET  /api/v1/student/assignments
 POST /api/v1/student/assignments/{id}/submissions
 GET  /api/v1/student/resources
@@ -147,7 +150,58 @@ POST /api/v1/student/activities/{id}/attempts
 GET  /api/v1/student/progress
 ```
 
-Phase 3 implements `me` and `dashboard` for the authenticated student's own profile in the current organisation. Spoofing `X-Organisation-Id` for a school the pupil does not belong to returns `org_membership_required`. Login aliases remain organisation-scoped.
+Phase 3 implements `me` and `dashboard` for the authenticated student's own profile in the current organisation. Phase 6 adds `GET /api/v1/student/attendance` (own marks, parent-visible notes only) when the effective student-portal policy allows access. Spoofing `X-Organisation-Id` for a school the pupil does not belong to returns `org_membership_required`. Login aliases remain organisation-scoped. A disabled student portal refuses alias login even if an alias/password exists.
+
+## Attendance (Phase 6)
+
+Staff APIs. Teachers require an assignment to the class (or pupil) for the register date. School-wide list/correct requires `attendance.record.read` / `attendance.record.manage` / `attendance.record.correct`. Cross-tenant class/year/student/session IDs return **404**. Duplicate active marks for the same pupil/date/session are upserted (idempotent). Clients cannot set `recordedBy` or correction fields.
+
+```http
+GET    /api/v1/attendance/session-types
+POST   /api/v1/attendance/session-types
+PATCH  /api/v1/attendance/session-types/{id}
+GET    /api/v1/attendance/codes
+POST   /api/v1/attendance/codes
+GET    /api/v1/attendance/my-classes
+GET    /api/v1/attendance/registers?classId&date&sessionTypeId
+PUT    /api/v1/attendance/registers
+GET    /api/v1/attendance/marks
+GET    /api/v1/attendance/marks/{id}
+PATCH  /api/v1/attendance/marks/{id}
+GET    /api/v1/attendance/marks/{id}/revisions
+GET    /api/v1/attendance/students/{studentId}
+GET    /api/v1/attendance/students/{studentId}/summary
+```
+
+`PUT /attendance/registers` body: `{ classId, date, sessionTypeId, markAllPresent?, marks: [{ studentProfileId, codeId|code, lateMinutes?, reason?, note?, parentVisibleNote? }] }`. `markAllPresent: true` fills unmarked roster pupils as present, then applies `marks` as exceptions.
+
+Attendance percentage = (present + late) / (all marks except `not_required`). Returned as `sessionsPossible`, `sessionsPresent`, `authorisedAbsence`, `unauthorisedAbsence`, `late`, `notRequired`, `attendancePercentage`.
+
+Parent: `GET /api/v1/parent/children/{studentId}/attendance` (active guardianship + `portal_access`). Student: `GET /api/v1/student/attendance`. Neither includes internal `note` or recorder identity.
+
+## Student portal policy (Phase 6)
+
+```http
+GET   /api/v1/student-portal-policy
+PATCH /api/v1/student-portal-policy
+PUT   /api/v1/student-portal-policy/year-groups/{yearGroupId}
+PUT   /api/v1/student-portal-policy/classes/{classId}
+PUT   /api/v1/student-portal-policy/students/{studentId}
+```
+
+Override body `{ "enabled": true | false | null }`. `null` deletes the override (inherit). Effective order: pupil → class → year group → school default. School Admin UI in this phase covers school default and year groups. Class/pupil APIs are implemented for the next phase.
+
+`GET /api/v1/students/{id}` includes `attendanceSummary` and `portalAccess` for authorised staff. Current class/year remain derived from enrolment/membership history.
+
+## Student document metadata (Phase 6)
+
+```http
+GET  /api/v1/students/{id}/documents
+POST /api/v1/students/{id}/documents
+GET  /api/v1/parent/children/{studentId}/documents
+```
+
+Metadata only (`storageBackend: unconfigured` until an S3-compatible adapter is configured). No file bytes in PostgreSQL. Parent lists omit staff-only rows and strip `storageKey`.
 
 ## Notifications (in-app inbox)
 

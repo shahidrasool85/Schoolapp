@@ -1,6 +1,6 @@
 # Local demo (manual testing)
 
-This is a **local-only** staging setup so you can click through Schoolapp in a browser. It does **not** configure production DNS, TLS, Plesk, or a live domain. It does **not** start Phase 6.
+This is a **local-only** staging setup so you can click through Schoolapp in a browser. It does **not** configure production DNS, TLS, Plesk, or a live domain.
 
 Demo seed will refuse to run in production, against a remote database, or when `PLATFORM_DOMAIN` is not `localhost`.
 
@@ -118,14 +118,18 @@ Also created for isolation checks (optional):
 Sign in as **Greenwood School Admin** at http://greenwood.localhost:3000/login, then open:
 
 - School Admin dashboard (`/school`)
-- Students
+- Students (open Amelia Khan — attendance summary and history)
+- Attendance → My registers (Hannah Cole’s 3A) or School attendance
+- Student portal (year-group enable/disable; Reception can be turned on)
 - Staff / Teachers
 - Parents / Guardians
 - Admissions (and Enquiries / Applications)
 
-Sign in as the Greenwood **parent** and open the parent portal (`/parent`). You should see Amelia Khan and Yusuf Khan, and at least one notification.
+Sign in as the Greenwood **teacher** and open Attendance → My registers. You should see 3A only, not the whole school.
 
-Sign in as the Greenwood **student** (Student tab, username `amelia.khan`) and open the student portal (`/student`).
+Sign in as the Greenwood **parent** and open the parent portal (`/parent`). You should see Amelia Khan and Yusuf Khan, their attendance, and at least one notification.
+
+Sign in as the Greenwood **student** (Student tab, username `amelia.khan`) and open Attendance on the student portal (`/student/attendance`).
 
 Sign in as **Oak Academy School Admin** at http://oakacademy.localhost:3000/login. You should see Oak pupils such as Niamh Okonkwo, **not** Greenwood’s Amelia Khan.
 
@@ -134,7 +138,8 @@ Sign in as **Platform Admin** at http://localhost:3000/login. You should land on
 ## 7. Limitations
 
 - This is local demo data only. Names, emails, and passwords are fake and clearly labelled.
-- Attendance, documents, announcements, LMS, results, AI, and mobile apps are **not built yet**.
+- LMS, results, AI, binary document upload, announcements, and mobile apps are **not built yet**.
+- Demo attendance is seeded from 1 September 2026 (the 2026/27 year). If “today” is before term, registers default to the year start.
 - There is no production wildcard DNS, TLS, or Plesk setup in this path.
 - Each school host has its own browser session. Sign in again when you switch from `localhost` to `greenwood.localhost` or `oakacademy.localhost`.
 - Public school self-signup is disabled on purpose.

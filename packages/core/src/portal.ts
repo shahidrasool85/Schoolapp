@@ -231,7 +231,7 @@ export async function loadViewerGuardianship(
 }
 
 export const PARENT_CHILD_SECTIONS = Object.freeze({
-  attendance: comingLater,
+  attendance: { available: true as const },
   homework: comingLater,
   results: comingLater,
   teacherFeedback: comingLater,

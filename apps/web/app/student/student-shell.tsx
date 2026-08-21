@@ -9,6 +9,7 @@ import { loadPublicTenant, membershipForHost } from "../../lib/tenant";
 
 const LINKS = [
   { href: "/student", label: "Home" },
+  { href: "/student/attendance", label: "Attendance" },
   { href: "/student/learning", label: "My Learning" },
   { href: "/student/notifications", label: "Notifications" },
   { href: "/student/profile", label: "Profile" },

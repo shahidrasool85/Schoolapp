@@ -163,15 +163,18 @@ Keep prospective people **out of** `class_memberships` and current `student_enro
 
 The original application remains after enrolment and records `converted_student_profile_id`. The student profile records `admitted_from_application_id`.
 
-## Operations (Phase 5+)
+## Operations (Phase 6)
 
-- Attendance session (class/date) and marks (present, absent, late, authorised — UK-style codes configurable)
-- Documents (metadata + storage key on the S3-compatible adapter)
-- Announcements (audience: school, year, class, parents, students)
-- Progress reports and teacher feedback records
-- All of the above formally audited on change
+- `attendance_session_types` — organisation-configurable sessions (default AM/PM)
+- `attendance_codes` — category model (`present`, `late`, `authorised_absence`, `unauthorised_absence`, `not_required`)
+- `attendance_marks` — one row per organisation + pupil + date + session; class/year-group are context, not identity
+- `attendance_mark_revisions` — previous values when a mark is corrected
+- `student_portal_policies` and year-group/class/pupil override tables
+- `student_documents` — metadata + storage key only (no file bytes in PostgreSQL)
+- Announcements and progress reports remain later work
+- Attendance and document mutations are formally audited
 
-## LMS (Phase 6+)
+## LMS (Phase 7+)
 
 - Assignment (title, due, year/class/student targets via current memberships, resource links)
 - Submission (student, files, timestamps, status)

@@ -13,6 +13,9 @@ import { registerParentRoutes } from "./routes/parent";
 import { registerStudentRoutes } from "./routes/student";
 import { registerNotificationRoutes } from "./routes/notifications";
 import { registerAdmissionsRoutes } from "./routes/admissions";
+import { registerAttendanceRoutes } from "./routes/attendance";
+import { registerStudentPortalRoutes } from "./routes/student-portal";
+import { registerDocumentRoutes } from "./routes/documents";
 import { registerPublicRoutes } from "./routes/public";
 
 export type { ApiConfig, ApiEnv, SchoolappApi } from "./types";
@@ -59,6 +62,9 @@ export function createApiApp(config: ApiConfig) {
   registerStudentRoutes(app);
   registerNotificationRoutes(app);
   registerAdmissionsRoutes(app);
+  registerAttendanceRoutes(app);
+  registerStudentPortalRoutes(app);
+  registerDocumentRoutes(app);
 
   app.notFound((c) =>
     c.json({ error: { code: "not_found", message: "Not found" } }, 404),

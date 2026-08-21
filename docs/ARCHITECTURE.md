@@ -1,6 +1,6 @@
 # Schoolapp — Platform Architecture
 
-**Status:** Phase 5 SaaS hostname tenancy implemented. Later modules (attendance, LMS, AI, mobile) are not built.  
+**Status:** Phase 6 attendance and student record implemented. Later modules (LMS, AI, mobile) are not built.  
 **Audience:** Product owner and engineering.  
 **Scope:** Multi-tenant UK school SaaS (SIS + LMS + AI learning), web first, mobile-ready.
 

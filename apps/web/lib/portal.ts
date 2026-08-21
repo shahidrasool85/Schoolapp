@@ -73,8 +73,8 @@ export function pickMembership(
 }
 
 export type ComingLater = {
-  available: false;
-  message: string;
+  available: boolean;
+  message?: string;
 };
 
 export type PortalSchool = { id: string; name: string };

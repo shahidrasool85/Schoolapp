@@ -20,6 +20,8 @@ function composeDir(composeFile: string): string {
   return slash === -1 ? "." : trimmed.slice(0, slash);
 }
 
+export const MAINTENANCE_DB = "postgres";
+
 export function dockerComposePgIsreadyArgv(composeFile: string, user = "postgres"): string[] {
   return [
     "compose",
@@ -29,10 +31,14 @@ export function dockerComposePgIsreadyArgv(composeFile: string, user = "postgres
     composeFile,
     "exec",
     "-T",
+    "-e",
+    `PGDATABASE=${MAINTENANCE_DB}`,
     COMPOSE_SERVICE,
     "pg_isready",
     "-U",
     user,
+    "-d",
+    MAINTENANCE_DB,
   ];
 }
 
@@ -45,15 +51,19 @@ export function dockerComposePsqlArgv(composeFile: string, user = "postgres"): s
     composeFile,
     "exec",
     "-T",
+    "-e",
+    `PGDATABASE=${MAINTENANCE_DB}`,
     COMPOSE_SERVICE,
     "psql",
     "-U",
     user,
+    "-d",
+    MAINTENANCE_DB,
     "-v",
     "ON_ERROR_STOP=1",
   ];
 }
 
 export function dockerExecPgIsreadyArgv(container = COMPOSE_CONTAINER, user = "postgres"): string[] {
-  return ["exec", container, "pg_isready", "-U", user];
+  return ["exec", "-e", `PGDATABASE=${MAINTENANCE_DB}`, container, "pg_isready", "-U", user, "-d", MAINTENANCE_DB];
 }

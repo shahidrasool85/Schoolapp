@@ -93,6 +93,7 @@ export PLATFORM_DOMAIN=localhost
 export PGHOST="${PGHOST:-127.0.0.1}"
 export PGUSER="${PGUSER:-postgres}"
 export PGPASSWORD="${PGPASSWORD:-postgres}"
+unset PGDATABASE PGSERVICE || true
 
 pnpm --filter @schoolapp/db exec tsx src/demo-guard.ts
 

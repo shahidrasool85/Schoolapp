@@ -6,10 +6,17 @@ set -euo pipefail
 # otherwise peer auth as the postgres OS user.
 # Uses local psql when installed; otherwise docker exec against Compose Postgres
 # so Windows/Git Bash users do not need a local PostgreSQL client.
+#
+# Bootstrap always connects to the maintenance database `postgres`. It must not
+# require schoolapp, schoolapp_test, or schoolapp_api_test to already exist.
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=lib-postgres.sh
 source "$ROOT/scripts/lib-postgres.sh"
+
+# A test session or leftover .env may export these; they must not redirect
+# CREATE DATABASE onto a database that a fresh Docker volume does not have.
+unset PGDATABASE PGSERVICE || true
 
 OWNER_USER="${SCHOOLAPP_OWNER_USER:-schoolapp_owner}"
 OWNER_PASSWORD="${SCHOOLAPP_OWNER_PASSWORD:-schoolapp_owner}"
@@ -43,6 +50,12 @@ WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${TEST_DB_NAME}')\gex
 
 SELECT 'CREATE DATABASE ${API_TEST_DB_NAME} OWNER ${OWNER_USER}'
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${API_TEST_DB_NAME}')\gexec
+
+-- Fresh Compose volumes used to create POSTGRES_DB=schoolapp as role postgres.
+-- Re-own even when the database already existed.
+ALTER DATABASE ${DB_NAME} OWNER TO ${OWNER_USER};
+ALTER DATABASE ${TEST_DB_NAME} OWNER TO ${OWNER_USER};
+ALTER DATABASE ${API_TEST_DB_NAME} OWNER TO ${OWNER_USER};
 
 GRANT CONNECT ON DATABASE ${DB_NAME} TO ${APP_USER};
 GRANT CONNECT ON DATABASE ${TEST_DB_NAME} TO ${APP_USER};

@@ -59,6 +59,8 @@ const merged = {
   ...values,
   AUTH_SECRET: keepSecret,
 };
+delete merged.PGDATABASE;
+delete merged.PGSERVICE;
 
 const body = Object.entries(merged)
   .map(([key, value]) => `${key}=${encodeEnvValue(value)}`)

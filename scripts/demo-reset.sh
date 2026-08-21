@@ -40,6 +40,7 @@ export DATABASE_OWNER_URL="${DATABASE_OWNER_URL:-postgres://schoolapp_owner:scho
 export PGHOST="${PGHOST:-127.0.0.1}"
 export PGUSER="${PGUSER:-postgres}"
 export PGPASSWORD="${PGPASSWORD:-postgres}"
+unset PGDATABASE PGSERVICE || true
 
 GUARD_ARGS=()
 if [ -f "$ROOT/.env" ]; then

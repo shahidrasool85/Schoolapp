@@ -5,11 +5,8 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-export function bashCandidates(
-  platform = process.platform,
-  env = process.env,
-): string[] {
-  const candidates: string[] = [];
+export function bashCandidates(platform = process.platform, env = process.env) {
+  const candidates = [];
   if (env.SCHOOLAPP_BASH) {
     candidates.push(env.SCHOOLAPP_BASH);
   }
@@ -33,8 +30,8 @@ export function bashCandidates(
 export function resolveBash(
   platform = process.platform,
   env = process.env,
-  exists = (file: string) => fs.existsSync(file),
-): string {
+  exists = (file) => fs.existsSync(file),
+) {
   for (const candidate of bashCandidates(platform, env)) {
     if (candidate === "bash") return "bash";
     if (exists(candidate)) return candidate;
@@ -51,13 +48,13 @@ On Windows:
 
 PowerShell cannot run the demo shell scripts directly.`;
 
-function toBashPath(file: string): string {
+function toBashPath(file) {
   if (process.platform !== "win32") return file;
   return file.replace(/\\/g, "/");
 }
 
 const isMain =
-  Boolean(process.argv[1]) && path.resolve(process.argv[1]!) === fileURLToPath(import.meta.url);
+  Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   const scriptArg = process.argv[2];
   if (!scriptArg) {
@@ -77,7 +74,7 @@ if (isMain) {
     windowsHide: true,
   });
   child.on("error", (error) => {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+    if (error && error.code === "ENOENT") {
       console.error(GIT_BASH_HELP);
     } else {
       console.error(error);

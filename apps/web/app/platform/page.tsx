@@ -27,9 +27,8 @@ export default function PlatformPage() {
     Promise.all([
       loadPublicTenant(),
       api<{ isPlatformAdmin: boolean }>("/api/v1/me", { orgId: null }),
-      api<{ organisations: Organisation[] }>("/api/v1/platform/organisations", { orgId: null }),
     ])
-      .then(([tenant, me, body]) => {
+      .then(async ([tenant, me]) => {
         if (tenant.kind === "unknown") {
           setError("This address is not an active school on the platform.");
           return;
@@ -43,6 +42,9 @@ export default function PlatformPage() {
           return;
         }
         setPlatformDomain(tenant.platformDomain);
+        const body = await api<{ organisations: Organisation[] }>("/api/v1/platform/organisations", {
+          orgId: null,
+        });
         setOrganisations(body.organisations);
         setReady(true);
       })

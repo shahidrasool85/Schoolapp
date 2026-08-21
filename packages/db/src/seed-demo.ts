@@ -51,24 +51,41 @@ async function insertUser(
     dateOfBirth?: string | null;
   },
 ): Promise<string> {
-  const inserted = await client.query<IdRow>(
-    `insert into users (email, full_name, preferred_name, user_kind, status, date_of_birth)
-     values ($1, $2, $3, $4, 'active', $5)
-     returning id`,
-    [
-      input.email ?? null,
-      input.fullName,
-      input.preferredName ?? null,
-      input.kind,
-      input.dateOfBirth ?? null,
-    ],
-  );
-  const id = inserted.rows[0]!.id;
+  let id: string | undefined;
+  if (input.email) {
+    const existing = await client.query<IdRow>("select id from users where email = $1", [input.email]);
+    id = existing.rows[0]?.id;
+    if (id) {
+      await client.query(
+        `update users
+         set full_name = $2, preferred_name = $3, user_kind = $4, status = 'active', date_of_birth = $5
+         where id = $1`,
+        [id, input.fullName, input.preferredName ?? null, input.kind, input.dateOfBirth ?? null],
+      );
+    }
+  }
+  if (!id) {
+    const inserted = await client.query<IdRow>(
+      `insert into users (email, full_name, preferred_name, user_kind, status, date_of_birth)
+       values ($1, $2, $3, $4, 'active', $5)
+       returning id`,
+      [
+        input.email ?? null,
+        input.fullName,
+        input.preferredName ?? null,
+        input.kind,
+        input.dateOfBirth ?? null,
+      ],
+    );
+    id = inserted.rows[0]!.id;
+  }
   if (input.passwordHash) {
-    await client.query("insert into user_credentials (user_id, password_hash) values ($1, $2)", [
-      id,
-      input.passwordHash,
-    ]);
+    await client.query(
+      `insert into user_credentials (user_id, password_hash)
+       values ($1, $2)
+       on conflict (user_id) do update set password_hash = excluded.password_hash, updated_at = now()`,
+      [id, input.passwordHash],
+    );
   }
   return id;
 }
@@ -164,11 +181,15 @@ async function wipeDemoData(client: pg.Client): Promise<void> {
       "organisation_hostnames",
       "organisation_slug_history",
       "organisation_subscriptions",
-      "audit_events",
     ];
     for (const table of tenantDeletes) {
       await client.query(`delete from ${table} where organisation_id = any($1::uuid[])`, [orgIds]);
     }
+    // audit_events is append-only even for schoolapp_owner; detach rather than delete.
+    await client.query(
+      "update audit_events set organisation_id = null where organisation_id = any($1::uuid[])",
+      [orgIds],
+    );
     await client.query(
       `delete from membership_roles
        where membership_id in (
@@ -197,7 +218,12 @@ async function wipeDemoData(client: pg.Client): Promise<void> {
       [userIds],
     );
     await client.query("delete from organisation_memberships where user_id = any($1::uuid[])", [userIds]);
-    await client.query("delete from users where id = any($1::uuid[])", [userIds]);
+    await client.query(
+      `delete from users u
+       where u.id = any($1::uuid[])
+         and not exists (select 1 from audit_events a where a.actor_user_id = u.id)`,
+      [userIds],
+    );
   }
 }
 
@@ -1118,7 +1144,7 @@ export async function seedDemo(options: DemoSeedOptions): Promise<DemoSeedResult
       kind: "platform_admin",
       passwordHash: hashes[DEMO_ACCOUNTS.platformAdmin.password],
     });
-    await client.query("insert into platform_admins (user_id) values ($1)", [platformId]);
+    await client.query("insert into platform_admins (user_id) values ($1) on conflict do nothing", [platformId]);
 
     const greenwood = await seedGreenwood(client, hashes);
     const oak = await seedOakAcademy(client, hashes);

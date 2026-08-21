@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Prepare a local demo environment: Postgres, .env, migrations, and demo seed.
-# Refuses to run against production-like configuration.
+# Refuses to run against production-like configuration. Guards run BEFORE any env write.
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -53,6 +53,22 @@ check_localhost_school_hosts() {
   fi
 }
 
+if [ "${NODE_ENV:-}" = "production" ]; then
+  echo "Refusing to run demo setup because NODE_ENV=production." >&2
+  exit 1
+fi
+
+export ALLOW_DEMO_SEED=true
+export PLATFORM_DOMAIN="${PLATFORM_DOMAIN:-localhost}"
+export DATABASE_URL="${DATABASE_URL:-postgres://schoolapp_app:schoolapp_app@127.0.0.1:5432/schoolapp}"
+export DATABASE_OWNER_URL="${DATABASE_OWNER_URL:-postgres://schoolapp_owner:schoolapp_owner@127.0.0.1:5432/schoolapp}"
+
+GUARD_ARGS=()
+if [ -f "$ROOT/.env" ]; then
+  GUARD_ARGS+=("$ROOT/.env")
+fi
+pnpm --filter @schoolapp/db exec tsx src/demo-guard.ts -- "${GUARD_ARGS[@]}"
+
 write_demo_env "$ROOT/.env"
 write_demo_env "$ROOT/apps/web/.env.local"
 
@@ -60,11 +76,6 @@ set -a
 # shellcheck disable=SC1091
 source "$ROOT/.env"
 set +a
-
-if [ "${NODE_ENV:-}" = "production" ]; then
-  echo "Refusing to run demo setup because NODE_ENV=production." >&2
-  exit 1
-fi
 
 export ALLOW_DEMO_SEED=true
 export PLATFORM_DOMAIN=localhost

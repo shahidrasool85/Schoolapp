@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertDemoSeedAllowed, DemoSeedBlockedError, postgresHost } from "./demo-guard.js";
+import { assertDemoSeedAllowed, assertExistingEnvAllowsDemoWrite, DemoSeedBlockedError, postgresHost } from "./demo-guard.js";
 
 const localEnv = {
   NODE_ENV: "test",
@@ -45,5 +45,35 @@ describe("demo seed guard", () => {
         DATABASE_OWNER_URL: "postgres://schoolapp_owner:secret@db.example.com:5432/schoolapp",
       }),
     ).toThrow(/loopback/);
+  });
+
+  it("refuses to overwrite a production-looking existing env file", () => {
+    expect(() =>
+      assertExistingEnvAllowsDemoWrite({
+        NODE_ENV: "production",
+        PLATFORM_DOMAIN: "localhost",
+        DATABASE_OWNER_URL: localEnv.DATABASE_OWNER_URL,
+      }),
+    ).toThrow(/NODE_ENV=production/);
+    expect(() =>
+      assertExistingEnvAllowsDemoWrite({
+        PLATFORM_DOMAIN: "schoolapp.example.com",
+        DATABASE_OWNER_URL: localEnv.DATABASE_OWNER_URL,
+      }),
+    ).toThrow(/PLATFORM_DOMAIN/);
+    expect(() =>
+      assertExistingEnvAllowsDemoWrite({
+        DATABASE_URL: "postgres://schoolapp_app:secret@db.example.com:5432/schoolapp",
+      }),
+    ).toThrow(/loopback/);
+  });
+
+  it("allows overwriting a local env that is missing ALLOW_DEMO_SEED", () => {
+    expect(() =>
+      assertExistingEnvAllowsDemoWrite({
+        PLATFORM_DOMAIN: "localhost",
+        DATABASE_OWNER_URL: localEnv.DATABASE_OWNER_URL,
+      }),
+    ).not.toThrow();
   });
 });

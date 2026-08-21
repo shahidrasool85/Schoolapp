@@ -24,12 +24,14 @@ export default function ClassRegisterPage() {
   const [draft, setDraft] = useState<Draft>({});
   const [loadedDate, setLoadedDate] = useState("");
   const [loadedSessionTypeId, setLoadedSessionTypeId] = useState("");
+  const [loadedClassId, setLoadedClassId] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const loadSeq = useRef(0);
 
   async function load(nextDate = date, nextSession = sessionTypeId) {
     const seq = ++loadSeq.current;
+    const classId = params.classId;
     const [sessionBody, codeBody, classesBody] = await Promise.all([
       api<{ sessionTypes: SessionType[] }>("/api/v1/attendance/session-types"),
       api<{ codes: Code[] }>("/api/v1/attendance/codes"),
@@ -49,7 +51,7 @@ export default function ClassRegisterPage() {
     const register = await api<{
       class: { name: string };
       pupils: Pupil[];
-    }>(`/api/v1/attendance/registers?classId=${params.classId}&date=${useDate}&sessionTypeId=${session}`);
+    }>(`/api/v1/attendance/registers?classId=${classId}&date=${useDate}&sessionTypeId=${session}`);
     if (seq !== loadSeq.current) return;
     setClassName(register.class.name);
     setPupils(register.pupils);
@@ -64,9 +66,17 @@ export default function ClassRegisterPage() {
     setDraft(nextDraft);
     setLoadedDate(useDate);
     setLoadedSessionTypeId(session);
+    setLoadedClassId(classId);
   }
 
   useEffect(() => {
+    setPupils([]);
+    setDraft({});
+    setLoadedDate("");
+    setLoadedSessionTypeId("");
+    setLoadedClassId("");
+    setClassName("Register");
+    setMessage("");
     load().catch((err: Error) => setError(err.message));
     return () => {
       loadSeq.current += 1;
@@ -81,11 +91,11 @@ export default function ClassRegisterPage() {
   }
 
   function assertLoadedRegister() {
-    if (!loadedDate || !loadedSessionTypeId) {
+    if (!loadedClassId || !loadedDate || !loadedSessionTypeId) {
       throw new Error("Load a register before saving.");
     }
-    if (date !== loadedDate || sessionTypeId !== loadedSessionTypeId) {
-      throw new Error("Load this date and session before saving.");
+    if (loadedClassId !== params.classId || date !== loadedDate || sessionTypeId !== loadedSessionTypeId) {
+      throw new Error("Load this class, date and session before saving.");
     }
   }
 
@@ -107,7 +117,7 @@ export default function ClassRegisterPage() {
     await api("/api/v1/attendance/registers", {
       method: "PUT",
       body: JSON.stringify({
-        classId: params.classId,
+        classId: loadedClassId,
         date: loadedDate,
         sessionTypeId: loadedSessionTypeId,
         markAllPresent: true,
@@ -125,7 +135,7 @@ export default function ClassRegisterPage() {
     await api("/api/v1/attendance/registers", {
       method: "PUT",
       body: JSON.stringify({
-        classId: params.classId,
+        classId: loadedClassId,
         date: loadedDate,
         sessionTypeId: loadedSessionTypeId,
         marks: marksFromDraft(),
@@ -135,7 +145,11 @@ export default function ClassRegisterPage() {
     await load(loadedDate, loadedSessionTypeId);
   }
 
-  const canSave = Boolean(loadedDate) && date === loadedDate && sessionTypeId === loadedSessionTypeId;
+  const canSave =
+    Boolean(loadedClassId) &&
+    loadedClassId === params.classId &&
+    date === loadedDate &&
+    sessionTypeId === loadedSessionTypeId;
 
   if (error) return <p className="error">{error}</p>;
 

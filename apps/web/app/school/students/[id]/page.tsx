@@ -115,6 +115,10 @@ export default function StudentDetailPage() {
   }
 
   useEffect(() => {
+    setData(null);
+    setAttendance(null);
+    setError("");
+    setInvite("");
     load().catch((err: Error) => setError(err.message));
     return () => {
       loadSeq.current += 1;

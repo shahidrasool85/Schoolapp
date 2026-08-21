@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { api } from "../../../../lib/api";
 
@@ -84,23 +84,29 @@ export default function StudentDetailPage() {
   const [classes, setClasses] = useState<Option[]>([]);
   const [error, setError] = useState("");
   const [invite, setInvite] = useState("");
+  const loadSeq = useRef(0);
 
   async function load() {
+    const seq = ++loadSeq.current;
+    const studentId = params.id;
     const [detail, yr, yg, cl] = await Promise.all([
-      api<Detail>(`/api/v1/students/${params.id}`),
+      api<Detail>(`/api/v1/students/${studentId}`),
       api<{ academicYears: Option[] }>("/api/v1/academic-years"),
       api<{ yearGroups: Option[] }>("/api/v1/year-groups"),
       api<{ classes: Option[] }>("/api/v1/classes"),
     ]);
+    if (seq !== loadSeq.current) return;
     setData(detail);
     setYears(yr.academicYears);
     setGroups(yg.yearGroups);
     setClasses(cl.classes);
     if (detail.attendanceSummary) {
       try {
-        const history = await api<AttendanceHistory>(`/api/v1/attendance/students/${params.id}`);
+        const history = await api<AttendanceHistory>(`/api/v1/attendance/students/${studentId}`);
+        if (seq !== loadSeq.current) return;
         setAttendance(history);
       } catch {
+        if (seq !== loadSeq.current) return;
         setAttendance(null);
       }
     } else {
@@ -110,6 +116,9 @@ export default function StudentDetailPage() {
 
   useEffect(() => {
     load().catch((err: Error) => setError(err.message));
+    return () => {
+      loadSeq.current += 1;
+    };
   }, [params.id]);
 
   async function enrol(event: FormEvent<HTMLFormElement>) {

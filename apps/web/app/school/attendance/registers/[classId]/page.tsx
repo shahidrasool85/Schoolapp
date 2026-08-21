@@ -178,10 +178,13 @@ export default function ClassRegisterPage() {
                   <select
                     value={value.codeId}
                     onChange={(e) =>
-                      setDraft((current) => ({
-                        ...current,
-                        [pupil.studentProfileId]: { ...value, codeId: e.target.value },
-                      }))
+                      setDraft((current) => {
+                        const previous = current[pupil.studentProfileId] ?? { codeId: "", lateMinutes: "", reason: "" };
+                        return {
+                          ...current,
+                          [pupil.studentProfileId]: { ...previous, codeId: e.target.value },
+                        };
+                      })
                     }
                   >
                     <option value="">Not marked</option>
@@ -194,10 +197,13 @@ export default function ClassRegisterPage() {
                   <input
                     value={value.lateMinutes}
                     onChange={(e) =>
-                      setDraft((current) => ({
-                        ...current,
-                        [pupil.studentProfileId]: { ...value, lateMinutes: e.target.value },
-                      }))
+                      setDraft((current) => {
+                        const previous = current[pupil.studentProfileId] ?? { codeId: "", lateMinutes: "", reason: "" };
+                        return {
+                          ...current,
+                          [pupil.studentProfileId]: { ...previous, lateMinutes: e.target.value },
+                        };
+                      })
                     }
                   />
                 </td>
@@ -205,10 +211,13 @@ export default function ClassRegisterPage() {
                   <input
                     value={value.reason}
                     onChange={(e) =>
-                      setDraft((current) => ({
-                        ...current,
-                        [pupil.studentProfileId]: { ...value, reason: e.target.value },
-                      }))
+                      setDraft((current) => {
+                        const previous = current[pupil.studentProfileId] ?? { codeId: "", lateMinutes: "", reason: "" };
+                        return {
+                          ...current,
+                          [pupil.studentProfileId]: { ...previous, reason: e.target.value },
+                        };
+                      })
                     }
                   />
                 </td>

@@ -42,7 +42,7 @@ That single command:
 
 - writes a local `.env` (and `apps/web/.env.local`) with **demo** values, not production secrets
 - starts PostgreSQL if Docker is available and nothing is already listening on port 5432
-- creates the local databases
+- creates the local databases (including after `docker compose -f infra/docker-compose.yml down -v`; you do not create `schoolapp_test` by hand)
 - runs migrations
 - loads two demo schools and labelled test logins
 

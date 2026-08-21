@@ -87,6 +87,38 @@ export function pgErrorToAppError(error: unknown): AppError | null {
   if (message.includes("admissions_enrolment_required")) {
     return new AppError(400, "validation_failed", "Enrolment must use the dedicated conversion endpoint");
   }
+  if (message.includes("slug_reserved")) {
+    return new AppError(400, "reserved_slug", "This subdomain is reserved for the platform");
+  }
+  if (message.includes("slug_invalid") || message.includes("slug_punycode") || message.includes("slug_malformed")) {
+    return new AppError(
+      400,
+      "validation_failed",
+      "School slugs must be 2–63 lowercase DNS labels (letters, digits, hyphens)",
+    );
+  }
+  if (message.includes("slug_in_history")) {
+    return new AppError(409, "conflict", "This school slug cannot be reused");
+  }
+  if (message.includes("hostname_reserved") || message.includes("hostname_platform_collision")) {
+    return new AppError(400, "validation_failed", "This hostname is reserved or collides with the platform domain");
+  }
+  if (message.includes("hostname_unverified")) {
+    return new AppError(404, "tenant_not_found", "Not found");
+  }
+  if (message.includes("hostname_not_pending")) {
+    return new AppError(409, "conflict", "Only pending hostnames can be changed this way");
+  }
+  if (message.includes("hostname_not_verified")) {
+    return new AppError(
+      409,
+      "conflict",
+      "Custom hostnames must be verified before they can be activated",
+    );
+  }
+  if (message.includes("hostname_invalid")) {
+    return new AppError(400, "validation_failed", "Hostname is not a valid DNS name");
+  }
   if (code === "23505") {
     return new AppError(409, "conflict", "Resource already exists");
   }

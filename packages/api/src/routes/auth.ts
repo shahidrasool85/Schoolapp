@@ -7,7 +7,7 @@ import {
   verifyAccessToken,
   verifyPassword,
 } from "@schoolapp/auth";
-import { AppError, pgErrorToAppError } from "@schoolapp/core";
+import { AppError, headerMatchesHostSlug, pgErrorToAppError } from "@schoolapp/core";
 import { withTenantContext } from "@schoolapp/db";
 import type { SchoolappApi } from "../types";
 import { readAccessToken } from "../auth-middleware";
@@ -16,11 +16,11 @@ const loginSchema = z
   .object({
     email: z.string().email().optional(),
     password: z.string().min(8),
-    organisationSlug: z.string().min(2).optional(),
+    organisationSlug: z.string().min(1).optional(),
     username: z.string().min(1).optional(),
   })
-  .refine((data) => Boolean(data.email) || Boolean(data.organisationSlug && data.username), {
-    message: "Email or organisation slug and username is required",
+  .refine((data) => Boolean(data.email) || Boolean(data.username), {
+    message: "Email or username is required",
   });
 
 const acceptSchema = z.object({
@@ -36,14 +36,37 @@ export function registerAuthRoutes(app: SchoolappApi) {
       throw new AppError(400, "validation_failed", "Invalid login payload");
     }
     const { config } = { config: c.get("config") };
-    const lookup = parsed.data.email
-      ? await config.pools.app.query("select * from local_auth_lookup($1)", [
-          parsed.data.email.toLowerCase(),
-        ])
-      : await config.pools.app.query("select * from local_auth_lookup_alias($1, $2)", [
-          parsed.data.organisationSlug,
-          parsed.data.username,
-        ]);
+    const host = c.get("tenantHost");
+    if (host.kind === "school") {
+      if (
+        !headerMatchesHostSlug({
+          hostSlug: host.slug,
+          requestedSlug: parsed.data.organisationSlug ?? null,
+        })
+      ) {
+        throw new AppError(
+          403,
+          "org_host_mismatch",
+          "Organisation header does not match this school host",
+        );
+      }
+    }
+
+    let lookup;
+    if (parsed.data.email) {
+      lookup = await config.pools.app.query("select * from local_auth_lookup($1)", [
+        parsed.data.email.toLowerCase(),
+      ]);
+    } else {
+      const aliasSlug = host.kind === "school" ? host.slug : parsed.data.organisationSlug;
+      if (!aliasSlug || !parsed.data.username) {
+        throw new AppError(400, "validation_failed", "Invalid login payload");
+      }
+      lookup = await config.pools.app.query("select * from local_auth_lookup_alias($1, $2)", [
+        aliasSlug,
+        parsed.data.username,
+      ]);
+    }
     const row = lookup.rows[0] as
       | {
           user_id: string;
@@ -82,7 +105,16 @@ export function registerAuthRoutes(app: SchoolappApi) {
 
     return c.json({
       accessToken,
-      organisationId: parsed.data.organisationSlug ? row.organisation_id ?? null : null,
+      organisationId:
+        host.kind === "school"
+          ? host.organisationId
+          : parsed.data.username
+            ? row.organisation_id ?? null
+            : null,
+      hostOrganisation:
+        host.kind === "school"
+          ? { id: host.organisationId, slug: host.slug, name: host.name }
+          : null,
       user: {
         id: row.user_id,
         fullName: row.full_name,

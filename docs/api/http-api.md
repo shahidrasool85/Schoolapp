@@ -12,18 +12,18 @@ The web app and future Expo apps are **clients of this API**. OpenAPI YAML will 
 | IDs | UUID strings |
 | Auth (web) | HTTP-only cookie session |
 | Auth (mobile) | `Authorization: Bearer <access_token>` |
-| Tenant | `X-Organisation-Id: <uuid>` **requests** context on school-scoped routes. It is **not** authority. The server revalidates active membership in Postgres, then sets transaction-local RLS context. JWT org claims are likewise non-authoritative |
+| Tenant | `X-Organisation-Id: <uuid>` **requests** context on school-scoped routes. It is **not** authority. On a school hostname the server resolves the organisation from `Host` (see [ADR 0014](../adr/0014-saas-hostname-tenancy.md)); a mismatched header is `org_host_mismatch`. On the platform host the server revalidates active membership in Postgres, then sets transaction-local RLS context. JWT org claims are likewise non-authoritative |
 | Idempotency | `Idempotency-Key` on POSTs that create submissions, attendance, payments (later) |
 | Pagination | `?cursor=` or `?page=&pageSize=` — pick cursor for large lists in implementation |
 | Errors | `{ "error": { "code": "forbidden", "message": "...", "details": {} } }` |
 | Cross-tenant | **404** not 403 when the UUID belongs to another school or is unknown |
 | Trace | `X-Request-Id` echoed |
 
-Unauthenticated routes: health, login, invite accept, password reset.
+Unauthenticated routes: health, login, invite accept, password reset, `GET /api/v1/public/tenant`.
 
 ## Error codes (stable)
 
-`unauthenticated`, `org_context_required`, `org_membership_required`, `forbidden`, `not_found`, `validation_failed`, `conflict`, `rate_limited`.
+`unauthenticated`, `org_context_required`, `org_membership_required`, `org_host_mismatch`, `tenant_not_found`, `reserved_slug`, `onboarding_public_disabled`, `forbidden`, `not_found`, `validation_failed`, `conflict`, `rate_limited`.
 
 ## Identity and context
 
@@ -38,6 +38,9 @@ GET  /api/v1/me
 GET  /api/v1/me/memberships
 PATCH /api/v1/me
 POST /api/v1/me/devices          # reserve for Expo push tokens; stub later
+
+GET  /api/v1/public/tenant       # Host-based platform vs school identity (public name/slug only)
+POST /api/v1/public/signup       # disabled; returns onboarding_public_disabled
 ```
 
 `GET /api/v1/me` returns the user and does **not** require `X-Organisation-Id`.
@@ -52,7 +55,7 @@ X-Organisation-Id: 0c1e…
 Authorization: Bearer …
 ```
 
-If the header is missing, `org_context_required`. If the membership is missing, suspended, or ended, `org_membership_required`. If the student is in another org, `not_found`.
+If the header is missing on the **platform** host, `org_context_required`. On a **school** host the organisation is taken from the hostname (the header is optional and must match). If the membership is missing, suspended, or ended, `org_membership_required`. If the student is in another org, `not_found`.
 
 ## Platform Super Admin
 
@@ -61,7 +64,10 @@ Prefix `/api/v1/platform/...` — no school header.
 ```http
 GET  /api/v1/platform/organisations
 POST /api/v1/platform/organisations
+POST /api/v1/platform/organisations/{id}/slug
 POST /api/v1/platform/organisations/{id}/suspend
+POST /api/v1/platform/organisation-hostnames/{id}/verify
+POST /api/v1/platform/organisation-hostnames/{id}/activate
 ```
 
 ## School administration (Phase 1–2)
@@ -69,6 +75,9 @@ POST /api/v1/platform/organisations/{id}/suspend
 ```http
 GET  /api/v1/organisation
 PATCH /api/v1/organisation/settings
+PATCH /api/v1/organisation/slug
+GET  /api/v1/organisation/hostnames
+POST /api/v1/organisation/hostnames
 GET  /api/v1/dashboard
 GET  /api/v1/members
 POST /api/v1/invitations

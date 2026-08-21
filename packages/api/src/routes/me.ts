@@ -1,13 +1,14 @@
 import { AppError, pgErrorToAppError } from "@schoolapp/core";
 import { withTenantContext } from "@schoolapp/db";
 import type { SchoolappApi } from "../types";
-import { requestedOrganisationId, requireUser } from "../auth-middleware";
+import { requireUser } from "../auth-middleware";
+import { boundOrganisationId } from "../tenant-resolver";
 
 export function registerMeRoutes(app: SchoolappApi) {
   app.get("/me", requireUser, async (c) => {
     const config = c.get("config");
     const userId = c.get("userId");
-    const orgId = requestedOrganisationId(c);
+    const orgId = boundOrganisationId(c);
 
     try {
       return await withTenantContext(config.pools.app, userId, orgId, async (client) => {
@@ -62,6 +63,7 @@ export function registerMeRoutes(app: SchoolappApi) {
           }
         }
 
+        const host = c.get("tenantHost");
         return c.json({
           user: {
             id: row.id,
@@ -75,6 +77,10 @@ export function registerMeRoutes(app: SchoolappApi) {
           roleKeys,
           permissions,
           context: orgId ? "organisation" : isPlatformAdmin ? "platform" : "user",
+          hostOrganisation:
+            host.kind === "school"
+              ? { id: host.organisationId, slug: host.slug, name: host.name }
+              : null,
         });
       });
     } catch (error) {

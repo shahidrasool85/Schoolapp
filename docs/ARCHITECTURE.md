@@ -1,6 +1,6 @@
 # Schoolapp — Platform Architecture
 
-**Status:** Phase 4 admissions workflow implemented. Later modules (LMS, AI, mobile) are not built.  
+**Status:** Phase 5 SaaS hostname tenancy implemented. Later modules (attendance, LMS, AI, mobile) are not built.  
 **Audience:** Product owner and engineering.  
 **Scope:** Multi-tenant UK school SaaS (SIS + LMS + AI learning), web first, mobile-ready.
 
@@ -141,16 +141,17 @@ flowchart TB
 ### 2.3 Request path (every authenticated school-scoped call)
 
 1. Client sends session (cookie) or `Authorization: Bearer`. It **may** send `X-Organisation-Id` as a **requested** context. That header is never written to the database session as-is.
-2. API validates the token via the auth adapter and loads the **user**.
-3. API **revalidates memberships from the database** (not from the header, not from JWT org claims). `list_memberships_for_user` (or equivalent) runs without tenant context.
-4. If the route is school-scoped and no organisation was requested → `org_context_required`. If requested but no **active** membership → `org_membership_required`. Platform Super Admin on `/platform/*` omits org. Entering a tenant as Super Admin is an explicit, audited path, not a default.
-5. API `BEGIN`s a transaction and calls `set_tenant_context(user_id, organisation_id, is_platform_admin)` which:
+2. API resolves the **Host** (see [ADR 0014](./adr/0014-saas-hostname-tenancy.md)). A school hostname selects that organisation; a mismatched `X-Organisation-Id` is `org_host_mismatch`. The platform apex does not auto-select a school. `X-Forwarded-Host` is ignored unless `TRUST_PROXY=true`.
+3. API validates the token via the auth adapter and loads the **user**.
+4. API **revalidates memberships from the database** (not from the header, not from JWT org claims, not from the visual school name). `list_memberships_for_user` (or equivalent) runs without tenant context.
+5. If the route is school-scoped and no organisation was bound from hostname or header → `org_context_required`. If bound but no **active** membership → `org_membership_required`. Platform Super Admin on `/platform/*` uses the platform host only. Entering a tenant as Super Admin is an explicit, audited path, not a default.
+6. API `BEGIN`s a transaction and calls `set_tenant_context(user_id, organisation_id, is_platform_admin)` which:
    - re-checks membership (or `platform_admins`) inside the database
    - `set_config(..., is_local := true)` only — **transaction-local**
-6. Use case runs with an explicit `Actor` (`userId`, `organisationId`, `permissions[]`).
-7. Queries always include `organisation_id` in application code **and** RLS (FORCE) rejects mismatches.
-8. Sensitive mutations write a **formal `audit_events` row** (actor, time, before/after) in the same transaction. Ordinary application logs are separate.
-9. `COMMIT` discards tenant GUCs so pooled connections cannot leak context.
+7. Use case runs with an explicit `Actor` (`userId`, `organisationId`, `permissions[]`).
+8. Queries always include `organisation_id` in application code **and** RLS (FORCE) rejects mismatches.
+9. Sensitive mutations write a **formal `audit_events` row** (actor, time, before/after) in the same transaction. Ordinary application logs are separate.
+10. `COMMIT` discards tenant GUCs so pooled connections cannot leak context.
 
 Defence in depth: application checks + RLS. Neither is sufficient alone. Application checks encode role logic; RLS is the last barrier against a missed `WHERE organisation_id = …`.
 
@@ -635,13 +636,14 @@ Detail: [roadmap.md](./roadmap.md).
 | **2 — People & school structure** | Staff, students, guardianships, years/terms/half-terms, historical enrolments, dated class memberships, teacher-class and class-subject links | Yes, narrow |
 | **3 — Portals (read)** | Parent/student web views of profile + in-app notification inbox | Yes, read-only |
 | **4 — Admissions** | Enquiry to admitted pupil conversion | **Implemented** |
-| **5 — Attendance & documents** | Registers, files | Yes |
-| **6 — LMS core** | Assignments, submissions, resources, marking | Yes |
-| **7 — Assessment & reports** | Results, feedback, progress reports | Yes |
-| **8 — AI learning** | Provider port, drafts, teacher approval, attempts | Yes |
-| **9 — Gamification** | Points, badges, streaks, configurable leaderboards | Yes |
-| **10 — Mobile** | Expo parent app, then student | New clients only |
-| **11 — Integrations** | MIS, CTF, census, SSO | Later |
+| **5 — SaaS hostname tenancy** | School subdomains, slug routing, onboarding foundation, custom-domain model | **Implemented** |
+| **6 — Attendance & documents** | Registers, files | Yes |
+| **7 — LMS core** | Assignments, submissions, resources, marking | Yes |
+| **8 — Assessment & reports** | Results, feedback, progress reports | Yes |
+| **9 — AI learning** | Provider port, drafts, teacher approval, attempts | Yes |
+| **10 — Gamification** | Points, badges, streaks, configurable leaderboards | Yes |
+| **11 — Mobile** | Expo parent app, then student | New clients only |
+| **12 — Integrations** | MIS, CTF, census, SSO | Later |
 
 Each phase ships behind feature flags per organisation. Mobile starts only when the parent/student API has been used in production by the web portals (so the contract is proven).
 
@@ -665,6 +667,7 @@ Each phase ships behind feature flags per organisation. Mobile starts only when 
 12. Formal audit is separate from application logging.
 13. UK/EU residency is a preferred deployment policy; international transfers need safeguards.
 14. Inter-school competitions remain unimplemented; governance placeholders only.
+15. SaaS hostname tenancy: one shared application; school slug subdomains; apex is platform context; `X-Organisation-Id` is never authority; unverified custom domains do not resolve (ADR 0014).
 
 ### Product-owner Phase 1 decisions (ADR 0011)
 

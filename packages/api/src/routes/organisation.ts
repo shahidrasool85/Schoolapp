@@ -3,8 +3,11 @@ import { PERMISSIONS, YEAR_GROUP_CODES } from "@schoolapp/domain";
 import { AppError, pgErrorToAppError, assertPermission, assignedStudentIds } from "@schoolapp/core";
 import { withTenantContext } from "@schoolapp/db";
 import type { SchoolappApi } from "../types";
-import { requestedOrganisationId, requireUser } from "../auth-middleware";
+import { requireUser } from "../auth-middleware";
 import { withSchoolActor } from "../school-context";
+import { requireBoundOrganisationId, assertCustomHostnameAllowed } from "../tenant-resolver";
+import { writeAudit } from "@schoolapp/core";
+import { validateOrganisationSlug, slugValidationMessage } from "@schoolapp/domain";
 
 const inviteSchema = z.object({
   email: z.string().email(),
@@ -13,10 +16,7 @@ const inviteSchema = z.object({
 
 export function registerOrganisationRoutes(app: SchoolappApi) {
   app.get("/organisation", requireUser, async (c) => {
-    const orgId = requestedOrganisationId(c);
-    if (!orgId) {
-      throw new AppError(400, "org_context_required", "X-Organisation-Id is required");
-    }
+    const orgId = requireBoundOrganisationId(c);
     const config = c.get("config");
     try {
       return await withTenantContext(config.pools.app, c.get("userId"), orgId, async (client) => {
@@ -82,10 +82,7 @@ export function registerOrganisationRoutes(app: SchoolappApi) {
   });
 
   app.post("/invitations", requireUser, async (c) => {
-    const orgId = requestedOrganisationId(c);
-    if (!orgId) {
-      throw new AppError(400, "org_context_required", "X-Organisation-Id is required");
-    }
+    const orgId = requireBoundOrganisationId(c);
     const parsed = inviteSchema.safeParse(await c.req.json());
     if (!parsed.success) {
       throw new AppError(400, "validation_failed", "Invalid invitation payload");
@@ -214,10 +211,7 @@ export function registerOrganisationRoutes(app: SchoolappApi) {
   );
 
   app.get("/organisation/support-access", requireUser, async (c) => {
-    const orgId = requestedOrganisationId(c);
-    if (!orgId) {
-      throw new AppError(400, "org_context_required", "X-Organisation-Id is required");
-    }
+    const orgId = requireBoundOrganisationId(c);
     const config = c.get("config");
     try {
       return await withTenantContext(config.pools.app, c.get("userId"), orgId, async (client) => {
@@ -253,5 +247,129 @@ export function registerOrganisationRoutes(app: SchoolappApi) {
       throw pgErrorToAppError(error) ?? error;
     }
   });
+
+  app.patch("/organisation/slug", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ORG_SETTINGS_MANAGE);
+      const parsed = z.object({ slug: z.string().min(1) }).safeParse(await c.req.json());
+      if (!parsed.success) {
+        throw new AppError(400, "validation_failed", "Invalid slug payload");
+      }
+      const slug = validateOrganisationSlug(parsed.data.slug);
+      if (!slug.ok) {
+        throw new AppError(
+          slug.error === "reserved" ? 400 : 400,
+          slug.error === "reserved" ? "reserved_slug" : "validation_failed",
+          slugValidationMessage(slug.error),
+        );
+      }
+      const before = await client.query<{ slug: string; name: string }>(
+        "select slug, name from organisations where id = $1",
+        [orgId],
+      );
+      if (!before.rows[0]) throw new AppError(404, "not_found", "Not found");
+      try {
+        await client.query("update organisations set slug = $2 where id = $1", [orgId, slug.slug]);
+      } catch (error) {
+        throw pgErrorToAppError(error) ?? error;
+      }
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "org.slug.changed",
+        entityType: "organisation",
+        entityId: orgId,
+        before: { slug: before.rows[0].slug },
+        after: { slug: slug.slug },
+      });
+      return c.json({ slug: slug.slug });
+    }),
+  );
+
+  app.get("/organisation/hostnames", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertPermission(actor, PERMISSIONS.ORG_SETTINGS_READ);
+      const rows = await client.query<{
+        id: string;
+        hostname: string;
+        kind: string;
+        verification_status: string;
+        is_active: boolean;
+        created_at: string;
+        verified_at: string | null;
+      }>(
+        `select id, hostname, kind, verification_status, is_active, created_at, verified_at
+         from organisation_hostnames
+         where organisation_id = $1
+         order by created_at desc`,
+        [orgId],
+      );
+      return c.json({
+        hostnames: rows.rows.map((row) => ({
+          id: row.id,
+          hostname: row.hostname,
+          kind: row.kind,
+          verificationStatus: row.verification_status,
+          isActive: row.is_active,
+          createdAt: row.created_at,
+          verifiedAt: row.verified_at,
+        })),
+      });
+    }),
+  );
+
+  app.post("/organisation/hostnames", requireUser, async (c) =>
+    withSchoolActor(c, async ({ actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ORG_SETTINGS_MANAGE);
+      const parsed = z.object({ hostname: z.string().min(1) }).safeParse(await c.req.json());
+      if (!parsed.success) {
+        throw new AppError(400, "validation_failed", "Invalid hostname payload");
+      }
+      const hostname = parsed.data.hostname.trim().toLowerCase();
+      assertCustomHostnameAllowed(hostname, c.get("config").platformDomain);
+      try {
+        const result = await c.get("config").pools.app.query(
+          "select * from register_organisation_hostname($1, $2, $3)",
+          [userId, orgId, hostname],
+        );
+        const row = result.rows[0] as {
+          hostname_id: string;
+          hostname: string;
+          verification_status: string;
+          is_active: boolean;
+          verification_token: string;
+        };
+        return c.json(
+          {
+            id: row.hostname_id,
+            hostname: row.hostname,
+            verificationStatus: row.verification_status,
+            isActive: row.is_active,
+            verificationToken: row.verification_token,
+          },
+          201,
+        );
+      } catch (error) {
+        throw pgErrorToAppError(error) ?? error;
+      }
+    }),
+  );
+
+  app.delete("/organisation/hostnames/:hostnameId", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertPermission(actor, PERMISSIONS.ORG_SETTINGS_MANAGE);
+      const hostnameId = c.req.param("hostnameId");
+      const deleted = await client.query(
+        `delete from organisation_hostnames
+         where id = $1 and organisation_id = $2 and verification_status = 'pending' and is_active = false
+         returning id`,
+        [hostnameId, orgId],
+      );
+      if (!deleted.rows[0]) {
+        throw new AppError(404, "not_found", "Not found");
+      }
+      return c.json({ ok: true });
+    }),
+  );
 }
 

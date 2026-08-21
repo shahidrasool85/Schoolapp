@@ -71,26 +71,40 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 **Not in Phase 4:** attendance, LMS, results, AI, payments, document binaries, public website form, ranking algorithms, email/SMS/push.
 
-## Phase 5 — Attendance, documents, announcements
+## Phase 5 — SaaS tenant routing, school subdomains, and onboarding foundation (implemented)
+
+**Outcome:** the same application can serve the platform apex and per-school subdomains without weakening Phase 1–4 isolation.
+
+- Unique DNS-safe organisation slugs; reserved platform names blocked
+- Central hostname → organisation resolver; header mismatch fails closed
+- Root/platform host does not auto-select a school
+- Internal transactional onboarding (`provision_organisation`); public signup disabled
+- School-aware login branding (display only, not authority)
+- Local development via `*.localhost` and `PLATFORM_DOMAIN`
+- Custom-domain data model with verification/activation; unverified hostnames never resolve
+
+**Not in Phase 5:** production wildcard DNS/TLS, automated certificate provisioning, public self-service signup, billing collection, attendance.
+
+## Phase 6 — Attendance, documents, announcements
 
 - Registers and UK-style codes (configurable)
 - Document metadata + signed uploads
 - School announcements by audience
 
-## Phase 6 — LMS core
+## Phase 7 — LMS core
 
 - Assignments, targeting (class/year/student)
 - Submissions and teacher marking/feedback
 - Learning resources
 - Homework lists on parent and student APIs
 
-## Phase 7 — Results and progress reports
+## Phase 8 — Results and progress reports
 
 - Assessments/results model
 - Teacher feedback records
 - Simple progress report artefact (PDF later)
 
-## Phase 8 — AI learning
+## Phase 9 — AI learning
 
 - `packages/ai` port + one provider
 - Activity drafts, moderation hook, teacher approval workflow
@@ -98,13 +112,13 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 - Year-group and subject targeting
 - Generation audit (no PII in prompts)
 
-## Phase 9 — Gamification
+## Phase 10 — Gamification
 
 - Points/XP ledgers, badges, streaks
 - Competitions: student, class, house (not school-vs-school; network tables remain governance placeholders)
 - Leaderboards honouring school flags and Children’s Code defaults (off)
 
-## Phase 10 — Mobile clients
+## Phase 11 — Mobile clients
 
 - Expo app: **parent** first (read-mostly)
 - Then **student** (attempts, homework submit if API already exists)
@@ -113,7 +127,7 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 No second backend.
 
-## Phase 11 — Integrations and hardening
+## Phase 12 — Integrations and hardening
 
 - MIS identifiers, CTF/census experiments
 - SSO (Microsoft 365 / Google Workspace) if schools demand it

@@ -35,10 +35,11 @@ describe("RLS catalog", () => {
            'admissions_enquiries', 'admissions_applications', 'admissions_application_contacts',
            'admissions_application_status_history', 'admissions_assessments',
            'admissions_waiting_list_entries', 'admissions_offers', 'admissions_documents',
-           'admissions_counters'
+           'admissions_counters', 'organisation_hostnames', 'organisation_slug_history',
+           'reserved_subdomains'
          )`,
     );
-    expect(result.rows.length).toBe(26);
+    expect(result.rows.length).toBe(29);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
     }

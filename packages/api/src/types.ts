@@ -5,6 +5,8 @@ export type ApiConfig = {
   pools: DbPools;
   authSecret: string;
   tokenTtlSeconds: number;
+  platformDomain: string;
+  trustProxy: boolean;
 };
 
 export type ApiEnv = {
@@ -13,6 +15,7 @@ export type ApiEnv = {
     accessToken: string | null;
     userId: string;
     sessionId: string;
+    tenantHost: import("./tenant-resolver").ResolvedTenantHost;
   };
 };
 
@@ -24,5 +27,6 @@ declare module "hono" {
     accessToken: string | null;
     userId: string;
     sessionId: string;
+    tenantHost: import("./tenant-resolver").ResolvedTenantHost;
   }
 }

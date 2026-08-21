@@ -12,6 +12,7 @@ import {
   pickPortalMembership,
   type Membership,
 } from "../../lib/portal";
+import { loadPublicTenant, membershipForHost, switchSchoolLocation } from "../../lib/tenant";
 
 const LINKS = [
   { href: "/school", label: "Dashboard" },
@@ -39,15 +40,41 @@ export default function SchoolShell({ children }: { children: ReactNode }) {
   const [permissions, setPermissions] = useState<string[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
+  const [platformDomain, setPlatformDomain] = useState<string | null>(null);
 
   useEffect(() => {
     if (!getToken()) {
       router.replace("/login");
       return;
     }
-    api<{ memberships: Membership[] }>("/api/v1/me/memberships", { orgId: null })
-      .then((body) => {
+    Promise.all([
+      loadPublicTenant(),
+      api<{ memberships: Membership[] }>("/api/v1/me/memberships", { orgId: null }),
+    ])
+      .then(([tenant, body]) => {
+        if (tenant.kind === "unknown") {
+          setError("This school is not available.");
+          return;
+        }
+        setPlatformDomain(tenant.platformDomain);
         const active = body.memberships.filter((m) => m.status === "active");
+        if (tenant.kind === "school") {
+          const current = membershipForHost(active, tenant);
+          if (!current || !hasStaffRole(current.roleKeys)) {
+            const fallback = current ? homePath(current.roleKeys) : "/login";
+            if (fallback !== "/school") {
+              router.replace(fallback);
+              return;
+            }
+            setError("You do not have access to this school.");
+            return;
+          }
+          setMemberships(active.filter((m) => hasStaffRole(m.roleKeys)));
+          setOrgId(current.organisationId);
+          setOrg(current.organisationId);
+          setCanOpenParentPortal(hasParentRole(current.roleKeys));
+          return api<{ permissions: string[] }>("/api/v1/me", { orgId: current.organisationId });
+        }
         const current = pickPortalMembership(active, "staff", getOrgId());
         if (!current) {
           const fallback = pickMembership(active, getOrgId());
@@ -73,6 +100,11 @@ export default function SchoolShell({ children }: { children: ReactNode }) {
 
   async function onOrgChange(event: FormEvent<HTMLSelectElement>) {
     const value = event.currentTarget.value;
+    const selected = memberships.find((m) => m.organisationId === value);
+    if (platformDomain && selected) {
+      switchSchoolLocation(selected.slug, platformDomain, "/school");
+      return;
+    }
     setOrgId(value);
     setOrg(value);
     window.location.reload();

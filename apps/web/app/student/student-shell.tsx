@@ -4,7 +4,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
 import { api, getOrgId, getToken, setOrgId, setToken } from "../../lib/api";
-import { homePath, pickMembership, pickPortalMembership, type Membership } from "../../lib/portal";
+import { homePath, hasStudentRole, pickMembership, pickPortalMembership, type Membership } from "../../lib/portal";
+import { loadPublicTenant, membershipForHost } from "../../lib/tenant";
 
 const LINKS = [
   { href: "/student", label: "Home" },
@@ -25,8 +26,26 @@ export default function StudentShell({ children }: { children: ReactNode }) {
       router.replace("/login");
       return;
     }
-    api<{ memberships: Membership[] }>("/api/v1/me/memberships", { orgId: null })
-      .then((body) => {
+    Promise.all([
+      loadPublicTenant(),
+      api<{ memberships: Membership[] }>("/api/v1/me/memberships", { orgId: null }),
+    ])
+      .then(([tenant, body]) => {
+        if (tenant.kind === "unknown") {
+          setError("This school is not available.");
+          return;
+        }
+        if (tenant.kind === "school") {
+          const current = membershipForHost(body.memberships, tenant);
+          if (!current || !hasStudentRole(current.roleKeys)) {
+            router.replace(current ? homePath(current.roleKeys) : "/login");
+            return;
+          }
+          setOrgId(current.organisationId);
+          setSchoolName(current.name);
+          setReady(true);
+          return;
+        }
         const current = pickPortalMembership(body.memberships, "student", getOrgId());
         if (!current) {
           const fallback = pickMembership(body.memberships, getOrgId());

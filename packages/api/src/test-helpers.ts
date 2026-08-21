@@ -26,11 +26,16 @@ export function testPools(): DbPools {
   return createPools({ appUrl, ownerUrl });
 }
 
-export function testApp(pools: DbPools): SchoolappApi {
+export function testApp(
+  pools: DbPools,
+  options: { platformDomain?: string; trustProxy?: boolean } = {},
+): SchoolappApi {
   return createApiApp({
     pools,
     authSecret: TEST_AUTH_SECRET,
     tokenTtlSeconds: 3600,
+    platformDomain: options.platformDomain ?? "localhost",
+    trustProxy: options.trustProxy ?? false,
   });
 }
 

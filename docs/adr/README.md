@@ -17,5 +17,6 @@ ADRs capture *why* we chose an approach. The narrative proposal is in [ARCHITECT
 | [0011](./0011-product-owner-phase-1-decisions.md) | Product-owner Phase 1 decisions | Accepted |
 | [0012](./0012-in-app-notifications.md) | In-app notifications are per-recipient and organisation-scoped | Accepted |
 | [0013](./0013-admissions-conversion.md) | Admissions workflow and applicant-to-student conversion | Accepted |
+| [0014](./0014-saas-hostname-tenancy.md) | SaaS hostname tenancy, school slugs, and custom-domain foundation | Accepted |
 
 Convention: one decision per file. If a decision is reversed, mark it **Superseded** and add a new ADR — do not silently edit history.

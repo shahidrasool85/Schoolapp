@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, getOrgId, setOrgId, setToken } from "../../../lib/api";
 import { pickMembership, type Membership } from "../../../lib/portal";
+import { loadPublicTenant, membershipForHost, switchSchoolLocation } from "../../../lib/tenant";
 
 type Me = { user: { fullName: string; email: string | null; kind: string } };
 
@@ -13,19 +14,29 @@ export default function ParentAccountPage() {
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [orgId, setOrg] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [platformDomain, setPlatformDomain] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
+      loadPublicTenant(),
       api<Me>("/api/v1/me"),
       api<{ memberships: Membership[] }>("/api/v1/me/memberships", { orgId: null }),
     ])
-      .then(([profile, body]) => {
+      .then(([tenant, profile, body]) => {
         const parentMemberships = body.memberships.filter(
           (m) => m.status === "active" && m.roleKeys.includes("school.parent"),
         );
         setMe(profile);
         setMemberships(parentMemberships);
-        const current = pickMembership(parentMemberships, getOrgId());
+        if (tenant.kind === "unknown") {
+          setError("This school is not available.");
+          return;
+        }
+        setPlatformDomain(tenant.platformDomain);
+        const current =
+          tenant.kind === "school"
+            ? membershipForHost(parentMemberships, tenant)
+            : pickMembership(parentMemberships, getOrgId());
         setOrg(current?.organisationId ?? null);
       })
       .catch((err: Error) => setError(err.message));
@@ -33,6 +44,11 @@ export default function ParentAccountPage() {
 
   function onOrgChange(event: FormEvent<HTMLSelectElement>) {
     const value = event.currentTarget.value;
+    const selected = memberships.find((m) => m.organisationId === value);
+    if (platformDomain && selected) {
+      switchSchoolLocation(selected.slug, platformDomain, "/parent");
+      return;
+    }
     setOrgId(value);
     setOrg(value);
     window.location.assign("/parent");

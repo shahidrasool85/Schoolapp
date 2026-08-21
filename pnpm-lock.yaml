@@ -111,6 +111,9 @@ importers:
         specifier: workspace:*
         version: link:../domain
     devDependencies:
+      '@types/node':
+        specifier: ^22.17.0
+        version: 22.20.1
       '@types/pg':
         specifier: ^8.15.5
         version: 8.23.1
@@ -120,6 +123,9 @@ importers:
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)
 
   packages/db:
     dependencies:

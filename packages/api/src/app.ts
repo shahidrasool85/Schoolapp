@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { AppError } from "@schoolapp/core";
+import { AppError, normalizePlatformDomain } from "@schoolapp/core";
 import type { ApiConfig, ApiEnv } from "./types";
+import { tenantResolver } from "./tenant-resolver";
 import { registerAuthRoutes } from "./routes/auth";
 import { registerMeRoutes } from "./routes/me";
 import { registerPlatformRoutes } from "./routes/platform";
@@ -12,16 +13,29 @@ import { registerParentRoutes } from "./routes/parent";
 import { registerStudentRoutes } from "./routes/student";
 import { registerNotificationRoutes } from "./routes/notifications";
 import { registerAdmissionsRoutes } from "./routes/admissions";
+import { registerPublicRoutes } from "./routes/public";
 
 export type { ApiConfig, ApiEnv, SchoolappApi } from "./types";
 
 export function createApiApp(config: ApiConfig) {
+  const resolvedConfig: ApiConfig = {
+    ...config,
+    platformDomain: normalizePlatformDomain(config.platformDomain),
+    trustProxy: Boolean(config.trustProxy),
+  };
+  if (resolvedConfig.trustProxy && process.env.VITEST !== "true") {
+    console.warn(
+      "TRUST_PROXY is enabled. Honour X-Forwarded-Host only when the reverse proxy overwrites client-supplied forwarded headers; do not pass them through.",
+    );
+  }
   const app = new Hono<ApiEnv>().basePath("/api/v1");
 
   app.use("*", async (c, next) => {
-    c.set("config", config);
+    c.set("config", resolvedConfig);
     await next();
   });
+
+  app.use("*", tenantResolver);
 
   app.use(
     "*",
@@ -34,6 +48,7 @@ export function createApiApp(config: ApiConfig) {
 
   app.get("/health", (c) => c.json({ ok: true }));
 
+  registerPublicRoutes(app);
   registerAuthRoutes(app);
   registerMeRoutes(app);
   registerPlatformRoutes(app);

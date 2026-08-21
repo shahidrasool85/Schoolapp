@@ -12,6 +12,7 @@ import {
   pickPortalMembership,
   type Membership,
 } from "../../lib/portal";
+import { loadPublicTenant, membershipForHost, switchSchoolLocation } from "../../lib/tenant";
 
 const LINKS = [
   { href: "/parent", label: "Dashboard" },
@@ -28,14 +29,38 @@ export default function ParentShell({ children }: { children: ReactNode }) {
   const [canOpenSchoolAdmin, setCanOpenSchoolAdmin] = useState(false);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
+  const [platformDomain, setPlatformDomain] = useState<string | null>(null);
 
   useEffect(() => {
     if (!getToken()) {
       router.replace("/login");
       return;
     }
-    api<{ memberships: Membership[] }>("/api/v1/me/memberships", { orgId: null })
-      .then((body) => {
+    Promise.all([
+      loadPublicTenant(),
+      api<{ memberships: Membership[] }>("/api/v1/me/memberships", { orgId: null }),
+    ])
+      .then(([tenant, body]) => {
+        if (tenant.kind === "unknown") {
+          setError("This school is not available.");
+          return;
+        }
+        setPlatformDomain(tenant.platformDomain);
+        if (tenant.kind === "school") {
+          const current = membershipForHost(body.memberships, tenant);
+          if (!current || !hasParentRole(current.roleKeys)) {
+            router.replace(current ? homePath(current.roleKeys) : "/login");
+            return;
+          }
+          setMemberships(
+            body.memberships.filter((m) => m.status === "active" && hasParentRole(m.roleKeys)),
+          );
+          setOrgId(current.organisationId);
+          setOrg(current.organisationId);
+          setCanOpenSchoolAdmin(hasStaffRole(current.roleKeys));
+          setReady(true);
+          return;
+        }
         const current = pickPortalMembership(body.memberships, "parent", getOrgId());
         if (!current) {
           const fallback = pickMembership(body.memberships, getOrgId());
@@ -60,6 +85,11 @@ export default function ParentShell({ children }: { children: ReactNode }) {
 
   function onOrgChange(event: FormEvent<HTMLSelectElement>) {
     const value = event.currentTarget.value;
+    const selected = memberships.find((m) => m.organisationId === value);
+    if (platformDomain && selected) {
+      switchSchoolLocation(selected.slug, platformDomain, "/parent");
+      return;
+    }
     setOrgId(value);
     setOrg(value);
     window.location.assign("/parent");

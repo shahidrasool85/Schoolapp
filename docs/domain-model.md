@@ -10,9 +10,17 @@ Convention: UUIDs as primary keys; `organisation_id` on tenant data; `created_at
 
 A subscribing school.
 
-- `id`, `slug` (unique, URL-safe), `name`, `legal_name`
+- `id`, `slug` (unique, URL-safe SaaS routing identity; reserved names blocked), `name`, `legal_name`
 - `country_code` default `GB`, `timezone` default `Europe/London`
 - `status`: `provisioning | active | suspended | closed`
+
+### Organisation hostnames (custom domains)
+
+Optional extra hostnames such as `portal.greenwoodacademy.org.uk`. Stored with organisation ownership, uniqueness for verified-and-active rows, verification status, and activation. **Unverified or inactive hostnames never resolve.** Platform verify is a manual operator attestation until DNS automation exists; activate requires a verified row. Infrastructure names (`localhost`, `*.local`, …) cannot be registered. DNS/TLS automation is later.
+
+### Organisation slug history
+
+Former slugs remain reserved so another school cannot take over a bookmarked subdomain.
 
 ### Organisation identifiers (placeholder)
 

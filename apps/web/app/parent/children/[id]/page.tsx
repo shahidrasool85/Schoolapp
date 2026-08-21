@@ -52,8 +52,10 @@ export default function ParentChildDetailPage() {
   useEffect(() => {
     if (!params.id) return;
     let cancelled = false;
+    setData(null);
     setAttendance(null);
     setAttendanceError("");
+    setError("");
     api<Detail>(`/api/v1/parent/children/${params.id}`)
       .then((detail) => {
         if (cancelled) return;

@@ -77,6 +77,7 @@ export default function ClassRegisterPage() {
     setLoadedClassId("");
     setClassName("Register");
     setMessage("");
+    setError("");
     load().catch((err: Error) => setError(err.message));
     return () => {
       loadSeq.current += 1;

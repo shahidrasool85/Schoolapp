@@ -7,6 +7,7 @@ import {
   COMPOSE_CONTAINER,
   COMPOSE_SERVICE,
   MAINTENANCE_DB,
+  composeExecArgvStealsDetach,
   dockerComposePgIsreadyArgv,
   dockerComposePsqlArgv,
   dockerExecPgIsreadyArgv,
@@ -32,43 +33,34 @@ describe("demo postgres readiness strategy", () => {
     expect(selectPostgresReadyStrategy({ hasLocalPgIsready: false, hasDocker: false })).toBe("none");
   });
 
-  it("builds docker compose exec pg_isready/psql argv for the infra service", () => {
+  it("builds docker exec pg_isready/psql argv that Compose cannot steal as --detach", () => {
     const file = "infra/docker-compose.yml";
-    expect(dockerComposePgIsreadyArgv(file)).toEqual([
-      "compose",
-      "--project-directory",
-      "infra",
-      "-f",
-      file,
-      "exec",
-      "-T",
-      "-e",
-      `PGDATABASE=${MAINTENANCE_DB}`,
-      COMPOSE_SERVICE,
-      "pg_isready",
-      "-U",
-      "postgres",
-      "-d",
-      MAINTENANCE_DB,
-    ]);
+    expect(
+      composeExecArgvStealsDetach([
+        "compose",
+        "exec",
+        "-T",
+        COMPOSE_SERVICE,
+        "psql",
+        "-U",
+        "postgres",
+        "-d",
+        "postgres",
+      ]),
+    ).toBe(true);
+    expect(composeExecArgvStealsDetach(dockerComposePsqlArgv(file))).toBe(false);
     expect(dockerComposePsqlArgv(file)).toEqual([
-      "compose",
-      "--project-directory",
-      "infra",
-      "-f",
-      file,
       "exec",
-      "-T",
+      "-i",
       "-e",
       `PGDATABASE=${MAINTENANCE_DB}`,
-      COMPOSE_SERVICE,
+      "-e",
+      "PGUSER=postgres",
+      COMPOSE_CONTAINER,
       "psql",
-      "-U",
-      "postgres",
-      "-d",
-      MAINTENANCE_DB,
-      "-v",
-      "ON_ERROR_STOP=1",
+      "--username=postgres",
+      `--dbname=${MAINTENANCE_DB}`,
+      "--set=ON_ERROR_STOP=1",
     ]);
     expect(dockerExecPgIsreadyArgv()).toEqual([
       "exec",
@@ -76,11 +68,10 @@ describe("demo postgres readiness strategy", () => {
       `PGDATABASE=${MAINTENANCE_DB}`,
       COMPOSE_CONTAINER,
       "pg_isready",
-      "-U",
-      "postgres",
-      "-d",
-      MAINTENANCE_DB,
+      "--username=postgres",
+      `--dbname=${MAINTENANCE_DB}`,
     ]);
+    expect(dockerComposePgIsreadyArgv(file).includes("--dbname=postgres")).toBe(true);
   });
 });
 
@@ -91,18 +82,18 @@ describe("demo postgres shell helper", () => {
     expect(helper).toContain("command -v");
     expect(helper).toContain("postgres_ready_local");
     expect(helper).toContain("postgres_ready_docker");
-    expect(helper).toMatch(/compose exec -T[\s\S]*pg_isready/);
     expect(helper).toContain("--project-directory");
     expect(helper).toContain(COMPOSE_CONTAINER);
     expect(helper).toContain("has_cmd psql");
-    expect(helper).toMatch(/compose exec -T[\s\S]*psql/);
     expect(helper).toContain("docker exec -i");
-    expect(helper).toContain('docker exec -e PGDATABASE="$MAINTENANCE_DB" "$container"');
+    expect(helper).toContain("--dbname=");
+    expect(helper).toContain("--username=");
     expect(helper).toContain("com.docker.compose.project");
     expect(helper).not.toContain("publish=");
-    expect(helper).toContain('unset PGDATABASE PGSERVICE');
-    expect(helper).toContain('-d "$maintenance"');
+    expect(helper).toContain("unset PGDATABASE PGSERVICE");
     expect(helper).toContain('MAINTENANCE_DB="${SCHOOLAPP_MAINTENANCE_DB:-postgres}"');
+    expect(helper).not.toMatch(/docker compose exec[^\n]*psql[^\n]* -d /);
+    expect(helper).toContain("--detach");
   });
 
   it("demo setup sources the helper instead of calling host pg_isready directly", () => {
@@ -147,6 +138,9 @@ describe("Git Bash launcher", () => {
     expect(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")).toContain(
       "node scripts/run-bash.mjs scripts/demo-setup.sh",
     );
+    expect(launcher).not.toMatch(/\): string\[\]/);
+    expect(launcher).not.toMatch(/process\.argv\[1\]!/);
+    execFileSync("node", ["--check", path.join(repoRoot, "scripts/run-bash.mjs")], { stdio: "pipe" });
   });
 });
 

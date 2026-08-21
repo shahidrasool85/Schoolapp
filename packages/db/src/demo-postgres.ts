@@ -27,43 +27,53 @@ export function dockerComposePgIsreadyArgv(composeFile: string, user = "postgres
     "compose",
     "--project-directory",
     composeDir(composeFile),
-    "-f",
-    composeFile,
-    "exec",
-    "-T",
-    "-e",
-    `PGDATABASE=${MAINTENANCE_DB}`,
-    COMPOSE_SERVICE,
-    "pg_isready",
-    "-U",
-    user,
-    "-d",
-    MAINTENANCE_DB,
-  ];
-}
-
-export function dockerComposePsqlArgv(composeFile: string, user = "postgres"): string[] {
-  return [
-    "compose",
-    "--project-directory",
+    "-p",
     composeDir(composeFile),
     "-f",
     composeFile,
     "exec",
     "-T",
+    "--",
+    COMPOSE_SERVICE,
+    "pg_isready",
+    `--username=${user}`,
+    `--dbname=${MAINTENANCE_DB}`,
+  ];
+}
+
+export function dockerComposePsqlArgv(composeFile: string, user = "postgres"): string[] {
+  return [
+    "exec",
+    "-i",
     "-e",
     `PGDATABASE=${MAINTENANCE_DB}`,
-    COMPOSE_SERVICE,
+    "-e",
+    `PGUSER=${user}`,
+    COMPOSE_CONTAINER,
     "psql",
-    "-U",
-    user,
-    "-d",
-    MAINTENANCE_DB,
-    "-v",
-    "ON_ERROR_STOP=1",
+    `--username=${user}`,
+    `--dbname=${MAINTENANCE_DB}`,
+    "--set=ON_ERROR_STOP=1",
   ];
 }
 
 export function dockerExecPgIsreadyArgv(container = COMPOSE_CONTAINER, user = "postgres"): string[] {
-  return ["exec", "-e", `PGDATABASE=${MAINTENANCE_DB}`, container, "pg_isready", "-U", user, "-d", MAINTENANCE_DB];
+  return [
+    "exec",
+    "-e",
+    `PGDATABASE=${MAINTENANCE_DB}`,
+    container,
+    "pg_isready",
+    `--username=${user}`,
+    `--dbname=${MAINTENANCE_DB}`,
+  ];
+}
+
+/** True when argv would let `docker compose exec` treat `-d` as `--detach`. */
+export function composeExecArgvStealsDetach(argv: string[]): boolean {
+  const execAt = argv.indexOf("exec");
+  if (execAt === -1) return false;
+  const ddash = argv.indexOf("--", execAt);
+  const region = ddash === -1 ? argv.slice(execAt + 1) : argv.slice(execAt + 1, ddash);
+  return region.some((part) => part === "-d" || part === "--detach");
 }

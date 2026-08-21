@@ -22,7 +22,7 @@ You do not need to edit configuration files for the default local demo.
 
 The demo scripts are Bash. In **Git Bash**, `pnpm demo:setup` runs them directly. From **PowerShell** or Command Prompt, the same `pnpm demo:setup` command launches Git Bash automatically when `bash.exe` is in the usual Git for Windows location (or on PATH). If you see a message that Bash is missing, install Git for Windows or open Git Bash and run the command there.
 
-You do not need to install PostgreSQL itself on Windows. Setup checks `pg_isready` on the host when it exists, and otherwise runs `pg_isready` inside the Docker `postgres` container (`infra-postgres-1`).
+You do not need to install PostgreSQL itself on Windows. Setup checks `pg_isready` on the host when it exists, and otherwise runs `pg_isready` / `psql` with `docker exec` inside the Compose container (not `docker compose exec ... psql -d`, which Compose treats as `--detach`).
 
 ## 1. Install
 
@@ -42,7 +42,15 @@ That single command:
 
 - writes a local `.env` (and `apps/web/.env.local`) with **demo** values, not production secrets
 - starts PostgreSQL if Docker is available and nothing is already listening on port 5432
-- creates the local databases (including after `docker compose -f infra/docker-compose.yml down -v`; you do not create `schoolapp_test` by hand)
+- creates the local databases (including after a Compose volume wipe; you do not create `schoolapp_test` by hand)
+
+To throw away the Docker Postgres volume this script uses (project name `infra`):
+
+```bash
+docker compose --project-directory infra -p infra -f infra/docker-compose.yml down -v
+```
+
+`docker compose -f infra/docker-compose.yml down -v` from the repo root uses a **different** project name (the folder you are in) and will not remove `infra-postgres-1`.
 - runs migrations
 - loads two demo schools and labelled test logins
 

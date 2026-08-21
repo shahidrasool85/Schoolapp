@@ -180,25 +180,20 @@ psql_super -tAc "SELECT current_database()"
       },
       stdio: "pipe",
     });
-    const owners = execFileSync(
-      "psql",
-      [
-        "-h",
-        pgEnv.PGHOST,
-        "-p",
-        pgEnv.PGPORT,
-        "-U",
-        pgEnv.PGUSER,
-        "-d",
-        "postgres",
-        "-tAc",
-        `SELECT datname || '=' || pg_catalog.pg_get_userbyid(datdba)
-         FROM pg_database
-         WHERE datname IN ('schoolapp','schoolapp_test','schoolapp_api_test')
-         ORDER BY datname`,
-      ],
-      { encoding: "utf8", env: { ...pgEnv, PGPASSWORD: pgEnv.PGPASSWORD, PGDATABASE: "postgres" } },
-    )
+    const ownerScript = `
+set -euo pipefail
+ROOT=${JSON.stringify(repoRoot)}
+# shellcheck source=/dev/null
+source "$ROOT/scripts/lib-postgres.sh"
+psql_super -tAc "SELECT datname || '=' || pg_catalog.pg_get_userbyid(datdba)
+FROM pg_database
+WHERE datname IN ('schoolapp','schoolapp_test','schoolapp_api_test')
+ORDER BY datname"
+`;
+    const owners = execFileSync("bash", ["-c", ownerScript], {
+      encoding: "utf8",
+      env: { ...pgEnv, PGDATABASE: "schoolapp_test_does_not_exist" },
+    })
       .trim()
       .split("\n");
     expect(owners).toEqual([

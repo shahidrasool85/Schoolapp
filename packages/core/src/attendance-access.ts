@@ -149,8 +149,17 @@ export async function requireStudentPortalEnabled(
   userId: string,
 ): Promise<string> {
   const profile = await client.query<{ id: string }>(
-    `select id from student_profiles
-     where organisation_id = $1 and user_id = $2`,
+    `select sp.id
+     from student_profiles sp
+     join academic_years ay
+       on ay.organisation_id = sp.organisation_id
+      and ay.is_current
+     join student_enrolments se
+       on se.student_profile_id = sp.id
+      and se.academic_year_id = ay.id
+      and se.is_primary
+      and se.ended_on is null
+     where sp.organisation_id = $1 and sp.user_id = $2`,
     [organisationId, userId],
   );
   const studentProfileId = profile.rows[0]?.id;

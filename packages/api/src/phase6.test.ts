@@ -611,6 +611,44 @@ describe("Phase 6 attendance and student record", () => {
     expect(res.status).toBe(401);
   });
 
+  it("blocks student APIs after the current enrolment ends even if a token remains", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(token, school.orgId);
+    const seeded = await seedYearAndClasses(app, hdrs);
+    await app.request(`/api/v1/year-groups/${seeded.year3Id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ studentLoginEnabled: true }),
+    });
+    const pupil = await createStudent(app, hdrs, {
+      legalName: "Leaving Pupil",
+      academicYearId: seeded.yearId,
+      yearGroupId: seeded.year3Id,
+      loginAlias: `leave.${id}`,
+      password: "student-pass-1",
+    });
+    const studentToken = await loginAlias(app, school.slug, `leave.${id}`, "student-pass-1");
+    const before = await app.request("/api/v1/student/me", {
+      headers: headers(studentToken, school.orgId),
+    });
+    expect(before.status).toBe(200);
+    await pools.owner.query(
+      `update student_enrolments
+          set ended_on = started_on,
+              status = 'withdrawn'
+        where student_profile_id = $1
+          and academic_year_id = $2
+          and is_primary`,
+      [pupil.student.id, seeded.yearId],
+    );
+    const after = await app.request("/api/v1/student/me", {
+      headers: headers(studentToken, school.orgId),
+    });
+    expect(after.status).toBe(404);
+  });
+
   it("rejects student email login on the platform host even when a password exists", async () => {
     const id = suffix();
     const school = await createSchool(pools.owner, id);

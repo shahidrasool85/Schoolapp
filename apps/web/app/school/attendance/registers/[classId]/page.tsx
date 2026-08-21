@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { api } from "../../../../../lib/api";
 
@@ -11,6 +11,7 @@ type Pupil = {
   legalName: string;
   mark: { codeId: string; lateMinutes: number | null; reason: string | null } | null;
 };
+type Draft = Record<string, { codeId: string; lateMinutes: string; reason: string }>;
 
 export default function ClassRegisterPage() {
   const params = useParams<{ classId: string }>();
@@ -20,31 +21,39 @@ export default function ClassRegisterPage() {
   const [codes, setCodes] = useState<Code[]>([]);
   const [pupils, setPupils] = useState<Pupil[]>([]);
   const [className, setClassName] = useState("Register");
-  const [draft, setDraft] = useState<Record<string, { codeId: string; lateMinutes: string; reason: string }>>({});
+  const [draft, setDraft] = useState<Draft>({});
+  const [loadedDate, setLoadedDate] = useState("");
+  const [loadedSessionTypeId, setLoadedSessionTypeId] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const loadSeq = useRef(0);
 
   async function load(nextDate = date, nextSession = sessionTypeId) {
+    const seq = ++loadSeq.current;
     const [sessionBody, codeBody, classesBody] = await Promise.all([
       api<{ sessionTypes: SessionType[] }>("/api/v1/attendance/session-types"),
       api<{ codes: Code[] }>("/api/v1/attendance/codes"),
       api<{ suggestedDate?: string }>("/api/v1/attendance/my-classes"),
     ]);
+    if (seq !== loadSeq.current) return;
     setSessions(sessionBody.sessionTypes);
     setCodes(codeBody.codes);
     const session = nextSession || sessionBody.sessionTypes[0]?.id || "";
+    if (seq !== loadSeq.current) return;
     setSessionTypeId(session);
     if (!session) return;
     const useDate = nextDate || classesBody.suggestedDate || "";
     if (!useDate) return;
-    if (useDate !== date) setDate(useDate);
+    if (seq !== loadSeq.current) return;
+    setDate(useDate);
     const register = await api<{
       class: { name: string };
       pupils: Pupil[];
     }>(`/api/v1/attendance/registers?classId=${params.classId}&date=${useDate}&sessionTypeId=${session}`);
+    if (seq !== loadSeq.current) return;
     setClassName(register.class.name);
     setPupils(register.pupils);
-    const nextDraft: Record<string, { codeId: string; lateMinutes: string; reason: string }> = {};
+    const nextDraft: Draft = {};
     for (const pupil of register.pupils) {
       nextDraft[pupil.studentProfileId] = {
         codeId: pupil.mark?.codeId ?? "",
@@ -53,71 +62,87 @@ export default function ClassRegisterPage() {
       };
     }
     setDraft(nextDraft);
+    setLoadedDate(useDate);
+    setLoadedSessionTypeId(session);
   }
 
   useEffect(() => {
     load().catch((err: Error) => setError(err.message));
+    return () => {
+      loadSeq.current += 1;
+    };
   }, [params.classId]);
 
   async function reload(event: FormEvent) {
     event.preventDefault();
     setError("");
+    setMessage("");
     await load(date, sessionTypeId);
+  }
+
+  function assertLoadedRegister() {
+    if (!loadedDate || !loadedSessionTypeId) {
+      throw new Error("Load a register before saving.");
+    }
+    if (date !== loadedDate || sessionTypeId !== loadedSessionTypeId) {
+      throw new Error("Load this date and session before saving.");
+    }
+  }
+
+  function marksFromDraft() {
+    return Object.entries(draft)
+      .filter(([, value]) => value.codeId)
+      .map(([studentProfileId, value]) => ({
+        studentProfileId,
+        codeId: value.codeId,
+        lateMinutes: value.lateMinutes ? Number(value.lateMinutes) : null,
+        reason: value.reason || null,
+      }));
   }
 
   async function markAllPresent() {
     setError("");
     setMessage("");
+    assertLoadedRegister();
     await api("/api/v1/attendance/registers", {
       method: "PUT",
       body: JSON.stringify({
         classId: params.classId,
-        date,
-        sessionTypeId,
+        date: loadedDate,
+        sessionTypeId: loadedSessionTypeId,
         markAllPresent: true,
-        marks: Object.entries(draft)
-          .filter(([, value]) => value.codeId)
-          .map(([studentProfileId, value]) => ({
-            studentProfileId,
-            codeId: value.codeId,
-            lateMinutes: value.lateMinutes ? Number(value.lateMinutes) : null,
-            reason: value.reason || null,
-          })),
+        marks: marksFromDraft(),
       }),
     });
     setMessage("Register saved.");
-    await load(date, sessionTypeId);
+    await load(loadedDate, loadedSessionTypeId);
   }
 
   async function save() {
     setError("");
     setMessage("");
+    assertLoadedRegister();
     await api("/api/v1/attendance/registers", {
       method: "PUT",
       body: JSON.stringify({
         classId: params.classId,
-        date,
-        sessionTypeId,
-        marks: Object.entries(draft)
-          .filter(([, value]) => value.codeId)
-          .map(([studentProfileId, value]) => ({
-            studentProfileId,
-            codeId: value.codeId,
-            lateMinutes: value.lateMinutes ? Number(value.lateMinutes) : null,
-            reason: value.reason || null,
-          })),
+        date: loadedDate,
+        sessionTypeId: loadedSessionTypeId,
+        marks: marksFromDraft(),
       }),
     });
     setMessage("Register saved.");
-    await load(date, sessionTypeId);
+    await load(loadedDate, loadedSessionTypeId);
   }
+
+  const canSave = Boolean(loadedDate) && date === loadedDate && sessionTypeId === loadedSessionTypeId;
 
   if (error) return <p className="error">{error}</p>;
 
   return (
     <>
       <h1>{className} register</h1>
-      <form className="card form-grid" onSubmit={reload}>
+      <form className="card form-grid" onSubmit={(event) => reload(event).catch((err: Error) => setError(err.message))}>
         <label>Date<input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
         <label>
           Session
@@ -129,11 +154,12 @@ export default function ClassRegisterPage() {
         </label>
         <div><button type="submit">Load</button></div>
       </form>
+      {!canSave ? <p className="muted">Load this date and session before taking the register.</p> : null}
       <div className="toolbar">
-        <button type="button" onClick={() => markAllPresent().catch((err: Error) => setError(err.message))}>
+        <button type="button" disabled={!canSave} onClick={() => markAllPresent().catch((err: Error) => setError(err.message))}>
           Mark all present
         </button>
-        <button type="button" className="secondary" onClick={() => save().catch((err: Error) => setError(err.message))}>
+        <button type="button" className="secondary" disabled={!canSave} onClick={() => save().catch((err: Error) => setError(err.message))}>
           Save exceptions
         </button>
       </div>

@@ -33,36 +33,69 @@ export default function AttendanceMarkPage() {
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [form, setForm] = useState({
+    codeId: "",
+    reason: "",
+    note: "",
+    lateMinutes: "",
+  });
 
-  async function load() {
-    const [detail, codeBody, rev] = await Promise.all([
+  useEffect(() => {
+    let cancelled = false;
+    setMark(null);
+    setError("");
+    setMessage("");
+    setForm({ codeId: "", reason: "", note: "", lateMinutes: "" });
+    Promise.all([
       api<{ mark: Mark }>(`/api/v1/attendance/marks/${params.id}`),
       api<{ codes: Code[] }>("/api/v1/attendance/codes"),
       api<{ revisions: Revision[] }>(`/api/v1/attendance/marks/${params.id}/revisions`).catch(() => ({ revisions: [] })),
-    ]);
-    setMark(detail.mark);
-    setCodes(codeBody.codes);
-    setRevisions(rev.revisions);
-  }
-
-  useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    ])
+      .then(([detail, codeBody, rev]) => {
+        if (cancelled) return;
+        setMark(detail.mark);
+        setCodes(codeBody.codes);
+        setRevisions(rev.revisions);
+        setForm({
+          codeId: detail.mark.codeId,
+          reason: detail.mark.reason ?? "",
+          note: detail.mark.note ?? "",
+          lateMinutes: detail.mark.lateMinutes != null ? String(detail.mark.lateMinutes) : "",
+        });
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setError(err.message);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [params.id]);
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await api(`/api/v1/attendance/marks/${params.id}`, {
+    if (!mark) return;
+    await api(`/api/v1/attendance/marks/${mark.id}`, {
       method: "PATCH",
       body: JSON.stringify({
-        codeId: form.get("codeId"),
-        reason: form.get("reason") || null,
-        note: form.get("note") || null,
-        lateMinutes: form.get("lateMinutes") ? Number(form.get("lateMinutes")) : null,
+        codeId: form.codeId,
+        reason: form.reason || null,
+        note: form.note || null,
+        lateMinutes: form.lateMinutes ? Number(form.lateMinutes) : null,
       }),
     });
     setMessage("Correction saved.");
-    await load();
+    const [detail, rev] = await Promise.all([
+      api<{ mark: Mark }>(`/api/v1/attendance/marks/${mark.id}`),
+      api<{ revisions: Revision[] }>(`/api/v1/attendance/marks/${mark.id}/revisions`).catch(() => ({ revisions: [] })),
+    ]);
+    setMark(detail.mark);
+    setRevisions(rev.revisions);
+    setForm({
+      codeId: detail.mark.codeId,
+      reason: detail.mark.reason ?? "",
+      note: detail.mark.note ?? "",
+      lateMinutes: detail.mark.lateMinutes != null ? String(detail.mark.lateMinutes) : "",
+    });
   }
 
   if (error) return <p className="error">{error}</p>;
@@ -78,16 +111,44 @@ export default function AttendanceMarkPage() {
         Recorded by {mark.recordedByName ?? "—"}
         {mark.lastCorrectedByName ? ` · last corrected by ${mark.lastCorrectedByName}` : ""}
       </p>
-      <form className="card form-grid" onSubmit={save}>
+      <form key={mark.id} className="card form-grid" onSubmit={(event) => save(event).catch((err: Error) => setError(err.message))}>
         <label>
           Code
-          <select name="codeId" defaultValue={mark.codeId}>
+          <select
+            name="codeId"
+            value={form.codeId}
+            onChange={(event) => setForm((current) => ({ ...current, codeId: event.target.value }))}
+          >
             {codes.map((code) => <option key={code.id} value={code.id}>{code.name}</option>)}
           </select>
         </label>
-        <label>Late minutes<input name="lateMinutes" type="number" min={0} max={180} defaultValue={mark.lateMinutes ?? ""} /></label>
-        <label>Reason<input name="reason" defaultValue={mark.reason ?? ""} /></label>
-        <label>Internal note<textarea name="note" defaultValue={mark.note ?? ""} /></label>
+        <label>
+          Late minutes
+          <input
+            name="lateMinutes"
+            type="number"
+            min={0}
+            max={180}
+            value={form.lateMinutes}
+            onChange={(event) => setForm((current) => ({ ...current, lateMinutes: event.target.value }))}
+          />
+        </label>
+        <label>
+          Reason
+          <input
+            name="reason"
+            value={form.reason}
+            onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))}
+          />
+        </label>
+        <label>
+          Internal note
+          <textarea
+            name="note"
+            value={form.note}
+            onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))}
+          />
+        </label>
         <div><button type="submit">Save correction</button></div>
       </form>
       {message ? <p>{message}</p> : null}

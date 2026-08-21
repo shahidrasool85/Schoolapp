@@ -85,16 +85,22 @@ export function registerAuthRoutes(app: SchoolappApi) {
       throw new AppError(401, "unauthenticated", "Invalid email or password");
     }
     if (row.user_kind === "student") {
+      // Student portal accounts authenticate via school alias (hostname or organisationSlug),
+      // not via platform email lookup. Staff/parent email login is unchanged for multi-school/SSO.
+      if (parsed.data.email) {
+        throw new AppError(401, "unauthenticated", "Invalid email or password");
+      }
       const studentOrgId =
         host.kind === "school" ? host.organisationId : row.organisation_id ?? null;
-      if (studentOrgId) {
-        const portal = await config.pools.app.query<{ ok: boolean }>(
-          "select student_portal_is_enabled_for_user($1, $2) as ok",
-          [studentOrgId, row.user_id],
-        );
-        if (!portal.rows[0]?.ok) {
-          throw new AppError(401, "unauthenticated", "Invalid email or password");
-        }
+      if (!studentOrgId) {
+        throw new AppError(401, "unauthenticated", "Invalid email or password");
+      }
+      const portal = await config.pools.app.query<{ ok: boolean }>(
+        "select student_portal_is_enabled_for_user($1, $2) as ok",
+        [studentOrgId, row.user_id],
+      );
+      if (!portal.rows[0]?.ok) {
+        throw new AppError(401, "unauthenticated", "Invalid email or password");
       }
     }
 

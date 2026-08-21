@@ -611,6 +611,59 @@ describe("Phase 6 attendance and student record", () => {
     expect(res.status).toBe(401);
   });
 
+  it("rejects student email login on the platform host even when a password exists", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(token, school.orgId);
+    const seeded = await seedYearAndClasses(app, hdrs);
+    await app.request(`/api/v1/year-groups/${seeded.year3Id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ studentLoginEnabled: true }),
+    });
+    await createStudent(app, hdrs, {
+      legalName: "Email Pupil",
+      academicYearId: seeded.yearId,
+      yearGroupId: seeded.year3Id,
+      loginAlias: `em.${id}`,
+      password: "student-pass-1",
+    });
+    const pupilUser = await insertUser(pools.owner, {
+      email: `stu-email-${id}@example.com`,
+      password: "student-pass-1",
+      fullName: "Email Pupil Two",
+      kind: "student",
+    });
+    await addMembership(pools.owner, school.orgId, pupilUser, "school.student");
+    const platformEmail = await app.request("/api/v1/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: `stu-email-${id}@example.com`,
+        password: "student-pass-1",
+      }),
+    });
+    expect(platformEmail.status).toBe(401);
+
+    const schoolHostEmail = await app.request("/api/v1/auth/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Host: `${school.slug}.localhost:3000`,
+      },
+      body: JSON.stringify({
+        email: `stu-email-${id}@example.com`,
+        password: "student-pass-1",
+        organisationSlug: school.slug,
+      }),
+    });
+    expect(schoolHostEmail.status).toBe(401);
+
+    const aliasOk = await loginAlias(app, school.slug, `em.${id}`, "student-pass-1");
+    expect(aliasOk).toBeTruthy();
+  });
+
   it("keeps attendance history after a class move and isolates tenants", async () => {
     const id = suffix();
     const a = await createSchool(pools.owner, `a-${id}`);

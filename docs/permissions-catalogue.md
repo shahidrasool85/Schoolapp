@@ -59,6 +59,8 @@ Platform Super Admin does **not** silently receive pupil read. Tenant data requi
 | `notifications.inbox.read` | — | F | F | F | F | F | F | F |
 | `external_identifiers.upn.read` | — | F | F | — | R | — | — | — |
 
+`students.documents.read_self` is seeded on the Student role for a later pupil-visible documents API. No current route checks that permission, so it does not grant access by itself.
+
 `admissions.convert` is the only path that creates the canonical student/enrolment from an accepted application. Teachers do not receive admissions keys. Parents and students never receive School Admin admissions access.
 
 `students.restricted_contact.read` is **not** granted to Teacher, Parent, or Student. No Phase 1–4 API exposes the column to those roles.

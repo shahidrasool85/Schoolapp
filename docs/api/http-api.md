@@ -114,7 +114,7 @@ GET  /api/v1/notifications
 PATCH /api/v1/notifications/{notificationId}
 ```
 
-Student login (optional per year group) uses the same `POST /api/v1/auth/login` contract with `organisationSlug` + `username` instead of email. Alias login returns `organisationId` for the school that authenticated the username so clients do not have to guess context. Parent and student users share this identity model; there is no second auth stack.
+Student login uses the same `POST /api/v1/auth/login` contract with `organisationSlug` + `username` instead of email. Alias login returns `organisationId` for the school that authenticated the username so clients do not have to guess context. Email/password login does not authenticate `user_kind = student`, including on the platform host; that route remains for staff and parents. Parent and student users share this identity model; there is no second auth stack.
 
 ## Parent portal (web now, Expo later)
 

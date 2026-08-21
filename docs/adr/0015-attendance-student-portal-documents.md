@@ -27,7 +27,7 @@ Binary document storage must remain portable (S3-compatible / self-hosted). Putt
 
 Effective access is **pupil override → class override → year-group override → school default**. `null` means inherit. Reception / Year 1 / Year 2 may be enabled.
 
-Aliases and passwords may exist while portal access is off. `local_auth_lookup_alias` still requires a current primary enrolment in the current academic year, then refuses authentication when the effective student-portal policy is disabled. Reception / Year 1 / Year 2 are not banned by age.
+Aliases and passwords may exist while portal access is off. Students authenticate only through school alias login (`organisationSlug` + `username`, or the same alias on a school hostname). Platform-host email lookup is for staff/parent (and future SSO) identities and does not issue a student session. `local_auth_lookup_alias` still requires a current primary enrolment in the current academic year, then refuses authentication when the effective student-portal policy is disabled. Reception / Year 1 / Year 2 are not banned by age.
 
 Phase 6 School Admin UI covers school default and year-group overrides. Class and pupil override **tables and APIs** exist; their admin UI is deferred.
 

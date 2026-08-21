@@ -7,6 +7,7 @@ import {
   ensureMigrated,
   insertUser,
   login,
+  loginAlias,
   testApp,
   testPools,
 } from "./test-helpers";
@@ -655,14 +656,24 @@ describe("Phase 4 admissions", () => {
     });
     expect(parentApps.status).toBe(403);
 
-    const pupilUser = await insertUser(pools.owner, {
-      email: `pupil-${id}@example.com`,
-      password: "student-pass-1",
-      fullName: "Sam Student",
-      kind: "student",
+    const pupil = await app.request("/api/v1/students", {
+      method: "POST",
+      headers: adminHdrs,
+      body: JSON.stringify({
+        legalName: "Portal Pupil",
+        academicYearId: structure.yearId,
+        yearGroupId: structure.yearGroupId,
+        loginAlias: `adm.${id}`,
+        password: "student-pass-1",
+      }),
     });
-    await addMembership(pools.owner, school.orgId, pupilUser, "school.student");
-    const studentToken = await login(app, `pupil-${id}@example.com`, "student-pass-1");
+    expect(pupil.status).toBe(201);
+    await app.request(`/api/v1/year-groups/${structure.yearGroupId}`, {
+      method: "PATCH",
+      headers: adminHdrs,
+      body: JSON.stringify({ studentLoginEnabled: true }),
+    });
+    const studentToken = await loginAlias(app, school.slug, `adm.${id}`, "student-pass-1");
     const studentDash = await app.request("/api/v1/admissions/dashboard", {
       headers: headers(studentToken, school.orgId),
     });

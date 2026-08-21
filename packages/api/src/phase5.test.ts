@@ -7,6 +7,7 @@ import {
   ensureMigrated,
   insertUser,
   login,
+  loginAlias,
   testApp,
   testPools,
 } from "./test-helpers";
@@ -294,6 +295,28 @@ describe("Phase 5 SaaS hostname tenancy", () => {
        values ($1, $2, true)`,
       [schoolA.orgId, childA.rows[0]!.id],
     );
+    const year = await pools.owner.query<{ id: string }>(
+      `insert into academic_years (organisation_id, name, starts_on, ends_on, is_current)
+       values ($1, '2026/27', current_date - 10, current_date + 200, true) returning id`,
+      [schoolA.orgId],
+    );
+    const yearGroup = await pools.owner.query<{ id: string }>(
+      `insert into year_groups (organisation_id, code, name, key_stage, sort_order)
+       values ($1, '3', 'Year 3', 2, 3) returning id`,
+      [schoolA.orgId],
+    );
+    await pools.owner.query(
+      `insert into student_enrolments (
+         organisation_id, student_profile_id, academic_year_id, year_group_id,
+         status, is_primary, placement_kind, started_on
+       ) values ($1, $2, $3, $4, 'enrolled', true, 'primary', current_date - 10)`,
+      [schoolA.orgId, childA.rows[0]!.id, year.rows[0]!.id, yearGroup.rows[0]!.id],
+    );
+    await pools.owner.query(
+      `insert into user_login_aliases (organisation_id, user_id, alias)
+       values ($1, $2, $3)`,
+      [schoolA.orgId, studentUser, `stu.${id}`],
+    );
 
     const parentToken = await login(app, `parent-${id}@example.com`, "password-12x");
     const parentOk = await app.request("/api/v1/parent/children", {
@@ -322,7 +345,17 @@ describe("Phase 5 SaaS hostname tenancy", () => {
     });
     expect(parentOnB.status).toBe(403);
 
-    const studentToken = await login(app, `stu-${id}@example.com`, "password-12x");
+    const platformEmail = await app.request("/api/v1/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: `stu-${id}@example.com`,
+        password: "password-12x",
+      }),
+    });
+    expect(platformEmail.status).toBe(401);
+
+    const studentToken = await loginAlias(app, schoolA.slug, `stu.${id}`, "password-12x");
     const studentMe = await app.request("/api/v1/student/me", {
       headers: {
         Authorization: `Bearer ${studentToken}`,

@@ -8,11 +8,11 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "db:setup": "bash scripts/setup-db.sh",
+    "db:setup": "node scripts/run-bash.mjs scripts/setup-db.sh",
     "db:migrate": "pnpm --filter @schoolapp/db migrate",
     "db:seed-platform": "pnpm --filter @schoolapp/db seed-platform",
-    "demo:setup": "bash scripts/demo-setup.sh",
-    "demo:reset": "bash scripts/demo-reset.sh",
+    "demo:setup": "node scripts/run-bash.mjs scripts/demo-setup.sh",
+    "demo:reset": "node scripts/run-bash.mjs scripts/demo-reset.sh",
     "demo:start": "pnpm --filter @schoolapp/web dev"
   },
   "devDependencies": {

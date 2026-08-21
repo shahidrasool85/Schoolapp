@@ -7,12 +7,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# shellcheck source=lib-postgres.sh
+source "$ROOT/scripts/lib-postgres.sh"
+
 write_demo_env() {
   node "$ROOT/scripts/write-demo-env.mjs" "$1"
-}
-
-postgres_ready() {
-  pg_isready -h "${PGHOST:-127.0.0.1}" -p "${PGPORT:-5432}" >/dev/null 2>&1
 }
 
 start_postgres() {
@@ -21,29 +20,41 @@ start_postgres() {
     return
   fi
 
-  if command -v docker >/dev/null 2>&1; then
+  if has_cmd docker; then
     echo "Starting PostgreSQL with Docker Compose..."
-    docker compose -f "$ROOT/infra/docker-compose.yml" up -d
-    export PGHOST="${PGHOST:-127.0.0.1}"
-    export PGUSER="${PGUSER:-postgres}"
-    export PGPASSWORD="${PGPASSWORD:-postgres}"
-    local i
-    for i in $(seq 1 40); do
-      if postgres_ready; then
-        echo "PostgreSQL is ready."
-        return
-      fi
-      sleep 1
-    done
+    if docker_compose up -d "$COMPOSE_SERVICE"; then
+      export PGHOST="${PGHOST:-127.0.0.1}"
+      export PGPORT="${PGPORT:-5432}"
+      export PGUSER="${PGUSER:-postgres}"
+      export PGPASSWORD="${PGPASSWORD:-postgres}"
+      local i
+      for i in $(seq 1 40); do
+        if postgres_ready; then
+          echo "PostgreSQL is ready."
+          return
+        fi
+        sleep 1
+      done
+    fi
   fi
 
-  echo "PostgreSQL is not running on 127.0.0.1:5432." >&2
-  echo "Start it with: docker compose -f infra/docker-compose.yml up -d" >&2
-  echo "Or install PostgreSQL 16 locally, then re-run pnpm demo:setup." >&2
+  echo "PostgreSQL is not running on 127.0.0.1:${PGPORT:-5432}." >&2
+  echo "Start Docker Desktop, then: docker compose -f infra/docker-compose.yml up -d" >&2
+  echo "You do not need a local PostgreSQL install; Docker Desktop is enough." >&2
+  if ! has_cmd pg_isready; then
+    echo "This machine has no local pg_isready; demo setup checks the Docker container instead." >&2
+  fi
   exit 1
 }
 
 check_localhost_school_hosts() {
+  case "$(uname -s 2>/dev/null || true)" in
+    MINGW*|MSYS*|CYGWIN*)
+      echo "On Windows, if a school URL fails to open, add this line to C:\\Windows\\System32\\drivers\\etc\\hosts:"
+      echo "  127.0.0.1 greenwood.localhost oakacademy.localhost"
+      return
+      ;;
+  esac
   if command -v getent >/dev/null 2>&1; then
     if ! getent hosts greenwood.localhost >/dev/null 2>&1; then
       echo "Note: greenwood.localhost did not resolve. Modern browsers usually still map *.localhost to your computer."

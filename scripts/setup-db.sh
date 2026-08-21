@@ -4,6 +4,12 @@ set -euo pipefail
 # Idempotent local Postgres roles and databases for Schoolapp Phase 1.
 # Requires a PostgreSQL superuser. Prefer TCP when PGHOST is set (Docker/CI);
 # otherwise peer auth as the postgres OS user.
+# Uses local psql when installed; otherwise docker exec against Compose Postgres
+# so Windows/Git Bash users do not need a local PostgreSQL client.
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib-postgres.sh
+source "$ROOT/scripts/lib-postgres.sh"
 
 OWNER_USER="${SCHOOLAPP_OWNER_USER:-schoolapp_owner}"
 OWNER_PASSWORD="${SCHOOLAPP_OWNER_PASSWORD:-schoolapp_owner}"
@@ -12,16 +18,6 @@ APP_PASSWORD="${SCHOOLAPP_APP_PASSWORD:-schoolapp_app}"
 DB_NAME="${SCHOOLAPP_DB:-schoolapp}"
 TEST_DB_NAME="${SCHOOLAPP_TEST_DB:-schoolapp_test}"
 API_TEST_DB_NAME="${SCHOOLAPP_API_TEST_DB:-schoolapp_api_test}"
-
-psql_super() {
-  if [ -n "${PGHOST:-}" ]; then
-    PGPASSWORD="${PGPASSWORD:-postgres}" psql -U "${PGUSER:-postgres}" -v ON_ERROR_STOP=1 "$@"
-  elif command -v sudo >/dev/null && id postgres >/dev/null 2>&1; then
-    sudo -u postgres psql -v ON_ERROR_STOP=1 "$@"
-  else
-    psql -U postgres -v ON_ERROR_STOP=1 "$@"
-  fi
-}
 
 psql_super <<SQL
 DO \$\$

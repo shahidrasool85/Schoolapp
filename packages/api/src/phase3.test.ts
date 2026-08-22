@@ -225,7 +225,7 @@ describe("Phase 3 parent and student portals", () => {
     expect(ownBody.child.currentFormClassName).toBe("3A");
     expect(ownBody.child.guardianship.relationship).toBe("mother");
     expect(ownBody.child.guardianship.portalAccess).toBe(true);
-    expect(ownBody.sections.attendance.available).toBe(false);
+    expect(ownBody.sections.attendance.available).toBe(true);
 
     const classmate = await app.request(`/api/v1/parent/children/${stranger.student.id}`, {
       headers: parentA,

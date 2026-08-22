@@ -85,6 +85,26 @@ input, select, textarea {
   color: white;
 }
 
+.nav a.active {
+  background: rgba(255,255,255,0.22);
+}
+
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.nav a.nav-parent.open:not(.active) {
+  background: rgba(255,255,255,0.06);
+  color: #e8f0fa;
+}
+
+.nav a.nav-child {
+  padding-left: 1.15rem;
+  font-size: 0.92rem;
+}
+
 .nav h1 {
   font-size: 1.05rem;
   margin: 0 0 1rem;

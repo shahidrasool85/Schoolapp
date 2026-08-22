@@ -83,13 +83,23 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 - Local development via `*.localhost` and `PLATFORM_DOMAIN`
 - Custom-domain data model with verification/activation; unverified hostnames never resolve
 
-**Not in Phase 5:** production wildcard DNS/TLS, automated certificate provisioning, public self-service signup, billing collection, attendance.
+**Not in Phase 5:** production wildcard DNS/TLS, automated certificate provisioning, public self-service signup, billing collection.
 
-## Phase 6 — Attendance, documents, announcements
+## Phase 6 — Attendance and student record (implemented)
 
-- Registers and UK-style codes (configurable)
-- Document metadata + signed uploads
-- School announcements by audience
+**Outcome:** a school can take AM/PM (configurable) registers, correct marks with an audit trail, view pupil attendance history with a defined percentage, and configure student-portal access without treating the student record as a login account.
+
+- Configurable attendance sessions (default AM/PM) and attendance codes (`present`, `late`, `authorised`, `unauthorised`, `not_required`, plus extra codes later)
+- One mark per organisation + pupil + date + session; revisions + `audit_events` on change
+- Teacher register: assigned classes only; Mark all present + exceptions; idempotent PUT
+- School Admin / Headteacher school-wide view, filter, and permission-controlled correction
+- Parent/student attendance visibility on existing portal APIs (no internal notes)
+- Student record profile: identity, current year/class (derived), enrolment/class history, guardians, attendance summary/history, portal status
+- Student portal policy: school default + year-group overrides in School Admin; class/pupil override schema/API reserved
+- Document **metadata** + storage port; no binaries in PostgreSQL; parent visibility explicit
+- Navigation: Attendance section; parent-section vs active-child styling
+
+**Not in Phase 6:** DfE census rules, binary document upload/S3 adapter choice, class/pupil portal override UI, announcements product, younger-child QR/PIN/games, UI design system.
 
 ## Phase 7 — LMS core
 

@@ -66,6 +66,9 @@ importers:
       '@schoolapp/domain':
         specifier: workspace:*
         version: link:../domain
+      '@schoolapp/storage':
+        specifier: workspace:*
+        version: link:../storage
       hono:
         specifier: ^4.8.5
         version: 4.13.3
@@ -153,6 +156,12 @@ importers:
         version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)
 
   packages/domain: {}
+
+  packages/storage:
+    devDependencies:
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
 
 packages:
 

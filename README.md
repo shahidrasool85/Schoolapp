@@ -2,7 +2,7 @@
 
 Multi-tenant school management, LMS, and AI learning platform for UK schools (through approximately Year 8, including 11+ preparation).
 
-**Current status:** Phase 5 SaaS hostname tenancy is implemented on the Phase 1–4 foundation (tenancy, RBAC, RLS, people, school structure, parent/student portals, admissions). Attendance, LMS, AI, and mobile are not built yet.
+**Current status:** Phase 6 attendance and student record is implemented on the Phase 1–5 foundation (tenancy, RBAC, RLS, people, school structure, parent/student portals, admissions, SaaS hostnames). LMS, AI, and mobile are not built yet.
 
 Start here: **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)**
 

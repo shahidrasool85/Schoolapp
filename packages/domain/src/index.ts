@@ -39,6 +39,18 @@ export const PERMISSIONS = {
   STUDENTS_PROFILES_READ_SELF: "students.profiles.read_self",
   STUDENTS_RESTRICTED_CONTACT_READ: "students.restricted_contact.read",
   GUARDIANSHIPS_MANAGE: "guardianships.manage",
+  ATTENDANCE_RECORD_READ: "attendance.record.read",
+  ATTENDANCE_RECORD_MANAGE: "attendance.record.manage",
+  ATTENDANCE_RECORD_MANAGE_ASSIGNED: "attendance.record.manage_assigned",
+  ATTENDANCE_RECORD_CORRECT: "attendance.record.correct",
+  ATTENDANCE_RECORD_READ_OWN_CHILDREN: "attendance.record.read_own_children",
+  ATTENDANCE_RECORD_READ_SELF: "attendance.record.read_self",
+  ATTENDANCE_CONFIG_MANAGE: "attendance.config.manage",
+  STUDENTS_PORTAL_ACCESS_MANAGE: "students.portal_access.manage",
+  STUDENTS_DOCUMENTS_READ: "students.documents.read",
+  STUDENTS_DOCUMENTS_MANAGE: "students.documents.manage",
+  STUDENTS_DOCUMENTS_READ_OWN_CHILDREN: "students.documents.read_own_children",
+  STUDENTS_DOCUMENTS_READ_SELF: "students.documents.read_self",
   NOTIFICATIONS_INBOX_READ: "notifications.inbox.read",
   AUDIT_READ: "audit.read",
 } as const;
@@ -186,6 +198,38 @@ export const NOTIFICATION_CATEGORIES = [
   "general",
 ] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
+
+export const ATTENDANCE_CATEGORIES = [
+  "present",
+  "late",
+  "authorised_absence",
+  "unauthorised_absence",
+  "not_required",
+] as const;
+export type AttendanceCategory = (typeof ATTENDANCE_CATEGORIES)[number];
+
+export const ATTENDANCE_SESSION_KEYS = ["am", "pm"] as const;
+export type AttendanceSessionKey = (typeof ATTENDANCE_SESSION_KEYS)[number];
+
+export const STUDENT_DOCUMENT_TYPES = [
+  "report",
+  "letter",
+  "consent",
+  "support",
+  "school_record",
+  "other",
+] as const;
+export type StudentDocumentType = (typeof STUDENT_DOCUMENT_TYPES)[number];
+
+export const STUDENT_DOCUMENT_VISIBILITIES = [
+  "staff",
+  "staff_and_parents",
+  "staff_parents_and_student",
+] as const;
+export type StudentDocumentVisibility = (typeof STUDENT_DOCUMENT_VISIBILITIES)[number];
+
+export const STUDENT_PORTAL_POLICY_SOURCES = ["student", "class", "year_group", "school"] as const;
+export type StudentPortalPolicySource = (typeof STUDENT_PORTAL_POLICY_SOURCES)[number];
 
 export const PORTAL_COMING_LATER_MESSAGE = "Coming in a later phase.";
 

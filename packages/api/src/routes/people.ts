@@ -8,6 +8,8 @@ import {
   assignedStudentIds,
   canListAllStudents,
   canReadStudentProfile,
+  loadStudentPortalDecision,
+  summariseAttendanceMarks,
   writeAudit,
 } from "@schoolapp/core";
 import type { SchoolappApi } from "../types";
@@ -214,6 +216,32 @@ export function registerPeopleRoutes(app: SchoolappApi) {
             [id, orgId],
           )
         : { rows: [] };
+
+      const canReadAttendance =
+        actor.permissions.has(PERMISSIONS.ATTENDANCE_RECORD_READ) ||
+        actor.permissions.has(PERMISSIONS.ATTENDANCE_RECORD_MANAGE) ||
+        actor.permissions.has(PERMISSIONS.ATTENDANCE_RECORD_CORRECT) ||
+        actor.permissions.has(PERMISSIONS.ATTENDANCE_RECORD_MANAGE_ASSIGNED);
+      const attendanceRows = canReadAttendance
+        ? await client.query<{ category: string }>(
+            `select ac.category
+             from attendance_marks am
+             join attendance_codes ac on ac.id = am.attendance_code_id
+             where am.organisation_id = $1 and am.student_profile_id = $2`,
+            [orgId, id],
+          )
+        : { rows: [] };
+      const portal = await loadStudentPortalDecision(client, orgId, id);
+      const alias = actor.permissions.has(PERMISSIONS.STUDENTS_PROFILES_MANAGE)
+        ? await client.query<{ alias: string }>(
+            `select a.alias
+             from user_login_aliases a
+             join student_profiles sp on sp.user_id = a.user_id
+             where sp.id = $1 and a.organisation_id = $2`,
+            [id, orgId],
+          )
+        : { rows: [] };
+
       return c.json({
         student: mapStudent(listed.rows[0]),
         enrolments: enrolments.rows.map(mapEnrolment),
@@ -227,6 +255,14 @@ export function registerPeopleRoutes(app: SchoolappApi) {
           endedOn: row.ended_on,
         })),
         guardians: guardians.rows.map(mapGuardianship),
+        attendanceSummary: canReadAttendance ? summariseAttendanceMarks(attendanceRows.rows) : null,
+        portalAccess: {
+          enabled: portal.enabled,
+          source: portal.source,
+          ...(actor.permissions.has(PERMISSIONS.STUDENTS_PROFILES_MANAGE)
+            ? { hasLoginAlias: alias.rows.length > 0, alias: alias.rows[0]?.alias ?? null }
+            : {}),
+        },
       });
     }),
   );

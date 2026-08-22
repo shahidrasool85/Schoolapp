@@ -89,4 +89,42 @@ describe("demo seed", () => {
     ]);
     expect(platform.rowCount).toBe(1);
   });
+
+  it("seeds isolated Greenwood and Oak attendance history", async () => {
+    const orgs = await pools.owner.query<{ id: string; slug: string }>(
+      "select id, slug::text as slug from organisations where slug = any($1::citext[])",
+      [["greenwood", "oakacademy"]],
+    );
+    const greenwoodId = orgs.rows.find((row) => row.slug === "greenwood")!.id;
+    const oakId = orgs.rows.find((row) => row.slug === "oakacademy")!.id;
+    const gw = await pools.owner.query<{ n: string; categories: string }>(
+      `select count(*)::text as n, string_agg(distinct ac.category, ',') as categories
+       from attendance_marks am
+       join attendance_codes ac on ac.id = am.attendance_code_id
+       where am.organisation_id = $1`,
+      [greenwoodId],
+    );
+    const oak = await pools.owner.query<{ n: string }>(
+      "select count(*)::text as n from attendance_marks where organisation_id = $1",
+      [oakId],
+    );
+    expect(Number(gw.rows[0]?.n)).toBeGreaterThan(40);
+    expect(gw.rows[0]?.categories).toContain("present");
+    expect(gw.rows[0]?.categories).toContain("late");
+    expect(gw.rows[0]?.categories).toContain("authorised_absence");
+    expect(gw.rows[0]?.categories).toContain("unauthorised_absence");
+    expect(Number(oak.rows[0]?.n)).toBeGreaterThan(10);
+
+    const admin = await pools.owner.query<{ id: string }>(
+      "select id from users where email = $1",
+      [DEMO_ACCOUNTS.greenwoodAdmin.email],
+    );
+    await withTenantContext(pools.app, admin.rows[0]!.id, greenwoodId, async (client) => {
+      const leaked = await client.query<{ n: string }>(
+        "select count(*)::text as n from attendance_marks where organisation_id = $1",
+        [oakId],
+      );
+      expect(leaked.rows[0]?.n).toBe("0");
+    });
+  });
 });

@@ -14,22 +14,78 @@ import {
 } from "../../lib/portal";
 import { loadPublicTenant, membershipForHost, switchSchoolLocation } from "../../lib/tenant";
 
-const LINKS = [
-  { href: "/school", label: "Dashboard" },
-  { href: "/school/admissions", label: "Admissions", permissionPrefix: "admissions." },
-  { href: "/school/admissions/enquiries", label: "Enquiries", permissionPrefix: "admissions." },
-  { href: "/school/admissions/applications", label: "Applications", permissionPrefix: "admissions." },
-  { href: "/school/admissions/assessments", label: "Assessments", permissionPrefix: "admissions." },
-  { href: "/school/admissions/waiting-list", label: "Waiting list", permissionPrefix: "admissions." },
-  { href: "/school/admissions/offers", label: "Offers", permissionPrefix: "admissions." },
+type NavLink = {
+  href: string;
+  label: string;
+  exact?: boolean;
+  permissionPrefix?: string;
+  permissions?: string[];
+  children?: NavLink[];
+};
+
+const LINKS: NavLink[] = [
+  { href: "/school", label: "Dashboard", exact: true },
+  {
+    href: "/school/admissions",
+    label: "Admissions",
+    exact: true,
+    permissionPrefix: "admissions.",
+    children: [
+      { href: "/school/admissions/enquiries", label: "Enquiries", permissionPrefix: "admissions." },
+      { href: "/school/admissions/applications", label: "Applications", permissionPrefix: "admissions." },
+      { href: "/school/admissions/assessments", label: "Assessments", permissionPrefix: "admissions." },
+      { href: "/school/admissions/waiting-list", label: "Waiting list", permissionPrefix: "admissions." },
+      { href: "/school/admissions/offers", label: "Offers", permissionPrefix: "admissions." },
+    ],
+  },
   { href: "/school/students", label: "Students" },
+  {
+    href: "/school/attendance",
+    label: "Attendance",
+    exact: true,
+    permissionPrefix: "attendance.",
+    children: [
+      {
+        href: "/school/attendance/registers",
+        label: "My registers",
+        permissions: ["attendance.record.manage_assigned", "attendance.record.manage"],
+      },
+      {
+        href: "/school/attendance/school",
+        label: "School attendance",
+        permissions: ["attendance.record.read", "attendance.record.manage", "attendance.record.correct"],
+      },
+    ],
+  },
   { href: "/school/staff", label: "Staff / Teachers" },
   { href: "/school/parents", label: "Parents / Guardians" },
   { href: "/school/academic-years", label: "Academic Years" },
   { href: "/school/year-groups", label: "Year Groups" },
+  {
+    href: "/school/student-portal",
+    label: "Student portal",
+    permissions: ["students.portal_access.manage"],
+  },
   { href: "/school/classes", label: "Classes" },
   { href: "/school/subjects", label: "Subjects" },
 ];
+
+function hasPermission(permissions: string[], link: NavLink): boolean {
+  if (link.permissionPrefix) return permissions.some((key) => key.startsWith(link.permissionPrefix!));
+  if (link.permissions) return link.permissions.some((key) => permissions.includes(key));
+  return true;
+}
+
+function isActivePath(pathname: string, href: string, exact?: boolean): boolean {
+  if (exact || href === "/school") return pathname === href;
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function isSectionOpen(pathname: string, link: NavLink): boolean {
+  if (!link.children?.length) return false;
+  if (pathname === link.href || pathname.startsWith(`${link.href}/`)) return true;
+  return link.children.some((child) => isActivePath(pathname, child.href, child.exact));
+}
 
 export default function SchoolShell({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -118,6 +174,7 @@ export default function SchoolShell({ children }: { children: ReactNode }) {
   }
 
   const current = memberships.find((m) => m.organisationId === orgId);
+  const visible = LINKS.filter((link) => hasPermission(permissions, link));
 
   return (
     <div className="shell">
@@ -135,26 +192,39 @@ export default function SchoolShell({ children }: { children: ReactNode }) {
             ))}
           </select>
         ) : null}
-        {LINKS.filter((link) => {
-          if (!link.permissionPrefix) return true;
-          return permissions.some((key) => key.startsWith(link.permissionPrefix!));
-        }).map((link) => (
-          <Link
-            key={link.href}
-            href={link.href}
-            className={
-              link.href === "/school"
-                ? pathname === "/school"
-                  ? "active"
-                  : undefined
-                : pathname === link.href || pathname.startsWith(`${link.href}/`)
-                  ? "active"
-                  : undefined
-            }
-          >
-            {link.label}
-          </Link>
-        ))}
+        {visible.map((link) => {
+          const children = (link.children ?? []).filter((child) => hasPermission(permissions, child));
+          const open = isSectionOpen(pathname, link);
+          const parentActive = isActivePath(pathname, link.href, link.exact);
+          if (children.length === 0) {
+            return (
+              <Link key={link.href} href={link.href} className={parentActive ? "active" : undefined}>
+                {link.label}
+              </Link>
+            );
+          }
+          return (
+            <div key={link.href} className={`nav-group${open ? " open" : ""}`}>
+              <Link
+                href={link.href}
+                className={`nav-parent${parentActive ? " active" : ""}${open && !parentActive ? " open" : ""}`}
+              >
+                {link.label}
+              </Link>
+              {open
+                ? children.map((child) => (
+                    <Link
+                      key={child.href}
+                      href={child.href}
+                      className={`nav-child${isActivePath(pathname, child.href, child.exact) ? " active" : ""}`}
+                    >
+                      {child.label}
+                    </Link>
+                  ))
+                : null}
+            </div>
+          );
+        })}
         {canOpenParentPortal ? <Link href="/parent">Parent Portal</Link> : null}
         <div style={{ marginTop: "auto", paddingTop: 24 }}>
           <button className="secondary" type="button" onClick={logout}>

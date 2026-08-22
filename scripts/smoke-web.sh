@@ -76,8 +76,13 @@ expect_page "/school/students"
 expect_page "/school/staff"
 expect_page "/school/parents"
 expect_page "/school/admissions"
+expect_page "/school/attendance"
+expect_page "/school/attendance/registers"
+expect_page "/school/attendance/school"
+expect_page "/school/student-portal"
 expect_page "/parent"
 expect_page "/student"
+expect_page "/student/attendance"
 
 code="$(curl -sS -o /tmp/schoolapp-smoke-login.html -w "%{http_code}" "http://127.0.0.1:${PORT}/login")"
 
@@ -102,4 +107,4 @@ if ! grep -q "Sign in" /tmp/schoolapp-smoke-login.html; then
   exit 1
 fi
 
-echo "web smoke ok (health 200, platform tenant, unknown host 404, login/school/parent/student/admissions pages 200)"
+echo "web smoke ok (health 200, platform tenant, unknown host 404, login/school/parent/student/admissions/attendance pages 200)"

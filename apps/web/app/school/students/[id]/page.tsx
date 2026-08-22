@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { api } from "../../../../lib/api";
 
@@ -38,34 +38,91 @@ type Detail = {
     hasParentalResponsibility: boolean;
     endedOn: string | null;
   }>;
+  attendanceSummary: {
+    sessionsPossible: number;
+    sessionsPresent: number;
+    authorisedAbsence: number;
+    unauthorisedAbsence: number;
+    late: number;
+    attendancePercentage: number | null;
+  } | null;
+  portalAccess: {
+    enabled: boolean;
+    source: string;
+    hasLoginAlias?: boolean;
+    alias?: string | null;
+  };
 };
 
 type Option = { id: string; name: string };
 
+type AttendanceHistory = {
+  summary: {
+    sessionsPossible: number;
+    sessionsPresent: number;
+    authorisedAbsence: number;
+    unauthorisedAbsence: number;
+    late: number;
+    attendancePercentage: number | null;
+  };
+  marks: Array<{
+    id: string;
+    date: string;
+    sessionName: string | null;
+    codeName: string | null;
+    category: string | null;
+    className: string | null;
+  }>;
+};
+
 export default function StudentDetailPage() {
   const params = useParams<{ id: string }>();
   const [data, setData] = useState<Detail | null>(null);
+  const [attendance, setAttendance] = useState<AttendanceHistory | null>(null);
   const [years, setYears] = useState<Option[]>([]);
   const [groups, setGroups] = useState<Option[]>([]);
   const [classes, setClasses] = useState<Option[]>([]);
   const [error, setError] = useState("");
   const [invite, setInvite] = useState("");
+  const loadSeq = useRef(0);
 
   async function load() {
+    const seq = ++loadSeq.current;
+    const studentId = params.id;
     const [detail, yr, yg, cl] = await Promise.all([
-      api<Detail>(`/api/v1/students/${params.id}`),
+      api<Detail>(`/api/v1/students/${studentId}`),
       api<{ academicYears: Option[] }>("/api/v1/academic-years"),
       api<{ yearGroups: Option[] }>("/api/v1/year-groups"),
       api<{ classes: Option[] }>("/api/v1/classes"),
     ]);
+    if (seq !== loadSeq.current) return;
     setData(detail);
     setYears(yr.academicYears);
     setGroups(yg.yearGroups);
     setClasses(cl.classes);
+    if (detail.attendanceSummary) {
+      try {
+        const history = await api<AttendanceHistory>(`/api/v1/attendance/students/${studentId}`);
+        if (seq !== loadSeq.current) return;
+        setAttendance(history);
+      } catch {
+        if (seq !== loadSeq.current) return;
+        setAttendance(null);
+      }
+    } else {
+      setAttendance(null);
+    }
   }
 
   useEffect(() => {
+    setData(null);
+    setAttendance(null);
+    setError("");
+    setInvite("");
     load().catch((err: Error) => setError(err.message));
+    return () => {
+      loadSeq.current += 1;
+    };
   }, [params.id]);
 
   async function enrol(event: FormEvent<HTMLFormElement>) {
@@ -113,6 +170,38 @@ export default function StudentDetailPage() {
         {data.student.currentYearGroupName ?? "No current year group"} ·{" "}
         {data.student.currentFormClassName ?? "No form class"} · {data.student.enrolmentStatus}
       </p>
+      <p>
+        Student portal: {data.portalAccess.enabled ? "enabled" : "disabled"}
+        {data.portalAccess.hasLoginAlias ? ` · login alias ${data.portalAccess.alias}` : ""}
+      </p>
+      {data.attendanceSummary ? (
+        <div className="cards">
+          <div className="card"><span>Attendance</span><strong>{data.attendanceSummary.attendancePercentage ?? "—"}{data.attendanceSummary.attendancePercentage != null ? "%" : ""}</strong></div>
+          <div className="card"><span>Possible sessions</span><strong>{data.attendanceSummary.sessionsPossible}</strong></div>
+          <div className="card"><span>Present</span><strong>{data.attendanceSummary.sessionsPresent}</strong></div>
+          <div className="card"><span>Unauthorised</span><strong>{data.attendanceSummary.unauthorisedAbsence}</strong></div>
+        </div>
+      ) : null}
+      {attendance && attendance.marks.length > 0 ? (
+        <>
+          <h2>Attendance history</h2>
+          <table>
+            <thead>
+              <tr><th>Date</th><th>Session</th><th>Mark</th><th>Class</th></tr>
+            </thead>
+            <tbody>
+              {attendance.marks.slice(0, 24).map((row) => (
+                <tr key={row.id}>
+                  <td>{row.date}</td>
+                  <td>{row.sessionName}</td>
+                  <td>{row.codeName}</td>
+                  <td>{row.className ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      ) : null}
 
       <h2>Enrolment history</h2>
       <table>

@@ -9,6 +9,84 @@ export function mapAcademicYear(row: Record<string, unknown>) {
   };
 }
 
+export function mapAttendanceSessionType(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    key: row.key,
+    name: row.name,
+    sortOrder: row.sort_order,
+    typicalStartTime: row.typical_start_time ?? null,
+    typicalEndTime: row.typical_end_time ?? null,
+    isActive: row.is_active,
+  };
+}
+
+export function mapAttendanceCode(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    code: row.code,
+    name: row.name,
+    category: row.category,
+    requiresLateMinutes: row.requires_late_minutes,
+    isActive: row.is_active,
+    sortOrder: row.sort_order,
+  };
+}
+
+export function mapAttendanceMark(row: Record<string, unknown>, options?: { includeInternal?: boolean }) {
+  const includeInternal = options?.includeInternal !== false;
+  const base = {
+    id: row.id,
+    studentProfileId: row.student_profile_id,
+    studentLegalName: row.student_legal_name ?? null,
+    academicYearId: row.academic_year_id,
+    sessionTypeId: row.session_type_id,
+    sessionKey: row.session_key ?? null,
+    sessionName: row.session_name ?? null,
+    date: row.mark_date,
+    codeId: row.attendance_code_id,
+    code: row.code ?? null,
+    codeName: row.code_name ?? null,
+    category: row.category ?? null,
+    lateMinutes: row.late_minutes ?? null,
+    reason: row.reason ?? null,
+    parentNote: row.parent_visible_note ?? null,
+    classId: row.class_id ?? null,
+    className: row.class_name ?? null,
+    yearGroupId: row.year_group_id ?? null,
+    yearGroupName: row.year_group_name ?? null,
+  };
+  if (!includeInternal) {
+    return base;
+  }
+  return {
+    ...base,
+    note: row.note ?? null,
+    recordedBy: row.recorded_by ?? null,
+    recordedByName: row.recorded_by_name ?? null,
+    recordedAt: row.recorded_at ?? null,
+    lastCorrectedBy: row.last_corrected_by ?? null,
+    lastCorrectedByName: row.last_corrected_by_name ?? null,
+    lastCorrectedAt: row.last_corrected_at ?? null,
+  };
+}
+
+export function mapStudentDocument(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    studentProfileId: row.student_profile_id,
+    title: row.title,
+    documentType: row.document_type,
+    storageBackend: row.storage_backend,
+    storageKey: row.storage_key ?? null,
+    contentType: row.content_type ?? null,
+    byteSize: row.byte_size ?? null,
+    visibility: row.visibility,
+    createdAt: row.created_at,
+    binaryUploadAvailable: false,
+  };
+}
+
 export function mapYearGroup(row: Record<string, unknown>) {
   return {
     id: row.id,
@@ -17,6 +95,7 @@ export function mapYearGroup(row: Record<string, unknown>) {
     keyStage: row.key_stage,
     sortOrder: row.sort_order,
     studentLoginEnabled: row.student_login_enabled,
+    studentPortalOverride: row.portal_override === undefined ? undefined : row.portal_override,
   };
 }
 

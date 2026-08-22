@@ -16,6 +16,7 @@
     "@schoolapp/core": "workspace:*",
     "@schoolapp/db": "workspace:*",
     "@schoolapp/domain": "workspace:*",
+    "@schoolapp/storage": "workspace:*",
     "hono": "^4.8.5",
     "pg": "^8.16.3",
     "zod": "^3.25.67"

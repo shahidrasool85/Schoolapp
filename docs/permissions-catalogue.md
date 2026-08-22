@@ -35,9 +35,18 @@ Platform Super Admin does **not** silently receive pupil read. Tenant data requi
 | `students.profiles.read_self` | — | — | — | — | — | — | — | F |
 | `students.restricted_contact.read` | — | F | — | — | — | — | — | — |
 | `guardianships.manage` | — | F | R | — | F | — | — | — |
-| `attendance.record.manage` | — | — | F | — | — | — | — | — |
+| `attendance.record.read` | — | F | F | — | — | — | — | — |
+| `attendance.record.manage` | — | F | F | — | — | — | — | — |
+| `attendance.record.correct` | — | F | F | — | — | — | — | — |
 | `attendance.record.manage_assigned` | — | — | — | F | — | — | — | — |
 | `attendance.record.read_own_children` | — | — | — | — | — | — | F | — |
+| `attendance.record.read_self` | — | — | — | — | — | — | — | F |
+| `attendance.config.manage` | — | F | — | — | — | — | — | — |
+| `students.portal_access.manage` | — | F | — | — | — | — | — | — |
+| `students.documents.read` | — | F | F | — | — | — | — | — |
+| `students.documents.manage` | — | F | — | — | — | — | — | — |
+| `students.documents.read_own_children` | — | — | — | — | — | — | F | — |
+| `students.documents.read_self` | — | — | — | — | — | — | — | F |
 | `lms.assignments.manage` | — | — | F | — | — | — | — | — |
 | `lms.assignments.manage_assigned` | — | — | — | F | — | — | — | — |
 | `lms.submissions.submit` | — | — | — | — | — | — | — | F |
@@ -50,6 +59,8 @@ Platform Super Admin does **not** silently receive pupil read. Tenant data requi
 | `notifications.inbox.read` | — | F | F | F | F | F | F | F |
 | `external_identifiers.upn.read` | — | F | F | — | R | — | — | — |
 
+`students.documents.read_self` is seeded on the Student role for a later pupil-visible documents API. No current route checks that permission, so it does not grant access by itself.
+
 `admissions.convert` is the only path that creates the canonical student/enrolment from an accepted application. Teachers do not receive admissions keys. Parents and students never receive School Admin admissions access.
 
 `students.restricted_contact.read` is **not** granted to Teacher, Parent, or Student. No Phase 1–4 API exposes the column to those roles.
@@ -57,5 +68,11 @@ Platform Super Admin does **not** silently receive pupil read. Tenant data requi
 `notifications.inbox.read` is own-inbox only. RLS still requires `organisation_id` plus `recipient_user_id = current user`.
 
 Assigned permissions (`*_assigned`) deny access when the teacher has no matching class/subject assignment. Headteacher uses the non-assigned (school-wide) educational keys instead.
+
+School Admin receives school-wide attendance **in addition to** Headteacher so operational staff can run registers and corrections. Ordinary `school.staff` does not. Attendance percentage treats late as present and excludes `not_required` sessions; the formula lives in domain/core code, not the UI.
+
+Student portal access is school default → year-group override → class override → pupil override. There is no age-based prohibition on Reception / Year 1 / Year 2. Class and pupil override APIs exist in Phase 6; School Admin UI covers school default and year group.
+
+Parent/student document visibility is explicit. Staff-only metadata is never listed on parent/student endpoints.
 
 Unused module keys are seeded so later phases do not hardcode role names; those modules are not implemented in Phase 1.

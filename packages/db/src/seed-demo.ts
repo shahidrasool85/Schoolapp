@@ -147,6 +147,15 @@ async function wipeDemoData(client: pg.Client): Promise<void> {
     );
 
     const tenantDeletes = [
+      "attendance_mark_revisions",
+      "attendance_marks",
+      "attendance_codes",
+      "attendance_session_types",
+      "student_documents",
+      "student_portal_student_overrides",
+      "student_portal_class_overrides",
+      "student_portal_year_group_overrides",
+      "student_portal_policies",
       "notifications",
       "admissions_documents",
       "admissions_offers",
@@ -280,6 +289,14 @@ async function seedYearGroups(client: pg.Client, organisationId: string): Promis
      where organisation_id = $1 and code in ('3','4','5','6','7','8')`,
     [organisationId],
   );
+  await client.query(
+    `insert into student_portal_year_group_overrides (organisation_id, year_group_id, enabled)
+     select organisation_id, id, true
+     from year_groups
+     where organisation_id = $1 and code in ('3','4','5','6','7','8')
+     on conflict (year_group_id) do update set enabled = true`,
+    [organisationId],
+  );
   return map;
 }
 
@@ -400,6 +417,32 @@ async function seedStudent(
   return { profileId, userId };
 }
 
+async function seedStudentDocument(
+  client: pg.Client,
+  input: {
+    organisationId: string;
+    studentProfileId: string;
+    title: string;
+    documentType: string;
+    visibility: string;
+    createdBy: string;
+  },
+): Promise<void> {
+  await client.query(
+    `insert into student_documents (
+       organisation_id, student_profile_id, title, document_type, visibility, created_by
+     ) values ($1, $2, $3, $4, $5, $6)`,
+    [
+      input.organisationId,
+      input.studentProfileId,
+      input.title,
+      input.documentType,
+      input.visibility,
+      input.createdBy,
+    ],
+  );
+}
+
 async function seedGuardian(
   client: pg.Client,
   input: {
@@ -424,6 +467,77 @@ async function seedGuardian(
       input.priority ?? 1,
     ],
   );
+}
+
+async function weekdaysFrom(start: string, count: number): Promise<string[]> {
+  const dates: string[] = [];
+  const cursor = new Date(`${start}T00:00:00Z`);
+  while (dates.length < count) {
+    const day = cursor.getUTCDay();
+    if (day !== 0 && day !== 6) {
+      dates.push(cursor.toISOString().slice(0, 10));
+    }
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
+}
+
+async function seedAttendanceMarks(
+  client: pg.Client,
+  input: {
+    organisationId: string;
+    academicYearId: string;
+    recordedBy: string;
+    pupils: Array<{
+      profileId: string;
+      classId: string;
+      yearGroupId: string;
+      pattern: Array<"present" | "late" | "authorised" | "unauthorised" | "not_required">;
+    }>;
+  },
+): Promise<void> {
+  const sessions = await client.query<{ id: string; key: string }>(
+    `select id, key from attendance_session_types
+     where organisation_id = $1 and is_active
+     order by sort_order`,
+    [input.organisationId],
+  );
+  const codes = await client.query<{ id: string; code: string }>(
+    `select id, code from attendance_codes where organisation_id = $1`,
+    [input.organisationId],
+  );
+  const codeId = (code: string) => codes.rows.find((row) => row.code === code)?.id;
+  const dates = await weekdaysFrom("2026-09-01", 8);
+  for (const [index, date] of dates.entries()) {
+    for (const session of sessions.rows) {
+      for (const pupil of input.pupils) {
+        const mark = pupil.pattern[(index + (session.key === "pm" ? 1 : 0)) % pupil.pattern.length]!;
+        await client.query(
+          `insert into attendance_marks (
+             organisation_id, student_profile_id, academic_year_id, session_type_id, mark_date,
+             attendance_code_id, late_minutes, reason, note, parent_visible_note, class_id,
+             year_group_id, recorded_by, recorded_at
+           ) values ($1,$2,$3,$4,$5::date,$6,$7,$8,$9,$10,$11,$12,$13, now())
+           on conflict (organisation_id, student_profile_id, mark_date, session_type_id) do nothing`,
+          [
+            input.organisationId,
+            pupil.profileId,
+            input.academicYearId,
+            session.id,
+            date,
+            codeId(mark),
+            mark === "late" ? 8 : null,
+            mark === "authorised" ? "Medical appointment" : mark === "unauthorised" ? "No reason given" : null,
+            mark === "authorised" ? "Internal: appointment letter on file" : null,
+            mark === "late" ? "Arrived after registration" : null,
+            pupil.classId,
+            pupil.yearGroupId,
+            input.recordedBy,
+          ],
+        );
+      }
+    }
+  }
 }
 
 async function notify(
@@ -695,6 +809,28 @@ async function seedGreenwood(
     loginAlias: DEMO_ACCOUNTS.greenwoodStudent.username,
     passwordHash: hashes[DEMO_ACCOUNTS.greenwoodStudent.password],
   });
+  const jack = await seedStudent(client, {
+    organisationId: orgId,
+    academicYearId,
+    yearGroupId: yearGroups.get("3")!,
+    classId: classIds.get("3A")!,
+    houseId: oakHouse.rows[0]!.id,
+    legalName: "Jack Brennan",
+    preferredName: "Jack",
+    admissionNumber: "GW-2026-007",
+    dateOfBirth: "2018-08-21",
+  });
+  const priya = await seedStudent(client, {
+    organisationId: orgId,
+    academicYearId,
+    yearGroupId: yearGroups.get("3")!,
+    classId: classIds.get("3A")!,
+    houseId: oakHouse.rows[0]!.id,
+    legalName: "Priya Shah",
+    preferredName: "Priya",
+    admissionNumber: "GW-2026-008",
+    dateOfBirth: "2018-03-04",
+  });
   const yusuf = await seedStudent(client, {
     organisationId: orgId,
     academicYearId,
@@ -713,7 +849,7 @@ async function seedGreenwood(
     admissionNumber: "GW-2026-003",
     dateOfBirth: "2018-01-22",
   });
-  await seedStudent(client, {
+  const oliver = await seedStudent(client, {
     organisationId: orgId,
     academicYearId,
     yearGroupId: yearGroups.get("4")!,
@@ -722,7 +858,7 @@ async function seedGreenwood(
     admissionNumber: "GW-2026-004",
     dateOfBirth: "2017-06-18",
   });
-  await seedStudent(client, {
+  const sophie = await seedStudent(client, {
     organisationId: orgId,
     academicYearId,
     yearGroupId: yearGroups.get("6")!,
@@ -731,7 +867,7 @@ async function seedGreenwood(
     admissionNumber: "GW-2026-005",
     dateOfBirth: "2015-11-09",
   });
-  await seedStudent(client, {
+  const leo = await seedStudent(client, {
     organisationId: orgId,
     academicYearId,
     yearGroupId: yearGroups.get("7")!,
@@ -758,6 +894,79 @@ async function seedGreenwood(
     studentProfileId: maya.profileId,
     userId: secondParentId,
     relationship: "father",
+  });
+
+  await seedAttendanceMarks(client, {
+    organisationId: orgId,
+    academicYearId,
+    recordedBy: teacherId,
+    pupils: [
+      {
+        profileId: amelia.profileId,
+        classId: classIds.get("3A")!,
+        yearGroupId: yearGroups.get("3")!,
+        pattern: ["present", "present", "late", "present", "authorised", "present", "present", "unauthorised"],
+      },
+      {
+        profileId: jack.profileId,
+        classId: classIds.get("3A")!,
+        yearGroupId: yearGroups.get("3")!,
+        pattern: ["present", "unauthorised", "present", "late", "present", "present", "authorised", "present"],
+      },
+      {
+        profileId: priya.profileId,
+        classId: classIds.get("3A")!,
+        yearGroupId: yearGroups.get("3")!,
+        pattern: ["present", "present", "present", "present", "late", "present", "present", "present"],
+      },
+      {
+        profileId: maya.profileId,
+        classId: classIds.get("3B")!,
+        yearGroupId: yearGroups.get("3")!,
+        pattern: ["present", "authorised", "authorised", "present", "present", "late", "present", "present"],
+      },
+      {
+        profileId: oliver.profileId,
+        classId: classIds.get("4A")!,
+        yearGroupId: yearGroups.get("4")!,
+        pattern: ["present", "late", "present", "unauthorised", "present", "present", "late", "present"],
+      },
+      {
+        profileId: yusuf.profileId,
+        classId: classIds.get("5A")!,
+        yearGroupId: yearGroups.get("5")!,
+        pattern: ["present", "present", "present", "late", "present", "authorised", "present", "present"],
+      },
+      {
+        profileId: sophie.profileId,
+        classId: classIds.get("6A")!,
+        yearGroupId: yearGroups.get("6")!,
+        pattern: ["present", "not_required", "present", "present", "late", "present", "present", "authorised"],
+      },
+      {
+        profileId: leo.profileId,
+        classId: classIds.get("7A")!,
+        yearGroupId: yearGroups.get("7")!,
+        pattern: ["present", "present", "unauthorised", "present", "present", "late", "present", "present"],
+      },
+    ],
+  });
+
+  await seedStudentDocument(client, {
+    organisationId: orgId,
+    studentProfileId: amelia.profileId,
+    title: "Autumn term welcome letter",
+    documentType: "letter",
+    visibility: "staff_and_parents",
+    createdBy: adminId,
+  });
+  await seedStudentDocument(client, {
+    organisationId: orgId,
+    studentProfileId: amelia.profileId,
+    title: "Internal support note",
+    documentType: "support",
+    visibility: "staff",
+    createdBy: adminId,
   });
 
   const year3 = yearGroups.get("3")!;
@@ -923,7 +1132,7 @@ async function seedGreenwood(
     type: "general",
     category: "general",
     title: "Staff briefing (demo)",
-    body: "INSET day is 2 September. Registers and attendance are not built yet — this is demo data only.",
+    body: "INSET day is 2 September. Registers open from 1 September — take AM and PM for your form class.",
   });
 
   return {
@@ -1051,7 +1260,34 @@ async function seedOakAcademy(
     userId: parentId,
     relationship: "mother",
   });
-  void ethan;
+
+  await seedAttendanceMarks(client, {
+    organisationId: orgId,
+    academicYearId,
+    recordedBy: teacherId,
+    pupils: [
+      {
+        profileId: niamh.profileId,
+        classId: class3.rows[0]!.id,
+        yearGroupId: yearGroups.get("3")!,
+        pattern: ["present", "late", "present", "authorised", "present", "present", "unauthorised", "present"],
+      },
+      {
+        profileId: ethan.profileId,
+        classId: class5.rows[0]!.id,
+        yearGroupId: yearGroups.get("5")!,
+        pattern: ["present", "present", "late", "present", "present", "present", "present", "authorised"],
+      },
+    ],
+  });
+  await seedStudentDocument(client, {
+    organisationId: orgId,
+    studentProfileId: niamh.profileId,
+    title: "Oak Academy induction letter",
+    documentType: "letter",
+    visibility: "staff",
+    createdBy: adminId,
+  });
 
   await insertEnquiry(client, {
     organisationId: orgId,

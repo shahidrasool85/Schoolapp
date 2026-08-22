@@ -56,6 +56,19 @@ type Detail = {
 
 type Option = { id: string; name: string };
 
+type LearningHistory = {
+  items: Array<{
+    assignmentId: string;
+    title: string;
+    dueAt: string | null;
+    workTypeName: string | null;
+    subjectName: string | null;
+    submissionStatus: string;
+    submittedAt: string | null;
+    mark: { score: number | null; feedback: string | null } | null;
+  }>;
+};
+
 type AttendanceHistory = {
   summary: {
     sessionsPossible: number;
@@ -79,6 +92,8 @@ export default function StudentDetailPage() {
   const params = useParams<{ id: string }>();
   const [data, setData] = useState<Detail | null>(null);
   const [attendance, setAttendance] = useState<AttendanceHistory | null>(null);
+  const [learning, setLearning] = useState<LearningHistory | null>(null);
+  const [learningStatus, setLearningStatus] = useState<"loading" | "ready" | "error">("loading");
   const [years, setYears] = useState<Option[]>([]);
   const [groups, setGroups] = useState<Option[]>([]);
   const [classes, setClasses] = useState<Option[]>([]);
@@ -112,11 +127,23 @@ export default function StudentDetailPage() {
     } else {
       setAttendance(null);
     }
+    try {
+      const learningHistory = await api<LearningHistory>(`/api/v1/students/${studentId}/learning`);
+      if (seq !== loadSeq.current) return;
+      setLearning(learningHistory);
+      setLearningStatus("ready");
+    } catch {
+      if (seq !== loadSeq.current) return;
+      setLearning(null);
+      setLearningStatus("error");
+    }
   }
 
   useEffect(() => {
     setData(null);
     setAttendance(null);
+    setLearning(null);
+    setLearningStatus("loading");
     setError("");
     setInvite("");
     load().catch((err: Error) => setError(err.message));
@@ -202,6 +229,34 @@ export default function StudentDetailPage() {
           </table>
         </>
       ) : null}
+
+      <h2>Learning</h2>
+      {learningStatus === "loading" ? (
+        <p className="muted">Loading learning history…</p>
+      ) : learningStatus === "error" ? (
+        <p className="muted">Unable to load learning history.</p>
+      ) : learning && learning.items.length > 0 ? (
+        <table>
+          <thead>
+            <tr><th>Work</th><th>Due</th><th>Status</th><th>Feedback</th></tr>
+          </thead>
+          <tbody>
+            {learning.items.map((row) => (
+              <tr key={row.assignmentId}>
+                <td>
+                  {row.title}
+                  <div className="muted">{row.subjectName ?? row.workTypeName}</div>
+                </td>
+                <td>{row.dueAt ? new Date(row.dueAt).toLocaleString() : "—"}</td>
+                <td>{row.submissionStatus.replaceAll("_", " ")}</td>
+                <td>{row.mark?.score != null ? String(row.mark.score) : row.mark?.feedback ? "Feedback" : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="muted">No assigned learning work recorded for this pupil.</p>
+      )}
 
       <h2>Enrolment history</h2>
       <table>

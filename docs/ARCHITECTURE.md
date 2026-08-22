@@ -1,6 +1,6 @@
 # Schoolapp — Platform Architecture
 
-**Status:** Phase 6 attendance and student record implemented. Later modules (LMS, AI, mobile) are not built.  
+**Status:** Phase 7 Teaching & Learning / LMS implemented. Later modules (formal assessment, AI, mobile) are not built.  
 **Audience:** Product owner and engineering.  
 **Scope:** Multi-tenant UK school SaaS (SIS + LMS + AI learning), web first, mobile-ready.
 
@@ -466,11 +466,19 @@ Only **Platform + People + Academic structure** should be implemented first. Oth
 - `audit_events` (formal audit, not application logs)
 - `external_identifiers` (UPN, MIS ids — optional, access-restricted)
 
+### 6.2a Operations and LMS (Phases 6–7)
+
+- Attendance: `attendance_session_types`, `attendance_codes`, `attendance_marks`, `attendance_mark_revisions`
+- Student portal policy + `student_documents` (metadata only)
+- LMS: `learning_work_types`, `learning_assignments`, `learning_assignment_targets`, `learning_assignment_recipients`, `learning_assignment_status_history`, `learning_resources`, `learning_assignment_resources`, `learning_submissions`, `learning_submission_revisions`, `learning_submission_attachments`, `learning_marks`
+
+See [ADR 0016](./adr/0016-phase7-learning-lms.md). Assignments have no `class_id`; recipients are a publish-time snapshot.
+
 ### 6.3 Later entities (do not implement now; reserved names)
 
 - Admissions: `admissions_enquiries`, `admissions_applications`, `admissions_application_contacts`, `admissions_application_status_history`, `admissions_assessments`, `admissions_waiting_list_entries`, `admissions_offers`, `admissions_documents` (metadata only)
-- Operations: `attendance_sessions`, `attendance_marks`, `progress_reports`, `documents`, `announcements`
-- LMS: `assignments`, `assignment_targets`, `submissions`, `learning_resources`, `timetable_entries`
+- Operations: `progress_reports`, `announcements`
+- LMS later: `timetable_entries`
 - Learning: `learning_activities`, `activity_items`, `activity_reviews`, `activity_attempts`, `competitions`, `points_ledger`, `badge_definitions`, `streaks`
 
 ### 6.4 Critical lifecycle: applicant → student
@@ -637,8 +645,8 @@ Detail: [roadmap.md](./roadmap.md).
 | **3 — Portals (read)** | Parent/student web views of profile + in-app notification inbox | Yes, read-only |
 | **4 — Admissions** | Enquiry to admitted pupil conversion | **Implemented** |
 | **5 — SaaS hostname tenancy** | School subdomains, slug routing, onboarding foundation, custom-domain model | **Implemented** |
-| **6 — Attendance & documents** | Registers, files | Yes |
-| **7 — LMS core** | Assignments, submissions, resources, marking | Yes |
+| **6 — Attendance & documents** | Registers, files | **Implemented** |
+| **7 — LMS core** | Assignments, submissions, resources, marking | **Implemented** |
 | **8 — Assessment & reports** | Results, feedback, progress reports | Yes |
 | **9 — AI learning** | Provider port, drafts, teacher approval, attempts | Yes |
 | **10 — Gamification** | Points, badges, streaks, configurable leaderboards | Yes |

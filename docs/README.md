@@ -1,6 +1,6 @@
 # Schoolapp documentation
 
-Architecture **accepted**. Phases 1–6 (foundation, people/school structure, parent/student portals, admissions, SaaS hostname tenancy, attendance and student record) are implemented. Later product modules are not built yet.
+Architecture **accepted**. Phases 1–7 (foundation, people/school structure, parent/student portals, admissions, SaaS hostname tenancy, attendance and student record, Teaching & Learning / LMS) are implemented. Later product modules (formal assessment, AI, games, mobile) are not built yet.
 
 | Document | Contents |
 | --- | --- |

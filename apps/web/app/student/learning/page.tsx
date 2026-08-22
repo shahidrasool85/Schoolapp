@@ -1,13 +1,5 @@
-import { ComingLaterCard } from "../../../components/coming-later";
+import { StudentLearningList } from "./learning-list";
 
-export default function StudentLearningPage() {
-  return (
-    <>
-      <h1>My Learning</h1>
-      <ComingLaterCard
-        title="Learning activities"
-        message="Homework, quizzes and challenges will appear here in a later phase."
-      />
-    </>
-  );
+export default function StudentLearningAssignedPage() {
+  return <StudentLearningList title="Assigned" bucket="assigned" />;
 }

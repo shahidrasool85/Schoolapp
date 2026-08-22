@@ -331,6 +331,109 @@ describe("Phase 7 teaching and learning", () => {
     expect(studentTarget.status).toBe(404);
   });
 
+  it("lets a teacher see original class recipients after a move, but not another class on shared work", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const adminToken = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(adminToken, school.orgId);
+    const seeded = await seedStructure(app, hdrs);
+    await inviteTeacher(app, hdrs, id, seeded.classAId);
+    const teacherToken = await login(app, `teacher-${id}@example.com`, "teacher-pass-1");
+    const teacherHdrs = headers(teacherToken, school.orgId);
+    const pupilA = await createStudent(app, hdrs, {
+      legalName: "Class A Pupil",
+      academicYearId: seeded.yearId,
+      yearGroupId: seeded.year3Id,
+      classId: seeded.classAId,
+    });
+    const pupilB = await createStudent(app, hdrs, {
+      legalName: "Class B Pupil",
+      academicYearId: seeded.yearId,
+      yearGroupId: seeded.year3Id,
+      classId: seeded.classBId,
+    });
+    const created = await app.request("/api/v1/learning/assignments", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        title: "Year 3 shared",
+        workTypeKey: "homework",
+        targets: [
+          { targetType: "class", classId: seeded.classAId },
+          { targetType: "class", classId: seeded.classBId },
+        ],
+      }),
+    });
+    const assignment = (await created.json()) as { assignment: { id: string } };
+    await app.request(`/api/v1/learning/assignments/${assignment.assignment.id}/publish`, {
+      method: "POST",
+      headers: hdrs,
+      body: "{}",
+    });
+    await app.request(`/api/v1/students/${pupilA.student.id}/class-memberships`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ classId: seeded.classBId, startedOn: "2026-09-08" }),
+    });
+    const listed = await app.request(
+      `/api/v1/learning/assignments/${assignment.assignment.id}/submissions`,
+      { headers: teacherHdrs },
+    );
+    const body = (await listed.json()) as {
+      submissions: Array<{ studentProfileId: string }>;
+    };
+    const ids = body.submissions.map((row) => row.studentProfileId);
+    expect(ids).toContain(pupilA.student.id);
+    expect(ids).not.toContain(pupilB.student.id);
+  });
+
+  it("persists student draft text before submit", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const adminToken = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(adminToken, school.orgId);
+    const seeded = await seedStructure(app, hdrs);
+    await createStudent(app, hdrs, {
+      legalName: "Draft Pupil",
+      academicYearId: seeded.yearId,
+      yearGroupId: seeded.year3Id,
+      classId: seeded.classAId,
+      loginAlias: `dft.${id}`,
+      password: "student-pass-1",
+    });
+    const created = await app.request("/api/v1/learning/assignments", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        title: "Draftable",
+        workTypeKey: "practice",
+        targets: [{ targetType: "class", classId: seeded.classAId }],
+      }),
+    });
+    const assignment = (await created.json()) as { assignment: { id: string } };
+    await app.request(`/api/v1/learning/assignments/${assignment.assignment.id}/publish`, {
+      method: "POST",
+      headers: hdrs,
+      body: "{}",
+    });
+    const studentToken = await loginAlias(app, school.slug, `dft.${id}`, "student-pass-1");
+    const studentHdrs = headers(studentToken, school.orgId);
+    const draft = await app.request(
+      `/api/v1/student/assignments/${assignment.assignment.id}/submissions`,
+      {
+        method: "POST",
+        headers: studentHdrs,
+        body: JSON.stringify({ textResponse: "Working it out", submit: false }),
+      },
+    );
+    expect(draft.status).toBe(200);
+    const saved = (await draft.json()) as {
+      assignment: { submission: { status: string; textResponse: string } };
+    };
+    expect(saved.assignment.submission.status).toBe("in_progress");
+    expect(saved.assignment.submission.textResponse).toBe("Working it out");
+  });
+
   it("hides teacher notes and unreleased marks from pupil and parent APIs", async () => {
     const id = suffix();
     const school = await createSchool(pools.owner, id);

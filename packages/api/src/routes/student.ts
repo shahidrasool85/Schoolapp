@@ -2,6 +2,7 @@ import { PERMISSIONS } from "@schoolapp/domain";
 import {
   AppError,
   assertPermission,
+  comingLater,
   countUnreadNotifications,
   isLearningSubmissionStatus,
   loadOwnStudentProfile,
@@ -178,10 +179,31 @@ export function registerStudentRoutes(app: SchoolappApi) {
         if (!isLearningSubmissionStatus(current.status) || !pupilCanSaveDraftFrom(current.status)) {
           throw new AppError(409, "invalid_status_transition", "This assignment cannot be edited now");
         }
+        const nextNumber = await client.query<{ n: number }>(
+          `select coalesce(max(revision_number), 0)::int + 1 as n
+           from learning_submission_revisions
+           where submission_id = $1`,
+          [current.id],
+        );
+        const revision = await client.query<{ id: string }>(
+          `insert into learning_submission_revisions (
+             organisation_id, submission_id, revision_number, text_response, comment, submitted_by
+           ) values ($1, $2, $3, $4, $5, $6)
+           returning id`,
+          [
+            orgId,
+            current.id,
+            nextNumber.rows[0]?.n ?? 1,
+            parsed.data.textResponse ?? null,
+            parsed.data.comment ?? null,
+            userId,
+          ],
+        );
         await client.query(
-          `update learning_submissions set status = 'in_progress'
+          `update learning_submissions
+           set status = 'in_progress', current_revision_id = $3
            where id = $1 and organisation_id = $2`,
-          [current.id, orgId],
+          [current.id, orgId, revision.rows[0]!.id],
         );
       }
       const body = await loadPupilAssignment(client, orgId, studentProfileId, assignmentId, "student");

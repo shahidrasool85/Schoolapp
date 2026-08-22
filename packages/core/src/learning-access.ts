@@ -204,6 +204,27 @@ export async function assertCanManageAssignment(
   if (!canManageAssignedLearning(actor)) notFound();
 }
 
+export async function canSeeLearningRecipient(
+  client: pg.PoolClient,
+  actor: Actor,
+  assignmentId: string,
+  studentProfileId: string,
+): Promise<boolean> {
+  if (canReadSchoolLearning(actor) || canManageSchoolLearning(actor) || canMarkSchoolLearning(actor)) {
+    return true;
+  }
+  const assignedStudents = await assignedStudentIds(client, actor.userId, actor.organisationId!);
+  if (assignedStudents.has(studentProfileId)) return true;
+  const recipient = await client.query<{ class_id: string | null }>(
+    `select class_id from learning_assignment_recipients
+     where assignment_id = $1 and student_profile_id = $2 and organisation_id = $3`,
+    [assignmentId, studentProfileId, actor.organisationId],
+  );
+  if (!recipient.rows[0]) return false;
+  const classIds = await assignedClassIds(client, actor.userId, actor.organisationId!);
+  return Boolean(recipient.rows[0].class_id && classIds.has(recipient.rows[0].class_id));
+}
+
 export async function assertCanReadOrMarkSubmission(
   client: pg.PoolClient,
   actor: Actor,
@@ -216,20 +237,17 @@ export async function assertCanReadOrMarkSubmission(
   } else {
     assertAnyPermission(actor, LMS_READ_SUBMISSION_PERMISSIONS);
   }
+  if (assignmentId) {
+    if (!(await canSeeLearningRecipient(client, actor, assignmentId, studentProfileId))) {
+      notFound();
+    }
+    return;
+  }
   if (canReadSchoolLearning(actor) || canManageSchoolLearning(actor) || canMarkSchoolLearning(actor)) {
     return;
   }
   const assigned = await assignedStudentIds(client, actor.userId, actor.organisationId!);
-  if (assigned.has(studentProfileId)) return;
-  if (assignmentId) {
-    if (mode === "mark") {
-      await assertCanManageAssignment(client, actor, assignmentId);
-    } else {
-      await assertCanReadAssignment(client, actor, assignmentId);
-    }
-    return;
-  }
-  notFound();
+  if (!assigned.has(studentProfileId)) notFound();
 }
 
 export type ResolvedRecipient = {

@@ -160,6 +160,7 @@ export {
   assertCanReadAssignment,
   assertCanManageAssignment,
   assertCanReadOrMarkSubmission,
+  canSeeLearningRecipient,
   resolveTargetRecipients,
   snapshotAssignmentRecipients,
   notifyLearningAssigned,

@@ -1,3 +1,4 @@
+import type pg from "pg";
 import {
   AppError,
   isLearningStudentBucket,

@@ -21,6 +21,7 @@ import {
   LMS_READ_SUBMISSION_PERMISSIONS,
   LMS_READ_WORK_PERMISSIONS,
   loadAuthorisedLearningClassIds,
+  canSeeLearningRecipient,
   notifyLearningAssigned,
   notifyLearningFeedback,
   snapshotAssignmentRecipients,
@@ -717,7 +718,12 @@ export function registerLearningRoutes(app: SchoolappApi) {
          order by sp.legal_name`,
         [id, orgId],
       );
-      const submissions = rows.rows.map((row) => ({
+      const submissions = [];
+      for (const row of rows.rows) {
+        if (!(await canSeeLearningRecipient(client, actor, id, String(row.student_profile_id)))) {
+          continue;
+        }
+        submissions.push({
           studentProfileId: row.student_profile_id,
           studentLegalName: row.student_legal_name,
           submissionId: row.id,
@@ -741,7 +747,8 @@ export function registerLearningRoutes(app: SchoolappApi) {
                 { audience: "staff" },
               )
             : null,
-        }));
+        });
+      }
       return c.json({ submissions, progress: await loadProgress(client, orgId, id) });
     }),
   );
@@ -779,7 +786,7 @@ export function registerLearningRoutes(app: SchoolappApi) {
       );
       const submissions = [];
       for (const row of rows.rows) {
-        if (!(await assignmentVisibleToAssignedTeacher(client, actor, String(row.assignment_id)))) {
+        if (!(await canSeeLearningRecipient(client, actor, String(row.assignment_id), String(row.student_profile_id)))) {
           continue;
         }
         submissions.push({

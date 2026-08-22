@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { api } from "./api";
 
 type PublicField = {
@@ -215,6 +215,10 @@ export function PublicAdmissionsForm({
   const [continuation, setContinuation] = useState<string | null>(null);
   const [publicId, setPublicId] = useState<string | null>(null);
   const [draftAnswers, setDraftAnswers] = useState<Record<string, unknown>>({});
+  const formRef = useRef<HTMLFormElement>(null);
+  const idempotencyKey = useRef(
+    typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `form-${Date.now()}`,
+  );
 
   const sections = payload?.sections ?? [];
   const isMulti = formType === "application" && sections.length > 1;
@@ -229,13 +233,17 @@ export function PublicAdmissionsForm({
       .then(async (body) => {
         const token = params.get("continue");
         if (token) {
-          const draft = await api<{ publicId?: string; answers?: Record<string, unknown> }>(
-            `/api/v1/public/admissions/forms/${formType}/${slug}/draft?token=${encodeURIComponent(token)}`,
-            { orgId: null },
-          );
-          setDraftAnswers(draft.answers ?? {});
-          setPublicId(draft.publicId ?? null);
-          setContinuation(token);
+          try {
+            const draft = await api<{ publicId?: string; answers?: Record<string, unknown> }>(
+              `/api/v1/public/admissions/forms/${formType}/${slug}/draft?token=${encodeURIComponent(token)}`,
+              { orgId: null },
+            );
+            setDraftAnswers(draft.answers ?? {});
+            setPublicId(draft.publicId ?? null);
+            setContinuation(token);
+          } catch {
+            setError("This saved draft could not be opened. You can start the form again.");
+          }
         }
         setPayload(body);
       })
@@ -253,11 +261,11 @@ export function PublicAdmissionsForm({
   const years = payload?.academicYears ?? [];
   const groups = payload?.yearGroups ?? [];
 
-  async function submit(event: FormEvent<HTMLFormElement>, draft = false) {
-    event.preventDefault();
-    if (!payload) return;
+  async function submitFromForm(draft = false) {
+    const formEl = formRef.current;
+    if (!payload || !formEl) return;
     setError("");
-    const form = new FormData(event.currentTarget);
+    const form = new FormData(formEl);
     const answers: Record<string, unknown> = {};
     for (const section of sections) {
       for (const field of section.fields) {
@@ -282,6 +290,7 @@ export function PublicAdmissionsForm({
           draft,
           continuationToken: continuation,
           publicId,
+          idempotencyKey: idempotencyKey.current,
         }),
       });
       if (body.submission.publicId) setPublicId(body.submission.publicId);
@@ -347,9 +356,10 @@ export function PublicAdmissionsForm({
         </div>
       ) : null}
       <form
+        ref={formRef}
         onSubmit={(event) => {
-          const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
-          void submit(event, submitter?.value === "draft");
+          event.preventDefault();
+          void submitFromForm(false);
         }}
       >
         {sections.map((section, index) => (
@@ -385,7 +395,7 @@ export function PublicAdmissionsForm({
           )}
           <div style={{ display: "flex", gap: 8 }}>
             {formType === "application" ? (
-              <button type="submit" className="secondary" formNoValidate name="intent" value="draft">
+              <button type="button" className="secondary" onClick={() => void submitFromForm(true)}>
                 Save draft
               </button>
             ) : null}

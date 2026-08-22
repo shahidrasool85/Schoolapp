@@ -799,6 +799,16 @@ describe("RLS catalog", () => {
       ),
     ).rejects.toThrow(/academic_score_out_of_range/);
 
+    const pinned = await pools.owner.query<{ maximum_score: string; percentage: string }>(
+      `insert into academic_results (
+         organisation_id, assessment_id, student_profile_id, raw_score, maximum_score, entered_by
+       ) values ($1,$2,$3,5,2,$4)
+       returning maximum_score::text, percentage::text`,
+      [org.rows[0]!.id, assessment.rows[0]!.id, pupil.rows[0]!.id, user.rows[0]!.id],
+    );
+    expect(pinned.rows[0]?.maximum_score).toBe("10.00");
+    expect(pinned.rows[0]?.percentage).toBe("50.00");
+
     await expect(
       pools.owner.query("update academic_assessments set status = 'published' where id = $1", [
         assessment.rows[0]!.id,

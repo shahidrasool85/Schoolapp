@@ -244,6 +244,7 @@ describe("Phase 8 assessments results and reports", () => {
           {
             studentProfileId: pupil.student.id,
             rawScore: 18,
+            maximumScore: 10,
             gradeSchemeLevelId: seeded.expectedId,
             comment: "Secure",
             releasedToStudent: true,
@@ -263,8 +264,14 @@ describe("Phase 8 assessments results and reports", () => {
     expect((await app.request(`/api/v1/assessments/${assessment.assessment.id}/publish`, { method: "POST", headers: hdrs, body: "{}" })).status).toBe(200);
     const detail = (await (
       await app.request(`/api/v1/assessments/${assessment.assessment.id}/results`, { headers: hdrs })
-    ).json()) as { pupils: Array<{ result: { enteredBy: string; rawScore: number } | null }> };
+    ).json()) as {
+      pupils: Array<{
+        result: { enteredBy: string; rawScore: number; maximumScore: number | null; percentage: number | null } | null;
+      }>;
+    };
     expect(detail.pupils[0]?.result?.rawScore).toBe(18);
+    expect(detail.pupils[0]?.result?.maximumScore).toBe(20);
+    expect(detail.pupils[0]?.result?.percentage).toBe(90);
     expect(detail.pupils[0]?.result?.enteredBy).not.toBe("2000-01-01T00:00:00.000Z");
     expect(detail.pupils[0]?.result?.enteredBy).not.toBe(school.adminId);
 

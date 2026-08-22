@@ -977,9 +977,11 @@ export function registerAssessmentRoutes(app: SchoolappApi) {
       }
       const body = z.object({ results: z.array(resultRowSchema).max(200) }).parse(await c.req.json());
       const published = Boolean(assessment.published_at);
+      const assessmentMax =
+        assessment.maximum_marks != null ? Number(assessment.maximum_marks) : null;
       for (const row of body.results) {
         await assertCanEnterResultForPupil(client, actor, orgId, row.studentProfileId);
-        if (!isScoreWithinMaximum(row.rawScore ?? null, row.maximumScore ?? Number(assessment.maximum_marks) ?? null)) {
+        if (!isScoreWithinMaximum(row.rawScore ?? null, assessmentMax)) {
           throw new AppError(400, "validation_failed", "Score must be between 0 and the maximum marks");
         }
         const existing = await client.query<{
@@ -1007,7 +1009,7 @@ export function registerAssessmentRoutes(app: SchoolappApi) {
               existing.rows[0].id,
               orgId,
               row.rawScore ?? null,
-              row.maximumScore ?? null,
+              assessmentMax,
               row.gradeSchemeLevelId ?? null,
               row.teacherJudgement ?? null,
               row.comment ?? null,
@@ -1037,7 +1039,7 @@ export function registerAssessmentRoutes(app: SchoolappApi) {
               id,
               row.studentProfileId,
               row.rawScore ?? null,
-              row.maximumScore ?? null,
+              assessmentMax,
               row.gradeSchemeLevelId ?? null,
               row.teacherJudgement ?? null,
               row.comment ?? null,

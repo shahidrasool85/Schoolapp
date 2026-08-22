@@ -25,8 +25,13 @@ export default function ParentChildLearningPage() {
   useEffect(() => {
     if (!params.id) return;
     setLoaded(false);
+    setError("");
+    setItems([]);
     api<{ assignments: Row[] }>(`/api/v1/parent/children/${params.id}/assignments`)
-      .then((body) => setItems(body.assignments))
+      .then((body) => {
+        setItems(body.assignments);
+        setError("");
+      })
       .catch((err: Error) => {
         setError(err instanceof ApiError && err.status === 404 ? "Learning is not available." : err.message);
       })

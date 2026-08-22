@@ -30,8 +30,13 @@ export function StudentLearningList({
   useEffect(() => {
     const qs = bucket ? `?bucket=${bucket}` : "";
     setLoaded(false);
+    setError("");
+    setItems([]);
     api<{ assignments: PupilAssignment[] }>(`/api/v1/student/assignments${qs}`)
-      .then((body) => setItems(body.assignments))
+      .then((body) => {
+        setItems(body.assignments);
+        setError("");
+      })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoaded(true));
   }, [bucket]);

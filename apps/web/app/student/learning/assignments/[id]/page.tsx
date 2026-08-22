@@ -39,6 +39,9 @@ export default function StudentAssignmentPage() {
   }
 
   useEffect(() => {
+    setData(null);
+    setError("");
+    setSaved("");
     load().catch((err: Error) => setError(err.message));
   }, [params.id]);
 

@@ -24,6 +24,8 @@ export default function ParentChildAssignmentPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    setData(null);
+    setError("");
     api<Detail>(`/api/v1/parent/children/${params.id}/assignments/${params.assignmentId}`)
       .then(setData)
       .catch((err: Error) => {

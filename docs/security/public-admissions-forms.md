@@ -24,8 +24,11 @@ Internet-facing data capture. Fail closed. Do not treat client-supplied organisa
 
 ## Abuse controls
 
-- In-memory sliding-window rate limit per IP hash + form (read/draft/submit).
+- In-memory sliding-window rate limit per IP hash + form (read/draft/submit/document).
+- Client `X-Forwarded-For` / `X-Real-IP` are ignored unless `TRUST_PROXY` is enabled. Without a trusted proxy, unauthenticated requests share an `anon` bucket.
+- Reverse proxies must overwrite forwarding headers; do not pass client values through.
 - `CaptchaPort` defaults to `none`. Set `PUBLIC_FORM_CAPTCHA_PROVIDER` when a provider is wired (Turnstile/reCAPTCHA adapters are not hardcoded).
+- Draft continuation tokens resume the same submission. A token without a matching draft fails closed instead of creating a second enquiry/application.
 - Optional `idempotencyKey` prevents duplicate final submissions of the same client retry.
 
 ## Data protection
@@ -37,7 +40,7 @@ Internet-facing data capture. Fail closed. Do not treat client-supplied organisa
 ## Deployment checklist
 
 1. `PLATFORM_DOMAIN` is the real apex; school forms are served on school hosts only.
-2. Reverse proxies overwrite `X-Forwarded-Host`; do not pass client values through.
+2. Reverse proxies overwrite `X-Forwarded-Host` and client IP headers; do not pass client values through.
 3. Enable a captcha provider before exposing forms on a public marketing site if bot traffic is expected.
 4. Configure object storage before accepting production document binaries.
 5. Review privacy notice text/URL on each published form; submissions snapshot the wording at submit time.

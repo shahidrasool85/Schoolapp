@@ -10,10 +10,12 @@ import {
   normalizeCustomFieldKey,
   normalizeFormSlug,
   publicFormIsAccepting,
+  isSafeHttpUrl,
+  safePrivacyNoticeUrl,
   sanitizePlainText,
   validatePublicAnswers,
 } from "./admissions-forms.js";
-import { MemoryRateLimiter, assertPublicFormPayloadSize } from "./public-forms-security.js";
+import { MemoryRateLimiter, assertPublicFormPayloadSize, trustedClientIp } from "./public-forms-security.js";
 import { AppError } from "./errors.js";
 
 describe("admissions forms", () => {
@@ -108,6 +110,15 @@ describe("admissions forms", () => {
       }),
     ).toBe(false);
     expect(publicFormIsAccepting({ status: "published", opensAt: null, closesAt: null })).toBe(true);
+  });
+
+  it("rejects unsafe privacy notice URLs and ignores untrusted forwarding headers", () => {
+    expect(isSafeHttpUrl("https://greenwood.example/privacy")).toBe(true);
+    expect(isSafeHttpUrl("javascript:alert(1)")).toBe(false);
+    expect(isSafeHttpUrl("file:///etc/passwd")).toBe(false);
+    expect(() => safePrivacyNoticeUrl("javascript:alert(1)")).toThrow(/http or https/i);
+    expect(trustedClientIp({ trustProxy: false, forwardedFor: "1.2.3.4" })).toBeNull();
+    expect(trustedClientIp({ trustProxy: true, forwardedFor: "1.2.3.4, 10.0.0.1" })).toBe("1.2.3.4");
   });
 
   it("rate limits and rejects oversized payloads", () => {

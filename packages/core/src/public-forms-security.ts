@@ -83,11 +83,22 @@ export function assertNotRateLimited(decision: RateLimitDecision): void {
   }
 }
 
+export function trustedClientIp(input: {
+  trustProxy: boolean;
+  forwardedFor?: string | null;
+  realIp?: string | null;
+}): string | null {
+  if (!input.trustProxy) return null;
+  const forwarded = input.forwardedFor?.split(",")[0]?.trim();
+  if (forwarded) return forwarded;
+  return input.realIp?.trim() || null;
+}
+
 export function publicFormRateLimitKey(input: {
   organisationId: string;
   formId: string;
   ipHash: string | null;
-  action: "submit" | "draft" | "read";
+  action: "submit" | "draft" | "read" | "document";
 }): string {
   return `${input.action}:${input.organisationId}:${input.formId}:${input.ipHash ?? "anon"}`;
 }

@@ -237,6 +237,15 @@ export function isSafeHttpUrl(value: string): boolean {
   return true;
 }
 
+export function safePrivacyNoticeUrl(value: unknown): string | null {
+  const cleaned = sanitizePlainText(value, 2000);
+  if (!cleaned) return null;
+  if (!isSafeHttpUrl(cleaned)) {
+    throw new AppError(400, "validation_failed", "Privacy notice URL must be http or https");
+  }
+  return cleaned;
+}
+
 export function normalizeFormSlug(value: string): string {
   const slug = sanitizePlainText(value, PUBLIC_FORM_SLUG_MAX)
     .toLowerCase()

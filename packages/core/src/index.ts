@@ -239,6 +239,7 @@ export {
   sanitizePlainText,
   sanitizeHelperText,
   isSafeHttpUrl,
+  safePrivacyNoticeUrl,
   normalizeFormSlug,
   normalizeCampaignCode,
   normalizeCustomFieldKey,
@@ -282,6 +283,7 @@ export {
   assertPublicFormPayloadSize,
   assertNotRateLimited,
   publicFormRateLimitKey,
+  trustedClientIp,
   type RateLimitPort,
   type CaptchaPort,
 } from "./public-forms-security.js";

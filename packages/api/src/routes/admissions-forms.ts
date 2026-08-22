@@ -25,6 +25,7 @@ import {
   qrSvg,
   sanitizeHelperText,
   sanitizePlainText,
+  safePrivacyNoticeUrl,
   writeAudit,
 } from "@schoolapp/core";
 import type { SchoolappApi } from "../types";
@@ -285,7 +286,7 @@ export function registerAdmissionsFormRoutes(app: SchoolappApi) {
           sanitizeHelperText(parsed.data.description, 2000) || null,
           sanitizePlainText(parsed.data.successTitle ?? "Thank you", 120),
           sanitizeHelperText(parsed.data.successText ?? "We have received your submission.", 4000),
-          parsed.data.privacyNoticeUrl ? sanitizePlainText(parsed.data.privacyNoticeUrl, 2000) : null,
+          safePrivacyNoticeUrl(parsed.data.privacyNoticeUrl),
           sanitizeHelperText(parsed.data.privacyNoticeText, 8000) || null,
           parsed.data.opensAt ?? null,
           parsed.data.closesAt ?? null,
@@ -352,7 +353,7 @@ export function registerAdmissionsFormRoutes(app: SchoolappApi) {
           parsed.data.description != null ? sanitizeHelperText(parsed.data.description, 2000) : null,
           parsed.data.successTitle ? sanitizePlainText(parsed.data.successTitle, 120) : null,
           parsed.data.successText != null ? sanitizeHelperText(parsed.data.successText, 4000) : null,
-          parsed.data.privacyNoticeUrl != null ? sanitizePlainText(parsed.data.privacyNoticeUrl, 2000) : null,
+          parsed.data.privacyNoticeUrl != null ? safePrivacyNoticeUrl(parsed.data.privacyNoticeUrl) : null,
           parsed.data.privacyNoticeText != null ? sanitizeHelperText(parsed.data.privacyNoticeText, 8000) : null,
           parsed.data.opensAt ?? null,
           parsed.data.closesAt ?? null,

@@ -685,6 +685,22 @@ begin
        or (v_sub.draft_expires_at is not null and v_sub.draft_expires_at <= now()) then
       raise exception 'public_form_draft_invalid' using errcode = 'P0002';
     end if;
+  elsif p_draft_token_hash is not null then
+    select * into v_sub
+    from admissions_form_submissions
+    where organisation_id = p_organisation_id
+      and form_id = v_form.id
+      and draft_token_hash = p_draft_token_hash
+      and completeness_status = 'draft'
+      and (draft_expires_at is null or draft_expires_at > now())
+    for update;
+    if not found then
+      -- A freshly issued draft token has no row yet. An unknown token on
+      -- final submit must not create a second enquiry/application.
+      if not p_is_draft then
+        raise exception 'public_form_draft_invalid' using errcode = 'P0002';
+      end if;
+    end if;
   end if;
 
   v_year := nullif(v_child->>'intendedAcademicYearId', '')::uuid;
@@ -1149,7 +1165,7 @@ create or replace function register_public_form_document(
   p_storage_key text,
   p_storage_backend text
 )
-returns uuid
+returns jsonb
 language plpgsql
 security definer
 set search_path = pg_catalog, public
@@ -1157,8 +1173,10 @@ as $$
 declare
   v_form admissions_forms%rowtype;
   v_sub admissions_form_submissions%rowtype;
-  v_id uuid;
+  v_id uuid := gen_random_uuid();
   v_purpose text;
+  v_safe_name text;
+  v_key text;
 begin
   select * into v_form
   from admissions_forms
@@ -1174,7 +1192,8 @@ begin
     and form_id = v_form.id
     and public_id = p_public_id
     and draft_token_hash = p_token_hash
-    and completeness_status = 'draft';
+    and completeness_status = 'draft'
+    and (draft_expires_at is null or draft_expires_at > now());
   if not found then
     raise exception 'public_form_draft_invalid' using errcode = 'P0002';
   end if;
@@ -1184,15 +1203,20 @@ begin
   if not found then
     raise exception 'validation_failed' using errcode = '23514';
   end if;
+  v_safe_name := left(regexp_replace(coalesce(p_filename, 'document'), '[^a-zA-Z0-9._-]+', '_', 'g'), 80);
+  if v_safe_name is null or v_safe_name = '' then
+    v_safe_name := 'document';
+  end if;
+  v_key := 'org/' || p_organisation_id::text || '/admissions/submissions/' || v_sub.id::text
+        || '/documents/' || v_id::text || '/' || v_safe_name;
   insert into admissions_form_documents (
-    organisation_id, submission_id, field_key, purpose, original_filename, content_type,
+    id, organisation_id, submission_id, field_key, purpose, original_filename, content_type,
     byte_size, storage_key, storage_backend
   ) values (
-    p_organisation_id, v_sub.id, p_field_key, v_purpose, p_filename, p_content_type,
-    p_byte_size, p_storage_key, p_storage_backend
-  )
-  returning id into v_id;
-  return v_id;
+    v_id, p_organisation_id, v_sub.id, p_field_key, v_purpose, p_filename, p_content_type,
+    p_byte_size, v_key, p_storage_backend
+  );
+  return jsonb_build_object('id', v_id, 'submissionId', v_sub.id, 'storageKey', v_key);
 end;
 $$;
 

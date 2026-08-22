@@ -11,6 +11,7 @@ import {
   defaultPublicFormRateLimiter,
   hashClientIp,
   hashContinuationToken,
+  trustedClientIp,
   isAdmissionsFormType,
   isAllowedAdmissionsUpload,
   mapAnswersToCanonical,
@@ -50,8 +51,12 @@ function requireSchoolHostOrg(c: Context<ApiEnv>): {
   };
 }
 
-function clientIp(c: { req: { header: (name: string) => string | undefined } }): string | null {
-  return c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? c.req.header("x-real-ip") ?? null;
+function clientIp(c: Context<ApiEnv>): string | null {
+  return trustedClientIp({
+    trustProxy: c.get("config").trustProxy,
+    forwardedFor: c.req.header("x-forwarded-for"),
+    realIp: c.req.header("x-real-ip"),
+  });
 }
 
 function mapPublicFields(payload: {
@@ -269,15 +274,22 @@ export function registerPublicFormRoutes(app: SchoolappApi) {
       throw new AppError(400, "validation_failed", "File type or size is not allowed");
     }
 
+    const ipHash = hashClientIp(clientIp(c));
+    assertNotRateLimited(
+      defaultPublicFormRateLimiter.consume(
+        publicFormRateLimitKey({
+          organisationId: school.organisationId,
+          formId: `${formType}:${slug}`,
+          ipHash,
+          action: "document",
+        }),
+        20,
+        10 * 60_000,
+      ),
+    );
+
     try {
-      const placeholderId = crypto.randomUUID();
-      const key = defaultObjectStorage.buildAdmissionsDocumentKey({
-        organisationId: school.organisationId,
-        submissionId: placeholderId,
-        documentId: placeholderId,
-        filename: parsed.data.filename,
-      });
-      const inserted = await c.get("config").pools.app.query<{ register_public_form_document: string }>(
+      const inserted = await c.get("config").pools.app.query<{ register_public_form_document: { id: string; submissionId: string; storageKey: string } }>(
         `select register_public_form_document($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
         [
           school.organisationId,
@@ -289,14 +301,15 @@ export function registerPublicFormRoutes(app: SchoolappApi) {
           parsed.data.filename,
           parsed.data.contentType,
           parsed.data.byteSize,
-          key,
+          "",
           defaultObjectStorage.backend,
         ],
       );
+      const registered = inserted.rows[0]!.register_public_form_document;
       return c.json({
         document: {
-          id: inserted.rows[0]!.register_public_form_document,
-          storageKey: key,
+          id: registered.id,
+          storageKey: registered.storageKey,
           binaryUploadAvailable: defaultObjectStorage.isConfigured(),
         },
       }, 201);

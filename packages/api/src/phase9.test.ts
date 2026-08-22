@@ -115,6 +115,103 @@ describe("phase 9 public admissions forms", () => {
     expect(copy.status).toBe(201);
   });
 
+  it("rejects unsafe privacy URLs and continues a draft without creating a second application", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(token, school.orgId);
+    const structure = await seedYear(app, hdrs);
+
+    const unsafe = await app.request("/api/v1/admissions/forms", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        formType: "enquiry",
+        name: "Bad privacy",
+        slug: "bad-privacy",
+        privacyNoticeUrl: "javascript:alert(1)",
+      }),
+    });
+    expect(unsafe.status).toBe(400);
+
+    const applyCreated = await app.request("/api/v1/admissions/forms", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ formType: "application", name: "Apply draft", slug: "apply-draft" }),
+    });
+    expect(applyCreated.status).toBe(201);
+    const applyForm = (await applyCreated.json()) as { form: { id: string } };
+    await app.request(`/api/v1/admissions/forms/${applyForm.form.id}/definition`, {
+      method: "PUT",
+      headers: hdrs,
+      body: JSON.stringify({
+        sections: [
+          {
+            sectionKey: "child",
+            title: "Child",
+            fields: [
+              { fieldKind: "canonical", canonicalKey: "child.legal_name", questionType: "short_text", label: "Name", required: true },
+              { fieldKind: "canonical", canonicalKey: "child.date_of_birth", questionType: "date", label: "DOB", required: true },
+              { fieldKind: "canonical", canonicalKey: "child.intended_academic_year_id", questionType: "single_choice", label: "Year", required: true },
+              { fieldKind: "canonical", canonicalKey: "child.intended_year_group_id", questionType: "single_choice", label: "Group", required: true },
+            ],
+          },
+          {
+            sectionKey: "guardians",
+            title: "Guardians",
+            fields: [{ fieldKind: "canonical", canonicalKey: "guardians", questionType: "guardian_group", label: "Guardians", required: true }],
+          },
+        ],
+      }),
+    });
+    await app.request(`/api/v1/admissions/forms/${applyForm.form.id}/publish`, { method: "POST", headers: hdrs });
+
+    const draft = await app.request("/api/v1/public/admissions/forms/application/apply-draft/submissions", {
+      method: "POST",
+      headers: schoolHeaders(school.slug),
+      body: JSON.stringify({
+        draft: true,
+        answers: {
+          "child.legal_name": "Draft Child",
+          "child.date_of_birth": "2017-01-01",
+          "child.intended_academic_year_id": structure.yearId,
+          "child.intended_year_group_id": structure.year3Id,
+          guardians: [{ fullName: "Draft Parent", email: "draft.parent@example.com", primaryContact: true }],
+        },
+      }),
+    });
+    expect(draft.status).toBe(200);
+    const draftBody = (await draft.json()) as { submission: { continuationToken: string; publicId: string } };
+    expect(draftBody.submission.continuationToken).toBeTruthy();
+
+    const listedDraft = (await (await app.request("/api/v1/admissions/applications", { headers: hdrs })).json()) as {
+      applications: Array<{ pupilLegalName: string }>;
+    };
+    expect(listedDraft.applications.filter((row) => row.pupilLegalName === "Draft Child")).toHaveLength(1);
+
+    const finalise = await app.request("/api/v1/public/admissions/forms/application/apply-draft/submissions", {
+      method: "POST",
+      headers: schoolHeaders(school.slug),
+      body: JSON.stringify({
+        continuationToken: draftBody.submission.continuationToken,
+        answers: {
+          "child.legal_name": "Draft Child",
+          "child.date_of_birth": "2017-01-01",
+          "child.intended_academic_year_id": structure.yearId,
+          "child.intended_year_group_id": structure.year3Id,
+          guardians: [{ fullName: "Draft Parent", email: "draft.parent@example.com", primaryContact: true }],
+        },
+      }),
+    });
+    expect(finalise.status).toBe(201);
+    const listed = (await (await app.request("/api/v1/admissions/applications", { headers: hdrs })).json()) as {
+      applications: Array<{ pupilLegalName: string; status: string }>;
+    };
+    const matches = listed.applications.filter((row) => row.pupilLegalName === "Draft Child");
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.status).toBe("submitted");
+  });
+
   it("accepts public enquiry and application submissions into the existing workflow", async () => {
     const id = suffix();
     const school = await createSchool(pools.owner, id);

@@ -65,14 +65,20 @@ function fieldValue(type: string, form: FormData, key: string): unknown {
   return form.get(key);
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
 function FieldInput({
   field,
   years,
   groups,
+  initial,
 }: {
   field: PublicField;
   years: YearOption[];
   groups: YearOption[];
+  initial?: unknown;
 }) {
   const requiredMark = field.required ? <span aria-hidden="true"> *</span> : null;
   const describedBy = field.helperText ? `${field.fieldKey}-help` : undefined;
@@ -81,7 +87,7 @@ function FieldInput({
       <label className="span-2">
         {field.label}
         {requiredMark}
-        <textarea id={field.fieldKey} name={field.fieldKey} required={field.required} aria-describedby={describedBy} rows={4} />
+        <textarea id={field.fieldKey} name={field.fieldKey} required={field.required} aria-describedby={describedBy} rows={4} defaultValue={initial == null ? "" : String(initial)} />
         {field.helperText ? <small id={`${field.fieldKey}-help`} className="muted">{field.helperText}</small> : null}
       </label>
     );
@@ -89,7 +95,7 @@ function FieldInput({
   if (field.questionType === "yes_no" || field.questionType === "declaration") {
     return (
       <label className="span-2" style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <input type="checkbox" name={field.fieldKey} value="true" required={field.required} aria-describedby={describedBy} />
+        <input type="checkbox" name={field.fieldKey} value="true" required={field.required} aria-describedby={describedBy} defaultChecked={initial === true || initial === "true"} />
         <span>
           {field.label}
           {requiredMark}
@@ -105,10 +111,10 @@ function FieldInput({
           {requiredMark}
         </legend>
         <div className="form-grid">
-          <label>Line 1<input name={`${field.fieldKey}.line1`} required={field.required} /></label>
-          <label>Line 2<input name={`${field.fieldKey}.line2`} /></label>
-          <label>Town<input name={`${field.fieldKey}.town`} /></label>
-          <label>Postcode<input name={`${field.fieldKey}.postcode`} /></label>
+          <label>Line 1<input name={`${field.fieldKey}.line1`} required={field.required} defaultValue={String(asRecord(initial)?.line1 ?? "")} /></label>
+          <label>Line 2<input name={`${field.fieldKey}.line2`} defaultValue={String(asRecord(initial)?.line2 ?? "")} /></label>
+          <label>Town<input name={`${field.fieldKey}.town`} defaultValue={String(asRecord(initial)?.town ?? "")} /></label>
+          <label>Postcode<input name={`${field.fieldKey}.postcode`} defaultValue={String(asRecord(initial)?.postcode ?? "")} /></label>
         </div>
       </fieldset>
     );
@@ -120,20 +126,23 @@ function FieldInput({
           {field.label}
           {requiredMark}
         </legend>
-        {[0, 1].map((index) => (
+        {[0, 1].map((index) => {
+          const row = Array.isArray(initial) ? asRecord(initial[index]) : null;
+          return (
           <div key={index} className="form-grid" style={{ marginBottom: 12 }}>
-            <label>Name<input name={`${field.fieldKey}.fullName`} required={field.required && index === 0} /></label>
-            <label>Email<input type="email" name={`${field.fieldKey}.email`} required={field.required && index === 0} /></label>
-            <label>Telephone<input name={`${field.fieldKey}.phone`} /></label>
-            <label>Relationship<input name={`${field.fieldKey}.relationship`} /></label>
+            <label>Name<input name={`${field.fieldKey}.fullName`} required={field.required && index === 0} defaultValue={String(row?.fullName ?? "")} /></label>
+            <label>Email<input type="email" name={`${field.fieldKey}.email`} required={field.required && index === 0} defaultValue={String(row?.email ?? "")} /></label>
+            <label>Telephone<input name={`${field.fieldKey}.phone`} defaultValue={String(row?.phone ?? "")} /></label>
+            <label>Relationship<input name={`${field.fieldKey}.relationship`} defaultValue={String(row?.relationship ?? "")} /></label>
             <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input type="checkbox" name={`${field.fieldKey}.parentalResponsibility`} /> Parental responsibility
+              <input type="checkbox" name={`${field.fieldKey}.parentalResponsibility`} defaultChecked={row?.parentalResponsibility === true} /> Parental responsibility
             </label>
             <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input type="checkbox" name={`${field.fieldKey}.primaryContact`} defaultChecked={index === 0} /> Primary contact
+              <input type="checkbox" name={`${field.fieldKey}.primaryContact`} defaultChecked={row?.primaryContact === true || (!row && index === 0)} /> Primary contact
             </label>
           </div>
-        ))}
+          );
+        })}
       </fieldset>
     );
   }
@@ -142,7 +151,7 @@ function FieldInput({
       <label>
         {field.label}
         {requiredMark}
-        <select name={field.fieldKey} required={field.required} aria-describedby={describedBy}>
+        <select name={field.fieldKey} required={field.required} aria-describedby={describedBy} defaultValue={initial == null ? "" : String(initial)}>
           <option value="">Select</option>
           {years.map((year) => (
             <option key={year.id} value={year.id}>{year.name}</option>
@@ -156,7 +165,7 @@ function FieldInput({
       <label>
         {field.label}
         {requiredMark}
-        <select name={field.fieldKey} required={field.required} aria-describedby={describedBy}>
+        <select name={field.fieldKey} required={field.required} aria-describedby={describedBy} defaultValue={initial == null ? "" : String(initial)}>
           <option value="">Select</option>
           {groups.map((group) => (
             <option key={group.id} value={group.id}>{group.name}</option>
@@ -170,7 +179,7 @@ function FieldInput({
       <label>
         {field.label}
         {requiredMark}
-        <select name={field.fieldKey} required={field.required} aria-describedby={describedBy}>
+        <select name={field.fieldKey} required={field.required} aria-describedby={describedBy} defaultValue={initial == null ? "" : String(initial)}>
           <option value="">Select</option>
           {field.options.map((option) => (
             <option key={option.value} value={option.value}>{option.label}</option>
@@ -184,7 +193,7 @@ function FieldInput({
     <label>
       {field.label}
       {requiredMark}
-      <input id={field.fieldKey} name={field.fieldKey} type={inputType} required={field.required} aria-describedby={describedBy} />
+      <input id={field.fieldKey} name={field.fieldKey} type={inputType} required={field.required} aria-describedby={describedBy} defaultValue={initial == null ? "" : String(initial)} />
       {field.helperText ? <small id={`${field.fieldKey}-help`} className="muted">{field.helperText}</small> : null}
     </label>
   );
@@ -204,22 +213,31 @@ export function PublicAdmissionsForm({
   const [error, setError] = useState("");
   const [done, setDone] = useState<{ title: string; text: string; reference?: string } | null>(null);
   const [continuation, setContinuation] = useState<string | null>(null);
+  const [publicId, setPublicId] = useState<string | null>(null);
+  const [draftAnswers, setDraftAnswers] = useState<Record<string, unknown>>({});
 
   const sections = payload?.sections ?? [];
   const isMulti = formType === "application" && sections.length > 1;
+  const privacyUrl =
+    payload?.form.privacyNoticeUrl && /^https?:\/\//i.test(payload.form.privacyNoticeUrl)
+      ? payload.form.privacyNoticeUrl
+      : null;
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     api<PublicFormPayload>(`/api/v1/public/admissions/forms/${formType}/${slug}`, { orgId: null })
       .then(async (body) => {
-        setPayload(body);
         const token = params.get("continue");
         if (token) {
-          await api(`/api/v1/public/admissions/forms/${formType}/${slug}/draft?token=${encodeURIComponent(token)}`, {
-            orgId: null,
-          });
+          const draft = await api<{ publicId?: string; answers?: Record<string, unknown> }>(
+            `/api/v1/public/admissions/forms/${formType}/${slug}/draft?token=${encodeURIComponent(token)}`,
+            { orgId: null },
+          );
+          setDraftAnswers(draft.answers ?? {});
+          setPublicId(draft.publicId ?? null);
           setContinuation(token);
         }
+        setPayload(body);
       })
       .catch((err: Error) => setError(err.message));
   }, [formType, slug]);
@@ -248,22 +266,34 @@ export function PublicAdmissionsForm({
     }
     try {
       const source = new URLSearchParams(window.location.search).get("source") ?? undefined;
-      const body = await api<{ submission: { enquiryReference?: string; applicationReference?: string; continuationToken?: string } }>(
-        `/api/v1/public/admissions/forms/${formType}/${slug}/submissions`,
-        {
-          method: "POST",
-          orgId: null,
-          body: JSON.stringify({
-            answers,
-            source,
-            draft,
-            continuationToken: continuation,
-          }),
-        },
-      );
+      const body = await api<{
+        submission: {
+          publicId?: string;
+          enquiryReference?: string;
+          applicationReference?: string;
+          continuationToken?: string;
+        };
+      }>(`/api/v1/public/admissions/forms/${formType}/${slug}/submissions`, {
+        method: "POST",
+        orgId: null,
+        body: JSON.stringify({
+          answers,
+          source,
+          draft,
+          continuationToken: continuation,
+          publicId,
+        }),
+      });
+      if (body.submission.publicId) setPublicId(body.submission.publicId);
       if (draft) {
-        setContinuation(body.submission.continuationToken ?? continuation);
+        const token = body.submission.continuationToken ?? continuation;
+        setContinuation(token);
         setError("");
+        if (token) {
+          const next = new URL(window.location.href);
+          next.searchParams.set("continue", token);
+          window.history.replaceState({}, "", next.toString());
+        }
         alert("Draft saved. Keep this page or the continuation link to resume later.");
         return;
       }
@@ -319,20 +349,12 @@ export function PublicAdmissionsForm({
       <form
         onSubmit={(event) => {
           const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
-          if (submitter?.value === "draft") {
-            void submit(event, true);
-            return;
-          }
-          if (isMulti && step < sections.length - 1) {
-            event.preventDefault();
-            setStep((value) => value + 1);
-            return;
-          }
-          void submit(event, false);
+          void submit(event, submitter?.value === "draft");
         }}
       >
         {sections.map((section, index) => (
           <section
+            id={`${section.sectionKey}-section`}
             key={section.sectionKey}
             className="card"
             aria-labelledby={`${section.sectionKey}-heading`}
@@ -342,15 +364,15 @@ export function PublicAdmissionsForm({
             {section.helperText ? <p className="muted">{section.helperText}</p> : null}
             <div className="form-grid">
               {section.fields.map((field) => (
-                <FieldInput key={field.fieldKey} field={field} years={years} groups={groups} />
+                <FieldInput key={field.fieldKey} field={field} years={years} groups={groups} initial={draftAnswers[field.fieldKey]} />
               ))}
             </div>
           </section>
         ))}
         {payload.form.privacyNoticeText ? <p className="muted">{payload.form.privacyNoticeText}</p> : null}
-        {payload.form.privacyNoticeUrl ? (
+        {privacyUrl ? (
           <p>
-            <a href={payload.form.privacyNoticeUrl} rel="noreferrer">Privacy notice</a>
+            <a href={privacyUrl} rel="noreferrer">Privacy notice</a>
           </p>
         ) : null}
         <div className="toolbar">
@@ -367,7 +389,24 @@ export function PublicAdmissionsForm({
                 Save draft
               </button>
             ) : null}
-            <button type="submit">{isMulti && step < sections.length - 1 ? "Continue" : "Submit"}</button>
+            {isMulti && step < sections.length - 1 ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const root = document.getElementById(`${sections[step]?.sectionKey}-section`);
+                  const firstInvalid = root?.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(":invalid");
+                  if (firstInvalid) {
+                    firstInvalid.reportValidity();
+                    return;
+                  }
+                  setStep((value) => value + 1);
+                }}
+              >
+                Continue
+              </button>
+            ) : (
+              <button type="submit">Submit</button>
+            )}
           </div>
         </div>
       </form>

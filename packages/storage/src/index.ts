@@ -1,3 +1,4 @@
+/**
  * Object-storage port. Phase 6–7 store document/resource/attachment metadata only.
  * Binary uploads are deferred until an S3-compatible adapter is configured.
  * Do not store file bytes in PostgreSQL.

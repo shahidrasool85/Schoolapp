@@ -573,8 +573,11 @@ describe("Phase 7 teaching and learning", () => {
     const studentDetail = await app.request(`/api/v1/student/assignments/${assignment.assignment.id}`, {
       headers: studentHdrs,
     });
-    const studentDetailBody = (await studentDetail.json()) as { assignment: { mark: unknown; teacherNotes?: string } };
+    const studentDetailBody = (await studentDetail.json()) as {
+      assignment: { mark: unknown; teacherNotes?: string; submission: { status: string } };
+    };
     expect(studentDetailBody.assignment.mark).toBeNull();
+    expect(studentDetailBody.assignment.submission.status).toBe("submitted");
     expect(JSON.stringify(studentDetailBody)).not.toContain("Do not show this note");
 
     const parentToken = await login(app, `parent-${id}@example.com`, "parent-pass-1");
@@ -583,9 +586,13 @@ describe("Phase 7 teaching and learning", () => {
       headers: parentHdrs,
     });
     expect(parentList.status).toBe(200);
-    const parentBody = (await parentList.json()) as { assignments: Array<{ mark: unknown }> };
+    const parentBody = (await parentList.json()) as {
+      assignments: Array<{ mark: unknown; submission: { status: string } }>;
+    };
     assertPortalSafe(parentBody);
     expect(parentBody.assignments[0]?.mark).toBeNull();
+    expect(parentBody.assignments[0]?.submission.status).not.toBe("returned");
+    expect(parentBody.assignments[0]?.submission.status).not.toBe("completed");
     expect(JSON.stringify(parentBody)).not.toContain("Do not show this note");
 
     const otherChild = await app.request(`/api/v1/parent/children/${other.student.id}/assignments`, {

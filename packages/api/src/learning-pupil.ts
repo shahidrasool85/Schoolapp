@@ -77,28 +77,36 @@ export function serializePupilAssignment(
   row: Record<string, unknown>,
   audience: PupilLearningAudience,
 ) {
+  const releasedToStudent = Boolean(row.released_to_student);
+  const releasedToParent = Boolean(row.released_to_parent);
+  const rawStatus = row.submission_status ? String(row.submission_status) : "not_started";
+  const publicStatus =
+    audience === "parent"
+      ? parentLearningStatus({
+          dueAt: row.due_at ? String(row.due_at) : null,
+          submissionStatus: rawStatus,
+        })
+      : audience === "student" &&
+          !releasedToStudent &&
+          (rawStatus === "returned" || rawStatus === "completed")
+        ? "submitted"
+        : rawStatus;
   const assignment = mapLearningAssignment(row);
   const buckets = studentLearningBuckets({
     assignmentStatus: String(row.status),
     availableFrom: row.available_from ? String(row.available_from) : null,
     dueAt: row.due_at ? String(row.due_at) : null,
-    submissionStatus: row.submission_status ? String(row.submission_status) : null,
-    releasedToStudent: Boolean(row.released_to_student),
+    submissionStatus: rawStatus,
+    releasedToStudent,
   });
   return {
     ...assignment,
     assignedAt: row.assigned_at ?? null,
     buckets,
-    parentStatus:
-      audience === "parent"
-        ? parentLearningStatus({
-            dueAt: row.due_at ? String(row.due_at) : null,
-            submissionStatus: row.submission_status ? String(row.submission_status) : null,
-          })
-        : undefined,
+    parentStatus: audience === "parent" ? publicStatus : undefined,
     submission: {
       id: row.submission_id ?? null,
-      status: row.submission_status ?? "not_started",
+      status: publicStatus,
       submittedAt: row.submitted_at ?? null,
       textResponse: row.text_response ?? null,
       comment: row.comment ?? null,
@@ -111,10 +119,10 @@ export function serializePupilAssignment(
             score: row.score,
             maximum_marks: row.mark_maximum_marks,
             feedback: row.feedback,
-            released_to_student: row.released_to_student,
-            released_to_parent: row.released_to_parent,
+            released_to_student: releasedToStudent,
+            released_to_parent: releasedToParent,
             marked_at: row.marked_at,
-            submission_status: row.submission_status,
+            submission_status: publicStatus,
           }
         : null,
       { audience },

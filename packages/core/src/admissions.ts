@@ -139,10 +139,11 @@ export async function createInboxNotification(
     type?: string;
     category?: string;
     actionTarget?: Record<string, unknown> | null;
+    idempotencyKey?: string | null;
   },
 ): Promise<string | null> {
   const result = await client.query<{ create_inbox_notification: string | null }>(
-    `select create_inbox_notification($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+    `select create_inbox_notification($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)`,
     [
       input.organisationId,
       input.recipientUserId,
@@ -152,6 +153,7 @@ export async function createInboxNotification(
       input.title,
       input.body,
       input.actionTarget ? JSON.stringify(input.actionTarget) : null,
+      input.idempotencyKey ?? null,
     ],
   );
   return result.rows[0]?.create_inbox_notification ?? null;

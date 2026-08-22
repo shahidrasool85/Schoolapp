@@ -47,10 +47,22 @@ Platform Super Admin does **not** silently receive pupil read. Tenant data requi
 | `students.documents.manage` | — | F | — | — | — | — | — | — |
 | `students.documents.read_own_children` | — | — | — | — | — | — | F | — |
 | `students.documents.read_self` | — | — | — | — | — | — | — | F |
-| `lms.assignments.manage` | — | — | F | — | — | — | — | — |
+| `lms.assignments.read` | — | F | F | — | — | — | — | — |
+| `lms.assignments.read_assigned` | — | — | — | F | — | — | — | — |
+| `lms.assignments.manage` | — | F | F | — | — | — | — | — |
 | `lms.assignments.manage_assigned` | — | — | — | F | — | — | — | — |
+| `lms.assignments.read_own_children` | — | — | — | — | — | — | F | — |
+| `lms.assignments.read_self` | — | — | — | — | — | — | — | F |
+| `lms.submissions.read` | — | F | F | — | — | — | — | — |
+| `lms.submissions.read_assigned` | — | — | — | F | — | — | — | — |
+| `lms.submissions.mark` | — | F | F | — | — | — | — | — |
+| `lms.submissions.mark_assigned` | — | — | — | F | — | — | — | — |
 | `lms.submissions.submit` | — | — | — | — | — | — | — | F |
+| `lms.submissions.read_self` | — | — | — | — | — | — | — | F |
+| `lms.submissions.read_own_children` | — | — | — | — | — | — | F | — |
 | `lms.resources.read` | — | R | F | F | — | R | R (child) | F |
+| `lms.resources.manage` | — | F | F | — | — | — | — | — |
+| `lms.resources.manage_assigned` | — | — | — | F | — | — | — | — |
 | `learning.activities.generate` | — | — | F | F | — | — | — | — |
 | `learning.activities.publish` | — | — | F | — | — | — | — | — |
 | `learning.activities.attempt` | — | — | — | — | — | — | — | F |
@@ -72,6 +84,12 @@ Assigned permissions (`*_assigned`) deny access when the teacher has no matching
 School Admin receives school-wide attendance **in addition to** Headteacher so operational staff can run registers and corrections. Ordinary `school.staff` does not. Attendance percentage treats late as present and excludes `not_required` sessions; the formula lives in domain/core code, not the UI.
 
 Student portal access is school default → year-group override → class override → pupil override. There is no age-based prohibition on Reception / Year 1 / Year 2. Class and pupil override APIs exist in Phase 6; School Admin UI covers school default and year group.
+
+Teacher LMS access is **assigned-only**. `lms.assignments.manage_assigned` / `lms.submissions.mark_assigned` do not grant school-wide work. Year-group targeting and school-wide lists require `lms.assignments.manage` / `lms.assignments.read` (Headteacher and School Admin). Ordinary `school.staff` does not receive those keys.
+
+`lms.assignments.manage_assigned` lets a teacher create work for assigned classes/pupils and then edit/publish/close **their own** rows (`created_by`). Sharing a pupil with another teacher does not let that teacher take over lifecycle of someone else’s assignment. `lms.submissions.mark_assigned` is the key used to mark remaining authorised recipients.
+
+Parent learning APIs require `portal_access = true` on the guardianship. Teacher-private notes and unreleased marks are omitted from parent and student payloads. `lms.submissions.submit` is student-only; the parent UI has no submit path.
 
 Parent/student document visibility is explicit. Staff-only metadata is never listed on parent/student endpoints.
 

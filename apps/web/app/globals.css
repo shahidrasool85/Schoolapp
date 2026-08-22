@@ -152,6 +152,10 @@ th { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
   margin: 1rem 0;
 }
 
+.form-grid .span-2 {
+  grid-column: 1 / -1;
+}
+
 .toolbar {
   display: flex;
   gap: 0.75rem;

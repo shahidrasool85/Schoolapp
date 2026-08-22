@@ -17,6 +17,7 @@ import {
 import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
 import { withSchoolActor, uuidRouteParam } from "../school-context";
+import { listPupilAssignments, loadPupilAssignment } from "../learning-pupil";
 
 export function registerParentRoutes(app: SchoolappApi) {
   app.get("/parent/dashboard", requireUser, async (c) =>
@@ -65,6 +66,9 @@ export function registerParentRoutes(app: SchoolappApi) {
         sections: {
           ...PARENT_CHILD_SECTIONS,
           attendance: { available: true },
+          homework: { available: true },
+          learning: { available: true },
+          teacherFeedback: { available: true },
         },
       });
     }),
@@ -116,6 +120,33 @@ export function registerParentRoutes(app: SchoolappApi) {
           parentNote: row.parent_visible_note,
         })),
       });
+    }),
+  );
+
+  app.get("/parent/children/:studentId/assignments", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.LMS_ASSIGNMENTS_READ_OWN_CHILDREN);
+      const studentId = uuidRouteParam(c, "studentId");
+      await requireLinkedChild(client, userId, orgId, studentId);
+      const assignments = await listPupilAssignments(
+        client,
+        orgId,
+        studentId,
+        "parent",
+        c.req.query("bucket"),
+      );
+      return c.json({ assignments });
+    }),
+  );
+
+  app.get("/parent/children/:studentId/assignments/:assignmentId", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.LMS_ASSIGNMENTS_READ_OWN_CHILDREN);
+      const studentId = uuidRouteParam(c, "studentId");
+      const assignmentId = uuidRouteParam(c, "assignmentId");
+      await requireLinkedChild(client, userId, orgId, studentId);
+      const assignment = await loadPupilAssignment(client, orgId, studentId, assignmentId, "parent");
+      return c.json({ assignment });
     }),
   );
 }

@@ -101,12 +101,20 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 **Not in Phase 6:** DfE census rules, binary document upload/S3 adapter choice, class/pupil portal override UI, announcements product, younger-child QR/PIN/games, UI design system.
 
-## Phase 7 — LMS core
+## Phase 7 — LMS core (implemented)
 
-- Assignments, targeting (class/year/student)
-- Submissions and teacher marking/feedback
-- Learning resources
-- Homework lists on parent and student APIs
+**Outcome:** a teacher can create, target, publish, and mark learning work; pupils and authorised parents see the appropriate status and released feedback.
+
+- Canonical `learning_assignments` with work types (not homework-only) and no single `class_id`
+- Targets (class / year-group / selected pupils) plus a recipient snapshot that survives later class moves
+- Teacher UI: My Teaching, Assignments, Submissions / Marking; assigned-only for Teacher
+- Student My Learning (assigned, due, submitted, feedback) on the Phase 6 school-scoped student login
+- Parent child Learning (status + released marks only; no submit)
+- Student Record Learning history for authorised staff
+- In-app notifications (`learning_assigned`, `learning_due`, `learning_feedback`, `learning_resubmission`) with idempotency keys
+- Resource URL metadata + storage-port key builders; binary upload deferred
+
+**Not in Phase 7:** formal assessment/report cards, rubrics, AI generation, games/XP, chat, video, S3 binary adapter, UI redesign.
 
 ## Phase 8 — Results and progress reports
 

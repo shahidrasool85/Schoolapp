@@ -132,6 +132,10 @@ async function wipeDemoData(client: pg.Client): Promise<void> {
 
   if (orgIds.length > 0) {
     await client.query(
+      "update learning_submissions set current_revision_id = null where organisation_id = any($1::uuid[])",
+      [orgIds],
+    );
+    await client.query(
       "update admissions_enquiries set converted_application_id = null where organisation_id = any($1::uuid[])",
       [orgIds],
     );
@@ -147,6 +151,17 @@ async function wipeDemoData(client: pg.Client): Promise<void> {
     );
 
     const tenantDeletes = [
+      "learning_submission_attachments",
+      "learning_marks",
+      "learning_submission_revisions",
+      "learning_submissions",
+      "learning_assignment_resources",
+      "learning_assignment_recipients",
+      "learning_assignment_targets",
+      "learning_assignment_status_history",
+      "learning_resources",
+      "learning_assignments",
+      "learning_work_types",
       "attendance_mark_revisions",
       "attendance_marks",
       "attendance_codes",
@@ -441,6 +456,184 @@ async function seedStudentDocument(
       input.createdBy,
     ],
   );
+}
+
+async function workTypeId(client: pg.Client, organisationId: string, key: string): Promise<string> {
+  const result = await client.query<IdRow>(
+    "select id from learning_work_types where organisation_id = $1 and key = $2",
+    [organisationId, key],
+  );
+  const id = result.rows[0]?.id;
+  if (!id) throw new Error(`Missing learning work type ${key}`);
+  return id;
+}
+
+async function seedAssignment(client: pg.Client, input: {
+  organisationId: string;
+  title: string;
+  description: string;
+  workTypeKey: string;
+  subjectId: string;
+  academicYearId: string;
+  intendedYearGroupId?: string | null;
+  createdBy: string;
+  dueAtSql: string;
+  teacherNotes?: string | null;
+  maximumMarks?: number | null;
+  classIds?: string[];
+  yearGroupId?: string | null;
+  studentIds?: string[];
+  resource?: { title: string; kind: string; url: string };
+}): Promise<string> {
+  const created = await client.query<IdRow>(
+    `insert into learning_assignments (
+       organisation_id, title, description, work_type_id, subject_id, academic_year_id,
+       intended_year_group_id, created_by, due_at, available_from, maximum_marks, teacher_notes
+     ) values (
+       $1, $2, $3, $4, $5, $6, $7, $8, ${input.dueAtSql}, now() - interval '2 days', $9, $10
+     ) returning id`,
+    [
+      input.organisationId,
+      input.title,
+      input.description,
+      await workTypeId(client, input.organisationId, input.workTypeKey),
+      input.subjectId,
+      input.academicYearId,
+      input.intendedYearGroupId ?? null,
+      input.createdBy,
+      input.maximumMarks ?? null,
+      input.teacherNotes ?? null,
+    ],
+  );
+  const assignmentId = created.rows[0]!.id;
+  for (const classId of input.classIds ?? []) {
+    await client.query(
+      `insert into learning_assignment_targets (
+         organisation_id, assignment_id, target_type, class_id, created_by
+       ) values ($1, $2, 'class', $3, $4)`,
+      [input.organisationId, assignmentId, classId, input.createdBy],
+    );
+    const members = await client.query<{ student_profile_id: string; year_group_id: string | null }>(
+      `select cm.student_profile_id, c.year_group_id
+       from class_memberships cm
+       join classes c on c.id = cm.class_id
+       where cm.class_id = $1 and cm.ended_on is null`,
+      [classId],
+    );
+    for (const member of members.rows) {
+      await client.query(
+        `insert into learning_assignment_recipients (
+           organisation_id, assignment_id, student_profile_id, class_id, year_group_id
+         ) values ($1, $2, $3, $4, $5)
+         on conflict (assignment_id, student_profile_id) do nothing`,
+        [input.organisationId, assignmentId, member.student_profile_id, classId, member.year_group_id],
+      );
+    }
+  }
+  if (input.yearGroupId) {
+    await client.query(
+      `insert into learning_assignment_targets (
+         organisation_id, assignment_id, target_type, year_group_id, created_by
+       ) values ($1, $2, 'year_group', $3, $4)`,
+      [input.organisationId, assignmentId, input.yearGroupId, input.createdBy],
+    );
+  }
+  for (const studentId of input.studentIds ?? []) {
+    await client.query(
+      `insert into learning_assignment_targets (
+         organisation_id, assignment_id, target_type, student_profile_id, created_by
+       ) values ($1, $2, 'student', $3, $4)`,
+      [input.organisationId, assignmentId, studentId, input.createdBy],
+    );
+    await client.query(
+      `insert into learning_assignment_recipients (
+         organisation_id, assignment_id, student_profile_id
+       ) values ($1, $2, $3)
+       on conflict (assignment_id, student_profile_id) do nothing`,
+      [input.organisationId, assignmentId, studentId],
+    );
+  }
+  if (input.resource) {
+    const resource = await client.query<IdRow>(
+      `insert into learning_resources (organisation_id, title, resource_kind, url, created_by)
+       values ($1, $2, $3, $4, $5) returning id`,
+      [input.organisationId, input.resource.title, input.resource.kind, input.resource.url, input.createdBy],
+    );
+    await client.query(
+      `insert into learning_assignment_resources (organisation_id, assignment_id, resource_id)
+       values ($1, $2, $3)`,
+      [input.organisationId, assignmentId, resource.rows[0]!.id],
+    );
+  }
+  await client.query(
+    "update learning_assignments set status = 'published' where id = $1",
+    [assignmentId],
+  );
+  return assignmentId;
+}
+
+async function seedSubmission(client: pg.Client, input: {
+  organisationId: string;
+  assignmentId: string;
+  studentProfileId: string;
+  submittedBy: string;
+  textResponse: string;
+  comment?: string;
+  status?: string;
+  mark?: {
+    score: number;
+    maximumMarks: number;
+    feedback: string;
+    releasedToStudent: boolean;
+    releasedToParent: boolean;
+    resubmission?: boolean;
+    markedBy: string;
+  };
+}): Promise<void> {
+  const submission = await client.query<IdRow>(
+    `insert into learning_submissions (
+       organisation_id, assignment_id, student_profile_id, status, submitted_at, submitted_by
+     ) values ($1, $2, $3, 'submitted', now() - interval '1 day', $4)
+     returning id`,
+    [input.organisationId, input.assignmentId, input.studentProfileId, input.submittedBy],
+  );
+  const submissionId = submission.rows[0]!.id;
+  const revision = await client.query<IdRow>(
+    `insert into learning_submission_revisions (
+       organisation_id, submission_id, revision_number, text_response, comment, submitted_by, submitted_at
+     ) values ($1, $2, 1, $3, $4, $5, now() - interval '1 day')
+     returning id`,
+    [input.organisationId, submissionId, input.textResponse, input.comment ?? null, input.submittedBy],
+  );
+  await client.query(
+    "update learning_submissions set current_revision_id = $2 where id = $1",
+    [submissionId, revision.rows[0]!.id],
+  );
+  if (input.mark) {
+    await client.query(
+      `insert into learning_marks (
+         organisation_id, submission_id, score, maximum_marks, feedback,
+         released_to_student, released_to_parent, resubmission_requested, marked_by, marked_at
+       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9, now() - interval '12 hours')`,
+      [
+        input.organisationId,
+        submissionId,
+        input.mark.score,
+        input.mark.maximumMarks,
+        input.mark.feedback,
+        input.mark.releasedToStudent,
+        input.mark.releasedToParent,
+        input.mark.resubmission ?? false,
+        input.mark.markedBy,
+      ],
+    );
+  }
+  if (input.status && input.status !== "submitted") {
+    await client.query("update learning_submissions set status = $2 where id = $1", [
+      submissionId,
+      input.status,
+    ]);
+  }
 }
 
 async function seedGuardian(
@@ -759,6 +952,12 @@ async function seedGreenwood(
      ) values ($1, $2, $3, 'form_tutor', '2026-09-01')`,
     [orgId, classIds.get("3A"), teacherStaffId],
   );
+  await client.query(
+    `insert into class_staff_assignments (
+       organisation_id, class_id, staff_profile_id, assignment_role, started_on
+     ) values ($1, $2, $3, 'subject_teacher', '2026-09-01')`,
+    [orgId, classIds.get("3B"), teacherStaffId],
+  );
 
   const extraTeacher = await insertUser(client, {
     email: "demo.teacher2@greenwood.test",
@@ -969,6 +1168,156 @@ async function seedGreenwood(
     createdBy: adminId,
   });
 
+  const fractions = await seedAssignment(client, {
+    organisationId: orgId,
+    title: "Year 3 Fractions",
+    description: "Complete the fractions worksheet. Show your working for each question.",
+    workTypeKey: "homework",
+    subjectId: subjects.get("mathematics")!,
+    academicYearId,
+    intendedYearGroupId: yearGroups.get("3"),
+    createdBy: teacherId,
+    dueAtSql: "now() + interval '2 days'",
+    teacherNotes: "Watch Jack — he needed extra support last week. Do not share this note.",
+    maximumMarks: 20,
+    classIds: [classIds.get("3A")!],
+    resource: {
+      title: "Fractions worksheet",
+      kind: "worksheet",
+      url: "https://example.com/greenwood/year3-fractions",
+    },
+  });
+  await seedSubmission(client, {
+    organisationId: orgId,
+    assignmentId: fractions,
+    studentProfileId: amelia.profileId,
+    submittedBy: amelia.userId,
+    textResponse: "I coloured 1/2 and 1/4. Equivalent fractions: 2/4 = 1/2.",
+    status: "completed",
+    mark: {
+      score: 18,
+      maximumMarks: 20,
+      feedback: "Clear working, Amelia. Check the last equivalent fraction.",
+      releasedToStudent: true,
+      releasedToParent: true,
+      markedBy: teacherId,
+    },
+  });
+  await seedSubmission(client, {
+    organisationId: orgId,
+    assignmentId: fractions,
+    studentProfileId: priya.profileId,
+    submittedBy: priya.userId,
+    textResponse: "I finished the first page of the worksheet.",
+  });
+
+  const science = await seedAssignment(client, {
+    organisationId: orgId,
+    title: "Materials investigation",
+    description: "Write three sentences about how we grouped classroom materials.",
+    workTypeKey: "classwork",
+    subjectId: subjects.get("science")!,
+    academicYearId,
+    intendedYearGroupId: yearGroups.get("3"),
+    createdBy: teacherId,
+    dueAtSql: "now() - interval '3 days'",
+    teacherNotes: "Overdue follow-up for 3A.",
+    maximumMarks: 10,
+    classIds: [classIds.get("3A")!],
+  });
+  await seedSubmission(client, {
+    organisationId: orgId,
+    assignmentId: science,
+    studentProfileId: jack.profileId,
+    submittedBy: jack.userId ?? teacherId,
+    textResponse: "Wood is hard. Metal is shiny. Plastic can bend.",
+  });
+
+  const poetry = await seedAssignment(client, {
+    organisationId: orgId,
+    title: "Poetry recitation",
+    description: "Practise the verse we started in English and write two lines from memory.",
+    workTypeKey: "homework",
+    subjectId: subjects.get("english")!,
+    academicYearId,
+    createdBy: teacherId,
+    dueAtSql: "now() + interval '5 days'",
+    classIds: [classIds.get("3A")!],
+  });
+  await seedSubmission(client, {
+    organisationId: orgId,
+    assignmentId: poetry,
+    studentProfileId: amelia.profileId,
+    submittedBy: amelia.userId,
+    textResponse: "The owl and the pussycat went to sea.",
+    status: "resubmission_requested",
+    mark: {
+      score: 8,
+      maximumMarks: 10,
+      feedback: "Good start — please add the second line and resubmit.",
+      releasedToStudent: true,
+      releasedToParent: false,
+      resubmission: true,
+      markedBy: teacherId,
+    },
+  });
+
+  await seedAssignment(client, {
+    organisationId: orgId,
+    title: "Reading journal",
+    description: "Write three sentences about your independent reading book.",
+    workTypeKey: "reading",
+    subjectId: subjects.get("english")!,
+    academicYearId,
+    createdBy: teacherId,
+    dueAtSql: "now() + interval '10 days'",
+    classIds: [classIds.get("3A")!, classIds.get("3B")!],
+  });
+
+  const year5 = await seedAssignment(client, {
+    organisationId: orgId,
+    title: "Year 5 Fractions",
+    description: "Convert improper fractions and mixed numbers.",
+    workTypeKey: "homework",
+    subjectId: subjects.get("mathematics")!,
+    academicYearId,
+    intendedYearGroupId: yearGroups.get("5"),
+    createdBy: headId,
+    dueAtSql: "now() + interval '4 days'",
+    maximumMarks: 25,
+    classIds: [classIds.get("5A")!],
+  });
+  await seedSubmission(client, {
+    organisationId: orgId,
+    assignmentId: year5,
+    studentProfileId: yusuf.profileId,
+    submittedBy: yusuf.userId,
+    textResponse: "7/4 = 1 3/4. 2 1/2 = 5/2.",
+    status: "returned",
+    mark: {
+      score: 22,
+      maximumMarks: 25,
+      feedback: "Accurate conversions. Challenge: try 11/3 next.",
+      releasedToStudent: true,
+      releasedToParent: true,
+      markedBy: headId,
+    },
+  });
+
+  await client.query(
+    `insert into learning_assignments (
+       organisation_id, title, description, work_type_id, subject_id, academic_year_id,
+       created_by, due_at, teacher_notes
+     ) values ($1, 'Spelling list (draft)', 'Not published yet.', $2, $3, $4, $5, now() + interval '8 days', 'Draft only')`,
+    [
+      orgId,
+      await workTypeId(client, orgId, "practice"),
+      subjects.get("english"),
+      academicYearId,
+      teacherId,
+    ],
+  );
+
   const year3 = yearGroups.get("3")!;
   await insertEnquiry(client, {
     organisationId: orgId,
@@ -1123,7 +1472,34 @@ async function seedGreenwood(
     type: "general",
     category: "general",
     title: "Welcome to Year 3A",
-    body: "Hello Amelia — your form tutor is Hannah Cole. Homework and quizzes will appear here later.",
+    body: "Hello Amelia — your form tutor is Hannah Cole. Open My Learning for this week's work.",
+  });
+  await notify(client, {
+    organisationId: orgId,
+    recipientUserId: amelia.userId,
+    createdBy: teacherId,
+    type: "learning_assigned",
+    category: "homework",
+    title: "New learning work",
+    body: "New learning work: Year 3 Fractions",
+  });
+  await notify(client, {
+    organisationId: orgId,
+    recipientUserId: amelia.userId,
+    createdBy: teacherId,
+    type: "learning_feedback",
+    category: "feedback",
+    title: "Feedback available",
+    body: "Feedback is available for Year 3 Fractions",
+  });
+  await notify(client, {
+    organisationId: orgId,
+    recipientUserId: parentId,
+    createdBy: teacherId,
+    type: "learning_assigned",
+    category: "homework",
+    title: "New learning work",
+    body: "New learning work: Year 3 Fractions",
   });
   await notify(client, {
     organisationId: orgId,
@@ -1289,6 +1665,52 @@ async function seedOakAcademy(
     createdBy: adminId,
   });
 
+  const oakEnglish = await seedAssignment(client, {
+    organisationId: orgId,
+    title: "Oak comprehension",
+    description: "Answer the three questions about The Harbour Light.",
+    workTypeKey: "homework",
+    subjectId: subjects.get("english")!,
+    academicYearId,
+    createdBy: teacherId,
+    dueAtSql: "now() + interval '3 days'",
+    teacherNotes: "Oak-only private note. Greenwood must never see this.",
+    maximumMarks: 12,
+    classIds: [class3.rows[0]!.id],
+    resource: {
+      title: "Harbour Light extract",
+      kind: "url",
+      url: "https://example.com/oakacademy/harbour-light",
+    },
+  });
+  await seedSubmission(client, {
+    organisationId: orgId,
+    assignmentId: oakEnglish,
+    studentProfileId: niamh.profileId,
+    submittedBy: niamh.userId,
+    textResponse: "The lighthouse keeper waited for the storm to pass.",
+    status: "completed",
+    mark: {
+      score: 11,
+      maximumMarks: 12,
+      feedback: "Thoughtful answer, Niamh.",
+      releasedToStudent: true,
+      releasedToParent: true,
+      markedBy: teacherId,
+    },
+  });
+  await seedAssignment(client, {
+    organisationId: orgId,
+    title: "Oak science observations",
+    description: "List two things you noticed on the nature walk.",
+    workTypeKey: "classwork",
+    subjectId: subjects.get("science")!,
+    academicYearId,
+    createdBy: teacherId,
+    dueAtSql: "now() + interval '6 days'",
+    classIds: [class3.rows[0]!.id],
+  });
+
   await insertEnquiry(client, {
     organisationId: orgId,
     createdBy: adminId,
@@ -1329,6 +1751,15 @@ async function seedOakAcademy(
     category: "general",
     title: "Hello from Oak Academy",
     body: "Niamh, this is your Oak Academy student inbox. It is separate from Greenwood.",
+  });
+  await notify(client, {
+    organisationId: orgId,
+    recipientUserId: niamh.userId,
+    createdBy: teacherId,
+    type: "learning_assigned",
+    category: "homework",
+    title: "New learning work",
+    body: "New learning work: Oak comprehension",
   });
 
   return {

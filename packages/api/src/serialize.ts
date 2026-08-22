@@ -370,3 +370,148 @@ export function mapOffer(row: Record<string, unknown>) {
     createdAt: row.created_at,
   };
 }
+
+export function mapLearningWorkType(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    key: row.key,
+    name: row.name,
+    sortOrder: row.sort_order,
+    isSystem: row.is_system,
+  };
+}
+
+export function mapLearningAssignment(
+  row: Record<string, unknown>,
+  options?: { includeTeacherNotes?: boolean },
+) {
+  const base = {
+    id: row.id,
+    title: row.title,
+    description: row.description ?? null,
+    workTypeId: row.work_type_id,
+    workTypeKey: row.work_type_key ?? null,
+    workTypeName: row.work_type_name ?? null,
+    subjectId: row.subject_id ?? null,
+    subjectName: row.subject_name ?? null,
+    academicYearId: row.academic_year_id,
+    academicYearName: row.academic_year_name ?? null,
+    intendedYearGroupId: row.intended_year_group_id ?? null,
+    intendedYearGroupName: row.intended_year_group_name ?? null,
+    createdBy: row.created_by ?? null,
+    createdByName: row.created_by_name ?? null,
+    createdAt: row.created_at,
+    dueAt: row.due_at ?? null,
+    availableFrom: row.available_from ?? null,
+    status: row.status,
+    publishedAt: row.published_at ?? null,
+    estimatedDurationMinutes: row.estimated_duration_minutes ?? null,
+    maximumMarks: row.maximum_marks != null ? Number(row.maximum_marks) : null,
+    submissionRequired: row.submission_required ?? true,
+  };
+  if (options?.includeTeacherNotes) {
+    return { ...base, teacherNotes: row.teacher_notes ?? null };
+  }
+  return base;
+}
+
+export function mapLearningTarget(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    targetType: row.target_type,
+    classId: row.class_id ?? null,
+    className: row.class_name ?? null,
+    yearGroupId: row.year_group_id ?? null,
+    yearGroupName: row.year_group_name ?? null,
+    studentProfileId: row.student_profile_id ?? null,
+    studentLegalName: row.student_legal_name ?? null,
+  };
+}
+
+export function mapLearningResource(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    title: row.title,
+    resourceKind: row.resource_kind,
+    url: row.url ?? null,
+    contentType: row.content_type ?? null,
+    byteSize: row.byte_size ?? null,
+    storageBackend: row.storage_backend ?? "unconfigured",
+    binaryUploadAvailable: false,
+  };
+}
+
+export function mapLearningMark(
+  row: Record<string, unknown> | null | undefined,
+  options: { audience: "staff" | "student" | "parent" },
+) {
+  if (!row) return null;
+  const releasedToStudent = Boolean(row.released_to_student);
+  const releasedToParent = Boolean(row.released_to_parent);
+  if (options.audience === "student" && !releasedToStudent) return null;
+  if (options.audience === "parent" && !releasedToParent) return null;
+  const mark = {
+    score: row.score != null ? Number(row.score) : null,
+    maximumMarks: row.maximum_marks != null ? Number(row.maximum_marks) : null,
+    feedback: (row.feedback as string | null) ?? null,
+    status: row.submission_status ?? null,
+    releasedToStudent,
+    releasedToParent,
+    markedAt: row.marked_at ?? null,
+  };
+  if (options.audience === "staff") {
+    return {
+      ...mark,
+      id: row.id,
+      markedBy: row.marked_by ?? null,
+      markedByName: row.marked_by_name ?? null,
+      resubmissionRequested: Boolean(row.resubmission_requested),
+    };
+  }
+  return {
+    score: mark.score,
+    maximumMarks: mark.maximumMarks,
+    feedback: mark.feedback,
+    markedAt: mark.markedAt,
+  };
+}
+
+export function mapLearningSubmission(
+  row: Record<string, unknown>,
+  options: { audience: "staff" | "student" | "parent" },
+) {
+  const base = {
+    id: row.id,
+    assignmentId: row.assignment_id,
+    studentProfileId: row.student_profile_id,
+    studentLegalName: row.student_legal_name ?? null,
+    status: row.status,
+    submittedAt: row.submitted_at ?? null,
+    currentRevisionId: row.current_revision_id ?? null,
+  };
+  if (options.audience === "staff") {
+    return {
+      ...base,
+      submittedBy: row.submitted_by ?? null,
+      textResponse: row.text_response ?? null,
+      comment: row.comment ?? null,
+      revisionNumber: row.revision_number ?? null,
+    };
+  }
+  return {
+    ...base,
+    textResponse: row.text_response ?? null,
+    comment: row.comment ?? null,
+    revisionNumber: row.revision_number ?? null,
+  };
+}
+
+export function mapLearningRevision(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    revisionNumber: row.revision_number,
+    textResponse: row.text_response ?? null,
+    comment: row.comment ?? null,
+    submittedAt: row.submitted_at,
+  };
+}

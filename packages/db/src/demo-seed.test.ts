@@ -127,4 +127,40 @@ describe("demo seed", () => {
       expect(leaked.rows[0]?.n).toBe("0");
     });
   });
+
+  it("seeds isolated Greenwood and Oak learning work", async () => {
+    const orgs = await pools.owner.query<{ id: string; slug: string }>(
+      "select id, slug::text as slug from organisations where slug = any($1::citext[])",
+      [["greenwood", "oakacademy"]],
+    );
+    const greenwoodId = orgs.rows.find((row) => row.slug === "greenwood")!.id;
+    const oakId = orgs.rows.find((row) => row.slug === "oakacademy")!.id;
+    const gw = await pools.owner.query<{ n: string; titles: string }>(
+      `select count(*)::text as n, string_agg(title, ',') as titles
+       from learning_assignments where organisation_id = $1`,
+      [greenwoodId],
+    );
+    const oak = await pools.owner.query<{ n: string; titles: string }>(
+      `select count(*)::text as n, string_agg(title, ',') as titles
+       from learning_assignments where organisation_id = $1`,
+      [oakId],
+    );
+    expect(Number(gw.rows[0]?.n)).toBeGreaterThanOrEqual(5);
+    expect(gw.rows[0]?.titles).toContain("Year 3 Fractions");
+    expect(gw.rows[0]?.titles).toContain("Year 5 Fractions");
+    expect(oak.rows[0]?.titles).toContain("Oak comprehension");
+    expect(oak.rows[0]?.titles).not.toContain("Year 3 Fractions");
+
+    const admin = await pools.owner.query<{ id: string }>(
+      "select id from users where email = $1",
+      [DEMO_ACCOUNTS.greenwoodAdmin.email],
+    );
+    await withTenantContext(pools.app, admin.rows[0]!.id, greenwoodId, async (client) => {
+      const leaked = await client.query<{ n: string }>(
+        "select count(*)::text as n from learning_assignments where organisation_id = $1",
+        [oakId],
+      );
+      expect(leaked.rows[0]?.n).toBe("0");
+    });
+  });
 });

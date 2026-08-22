@@ -19,18 +19,22 @@ type Row = {
 export default function ParentChildLearningPage() {
   const params = useParams<{ id: string }>();
   const [items, setItems] = useState<Row[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!params.id) return;
+    setLoaded(false);
     api<{ assignments: Row[] }>(`/api/v1/parent/children/${params.id}/assignments`)
       .then((body) => setItems(body.assignments))
       .catch((err: Error) => {
         setError(err instanceof ApiError && err.status === 404 ? "Learning is not available." : err.message);
-      });
+      })
+      .finally(() => setLoaded(true));
   }, [params.id]);
 
   if (error) return <p className="error">{error}</p>;
+  if (!loaded) return <p>Loading…</p>;
 
   return (
     <>

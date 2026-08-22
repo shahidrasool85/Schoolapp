@@ -24,16 +24,20 @@ export function StudentLearningList({
   bucket?: string;
 }) {
   const [items, setItems] = useState<PupilAssignment[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     const qs = bucket ? `?bucket=${bucket}` : "";
+    setLoaded(false);
     api<{ assignments: PupilAssignment[] }>(`/api/v1/student/assignments${qs}`)
       .then((body) => setItems(body.assignments))
-      .catch((err: Error) => setError(err.message));
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setLoaded(true));
   }, [bucket]);
 
   if (error) return <p className="error">{error}</p>;
+  if (!loaded) return <p>Loading…</p>;
 
   return (
     <>

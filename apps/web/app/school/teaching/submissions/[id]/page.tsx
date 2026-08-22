@@ -55,7 +55,12 @@ export default function MarkSubmissionPage() {
         releasedToStudent: form.get("releasedToStudent") === "on",
         releasedToParent: form.get("releasedToParent") === "on",
         resubmissionRequested: form.get("resubmissionRequested") === "on",
-        status: form.get("resubmissionRequested") === "on" ? "resubmission_requested" : form.get("status"),
+        status:
+          form.get("resubmissionRequested") === "on"
+            ? "resubmission_requested"
+            : form.get("status") === "resubmission_requested"
+              ? "returned"
+              : form.get("status"),
       }),
     });
     setSaved("Saved");

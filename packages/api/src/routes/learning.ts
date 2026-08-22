@@ -347,6 +347,10 @@ export function registerLearningRoutes(app: SchoolappApi) {
                select 1 from learning_assignment_targets t
                where t.assignment_id = a.id and t.class_id = $6
              )
+             or exists (
+               select 1 from learning_assignment_recipients r
+               where r.assignment_id = a.id and r.class_id = $6
+             )
            )
          order by a.due_at nulls last, a.created_at desc`,
         [orgId, status || null, subjectId, dueFrom, dueTo, classId],
@@ -907,9 +911,15 @@ export function registerLearningRoutes(app: SchoolappApi) {
       if (!isScoreInRange(parsed.data.score ?? null, maximum)) {
         throw new AppError(400, "validation_failed", "Score must be between 0 and the maximum marks");
       }
-      const resubmission = parsed.data.resubmissionRequested ?? parsed.data.status === "resubmission_requested";
-      const nextStatus =
-        parsed.data.status ?? (resubmission ? "resubmission_requested" : "returned");
+      const resubmission =
+        parsed.data.resubmissionRequested === true ||
+        (parsed.data.resubmissionRequested !== false && parsed.data.status === "resubmission_requested");
+      const requestedStatus = parsed.data.status;
+      const nextStatus = resubmission
+        ? "resubmission_requested"
+        : requestedStatus && requestedStatus !== "resubmission_requested"
+          ? requestedStatus
+          : "returned";
       await client.query(
         `insert into learning_marks (
            organisation_id, submission_id, score, maximum_marks, feedback,
@@ -997,6 +1007,10 @@ export function registerLearningRoutes(app: SchoolappApi) {
              or exists (
                select 1 from learning_assignment_targets t
                where t.assignment_id = a.id and t.class_id = $4
+             )
+             or exists (
+               select 1 from learning_assignment_recipients r
+               where r.assignment_id = a.id and r.class_id = $4
              )
            )
          order by a.due_at nulls last, a.created_at desc

@@ -745,7 +745,7 @@ as $$
     or (p_from = 'in_progress' and p_to in ('submitted'))
     or (p_from = 'submitted' and p_to in ('returned', 'completed', 'resubmission_requested'))
     or (p_from = 'returned' and p_to in ('completed', 'resubmission_requested'))
-    or (p_from = 'resubmission_requested' and p_to in ('in_progress', 'submitted'))
+    or (p_from = 'resubmission_requested' and p_to in ('in_progress', 'submitted', 'returned', 'completed'))
     or (p_from = 'completed' and p_to in ('resubmission_requested'));
 $$;
 

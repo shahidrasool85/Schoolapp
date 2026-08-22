@@ -42,7 +42,7 @@ Work is not hardcoded as “Homework”. Each organisation has a catalogue (`hom
 - Pupils see work only via recipient snapshot + published/closed/archived + available-from.
 - Teacher-private notes never appear on pupil/parent APIs.
 - Marks/feedback appear for pupils only when `released_to_student`, and for parents only when `released_to_parent`. Unreleased `completed` is shown as submitted, not as completed.
-- Close blocks new first submissions. A requested resubmission (or an in-progress draft of one) may still be submitted on a closed assignment.
+- Close blocks new first submissions. A requested resubmission (or an in-progress draft of one) may still be submitted on a closed assignment. Teachers may cancel a resubmission request (`resubmission_requested` → `returned` / `completed`).
 - Parent access still requires `portal_access = true`. Parents cannot submit.
 - Student APIs still require current primary enrolment and effective Student Portal policy. No student email/password login.
 

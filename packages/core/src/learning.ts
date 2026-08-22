@@ -24,7 +24,7 @@ const SUBMISSION_TRANSITIONS: Record<LearningSubmissionStatus, readonly Learning
   in_progress: ["submitted"],
   submitted: ["returned", "completed", "resubmission_requested"],
   returned: ["completed", "resubmission_requested"],
-  resubmission_requested: ["in_progress", "submitted"],
+  resubmission_requested: ["in_progress", "submitted", "returned", "completed"],
   completed: ["resubmission_requested"],
 };
 

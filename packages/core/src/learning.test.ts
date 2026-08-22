@@ -27,6 +27,7 @@ describe("learning submission lifecycle", () => {
     expect(pupilCanSubmitFrom("resubmission_requested")).toBe(true);
     expect(pupilCanSubmitFrom("completed")).toBe(false);
     expect(isSubmissionStatusTransitionAllowed("submitted", "resubmission_requested")).toBe(true);
+    expect(isSubmissionStatusTransitionAllowed("resubmission_requested", "returned")).toBe(true);
     expect(isSubmissionStatusTransitionAllowed("completed", "submitted")).toBe(false);
     expect(pupilCanWriteOnAssignment("published", "not_started", "submit")).toBe(true);
     expect(pupilCanWriteOnAssignment("closed", "not_started", "submit")).toBe(false);

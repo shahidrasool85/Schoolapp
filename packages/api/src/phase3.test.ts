@@ -471,7 +471,7 @@ describe("Phase 3 parent and student portals", () => {
     };
     assertPortalSafe(dash);
     expect(dash.welcome.title).toContain("Sam");
-    expect(dash.sections.homework.available).toBe(false);
+    expect(dash.sections.homework.available).toBe(true);
 
     const spoofSchool = await app.request("/api/v1/student/me", {
       headers: {

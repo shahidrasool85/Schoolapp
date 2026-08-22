@@ -487,6 +487,16 @@ describe("Phase 7 teaching and learning", () => {
       }),
     });
     expect(blockedGuardian.status).toBe(201);
+    const blockedInvite = (await blockedGuardian.json()) as { invitationToken: string };
+    await app.request("/api/v1/invitations/accept", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: blockedInvite.invitationToken,
+        fullName: "Blocked Parent",
+        password: "parent-pass-1",
+      }),
+    });
 
     const created = await app.request("/api/v1/learning/assignments", {
       method: "POST",
@@ -600,13 +610,6 @@ describe("Phase 7 teaching and learning", () => {
     });
     expect(otherChild.status).toBe(404);
 
-    const blockedTokenUser = await insertUser(pools.owner, {
-      email: `blocked-${id}@example.com`,
-      password: "parent-pass-1",
-      fullName: "Blocked Parent",
-      kind: "parent",
-    });
-    await addMembership(pools.owner, school.orgId, blockedTokenUser, "school.parent");
     const blockedToken = await login(app, `blocked-${id}@example.com`, "parent-pass-1");
     const blockedList = await app.request(`/api/v1/parent/children/${other.student.id}/assignments`, {
       headers: headers(blockedToken, school.orgId),

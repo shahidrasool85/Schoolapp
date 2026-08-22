@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { api } from "../../../../../lib/api";
 
@@ -32,10 +32,18 @@ export default function StudentAssignmentPage() {
   const [data, setData] = useState<Detail | null>(null);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
+  const loadSeq = useRef(0);
 
   async function load() {
-    const body = await api<Detail>(`/api/v1/student/assignments/${params.id}`);
-    setData(body);
+    const seq = ++loadSeq.current;
+    try {
+      const body = await api<Detail>(`/api/v1/student/assignments/${params.id}`);
+      if (seq !== loadSeq.current) return;
+      setData(body);
+    } catch (err) {
+      if (seq !== loadSeq.current) return;
+      throw err;
+    }
   }
 
   useEffect(() => {
@@ -43,6 +51,9 @@ export default function StudentAssignmentPage() {
     setError("");
     setSaved("");
     load().catch((err: Error) => setError(err.message));
+    return () => {
+      loadSeq.current += 1;
+    };
   }, [params.id]);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>, submit: boolean) {

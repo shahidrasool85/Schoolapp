@@ -24,18 +24,26 @@ export default function ParentChildLearningPage() {
 
   useEffect(() => {
     if (!params.id) return;
+    let cancelled = false;
     setLoaded(false);
     setError("");
     setItems([]);
     api<{ assignments: Row[] }>(`/api/v1/parent/children/${params.id}/assignments`)
       .then((body) => {
+        if (cancelled) return;
         setItems(body.assignments);
         setError("");
       })
       .catch((err: Error) => {
+        if (cancelled) return;
         setError(err instanceof ApiError && err.status === 404 ? "Learning is not available." : err.message);
       })
-      .finally(() => setLoaded(true));
+      .finally(() => {
+        if (!cancelled) setLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [params.id]);
 
   if (error) return <p className="error">{error}</p>;

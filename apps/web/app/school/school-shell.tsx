@@ -100,11 +100,14 @@ function hasPermission(permissions: string[], link: NavLink): boolean {
 
 function isActivePath(pathname: string, href: string, exact?: boolean, siblingHrefs: string[] = []): boolean {
   if (pathname === href) return true;
+  if (exact) return false;
   if (!pathname.startsWith(`${href}/`)) return false;
-  if (siblingHrefs.some((sibling) => sibling !== href && (pathname === sibling || pathname.startsWith(`${sibling}/`)))) {
-    return false;
-  }
-  return !exact || siblingHrefs.length > 0;
+  const moreSpecific = siblingHrefs.filter(
+    (sibling) => sibling !== href && sibling.length >= href.length,
+  );
+  return !moreSpecific.some(
+    (sibling) => pathname === sibling || pathname.startsWith(`${sibling}/`),
+  );
 }
 
 function isSectionOpen(pathname: string, link: NavLink): boolean {

@@ -24,13 +24,21 @@ export default function ParentChildAssignmentPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    let cancelled = false;
     setData(null);
     setError("");
     api<Detail>(`/api/v1/parent/children/${params.id}/assignments/${params.assignmentId}`)
-      .then(setData)
+      .then((body) => {
+        if (!cancelled) setData(body);
+      })
       .catch((err: Error) => {
-        setError(err instanceof ApiError && err.status === 404 ? "Not found." : err.message);
+        if (!cancelled) {
+          setError(err instanceof ApiError && err.status === 404 ? "Not found." : err.message);
+        }
       });
+    return () => {
+      cancelled = true;
+    };
   }, [params.id, params.assignmentId]);
 
   if (error) return <p className="error">{error}</p>;

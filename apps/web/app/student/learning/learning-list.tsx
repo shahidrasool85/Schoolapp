@@ -29,16 +29,25 @@ export function StudentLearningList({
 
   useEffect(() => {
     const qs = bucket ? `?bucket=${bucket}` : "";
+    let cancelled = false;
     setLoaded(false);
     setError("");
     setItems([]);
     api<{ assignments: PupilAssignment[] }>(`/api/v1/student/assignments${qs}`)
       .then((body) => {
+        if (cancelled) return;
         setItems(body.assignments);
         setError("");
       })
-      .catch((err: Error) => setError(err.message))
-      .finally(() => setLoaded(true));
+      .catch((err: Error) => {
+        if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [bucket]);
 
   if (error) return <p className="error">{error}</p>;

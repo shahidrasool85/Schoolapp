@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "../../../../../lib/api";
 
@@ -39,20 +39,31 @@ export default function AssignmentDetailPage() {
   const [data, setData] = useState<Detail | null>(null);
   const [submissions, setSubmissions] = useState<SubmissionRow[]>([]);
   const [error, setError] = useState("");
+  const loadSeq = useRef(0);
 
   async function load() {
-    const [detail, list] = await Promise.all([
-      api<Detail>(`/api/v1/learning/assignments/${params.id}`),
-      api<{ submissions: SubmissionRow[] }>(`/api/v1/learning/assignments/${params.id}/submissions`),
-    ]);
-    setData(detail);
-    setSubmissions(list.submissions);
+    const seq = ++loadSeq.current;
+    try {
+      const [detail, list] = await Promise.all([
+        api<Detail>(`/api/v1/learning/assignments/${params.id}`),
+        api<{ submissions: SubmissionRow[] }>(`/api/v1/learning/assignments/${params.id}/submissions`),
+      ]);
+      if (seq !== loadSeq.current) return;
+      setData(detail);
+      setSubmissions(list.submissions);
+    } catch (err) {
+      if (seq !== loadSeq.current) return;
+      throw err;
+    }
   }
 
   useEffect(() => {
     setData(null);
     setError("");
     load().catch((err: Error) => setError(err.message));
+    return () => {
+      loadSeq.current += 1;
+    };
   }, [params.id]);
 
   async function transition(path: "publish" | "close" | "archive") {

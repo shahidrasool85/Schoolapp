@@ -23,6 +23,17 @@ type NavLink = {
   children?: NavLink[];
 };
 
+const LMS_NAV_PERMISSIONS = [
+  "lms.assignments.read",
+  "lms.assignments.read_assigned",
+  "lms.assignments.manage",
+  "lms.assignments.manage_assigned",
+  "lms.submissions.read",
+  "lms.submissions.read_assigned",
+  "lms.submissions.mark",
+  "lms.submissions.mark_assigned",
+];
+
 const LINKS: NavLink[] = [
   { href: "/school", label: "Dashboard", exact: true },
   {
@@ -57,6 +68,17 @@ const LINKS: NavLink[] = [
       },
     ],
   },
+  {
+    href: "/school/teaching",
+    label: "Teaching & Learning",
+    exact: true,
+    permissions: LMS_NAV_PERMISSIONS,
+    children: [
+      { href: "/school/teaching", label: "My Teaching", exact: true, permissions: LMS_NAV_PERMISSIONS },
+      { href: "/school/teaching/assignments", label: "Assignments", permissions: LMS_NAV_PERMISSIONS },
+      { href: "/school/teaching/submissions", label: "Submissions / Marking", permissions: LMS_NAV_PERMISSIONS },
+    ],
+  },
   { href: "/school/staff", label: "Staff / Teachers" },
   { href: "/school/parents", label: "Parents / Guardians" },
   { href: "/school/academic-years", label: "Academic Years" },
@@ -76,9 +98,13 @@ function hasPermission(permissions: string[], link: NavLink): boolean {
   return true;
 }
 
-function isActivePath(pathname: string, href: string, exact?: boolean): boolean {
-  if (exact || href === "/school") return pathname === href;
-  return pathname === href || pathname.startsWith(`${href}/`);
+function isActivePath(pathname: string, href: string, exact?: boolean, siblingHrefs: string[] = []): boolean {
+  if (pathname === href) return true;
+  if (!pathname.startsWith(`${href}/`)) return false;
+  if (siblingHrefs.some((sibling) => sibling !== href && (pathname === sibling || pathname.startsWith(`${sibling}/`)))) {
+    return false;
+  }
+  return !exact || siblingHrefs.length > 0;
 }
 
 function isSectionOpen(pathname: string, link: NavLink): boolean {
@@ -194,8 +220,12 @@ export default function SchoolShell({ children }: { children: ReactNode }) {
         ) : null}
         {visible.map((link) => {
           const children = (link.children ?? []).filter((child) => hasPermission(permissions, child));
+          const siblingHrefs = children.map((child) => child.href);
           const open = isSectionOpen(pathname, link);
-          const parentActive = isActivePath(pathname, link.href, link.exact);
+          const childActive = children.some((child) =>
+            isActivePath(pathname, child.href, child.exact, siblingHrefs),
+          );
+          const parentActive = isActivePath(pathname, link.href, link.exact) && !childActive;
           if (children.length === 0) {
             return (
               <Link key={link.href} href={link.href} className={parentActive ? "active" : undefined}>
@@ -216,7 +246,7 @@ export default function SchoolShell({ children }: { children: ReactNode }) {
                     <Link
                       key={child.href}
                       href={child.href}
-                      className={`nav-child${isActivePath(pathname, child.href, child.exact) ? " active" : ""}`}
+                      className={`nav-child${isActivePath(pathname, child.href, child.exact, siblingHrefs) ? " active" : ""}`}
                     >
                       {child.label}
                     </Link>

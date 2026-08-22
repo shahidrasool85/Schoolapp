@@ -118,27 +118,29 @@ Also created for isolation checks (optional):
 Sign in as **Greenwood School Admin** at http://greenwood.localhost:3000/login, then open:
 
 - School Admin dashboard (`/school`)
-- Students (open Amelia Khan — attendance summary and history)
+- Teaching & Learning (`/school/teaching`) — assignments, submissions, marking
+- Students (open Amelia Khan — attendance and Learning history)
 - Attendance → My registers (Hannah Cole’s 3A) or School attendance
 - Student portal (year-group enable/disable; Reception can be turned on)
 - Staff / Teachers
 - Parents / Guardians
 - Admissions (and Enquiries / Applications)
 
-Sign in as the Greenwood **teacher** and open Attendance → My registers. You should see 3A only, not the whole school.
+Sign in as the Greenwood **teacher** and open Teaching & Learning. You should see Year 3 work for 3A (and 3B subject work), with unsubmitted, submitted, marked, and resubmission-requested examples. Attendance → My registers should still show 3A, not the whole school.
 
-Sign in as the Greenwood **parent** and open the parent portal (`/parent`). You should see Amelia Khan and Yusuf Khan, their attendance, and at least one notification.
+Sign in as the Greenwood **parent** and open the parent portal (`/parent`). You should see Amelia Khan and Yusuf Khan, attendance, Learning (assignments/due/status; marks only when released to parents), and notifications.
 
-Sign in as the Greenwood **student** (Student tab, username `amelia.khan`) and open Attendance on the student portal (`/student/attendance`).
+Sign in as the Greenwood **student** (Student tab, username `amelia.khan`) and open My Learning (`/student/learning`). You should see assigned work, an overdue example, submitted work, and released feedback. Teacher-private notes must not appear.
 
-Sign in as **Oak Academy School Admin** at http://oakacademy.localhost:3000/login. You should see Oak pupils such as Niamh Okonkwo, **not** Greenwood’s Amelia Khan.
+Sign in as **Oak Academy School Admin** at http://oakacademy.localhost:3000/login. You should see Oak pupils such as Niamh Okonkwo and Oak comprehension work, **not** Greenwood’s Amelia Khan or Year 3 Fractions.
 
 Sign in as **Platform Admin** at http://localhost:3000/login. You should land on `/platform` and see both schools listed. Platform Admin does not browse pupil records from here.
 
 ## 7. Limitations
 
 - This is local demo data only. Names, emails, and passwords are fake and clearly labelled.
-- LMS, results, AI, binary document upload, announcements, and mobile apps are **not built yet**.
+- Formal assessment/report cards, AI learning, binary document upload, announcements, and mobile apps are **not built yet**.
+- Learning resources are URL metadata only; S3-compatible binary upload is deferred.
 - Demo attendance is seeded from 1 September 2026 (the 2026/27 year). If “today” is before term, registers default to the year start.
 - There is no production wildcard DNS, TLS, or Plesk setup in this path.
 - Each school host has its own browser session. Sign in again when you switch from `localhost` to `greenwood.localhost` or `oakacademy.localhost`.

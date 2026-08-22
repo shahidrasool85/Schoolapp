@@ -250,7 +250,39 @@ A future public school-website enquiry form should POST the same enquiry fields;
 
 ## Staff / LMS
 
-Same resources the web SIS uses, e.g. `/api/v1/assignments`. A future teacher app reuses them unchanged.
+Same `/api/v1` resources the web SIS uses. A future teacher/parent/student app reuses them unchanged. Cross-tenant and unauthorised IDs return **404**. Teacher-private notes are omitted from parent/student payloads. Marks/feedback are omitted until the matching release flag is set. Clients cannot set `markedBy` / `markedAt` / `submittedBy`.
+
+```http
+GET    /api/v1/learning/work-types
+GET    /api/v1/learning/context
+GET    /api/v1/learning/dashboard
+GET    /api/v1/learning/assignments
+POST   /api/v1/learning/assignments
+GET    /api/v1/learning/assignments/{id}
+PATCH  /api/v1/learning/assignments/{id}
+POST   /api/v1/learning/assignments/{id}/publish
+POST   /api/v1/learning/assignments/{id}/close
+POST   /api/v1/learning/assignments/{id}/archive
+POST   /api/v1/learning/assignments/{id}/targets
+POST   /api/v1/learning/assignments/{id}/resources
+GET    /api/v1/learning/assignments/{id}/progress
+GET    /api/v1/learning/assignments/{id}/submissions
+GET    /api/v1/learning/submissions
+GET    /api/v1/learning/submissions/{id}
+POST   /api/v1/learning/submissions/{id}/marks
+GET    /api/v1/students/{id}/learning
+
+GET    /api/v1/student/assignments
+GET    /api/v1/student/assignments/{id}
+POST   /api/v1/student/assignments/{id}/submissions
+
+GET    /api/v1/parent/children/{studentId}/assignments
+GET    /api/v1/parent/children/{studentId}/assignments/{assignmentId}
+```
+
+`POST /learning/assignments` always creates `draft`. Publish snapshots recipients from current targets. Assignment list/dashboard filters: `status`, `classId`, `subjectId`, `dueFrom`, `dueTo`. Student list filter: `bucket` (`assigned`, `due_soon`, `overdue`, `due`, `submitted`, `returned`, `completed`). Parent endpoints never accept a submission body.
+
+Binary file upload is not implemented. Resource rows currently require a validated `http(s)` URL. Storage-port key builders exist for a later S3-compatible adapter.
 
 ## Files
 

@@ -56,8 +56,14 @@ export function pgErrorToAppError(error: unknown): AppError | null {
   if (message.includes("attendance_date_outside_year")) {
     return new AppError(400, "validation_failed", "Attendance date is outside the academic year");
   }
-  if (message.includes("attendance_actor_required")) {
+  if (message.includes("attendance_actor_required") || message.includes("learning_actor_required") || message.includes("learning_mark_actor_required")) {
     return new AppError(400, "validation_failed", "The request violates a data constraint");
+  }
+  if (message.includes("assignment_not_assigned")) {
+    return new AppError(404, "not_found", "Not found");
+  }
+  if (message.includes("learning_score_out_of_range")) {
+    return new AppError(400, "validation_failed", "Score must be between 0 and the maximum marks");
   }
   if (message.includes("year_group_above_maximum")) {
     return new AppError(
@@ -79,7 +85,7 @@ export function pgErrorToAppError(error: unknown): AppError | null {
     return new AppError(409, "conflict", "Student already has an active form class in this academic year");
   }
   if (message.includes("invalid_status_transition") || message.includes("application_status_invalid")) {
-    return new AppError(409, "invalid_status_transition", "This application status change is not allowed");
+    return new AppError(409, "invalid_status_transition", "This status change is not allowed");
   }
   if (message.includes("application_not_accepted")) {
     return new AppError(409, "conflict", "Only an accepted application can be enrolled");

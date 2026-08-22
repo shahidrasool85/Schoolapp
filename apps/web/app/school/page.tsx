@@ -43,8 +43,8 @@ export default function SchoolDashboardPage() {
         <div className="card"><span>Subjects</span><strong>{data.counts.subjects}</strong></div>
       </div>
       <div className="banner" style={{ marginTop: 16 }}>
-        Attendance registers and the student record are available. Homework, results, AI learning,
-        and mobile apps are later phases.
+        Attendance registers, student records, and teaching &amp; learning are available. Results,
+        AI learning, and mobile apps are later phases.
       </div>
     </>
   );

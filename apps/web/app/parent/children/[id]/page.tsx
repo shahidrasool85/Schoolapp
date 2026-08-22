@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../../../../lib/api";
@@ -33,9 +34,7 @@ type Attendance = {
 
 const SECTION_LABELS: Array<{ key: string; title: string }> = [
   { key: "attendance", title: "Attendance" },
-  { key: "homework", title: "Homework" },
   { key: "results", title: "Results" },
-  { key: "teacherFeedback", title: "Teacher feedback" },
   { key: "reports", title: "Reports" },
   { key: "achievements", title: "Achievements" },
   { key: "activities", title: "Activities" },
@@ -166,6 +165,10 @@ export default function ParentChildDetailPage() {
       ) : (
         <p className="muted">Loading attendance…</p>
       )}
+      <h2>Learning</h2>
+      <p>
+        <Link href={`/parent/children/${params.id}/learning`}>View assignments and homework</Link>
+      </p>
       <h2>Coming later</h2>
       <div className="cards">
         {SECTION_LABELS.filter((section) => section.key !== "attendance").map((section) => (

@@ -39,10 +39,14 @@ describe("RLS catalog", () => {
            'reserved_subdomains', 'attendance_session_types', 'attendance_codes',
            'attendance_marks', 'attendance_mark_revisions', 'student_documents',
            'student_portal_policies', 'student_portal_year_group_overrides',
-           'student_portal_class_overrides', 'student_portal_student_overrides'
+           'student_portal_class_overrides', 'student_portal_student_overrides',
+           'learning_work_types', 'learning_assignments', 'learning_assignment_status_history',
+           'learning_assignment_targets', 'learning_assignment_recipients',
+           'learning_resources', 'learning_assignment_resources', 'learning_submissions',
+           'learning_submission_revisions', 'learning_submission_attachments', 'learning_marks'
          )`,
     );
-    expect(result.rows.length).toBe(38);
+    expect(result.rows.length).toBe(49);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
     }
@@ -573,5 +577,109 @@ describe("RLS catalog", () => {
       );
       expect(seen.rows.map((row) => row.student_profile_id)).toEqual([pupilA.rows[0]!.id]);
     });
+  });
+
+  it("rejects cross-organisation learning assignment targets and submissions", async () => {
+    const id = randomUUID().slice(0, 8);
+    const orgA = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-lms-a-${id}`, "Lms A"],
+    );
+    const orgB = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-lms-b-${id}`, "Lms B"],
+    );
+    const yearA = await pools.owner.query<{ id: string }>(
+      `insert into academic_years (organisation_id, name, starts_on, ends_on, is_current)
+       values ($1, '2026/27', '2026-09-01', '2027-07-31', true) returning id`,
+      [orgA.rows[0]!.id],
+    );
+    const yearB = await pools.owner.query<{ id: string }>(
+      `insert into academic_years (organisation_id, name, starts_on, ends_on, is_current)
+       values ($1, '2026/27', '2026-09-01', '2027-07-31', true) returning id`,
+      [orgB.rows[0]!.id],
+    );
+    const classB = await pools.owner.query<{ id: string }>(
+      `insert into classes (organisation_id, academic_year_id, name, class_type)
+       values ($1, $2, '3A', 'form') returning id`,
+      [orgB.rows[0]!.id, yearB.rows[0]!.id],
+    );
+    const workType = await pools.owner.query<{ id: string }>(
+      "select id from learning_work_types where organisation_id = $1 and key = 'homework'",
+      [orgA.rows[0]!.id],
+    );
+    const actor = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Teacher', 'staff', 'active') returning id`,
+      [`rls-lms-${id}@example.com`],
+    );
+    const assignment = await pools.owner.query<{ id: string }>(
+      `insert into learning_assignments (
+         organisation_id, title, work_type_id, academic_year_id, created_by
+       ) values ($1, 'Fractions', $2, $3, $4) returning id`,
+      [orgA.rows[0]!.id, workType.rows[0]!.id, yearA.rows[0]!.id, actor.rows[0]!.id],
+    );
+    await expect(
+      pools.owner.query(
+        `insert into learning_assignment_targets (
+           organisation_id, assignment_id, target_type, class_id
+         ) values ($1, $2, 'class', $3)`,
+        [orgA.rows[0]!.id, assignment.rows[0]!.id, classB.rows[0]!.id],
+      ),
+    ).rejects.toThrow(/organisation_mismatch/);
+
+    const pupilB = await pools.owner.query<{ id: string }>(
+      "insert into student_profiles (organisation_id, legal_name) values ($1, 'Oak Child') returning id",
+      [orgB.rows[0]!.id],
+    );
+    await expect(
+      pools.owner.query(
+        `insert into learning_assignment_recipients (
+           organisation_id, assignment_id, student_profile_id
+         ) values ($1, $2, $3)`,
+        [orgA.rows[0]!.id, assignment.rows[0]!.id, pupilB.rows[0]!.id],
+      ),
+    ).rejects.toThrow(/organisation_mismatch/);
+  });
+
+  it("rejects invalid assignment status transitions and out-of-range scores", async () => {
+    const id = randomUUID().slice(0, 8);
+    const org = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-lms-st-${id}`, "Status"],
+    );
+    const year = await pools.owner.query<{ id: string }>(
+      `insert into academic_years (organisation_id, name, starts_on, ends_on, is_current)
+       values ($1, '2026/27', '2026-09-01', '2027-07-31', true) returning id`,
+      [org.rows[0]!.id],
+    );
+    const workType = await pools.owner.query<{ id: string }>(
+      "select id from learning_work_types where organisation_id = $1 and key = 'homework'",
+      [org.rows[0]!.id],
+    );
+    const actor = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Teacher', 'staff', 'active') returning id`,
+      [`rls-lms-st-${id}@example.com`],
+    );
+    const assignment = await pools.owner.query<{ id: string }>(
+      `insert into learning_assignments (
+         organisation_id, title, work_type_id, academic_year_id, created_by, maximum_marks
+       ) values ($1, 'Draft work', $2, $3, $4, 10) returning id`,
+      [org.rows[0]!.id, workType.rows[0]!.id, year.rows[0]!.id, actor.rows[0]!.id],
+    );
+    await expect(
+      pools.owner.query("update learning_assignments set status = 'closed' where id = $1", [
+        assignment.rows[0]!.id,
+      ]),
+    ).rejects.toThrow(/invalid_status_transition/);
+    await pools.owner.query("update learning_assignments set status = 'published' where id = $1", [
+      assignment.rows[0]!.id,
+    ]);
+    await expect(
+      pools.owner.query("update learning_assignments set status = 'draft' where id = $1", [
+        assignment.rows[0]!.id,
+      ]),
+    ).rejects.toThrow(/invalid_status_transition/);
   });
 });

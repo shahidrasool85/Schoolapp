@@ -51,6 +51,22 @@ export const PERMISSIONS = {
   STUDENTS_DOCUMENTS_MANAGE: "students.documents.manage",
   STUDENTS_DOCUMENTS_READ_OWN_CHILDREN: "students.documents.read_own_children",
   STUDENTS_DOCUMENTS_READ_SELF: "students.documents.read_self",
+  LMS_ASSIGNMENTS_READ: "lms.assignments.read",
+  LMS_ASSIGNMENTS_READ_ASSIGNED: "lms.assignments.read_assigned",
+  LMS_ASSIGNMENTS_MANAGE: "lms.assignments.manage",
+  LMS_ASSIGNMENTS_MANAGE_ASSIGNED: "lms.assignments.manage_assigned",
+  LMS_ASSIGNMENTS_READ_OWN_CHILDREN: "lms.assignments.read_own_children",
+  LMS_ASSIGNMENTS_READ_SELF: "lms.assignments.read_self",
+  LMS_SUBMISSIONS_READ: "lms.submissions.read",
+  LMS_SUBMISSIONS_READ_ASSIGNED: "lms.submissions.read_assigned",
+  LMS_SUBMISSIONS_MARK: "lms.submissions.mark",
+  LMS_SUBMISSIONS_MARK_ASSIGNED: "lms.submissions.mark_assigned",
+  LMS_SUBMISSIONS_SUBMIT: "lms.submissions.submit",
+  LMS_SUBMISSIONS_READ_SELF: "lms.submissions.read_self",
+  LMS_SUBMISSIONS_READ_OWN_CHILDREN: "lms.submissions.read_own_children",
+  LMS_RESOURCES_READ: "lms.resources.read",
+  LMS_RESOURCES_MANAGE: "lms.resources.manage",
+  LMS_RESOURCES_MANAGE_ASSIGNED: "lms.resources.manage_assigned",
   NOTIFICATIONS_INBOX_READ: "notifications.inbox.read",
   AUDIT_READ: "audit.read",
 } as const;
@@ -182,6 +198,10 @@ export const NOTIFICATION_TYPES = [
   "competition_challenge",
   "report_available",
   "admissions_update",
+  "learning_assigned",
+  "learning_due",
+  "learning_feedback",
+  "learning_resubmission",
   "general",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
@@ -291,3 +311,43 @@ export const APPLICATION_CONTACT_RELATIONSHIPS = [
   "grandparent",
   "other",
 ] as const;
+
+export const LEARNING_ASSIGNMENT_STATUSES = ["draft", "published", "closed", "archived"] as const;
+export type LearningAssignmentStatus = (typeof LEARNING_ASSIGNMENT_STATUSES)[number];
+
+export const LEARNING_SUBMISSION_STATUSES = [
+  "not_started",
+  "in_progress",
+  "submitted",
+  "returned",
+  "resubmission_requested",
+  "completed",
+] as const;
+export type LearningSubmissionStatus = (typeof LEARNING_SUBMISSION_STATUSES)[number];
+
+export const LEARNING_WORK_TYPE_KEYS = [
+  "homework",
+  "classwork",
+  "revision",
+  "project",
+  "reading",
+  "practice",
+  "assessment_preparation",
+] as const;
+export type LearningWorkTypeKey = (typeof LEARNING_WORK_TYPE_KEYS)[number];
+
+export const LEARNING_TARGET_TYPES = ["class", "year_group", "student"] as const;
+export type LearningTargetType = (typeof LEARNING_TARGET_TYPES)[number];
+
+export const LEARNING_RESOURCE_KINDS = ["pdf", "worksheet", "image", "url", "video", "document"] as const;
+export type LearningResourceKind = (typeof LEARNING_RESOURCE_KINDS)[number];
+
+export const LEARNING_STUDENT_BUCKETS = [
+  "assigned",
+  "due_soon",
+  "overdue",
+  "submitted",
+  "returned",
+  "completed",
+] as const;
+export type LearningStudentBucket = (typeof LEARNING_STUDENT_BUCKETS)[number];

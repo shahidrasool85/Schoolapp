@@ -232,9 +232,10 @@ export async function loadViewerGuardianship(
 
 export const PARENT_CHILD_SECTIONS = Object.freeze({
   attendance: { available: true as const },
-  homework: comingLater,
+  homework: { available: true as const },
+  learning: { available: true as const },
   results: comingLater,
-  teacherFeedback: comingLater,
+  teacherFeedback: { available: true as const },
   reports: comingLater,
   achievements: comingLater,
   activities: comingLater,
@@ -242,8 +243,8 @@ export const PARENT_CHILD_SECTIONS = Object.freeze({
 });
 
 export const STUDENT_DASHBOARD_SECTIONS = Object.freeze({
-  myLearning: comingLater,
-  homework: comingLater,
+  myLearning: { available: true as const },
+  homework: { available: true as const },
   results: comingLater,
   challenges: comingLater,
   achievements: comingLater,

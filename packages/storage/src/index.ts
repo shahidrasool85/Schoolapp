@@ -1,5 +1,4 @@
-/**
- * Object-storage port. Phase 6 stores document metadata only.
+ * Object-storage port. Phase 6–7 store document/resource/attachment metadata only.
  * Binary uploads are deferred until an S3-compatible adapter is configured.
  * Do not store file bytes in PostgreSQL.
  */
@@ -37,6 +36,18 @@ export interface ObjectStoragePort {
     documentId: string;
     filename: string;
   }): string;
+  buildLearningResourceKey(input: {
+    organisationId: string;
+    assignmentId: string;
+    resourceId: string;
+    filename: string;
+  }): string;
+  buildSubmissionAttachmentKey(input: {
+    organisationId: string;
+    submissionId: string;
+    revisionId: string;
+    filename: string;
+  }): string;
   createUploadIntent(input: CreateUploadIntentInput): Promise<UploadIntent>;
 }
 
@@ -55,6 +66,26 @@ export class UnconfiguredObjectStorage implements ObjectStoragePort {
   }): string {
     const safeName = input.filename.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80) || "document";
     return `org/${input.organisationId}/students/${input.studentProfileId}/documents/${input.documentId}/${safeName}`;
+  }
+
+  buildLearningResourceKey(input: {
+    organisationId: string;
+    assignmentId: string;
+    resourceId: string;
+    filename: string;
+  }): string {
+    const safeName = input.filename.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80) || "resource";
+    return `org/${input.organisationId}/learning/${input.assignmentId}/resources/${input.resourceId}/${safeName}`;
+  }
+
+  buildSubmissionAttachmentKey(input: {
+    organisationId: string;
+    submissionId: string;
+    revisionId: string;
+    filename: string;
+  }): string {
+    const safeName = input.filename.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80) || "attachment";
+    return `org/${input.organisationId}/learning/submissions/${input.submissionId}/${input.revisionId}/${safeName}`;
   }
 
   async createUploadIntent(input: CreateUploadIntentInput): Promise<UploadIntent> {

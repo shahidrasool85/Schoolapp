@@ -174,14 +174,24 @@ The original application remains after enrolment and records `converted_student_
 - Announcements and progress reports remain later work
 - Attendance and document mutations are formally audited
 
-## LMS (Phase 7+)
+## LMS (Phase 7)
 
-- Assignment (title, due, year/class/student targets via current memberships, resource links)
-- Submission (student, files, timestamps, status)
-- Mark / feedback
-- Learning resource (file or URL, year/subject tags)
+Canonical learning work is **not** a single class-scoped homework row. See [ADR 0016](./adr/0016-phase7-learning-lms.md).
 
-## AI learning and gamification (Phase 8–9)
+- `learning_work_types` — organisation catalogue (`homework`, `classwork`, `revision`, `project`, `reading`, `practice`, `assessment_preparation`)
+- `learning_assignments` — title, instructions, subject, academic year, optional intended year group, due/available-from, estimated duration, maximum marks, submission-required flag, teacher-private notes, status `draft | published | closed | archived`. **No `class_id`.**
+- `learning_assignment_targets` — targeting intent: class, year group, and/or selected pupil (multiple rows per assignment)
+- `learning_assignment_recipients` — frozen pupil list at publish (and when a published target is added). Class/year moves later keep the original relationship
+- `learning_assignment_status_history` — publication/close/archive audit
+- `learning_resources` + `learning_assignment_resources` — PDF/worksheet/image/URL/video/document metadata; http(s) URL now; storage-key port for later binaries
+- `learning_submissions` — one logical pupil submission per assignment; status `not_started | in_progress | submitted | returned | resubmission_requested | completed`
+- `learning_submission_revisions` — append-only text/comment versions
+- `learning_submission_attachments` — attachment metadata/port only (no bytes in PostgreSQL)
+- `learning_marks` — LMS/work-specific score, written feedback, release-to-pupil, release-to-parent, resubmission flag. **Not** Phase 8 formal assessment/results
+
+Timetables, rubrics, exam results, report cards, and AI-generated activities remain later work. Future AI worksheets should reuse `learning_resources`.
+
+## AI learning and gamification (Phase 9–10)
 
 - `learning_activities` — type (quiz, flashcards, timed challenge, puzzle, …), year group, subject, difficulty, `status`
 - `activity_items` — questions/cards; versioned so attempts stay consistent

@@ -46,8 +46,10 @@ export default function StudentHomePage() {
           <strong>Attendance</strong>
           <p>See your AM and PM marks.</p>
         </Link>
-        <ComingLaterCard title="My Learning" message={data.sections.myLearning?.message} />
-        <ComingLaterCard title="Homework" message={data.sections.homework?.message} />
+        <Link className="card" href="/student/learning">
+          <strong>My Learning</strong>
+          <p>Assigned work, due dates and feedback.</p>
+        </Link>
         <ComingLaterCard title="Results" message={data.sections.results?.message} />
         <ComingLaterCard title="Challenges" message={data.sections.challenges?.message} />
         <ComingLaterCard title="Achievements" message={data.sections.achievements?.message} />

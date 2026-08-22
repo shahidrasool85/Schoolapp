@@ -716,3 +716,18 @@ export function mapAcademicReportSection(row: Record<string, unknown>) {
     sortOrder: row.sort_order,
   };
 }
+
+export function mapPublishedReportSection(section: Record<string, unknown>) {
+  return {
+    id: section.id ?? null,
+    subjectId: section.subjectId ?? section.subject_id ?? null,
+    subjectName: section.subjectName ?? section.subject_name ?? null,
+    teacherUserId: section.teacherUserId ?? section.teacher_user_id ?? null,
+    teacherName: section.teacherName ?? section.teacher_name ?? null,
+    attainmentSummary: section.attainmentSummary ?? section.attainment_summary ?? null,
+    progressJudgement: section.progressJudgement ?? section.progress_judgement ?? null,
+    teacherComment: section.teacherComment ?? section.teacher_comment ?? null,
+    targetNextSteps: section.targetNextSteps ?? section.target_next_steps ?? null,
+    sortOrder: section.sortOrder ?? section.sort_order ?? 0,
+  };
+}

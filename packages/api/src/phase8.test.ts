@@ -506,17 +506,18 @@ describe("Phase 8 assessments results and reports", () => {
       loginAlias: `off-${id}`,
       password: "student-pass-1",
     });
-    await app.request("/api/v1/student-portal-policy", {
+    const offToken = await loginAlias(app, school.slug, `off-${id}`, "student-pass-1");
+    expect(
+      (await app.request("/api/v1/student/results", { headers: headers(offToken, school.orgId) })).status,
+    ).toBe(200);
+    await app.request(`/api/v1/year-groups/${seeded.year3Id}`, {
       method: "PATCH",
       headers: hdrs,
-      body: JSON.stringify({ defaultEnabled: false }),
+      body: JSON.stringify({ studentLoginEnabled: false }),
     });
-    const offToken = await loginAlias(app, school.slug, `off-${id}`, "student-pass-1").catch(() => null);
-    if (offToken) {
-      expect(
-        (await app.request("/api/v1/student/results", { headers: headers(offToken, school.orgId) })).status,
-      ).toBe(403);
-    }
+    expect(
+      (await app.request("/api/v1/student/results", { headers: headers(offToken, school.orgId) })).status,
+    ).toBe(403);
     expect(enabled.student.id).toBeTruthy();
   });
 
@@ -580,8 +581,15 @@ describe("Phase 8 assessments results and reports", () => {
       await app.request(`/api/v1/parent/children/${pupil.student.id}/reports`, {
         headers: headers(parentToken, school.orgId),
       })
-    ).json()) as { reports: Array<{ generalComment: string | null }> };
+    ).json()) as {
+      reports: Array<{
+        generalComment: string | null;
+        sections: Array<{ subjectName: string | null; teacherComment: string | null }>;
+      }>;
+    };
     expect(published.reports[0]?.generalComment).toBe("Original published comment");
+    expect(published.reports[0]?.sections[0]?.subjectName).toBeTruthy();
+    expect(published.reports[0]?.sections[0]?.teacherComment).toBe("Working at expected.");
   });
 
   it("does not let teachers publish reports without reports.publish", async () => {
@@ -612,6 +620,40 @@ describe("Phase 8 assessments results and reports", () => {
     const report = (await created.json()) as { report: { id: string } };
     expect(
       (await app.request(`/api/v1/reports/${report.report.id}/publish`, { method: "POST", headers: teacherHdrs, body: "{}" })).status,
+    ).toBe(403);
+
+    const assessment = await app.request("/api/v1/assessments", {
+      method: "POST",
+      headers: teacherHdrs,
+      body: JSON.stringify({
+        title: "Teacher cannot publish this",
+        academicYearId: seeded.yearId,
+        subjectId: seeded.subjectId,
+        yearGroupId: seeded.year3Id,
+        assessmentTypeId: seeded.typeId,
+        assessmentDate: "2026-11-01",
+        classIds: [seeded.classAId],
+      }),
+    });
+    expect(assessment.status).toBe(201);
+    const createdAssessment = (await assessment.json()) as { assessment: { id: string } };
+    expect(
+      (
+        await app.request(`/api/v1/assessments/${createdAssessment.assessment.id}/open`, {
+          method: "POST",
+          headers: teacherHdrs,
+          body: "{}",
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await app.request(`/api/v1/assessments/${createdAssessment.assessment.id}/publish`, {
+          method: "POST",
+          headers: teacherHdrs,
+          body: "{}",
+        })
+      ).status,
     ).toBe(403);
   });
 });

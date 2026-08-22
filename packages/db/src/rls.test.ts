@@ -804,5 +804,31 @@ describe("RLS catalog", () => {
         assessment.rows[0]!.id,
       ]),
     ).rejects.toThrow(/invalid_status_transition/);
+
+    const outsider = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Phase8 Outsider', 'staff', 'active') returning id`,
+      [`p8-out-${id}@example.com`],
+    );
+    await pools.owner.query(
+      `insert into organisation_memberships (organisation_id, user_id, status)
+       values ($1, $2, 'active')`,
+      [other.rows[0]!.id, outsider.rows[0]!.id],
+    );
+    await withTenantContext(pools.app, outsider.rows[0]!.id, other.rows[0]!.id, async (client) => {
+      await expect(
+        client.query("select snapshot_academic_assessment_inclusions($1)", [assessment.rows[0]!.id]),
+      ).rejects.toThrow(/organisation_mismatch/);
+    });
+    await pools.owner.query(
+      `insert into organisation_memberships (organisation_id, user_id, status)
+       values ($1, $2, 'active')`,
+      [org.rows[0]!.id, user.rows[0]!.id],
+    );
+    await withTenantContext(pools.app, user.rows[0]!.id, org.rows[0]!.id, async (client) => {
+      await expect(
+        client.query("select snapshot_academic_assessment_inclusions($1)", [assessment.rows[0]!.id]),
+      ).rejects.toThrow(/forbidden/);
+    });
   });
 });

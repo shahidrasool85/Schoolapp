@@ -1,6 +1,6 @@
 import type pg from "pg";
 import { AppError, summariseSubjectProgress, type ProgressPoint } from "@schoolapp/core";
-import { mapAcademicReport, mapAcademicReportSection, mapAcademicResult } from "./serialize";
+import { mapAcademicReport, mapAcademicResult, mapPublishedReportSection } from "./serialize";
 
 const PUPIL_RESULT_SQL = `
   select
@@ -91,7 +91,7 @@ export async function listPupilPublishedReports(
         ...row,
         general_comment: payload.generalComment ?? null,
       }),
-      sections: (payload.sections ?? []).map((section) => mapAcademicReportSection(section)),
+      sections: (payload.sections ?? []).map((section) => mapPublishedReportSection(section)),
     };
   });
 }

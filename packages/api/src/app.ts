@@ -19,6 +19,8 @@ import { registerDocumentRoutes } from "./routes/documents";
 import { registerLearningRoutes } from "./routes/learning";
 import { registerAssessmentRoutes } from "./routes/assessments";
 import { registerPublicRoutes } from "./routes/public";
+import { registerAdmissionsFormRoutes } from "./routes/admissions-forms";
+import { registerPublicFormRoutes } from "./routes/public-forms";
 
 export type { ApiConfig, ApiEnv, SchoolappApi } from "./types";
 
@@ -54,6 +56,7 @@ export function createApiApp(config: ApiConfig) {
   app.get("/health", (c) => c.json({ ok: true }));
 
   registerPublicRoutes(app);
+  registerPublicFormRoutes(app);
   registerAuthRoutes(app);
   registerMeRoutes(app);
   registerPlatformRoutes(app);
@@ -64,6 +67,7 @@ export function createApiApp(config: ApiConfig) {
   registerStudentRoutes(app);
   registerNotificationRoutes(app);
   registerAdmissionsRoutes(app);
+  registerAdmissionsFormRoutes(app);
   registerAttendanceRoutes(app);
   registerStudentPortalRoutes(app);
   registerDocumentRoutes(app);

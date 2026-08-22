@@ -32,6 +32,13 @@ export const PERMISSIONS = {
   ADMISSIONS_OFFERS_MANAGE: "admissions.offers.manage",
   ADMISSIONS_DECIDE: "admissions.decide",
   ADMISSIONS_CONVERT: "admissions.convert",
+  ADMISSIONS_FORMS_READ: "admissions.forms.read",
+  ADMISSIONS_FORMS_MANAGE: "admissions.forms.manage",
+  ADMISSIONS_CAMPAIGNS_READ: "admissions.campaigns.read",
+  ADMISSIONS_CAMPAIGNS_MANAGE: "admissions.campaigns.manage",
+  ADMISSIONS_PUBLIC_SUBMISSIONS_READ: "admissions.public_submissions.read",
+  STUDENTS_ADDITIONAL_NEEDS_READ: "students.additional_needs.read",
+  STUDENTS_ADDITIONAL_NEEDS_MANAGE: "students.additional_needs.manage",
   STUDENTS_PROFILES_READ: "students.profiles.read",
   STUDENTS_PROFILES_READ_ASSIGNED: "students.profiles.read_assigned",
   STUDENTS_PROFILES_MANAGE: "students.profiles.manage",
@@ -323,6 +330,99 @@ export type WaitingListStatus = (typeof WAITING_LIST_STATUSES)[number];
 
 export const OFFER_STATUSES = ["made", "accepted", "declined", "expired", "withdrawn"] as const;
 export type OfferStatus = (typeof OFFER_STATUSES)[number];
+
+export const ADMISSIONS_FORM_TYPES = [
+  "enquiry",
+  "application",
+  "open_day",
+  "waiting_list",
+  "scholarship",
+  "sixth_form",
+  "nursery",
+] as const;
+export type AdmissionsFormType = (typeof ADMISSIONS_FORM_TYPES)[number];
+
+export const ADMISSIONS_FORM_STATUSES = ["draft", "published", "unpublished"] as const;
+export type AdmissionsFormStatus = (typeof ADMISSIONS_FORM_STATUSES)[number];
+
+export const ADMISSIONS_FORM_FIELD_KINDS = ["canonical", "custom"] as const;
+export type AdmissionsFormFieldKind = (typeof ADMISSIONS_FORM_FIELD_KINDS)[number];
+
+export const ADMISSIONS_QUESTION_TYPES = [
+  "short_text",
+  "long_text",
+  "email",
+  "phone",
+  "date",
+  "number",
+  "single_choice",
+  "multiple_choice",
+  "yes_no",
+  "declaration",
+  "file",
+  "guardian_group",
+  "address_group",
+] as const;
+export type AdmissionsQuestionType = (typeof ADMISSIONS_QUESTION_TYPES)[number];
+
+export const ADMISSIONS_COMPLETENESS_STATUSES = [
+  "draft",
+  "submitted",
+  "missing_documents",
+  "complete",
+] as const;
+export type AdmissionsCompletenessStatus = (typeof ADMISSIONS_COMPLETENESS_STATUSES)[number];
+
+export const ADMISSIONS_DOCUMENT_PURPOSES = [
+  "birth_certificate",
+  "passport_id",
+  "previous_school_report",
+  "send_support",
+  "proof_of_address",
+  "other",
+] as const;
+export type AdmissionsDocumentPurpose = (typeof ADMISSIONS_DOCUMENT_PURPOSES)[number];
+
+export const ADMISSIONS_CANONICAL_FIELD_KEYS = [
+  "child.legal_name",
+  "child.preferred_name",
+  "child.date_of_birth",
+  "child.gender",
+  "child.address",
+  "child.intended_academic_year_id",
+  "child.intended_year_group_id",
+  "child.proposed_start_date",
+  "child.current_school",
+  "child.previous_school",
+  "guardian.full_name",
+  "guardian.relationship",
+  "guardian.parental_responsibility",
+  "guardian.address",
+  "guardian.email",
+  "guardian.phone",
+  "guardian.primary_contact",
+  "guardians",
+  "previous_education.school_name",
+  "previous_education.start_date",
+  "previous_education.end_date",
+  "previous_education.report_details",
+  "emergency.full_name",
+  "emergency.relationship",
+  "emergency.telephone",
+  "emergency.authorised_collection",
+  "medical.allergies",
+  "medical.conditions",
+  "medical.medication",
+  "medical.dietary",
+  "medical.send_notes",
+  "enquiry.notes",
+  "application.notes",
+] as const;
+export type AdmissionsCanonicalFieldKey = (typeof ADMISSIONS_CANONICAL_FIELD_KEYS)[number];
+
+export const PUBLIC_FORM_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+export const PUBLIC_FORM_SLUG_MAX = 80;
+export const CUSTOM_FIELD_KEY_PATTERN = /^[a-z][a-z0-9_]{1,62}$/;
 
 export const APPLICATION_CONTACT_RELATIONSHIPS = [
   "mother",

@@ -151,6 +151,11 @@ async function wipeDemoData(client: pg.Client): Promise<void> {
     );
 
     const tenantDeletes = [
+      "admissions_form_documents",
+      "student_additional_needs",
+      "admissions_form_submissions",
+      "admissions_form_fields",
+      "admissions_form_sections",
       "academic_report_publications",
       "academic_report_status_history",
       "academic_report_sections",
@@ -195,6 +200,8 @@ async function wipeDemoData(client: pg.Client): Promise<void> {
       "admissions_application_contacts",
       "admissions_applications",
       "admissions_enquiries",
+      "admissions_forms",
+      "admissions_campaigns",
       "admissions_counters",
       "class_subjects",
       "class_staff_assignments",
@@ -277,7 +284,11 @@ async function createOrganisation(
     [spec.slug, spec.name, spec.legalName],
   );
   const id = org.rows[0]!.id;
-  await client.query("insert into organisation_settings (organisation_id) values ($1)", [id]);
+  await client.query(
+    `insert into organisation_settings (organisation_id, extras)
+     values ($1, '{"branding":{"primaryColor":"#1e3a5f","logoUrl":null}}'::jsonb)`,
+    [id],
+  );
   await client.query(
     `insert into organisation_subscriptions (organisation_id, plan_id, status)
      select $1, p.id, 'trial' from plans p where p.key = 'default' limit 1`,
@@ -967,6 +978,246 @@ async function insertEnquiry(
     ],
   );
   return inserted.rows[0]!.id;
+}
+
+async function seedAdmissionsPublicForms(
+  client: pg.Client,
+  input: {
+    organisationId: string;
+    createdBy: string;
+    academicYearId: string;
+    yearGroupId: string;
+    schoolKey: "greenwood" | "oak";
+  },
+): Promise<void> {
+  await client.query(
+    `insert into admissions_counters (organisation_id, kind, year, last_value)
+     values ($1, 'enquiry', extract(year from current_date)::int, 20),
+            ($1, 'application', extract(year from current_date)::int, 20)
+     on conflict (organisation_id, kind, year)
+     do update set last_value = greatest(admissions_counters.last_value, excluded.last_value)`,
+    [input.organisationId],
+  );
+
+  const campaigns =
+    input.schoolKey === "greenwood"
+      ? [
+          ["school-website", "School Website"],
+          ["facebook", "Facebook"],
+          ["instagram", "Instagram"],
+          ["google-ads", "Google Ads"],
+          ["open-day-qr", "Open Day QR Poster"],
+          ["referral", "Referral"],
+          ["local-newspaper", "Local Newspaper"],
+        ]
+      : [
+          ["oak-website", "Oak Website"],
+          ["oak-open-evening", "Oak Open Evening"],
+        ];
+  const campaignIds = new Map<string, string>();
+  for (const [code, label] of campaigns) {
+    const row = await client.query<IdRow>(
+      `insert into admissions_campaigns (organisation_id, public_code, label, enabled)
+       values ($1,$2,$3,true) returning id`,
+      [input.organisationId, code, label],
+    );
+    campaignIds.set(code, row.rows[0]!.id);
+  }
+
+  async function insertForm(form: {
+    slug: string;
+    type: string;
+    name: string;
+    status: "draft" | "published" | "unpublished";
+    description: string;
+    success: string;
+  }): Promise<string> {
+    const inserted = await client.query<IdRow>(
+      `insert into admissions_forms (
+         organisation_id, slug, form_type, name, description, status, success_title, success_text,
+         privacy_notice_text, allowed_academic_year_ids, allowed_year_group_ids, created_by,
+         published_at
+       ) values ($1,$2,$3,$4,$5,$6,'Thank you',$7,$8,array[$9]::uuid[],array[$10]::uuid[],$11,
+         case when $6 = 'published' then now() else null end)
+       returning id`,
+      [
+        input.organisationId,
+        form.slug,
+        form.type,
+        form.name,
+        form.description,
+        form.status,
+        form.success,
+        "We keep the information you submit to process your enquiry or application. See the school privacy notice.",
+        input.academicYearId,
+        input.yearGroupId,
+        input.createdBy,
+      ],
+    );
+    return inserted.rows[0]!.id;
+  }
+
+  async function addField(
+    formId: string,
+    sectionId: string,
+    field: {
+      key: string;
+      kind: "canonical" | "custom";
+      type: string;
+      label: string;
+      required?: boolean;
+      options?: Array<{ value: string; label: string }>;
+    },
+    sort: number,
+  ) {
+    await client.query(
+      `insert into admissions_form_fields (
+         organisation_id, form_id, section_id, field_key, field_kind, canonical_key,
+         question_type, label, required, enabled, sort_order, options
+       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,true,$10,$11::jsonb)`,
+      [
+        input.organisationId,
+        formId,
+        sectionId,
+        field.key,
+        field.kind,
+        field.kind === "canonical" ? field.key : null,
+        field.type,
+        field.label,
+        field.required ?? false,
+        sort,
+        JSON.stringify(field.options ?? []),
+      ],
+    );
+  }
+
+  const enquiryId = await insertForm({
+    slug: input.schoolKey === "greenwood" ? "year-3-enquiry" : "oak-enquiry",
+    type: "enquiry",
+    name: input.schoolKey === "greenwood" ? "Year 3 enquiry" : "Oak enquiry",
+    status: "published",
+    description: "A short enquiry form for families.",
+    success: "Thank you. The admissions team will be in touch.",
+  });
+  const enquiryChild = await client.query<IdRow>(
+    `insert into admissions_form_sections (organisation_id, form_id, section_key, title, sort_order)
+     values ($1,$2,'child','Child details',0) returning id`,
+    [input.organisationId, enquiryId],
+  );
+  const enquiryGuardian = await client.query<IdRow>(
+    `insert into admissions_form_sections (organisation_id, form_id, section_key, title, sort_order)
+     values ($1,$2,'guardian','Parent / guardian',1) returning id`,
+    [input.organisationId, enquiryId],
+  );
+  const enquiryDetails = await client.query<IdRow>(
+    `insert into admissions_form_sections (organisation_id, form_id, section_key, title, sort_order)
+     values ($1,$2,'details','Your enquiry',2) returning id`,
+    [input.organisationId, enquiryId],
+  );
+  await addField(enquiryId, enquiryChild.rows[0]!.id, { key: "child.legal_name", kind: "canonical", type: "short_text", label: "Child's legal name", required: true }, 0);
+  await addField(enquiryId, enquiryChild.rows[0]!.id, { key: "child.date_of_birth", kind: "canonical", type: "date", label: "Date of birth", required: true }, 1);
+  await addField(enquiryId, enquiryChild.rows[0]!.id, { key: "child.intended_academic_year_id", kind: "canonical", type: "single_choice", label: "Intended academic year", required: true }, 2);
+  await addField(enquiryId, enquiryChild.rows[0]!.id, { key: "child.intended_year_group_id", kind: "canonical", type: "single_choice", label: "Intended year group", required: true }, 3);
+  await addField(enquiryId, enquiryGuardian.rows[0]!.id, { key: "guardian.full_name", kind: "canonical", type: "short_text", label: "Parent / guardian name", required: true }, 0);
+  await addField(enquiryId, enquiryGuardian.rows[0]!.id, { key: "guardian.email", kind: "canonical", type: "email", label: "Email", required: true }, 1);
+  await addField(enquiryId, enquiryGuardian.rows[0]!.id, { key: "guardian.phone", kind: "canonical", type: "phone", label: "Telephone" }, 2);
+  await addField(enquiryId, enquiryDetails.rows[0]!.id, { key: "enquiry.notes", kind: "canonical", type: "long_text", label: "Your question or note", required: true }, 0);
+
+  const applyId = await insertForm({
+    slug: input.schoolKey === "greenwood" ? "year-3-application" : "oak-application",
+    type: "application",
+    name: input.schoolKey === "greenwood" ? "Year 3 application" : "Oak application",
+    status: "published",
+    description: "Full multi-step admissions application.",
+    success: "Your application has been submitted.",
+  });
+  const applyChild = await client.query<IdRow>(
+    `insert into admissions_form_sections (organisation_id, form_id, section_key, title, sort_order)
+     values ($1,$2,'child','Child details',0) returning id`,
+    [input.organisationId, applyId],
+  );
+  const applyGuardians = await client.query<IdRow>(
+    `insert into admissions_form_sections (organisation_id, form_id, section_key, title, sort_order)
+     values ($1,$2,'guardians','Parents / guardians',1) returning id`,
+    [input.organisationId, applyId],
+  );
+  const applyMedical = await client.query<IdRow>(
+    `insert into admissions_form_sections (organisation_id, form_id, section_key, title, sort_order)
+     values ($1,$2,'medical','Medical and additional needs',2) returning id`,
+    [input.organisationId, applyId],
+  );
+  const applyDecl = await client.query<IdRow>(
+    `insert into admissions_form_sections (organisation_id, form_id, section_key, title, sort_order)
+     values ($1,$2,'declarations','Declarations',3) returning id`,
+    [input.organisationId, applyId],
+  );
+  await addField(applyId, applyChild.rows[0]!.id, { key: "child.legal_name", kind: "canonical", type: "short_text", label: "Child's legal name", required: true }, 0);
+  await addField(applyId, applyChild.rows[0]!.id, { key: "child.date_of_birth", kind: "canonical", type: "date", label: "Date of birth", required: true }, 1);
+  await addField(applyId, applyChild.rows[0]!.id, { key: "child.intended_academic_year_id", kind: "canonical", type: "single_choice", label: "Intended academic year", required: true }, 2);
+  await addField(applyId, applyChild.rows[0]!.id, { key: "child.intended_year_group_id", kind: "canonical", type: "single_choice", label: "Intended year group", required: true }, 3);
+  await addField(applyId, applyGuardians.rows[0]!.id, { key: "guardians", kind: "canonical", type: "guardian_group", label: "Parents / guardians", required: true }, 0);
+  await addField(applyId, applyMedical.rows[0]!.id, { key: "medical.allergies", kind: "canonical", type: "long_text", label: "Allergies" }, 0);
+  await addField(applyId, applyMedical.rows[0]!.id, { key: "sibling_at_school", kind: "custom", type: "yes_no", label: "Does the child have a sibling at this school?" }, 1);
+  await addField(applyId, applyMedical.rows[0]!.id, { key: "how_heard", kind: "custom", type: "single_choice", label: "How did you hear about us?", options: [
+    { value: "tour", label: "School tour" },
+    { value: "friend", label: "Friend or family" },
+    { value: "online", label: "Online" },
+  ] }, 2);
+  await addField(applyId, applyDecl.rows[0]!.id, { key: "declaration.privacy", kind: "custom", type: "declaration", label: "I confirm the information is accurate", required: true }, 0);
+
+  await insertForm({
+    slug: input.schoolKey === "greenwood" ? "sixth-form-draft" : "oak-scholarship-draft",
+    type: input.schoolKey === "greenwood" ? "sixth_form" : "scholarship",
+    name: input.schoolKey === "greenwood" ? "Sixth Form (draft)" : "Oak scholarship (draft)",
+    status: "draft",
+    description: "Unpublished draft form.",
+    success: "Draft only.",
+  });
+
+  const campaignId =
+    campaignIds.get(input.schoolKey === "greenwood" ? "facebook" : "oak-website") ?? null;
+  const enquiryAnswers = {
+    "child.legal_name": input.schoolKey === "greenwood" ? "Maya Cole" : "Owen Hart",
+    "child.date_of_birth": "2018-04-12",
+    "child.intended_academic_year_id": input.academicYearId,
+    "child.intended_year_group_id": input.yearGroupId,
+    "guardian.full_name": input.schoolKey === "greenwood" ? "Priya Cole" : "Helen Hart",
+    "guardian.email": input.schoolKey === "greenwood" ? "priya.cole@example.test" : "helen.hart@example.test",
+    "enquiry.notes": input.schoolKey === "greenwood" ? "Please send Year 3 open morning dates." : "Oak-only public enquiry.",
+  };
+  await client.query(
+    `select submit_public_admissions_form(
+       $1, 'enquiry', $2, $3::jsonb, $4::jsonb, $5::jsonb, $6, $6, false, null, null, null, null, 'complete'
+     )`,
+    [
+      input.organisationId,
+      input.schoolKey === "greenwood" ? "year-3-enquiry" : "oak-enquiry",
+      JSON.stringify(enquiryAnswers),
+      JSON.stringify({
+        child: {
+          legalName: enquiryAnswers["child.legal_name"],
+          dateOfBirth: "2018-04-12",
+          intendedAcademicYearId: input.academicYearId,
+          intendedYearGroupId: input.yearGroupId,
+        },
+        guardians: [
+          {
+            fullName: enquiryAnswers["guardian.full_name"],
+            email: enquiryAnswers["guardian.email"],
+            primaryContact: true,
+          },
+        ],
+        notes: enquiryAnswers["enquiry.notes"],
+      }),
+      JSON.stringify({
+        capturedAt: new Date().toISOString(),
+        privacyNoticeText: "Demo privacy notice snapshot",
+        declarations: [{ fieldKey: "declaration.privacy", label: "I confirm", accepted: true }],
+      }),
+      input.schoolKey === "greenwood" ? "facebook" : "oak-website",
+    ],
+  );
+  void campaignId;
 }
 
 async function insertApplication(
@@ -1937,6 +2188,14 @@ async function seedGreenwood(
     body: "INSET day is 2 September. Registers open from 1 September — take AM and PM for your form class.",
   });
 
+  await seedAdmissionsPublicForms(client, {
+    organisationId: orgId,
+    createdBy: adminId,
+    academicYearId,
+    yearGroupId: year3,
+    schoolKey: "greenwood",
+  });
+
   return {
     orgId,
     accounts: [
@@ -2193,6 +2452,14 @@ async function seedOakAcademy(
     pupil: "Ruby Adeyemi",
     yearGroupId: yearGroups.get("3")!,
     academicYearId,
+  });
+
+  await seedAdmissionsPublicForms(client, {
+    organisationId: orgId,
+    createdBy: adminId,
+    academicYearId,
+    yearGroupId: yearGroups.get("3")!,
+    schoolKey: "oak",
   });
 
   await notify(client, {

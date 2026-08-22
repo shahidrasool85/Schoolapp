@@ -78,6 +78,11 @@ Leave this terminal open. Open a browser when it says it is ready.
 | Platform sign in | http://localhost:3000/login |
 | Greenwood Academy | http://greenwood.localhost:3000 |
 | Greenwood sign in | http://greenwood.localhost:3000/login |
+| Greenwood public enquiry | http://greenwood.localhost:3000/admissions/enquiry/year-3-enquiry |
+| Greenwood public application | http://greenwood.localhost:3000/admissions/apply/year-3-application |
+| Greenwood enquiry embed | http://greenwood.localhost:3000/admissions/embed/enquiry/year-3-enquiry |
+| Oak public enquiry | http://oakacademy.localhost:3000/admissions/enquiry/oak-enquiry |
+| Oak public application | http://oakacademy.localhost:3000/admissions/apply/oak-application |
 | Oak Academy | http://oakacademy.localhost:3000 |
 | Oak Academy sign in | http://oakacademy.localhost:3000/login |
 
@@ -125,7 +130,7 @@ Sign in as **Greenwood School Admin** at http://greenwood.localhost:3000/login, 
 - Student portal (year-group enable/disable; Reception can be turned on)
 - Staff / Teachers
 - Parents / Guardians
-- Admissions (and Enquiries / Applications)
+- Admissions → Forms, Sources / Campaigns, Enquiries, Applications
 
 Sign in as the Greenwood **teacher** and open Teaching & Learning. You should see Year 3 work for 3A (and 3B subject work), with unsubmitted, submitted, marked, and resubmission-requested examples. Attendance → My registers should still show 3A, not the whole school.
 
@@ -140,7 +145,7 @@ Sign in as **Platform Admin** at http://localhost:3000/login. You should land on
 ## 7. Limitations
 
 - This is local demo data only. Names, emails, and passwords are fake and clearly labelled.
-- AI learning, binary document upload, announcements, PDF report cards, and mobile apps are **not built yet**. Formal assessments/results/reports are in Phase 8.
+- AI learning, binary document upload, announcements, PDF report cards, and mobile apps are **not built yet**. Formal assessments/results/reports are in Phase 8. Public admissions forms are in Phase 9.
 - Learning resources are URL metadata only; S3-compatible binary upload is deferred.
 - Demo attendance is seeded from 1 September 2026 (the 2026/27 year). If “today” is before term, registers default to the year start.
 - There is no production wildcard DNS, TLS, or Plesk setup in this path.

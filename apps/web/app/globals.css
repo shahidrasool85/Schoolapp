@@ -240,6 +240,36 @@ th { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
   min-height: 44px;
 }
 
+.public-form {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+}
+
+.public-form.embed {
+  padding: 0.75rem;
+}
+
+.form-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.form-steps li {
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: #e8eef5;
+  font-size: 0.85rem;
+}
+
+.form-steps li[aria-current="step"] {
+  background: var(--brand);
+  color: white;
+}
+
 @media (max-width: 800px) {
   .shell {
     grid-template-columns: 1fr;

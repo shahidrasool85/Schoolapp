@@ -140,6 +140,15 @@ export function pgErrorToAppError(error: unknown): AppError | null {
   if (message.includes("hostname_invalid")) {
     return new AppError(400, "validation_failed", "Hostname is not a valid DNS name");
   }
+  if (message.includes("public_form_unavailable") || message.includes("public_form_not_accepting")) {
+    return new AppError(404, "not_found", "Not found");
+  }
+  if (message.includes("public_form_draft_invalid")) {
+    return new AppError(404, "not_found", "Not found");
+  }
+  if (message.includes("payload_too_large")) {
+    return new AppError(413, "payload_too_large", "Request is too large");
+  }
   if (code === "23505") {
     return new AppError(409, "conflict", "Resource already exists");
   }

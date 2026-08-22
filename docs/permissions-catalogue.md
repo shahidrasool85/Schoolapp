@@ -28,6 +28,13 @@ Platform Super Admin does **not** silently receive pupil read. Tenant data requi
 | `admissions.offers.manage` | — | F | F | — | F | — | — | — |
 | `admissions.decide` | — | F | F | — | F | — | — | — |
 | `admissions.convert` | — | F | — | — | F | — | — | — |
+| `admissions.forms.read` | — | F | F | — | F | — | — | — |
+| `admissions.forms.manage` | — | F | — | — | F | — | — | — |
+| `admissions.campaigns.read` | — | F | F | — | F | — | — | — |
+| `admissions.campaigns.manage` | — | F | — | — | F | — | — | — |
+| `admissions.public_submissions.read` | — | F | F | — | F | — | — | — |
+| `students.additional_needs.read` | — | F | F | — | F | — | — | — |
+| `students.additional_needs.manage` | — | F | — | — | F | — | — | — |
 | `students.profiles.read` | — | F | F | — | R | — | — | — |
 | `students.profiles.read_assigned` | — | — | — | F | — | — | — | — |
 | `students.profiles.manage` | — | F | — | — | F (pre-enrol) | — | — | — |
@@ -95,6 +102,8 @@ Platform Super Admin does **not** silently receive pupil read. Tenant data requi
 `students.documents.read_self` is seeded on the Student role for a later pupil-visible documents API. No current route checks that permission, so it does not grant access by itself.
 
 `admissions.convert` is the only path that creates the canonical student/enrolment from an accepted application. Teachers do not receive admissions keys. Parents and students never receive School Admin admissions access.
+
+Public form configuration uses `admissions.forms.*` and `admissions.campaigns.*`. Submitted answers (including medical/custom questions) require `admissions.public_submissions.read` or `admissions.read`. `students.additional_needs.*` gates the post-enrolment medical/additional-needs record; it is not granted to teachers, parents, or students.
 
 `students.restricted_contact.read` is **not** granted to Teacher, Parent, or Student. No Phase 1–4 API exposes the column to those roles.
 

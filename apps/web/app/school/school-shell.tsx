@@ -58,6 +58,8 @@ const LINKS: NavLink[] = [
     exact: true,
     permissionPrefix: "admissions.",
     children: [
+      { href: "/school/admissions/forms", label: "Forms", permissionPrefix: "admissions." },
+      { href: "/school/admissions/campaigns", label: "Sources / Campaigns", permissionPrefix: "admissions." },
       { href: "/school/admissions/enquiries", label: "Enquiries", permissionPrefix: "admissions." },
       { href: "/school/admissions/applications", label: "Applications", permissionPrefix: "admissions." },
       { href: "/school/admissions/assessments", label: "Assessments", permissionPrefix: "admissions." },

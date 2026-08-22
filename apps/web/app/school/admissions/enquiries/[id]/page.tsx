@@ -26,12 +26,16 @@ export default function EnquiryDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const [enquiry, setEnquiry] = useState<Enquiry | null>(null);
+  const [submission, setSubmission] = useState<{ answers: Record<string, unknown>; sourceCode?: string } | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
   async function load() {
-    const body = await api<{ enquiry: Enquiry }>(`/api/v1/admissions/enquiries/${params.id}`);
+    const body = await api<{ enquiry: Enquiry; formSubmission?: { answers: Record<string, unknown>; sourceCode?: string } | null }>(
+      `/api/v1/admissions/enquiries/${params.id}`,
+    );
     setEnquiry(body.enquiry);
+    setSubmission(body.formSubmission ?? null);
   }
 
   useEffect(() => {
@@ -105,6 +109,13 @@ export default function EnquiryDetailPage() {
           <button type="button" onClick={convert}>Convert to application</button>
         </p>
       )}
+      {submission ? (
+        <section className="card">
+          <h2>Submitted form answers</h2>
+          <p className="muted">Source: {submission.sourceCode ?? "—"}</p>
+          <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(submission.answers, null, 2)}</pre>
+        </section>
+      ) : null}
       {message ? <p>{message}</p> : null}
       {error ? <p className="error">{error}</p> : null}
     </>

@@ -19,6 +19,7 @@ import {
   canManageEnquiries,
   canManageOffers,
   canReadAdmissions,
+  canReadPublicSubmissions,
   createInboxNotification,
   writeAudit,
 } from "@schoolapp/core";
@@ -31,6 +32,7 @@ import {
   mapApplicationHistory,
   mapAssessment,
   mapEnquiry,
+  mapFormSubmission,
   mapOffer,
   mapWaitingListEntry,
 } from "../serialize";
@@ -84,7 +86,7 @@ const ENQUIRY_SQL = `
          e.intended_year_group_id, yg.name as intended_year_group_name,
          e.guardian_full_name, e.guardian_email, e.guardian_telephone, e.enquiry_date::text,
          e.source, e.notes, e.assigned_staff_profile_id, u.full_name as assigned_staff_name,
-         e.converted_application_id, e.created_at, e.updated_at
+         e.converted_application_id, e.public_form_id, e.campaign_id, e.created_at, e.updated_at
   from admissions_enquiries e
   left join academic_years ay on ay.id = e.intended_academic_year_id
   left join year_groups yg on yg.id = e.intended_year_group_id
@@ -99,7 +101,9 @@ const APPLICATION_SQL = `
          a.intended_year_group_id, yg.name as intended_year_group_name, a.intended_entry_date::text,
          a.previous_school, a.current_school, a.application_date::text, a.submitted_at,
          a.source, a.internal_notes, a.assigned_staff_profile_id, u.full_name as assigned_staff_name,
-         a.converted_student_profile_id, a.converted_at, a.created_at, a.updated_at
+         a.converted_student_profile_id, a.converted_at, a.public_form_id, a.campaign_id,
+         a.completeness_status, a.gender, a.address_line1, a.address_line2, a.address_town,
+         a.address_postcode, a.created_at, a.updated_at
   from admissions_applications a
   left join academic_years ay on ay.id = a.intended_academic_year_id
   left join year_groups yg on yg.id = a.intended_year_group_id
@@ -379,7 +383,28 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
       const id = uuidRouteParam(c, "id");
       const listed = await client.query(`${ENQUIRY_SQL} and e.id = $2`, [orgId, id]);
       if (!listed.rows[0]) throw new AppError(404, "not_found", "Not found");
-      return c.json({ enquiry: mapEnquiry(listed.rows[0]) });
+      const submission = canReadPublicSubmissions(actor)
+        ? await client.query(
+            `select s.id, s.public_id, s.form_id, f.name as form_name, s.form_type, s.completeness_status,
+                    s.enquiry_id, e.reference as enquiry_reference, s.application_id, s.campaign_id,
+                    c.label as campaign_label, s.source_code, s.answers, s.canonical_snapshot,
+                    s.declaration_snapshot, s.submitted_at, s.created_at
+             from admissions_form_submissions s
+             join admissions_forms f on f.id = s.form_id
+             left join admissions_enquiries e on e.id = s.enquiry_id
+             left join admissions_campaigns c on c.id = s.campaign_id
+             where s.enquiry_id = $1 and s.organisation_id = $2
+             order by s.created_at desc
+             limit 1`,
+            [id, orgId],
+          )
+        : { rows: [] as Record<string, unknown>[] };
+      return c.json({
+        enquiry: mapEnquiry(listed.rows[0]),
+        formSubmission: submission.rows[0]
+          ? mapFormSubmission(submission.rows[0], { includeAnswers: true })
+          : null,
+      });
     }),
   );
 
@@ -608,7 +633,8 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
       const application = await loadApplication(client, orgId, id);
       const contacts = await client.query(
         `select id, application_id, full_name, email, telephone, relationship,
-                is_primary, has_parental_responsibility, user_id
+                is_primary, has_parental_responsibility, user_id, is_emergency,
+                authorised_collection, address_line1, address_line2, address_town, address_postcode
          from admissions_application_contacts
          where application_id = $1 and organisation_id = $2
          order by is_primary desc, full_name`,
@@ -635,6 +661,22 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
         orgId,
         id,
       ]);
+      const submission = canReadPublicSubmissions(actor)
+        ? await client.query(
+            `select s.id, s.public_id, s.form_id, f.name as form_name, s.form_type, s.completeness_status,
+                    s.enquiry_id, s.application_id, a.reference as application_reference, s.campaign_id,
+                    c.label as campaign_label, s.source_code, s.answers, s.canonical_snapshot,
+                    s.declaration_snapshot, s.submitted_at, s.created_at
+             from admissions_form_submissions s
+             join admissions_forms f on f.id = s.form_id
+             left join admissions_applications a on a.id = s.application_id
+             left join admissions_campaigns c on c.id = s.campaign_id
+             where s.application_id = $1 and s.organisation_id = $2
+             order by s.created_at desc
+             limit 1`,
+            [id, orgId],
+          )
+        : { rows: [] as Record<string, unknown>[] };
       return c.json({
         application: mapApplication(application),
         contacts: contacts.rows.map(mapApplicationContact),
@@ -642,6 +684,9 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
         assessments: assessments.rows.map(mapAssessment),
         waitingList: waiting.rows.map(mapWaitingListEntry),
         offers: offers.rows.map(mapOffer),
+        formSubmission: submission.rows[0]
+          ? mapFormSubmission(submission.rows[0], { includeAnswers: true })
+          : null,
       });
     }),
   );
@@ -759,7 +804,8 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
       await insertContacts(client, orgId, id, [parsed.data]);
       const contacts = await client.query(
         `select id, application_id, full_name, email, telephone, relationship,
-                is_primary, has_parental_responsibility, user_id
+                is_primary, has_parental_responsibility, user_id, is_emergency,
+                authorised_collection, address_line1, address_line2, address_town, address_postcode
          from admissions_application_contacts
          where application_id = $1 and organisation_id = $2
          order by is_primary desc, full_name`,

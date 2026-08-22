@@ -895,8 +895,15 @@ export function registerLearningRoutes(app: SchoolappApi) {
       if (!canMarkSchoolLearning(actor) && !canMarkAssignedLearning(actor)) {
         throw new AppError(403, "forbidden", "Missing permission");
       }
-      const maximum =
-        parsed.data.maximumMarks ?? (row.maximum_marks != null ? Number(row.maximum_marks) : null);
+      const assignmentMax = row.maximum_marks != null ? Number(row.maximum_marks) : null;
+      const maximum = assignmentMax ?? parsed.data.maximumMarks ?? null;
+      if (
+        parsed.data.maximumMarks != null &&
+        assignmentMax != null &&
+        parsed.data.maximumMarks > assignmentMax
+      ) {
+        throw new AppError(400, "validation_failed", "Score must be between 0 and the maximum marks");
+      }
       if (!isScoreInRange(parsed.data.score ?? null, maximum)) {
         throw new AppError(400, "validation_failed", "Score must be between 0 and the maximum marks");
       }

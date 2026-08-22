@@ -97,7 +97,7 @@ export function serializePupilAssignment(
     availableFrom: row.available_from ? String(row.available_from) : null,
     dueAt: row.due_at ? String(row.due_at) : null,
     submissionStatus: rawStatus,
-    releasedToStudent,
+    releasedToStudent: audience === "parent" ? releasedToParent : releasedToStudent,
   });
   return {
     ...assignment,

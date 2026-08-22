@@ -41,6 +41,9 @@ export default function MarkSubmissionPage() {
   }
 
   useEffect(() => {
+    setData(null);
+    setError("");
+    setSaved("");
     load().catch((err: Error) => setError(err.message));
   }, [params.id]);
 

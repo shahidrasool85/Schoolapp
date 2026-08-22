@@ -50,6 +50,8 @@ export default function AssignmentDetailPage() {
   }
 
   useEffect(() => {
+    setData(null);
+    setError("");
     load().catch((err: Error) => setError(err.message));
   }, [params.id]);
 

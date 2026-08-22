@@ -515,3 +515,204 @@ export function mapLearningRevision(row: Record<string, unknown>) {
     submittedAt: row.submitted_at,
   };
 }
+
+export function mapAssessmentType(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    key: row.key,
+    name: row.name,
+    sortOrder: row.sort_order,
+    isSystem: row.is_system,
+  };
+}
+
+export function mapGradeScheme(
+  row: Record<string, unknown>,
+  levels: Array<Record<string, unknown>> = [],
+) {
+  return {
+    id: row.id,
+    key: row.key,
+    name: row.name,
+    schemeKind: row.scheme_kind,
+    subjectId: row.subject_id ?? null,
+    yearGroupId: row.year_group_id ?? null,
+    isNumeric: Boolean(row.is_numeric),
+    isSystem: Boolean(row.is_system),
+    levels: levels.map((level) => ({
+      id: level.id,
+      code: level.code,
+      label: level.label,
+      sortOrder: level.sort_order,
+      numericValue: level.numeric_value != null ? Number(level.numeric_value) : null,
+      minPercentage: level.min_percentage != null ? Number(level.min_percentage) : null,
+      maxPercentage: level.max_percentage != null ? Number(level.max_percentage) : null,
+    })),
+  };
+}
+
+export function mapReportingPeriod(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    academicYearId: row.academic_year_id,
+    academicYearName: row.academic_year_name ?? null,
+    termId: row.term_id ?? null,
+    termName: row.term_name ?? null,
+    name: row.name,
+    startsOn: row.starts_on,
+    endsOn: row.ends_on,
+    status: row.status,
+    publishStartsOn: row.publish_starts_on ?? null,
+    publishEndsOn: row.publish_ends_on ?? null,
+  };
+}
+
+export function mapFormalAssessment(
+  row: Record<string, unknown>,
+  options?: { includeInternalNotes?: boolean },
+) {
+  const base = {
+    id: row.id,
+    title: row.title,
+    academicYearId: row.academic_year_id,
+    academicYearName: row.academic_year_name ?? null,
+    reportingPeriodId: row.reporting_period_id ?? null,
+    reportingPeriodName: row.reporting_period_name ?? null,
+    subjectId: row.subject_id,
+    subjectName: row.subject_name ?? null,
+    yearGroupId: row.year_group_id,
+    yearGroupName: row.year_group_name ?? null,
+    assessmentTypeId: row.assessment_type_id,
+    assessmentTypeKey: row.assessment_type_key ?? null,
+    assessmentTypeName: row.assessment_type_name ?? null,
+    assessmentDate: row.assessment_date,
+    dueOn: row.due_on ?? null,
+    maximumMarks: row.maximum_marks != null ? Number(row.maximum_marks) : null,
+    weighting: row.weighting != null ? Number(row.weighting) : null,
+    gradeSchemeId: row.grade_scheme_id ?? null,
+    gradeSchemeName: row.grade_scheme_name ?? null,
+    gradeSchemeKind: row.grade_scheme_kind ?? null,
+    gradeSchemeIsNumeric: row.grade_scheme_is_numeric != null ? Boolean(row.grade_scheme_is_numeric) : null,
+    status: row.status,
+    createdBy: row.created_by ?? null,
+    createdByName: row.created_by_name ?? null,
+    createdAt: row.created_at,
+    publishedAt: row.published_at ?? null,
+    sourceLearningAssignmentId: row.source_learning_assignment_id ?? null,
+  };
+  if (options?.includeInternalNotes) {
+    return { ...base, internalNotes: row.internal_notes ?? null };
+  }
+  return base;
+}
+
+export function mapAcademicResult(
+  row: Record<string, unknown> | null | undefined,
+  options: { audience: "staff" | "student" | "parent" },
+) {
+  if (!row) return null;
+  const releasedToStudent = Boolean(row.released_to_student);
+  const releasedToParent = Boolean(row.released_to_parent);
+  const publishedAt = row.assessment_published_at ?? null;
+  if (options.audience === "student" && (!releasedToStudent || !publishedAt)) return null;
+  if (options.audience === "parent" && (!releasedToParent || !publishedAt)) return null;
+  const visible = {
+    assessmentId: row.assessment_id,
+    assessmentTitle: row.assessment_title ?? null,
+    subjectId: row.subject_id ?? null,
+    subjectName: row.subject_name ?? null,
+    assessmentDate: row.assessment_date ?? null,
+    rawScore: row.raw_score != null ? Number(row.raw_score) : null,
+    maximumScore: row.maximum_score != null ? Number(row.maximum_score) : null,
+    percentage: row.percentage != null ? Number(row.percentage) : null,
+    gradeLabel: row.grade_label ?? null,
+    gradeCode: row.grade_code ?? null,
+    teacherJudgement: (row.teacher_judgement as string | null) ?? null,
+    comment: (row.comment as string | null) ?? null,
+  };
+  if (options.audience === "staff") {
+    return {
+      ...visible,
+      id: row.id,
+      studentProfileId: row.student_profile_id,
+      studentLegalName: row.student_legal_name ?? null,
+      gradeSchemeLevelId: row.grade_scheme_level_id ?? null,
+      reviewStatus: row.review_status,
+      internalReviewNote: row.internal_review_note ?? null,
+      releasedToStudent,
+      releasedToParent,
+      enteredBy: row.entered_by ?? null,
+      enteredByName: row.entered_by_name ?? null,
+      enteredAt: row.entered_at,
+      amendedBy: row.amended_by ?? null,
+      amendedAt: row.amended_at ?? null,
+      reviewedBy: row.reviewed_by ?? null,
+      reviewedAt: row.reviewed_at ?? null,
+    };
+  }
+  return visible;
+}
+
+export function mapAcademicTarget(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    studentProfileId: row.student_profile_id,
+    academicYearId: row.academic_year_id,
+    academicYearName: row.academic_year_name ?? null,
+    subjectId: row.subject_id,
+    subjectName: row.subject_name ?? null,
+    gradeSchemeId: row.grade_scheme_id ?? null,
+    targetLevelId: row.target_level_id ?? null,
+    targetLabel: row.target_label ?? row.target_value ?? null,
+    targetValue: row.target_value ?? null,
+    baselineLevelId: row.baseline_level_id ?? null,
+    baselineLabel: row.baseline_label ?? row.baseline_value ?? null,
+    baselineValue: row.baseline_value ?? null,
+    note: row.note ?? null,
+  };
+}
+
+export function mapAcademicReport(
+  row: Record<string, unknown>,
+  options?: { includeWorkflow?: boolean },
+) {
+  const base = {
+    id: row.id,
+    studentProfileId: row.student_profile_id,
+    studentLegalName: row.student_legal_name ?? null,
+    academicYearId: row.academic_year_id,
+    academicYearName: row.academic_year_name ?? null,
+    reportingPeriodId: row.reporting_period_id,
+    reportingPeriodName: row.reporting_period_name ?? null,
+    status: row.status,
+    generalComment: row.general_comment ?? null,
+    publishedAt: row.published_at ?? null,
+  };
+  if (options?.includeWorkflow) {
+    return {
+      ...base,
+      createdBy: row.created_by ?? null,
+      createdByName: row.created_by_name ?? null,
+      createdAt: row.created_at,
+      submittedAt: row.submitted_at ?? null,
+      reviewedAt: row.reviewed_at ?? null,
+      publishedBy: row.published_by ?? null,
+    };
+  }
+  return base;
+}
+
+export function mapAcademicReportSection(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    subjectId: row.subject_id,
+    subjectName: row.subject_name ?? null,
+    teacherUserId: row.teacher_user_id ?? null,
+    teacherName: row.teacher_name ?? null,
+    attainmentSummary: row.attainment_summary ?? null,
+    progressJudgement: row.progress_judgement ?? null,
+    teacherComment: row.teacher_comment ?? null,
+    targetNextSteps: row.target_next_steps ?? null,
+    sortOrder: row.sort_order,
+  };
+}

@@ -94,6 +94,21 @@ export default function StudentDetailPage() {
   const [attendance, setAttendance] = useState<AttendanceHistory | null>(null);
   const [learning, setLearning] = useState<LearningHistory | null>(null);
   const [learningStatus, setLearningStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [academic, setAcademic] = useState<{
+    results: Array<{
+      assessmentTitle: string | null;
+      subjectName: string | null;
+      assessmentDate: string | null;
+      percentage: number | null;
+      gradeLabel: string | null;
+      teacherJudgement: string | null;
+      releasedToStudent: boolean;
+      releasedToParent: boolean;
+    }>;
+    targets: Array<{ subjectName: string | null; targetLabel: string | null; baselineLabel: string | null }>;
+    reports: Array<{ reportingPeriodName: string | null; status: string }>;
+  } | null>(null);
+  const [academicStatus, setAcademicStatus] = useState<"loading" | "ready" | "error">("loading");
   const [years, setYears] = useState<Option[]>([]);
   const [groups, setGroups] = useState<Option[]>([]);
   const [classes, setClasses] = useState<Option[]>([]);
@@ -137,6 +152,29 @@ export default function StudentDetailPage() {
       setLearning(null);
       setLearningStatus("error");
     }
+    try {
+      const academicHistory = await api<{
+        results: Array<{
+          assessmentTitle: string | null;
+          subjectName: string | null;
+          assessmentDate: string | null;
+          percentage: number | null;
+          gradeLabel: string | null;
+          teacherJudgement: string | null;
+          releasedToStudent: boolean;
+          releasedToParent: boolean;
+        }>;
+        targets: Array<{ subjectName: string | null; targetLabel: string | null; baselineLabel: string | null }>;
+        reports: Array<{ reportingPeriodName: string | null; status: string }>;
+      }>(`/api/v1/students/${studentId}/academic`);
+      if (seq !== loadSeq.current) return;
+      setAcademic(academicHistory);
+      setAcademicStatus("ready");
+    } catch {
+      if (seq !== loadSeq.current) return;
+      setAcademic(null);
+      setAcademicStatus("error");
+    }
   }
 
   useEffect(() => {
@@ -144,6 +182,8 @@ export default function StudentDetailPage() {
     setAttendance(null);
     setLearning(null);
     setLearningStatus("loading");
+    setAcademic(null);
+    setAcademicStatus("loading");
     setError("");
     setInvite("");
     load().catch((err: Error) => setError(err.message));
@@ -257,6 +297,76 @@ export default function StudentDetailPage() {
       ) : (
         <p className="muted">No assigned learning work recorded for this pupil.</p>
       )}
+
+      <h2>Academic / Results</h2>
+      {academicStatus === "loading" ? (
+        <p className="muted">Loading formal assessment history…</p>
+      ) : academicStatus === "error" ? (
+        <p className="muted">Unable to load formal assessment history.</p>
+      ) : academic && academic.results.length > 0 ? (
+        <table>
+          <thead>
+            <tr><th>Assessment</th><th>Date</th><th>Result</th><th>Release</th></tr>
+          </thead>
+          <tbody>
+            {academic.results.map((row, index) => (
+              <tr key={`${row.assessmentTitle}-${index}`}>
+                <td>
+                  {row.assessmentTitle}
+                  <div className="muted">{row.subjectName}</div>
+                </td>
+                <td>{row.assessmentDate ?? "—"}</td>
+                <td>
+                  {row.gradeLabel ?? row.teacherJudgement ?? (row.percentage != null ? `${row.percentage}%` : "—")}
+                </td>
+                <td>
+                  {row.releasedToStudent ? "student" : "—"}
+                  {row.releasedToParent ? " / parent" : ""}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="muted">No formal assessment results recorded for this pupil.</p>
+      )}
+      {academic && academic.targets.length > 0 ? (
+        <>
+          <h3>Targets</h3>
+          <table>
+            <thead>
+              <tr><th>Subject</th><th>Target</th><th>Baseline</th></tr>
+            </thead>
+            <tbody>
+              {academic.targets.map((row, index) => (
+                <tr key={`${row.subjectName}-${index}`}>
+                  <td>{row.subjectName}</td>
+                  <td>{row.targetLabel ?? "—"}</td>
+                  <td>{row.baselineLabel ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      ) : null}
+      {academic && academic.reports.length > 0 ? (
+        <>
+          <h3>Reports</h3>
+          <table>
+            <thead>
+              <tr><th>Period</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+              {academic.reports.map((row, index) => (
+                <tr key={`${row.reportingPeriodName}-${index}`}>
+                  <td>{row.reportingPeriodName}</td>
+                  <td>{row.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      ) : null}
 
       <h2>Enrolment history</h2>
       <table>

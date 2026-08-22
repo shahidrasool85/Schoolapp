@@ -67,6 +67,27 @@ export const PERMISSIONS = {
   LMS_RESOURCES_READ: "lms.resources.read",
   LMS_RESOURCES_MANAGE: "lms.resources.manage",
   LMS_RESOURCES_MANAGE_ASSIGNED: "lms.resources.manage_assigned",
+  ASSESSMENTS_READ: "assessments.read",
+  ASSESSMENTS_READ_ASSIGNED: "assessments.read_assigned",
+  ASSESSMENTS_MANAGE: "assessments.manage",
+  ASSESSMENTS_MANAGE_ASSIGNED: "assessments.manage_assigned",
+  RESULTS_READ: "results.read",
+  RESULTS_READ_ASSIGNED: "results.read_assigned",
+  RESULTS_ENTER: "results.enter",
+  RESULTS_ENTER_ASSIGNED: "results.enter_assigned",
+  RESULTS_REVIEW: "results.review",
+  RESULTS_PUBLISH: "results.publish",
+  RESULTS_READ_OWN_CHILDREN: "results.read_own_children",
+  RESULTS_READ_SELF: "results.read_self",
+  REPORTS_READ: "reports.read",
+  REPORTS_READ_ASSIGNED: "reports.read_assigned",
+  REPORTS_MANAGE: "reports.manage",
+  REPORTS_MANAGE_ASSIGNED: "reports.manage_assigned",
+  REPORTS_REVIEW: "reports.review",
+  REPORTS_PUBLISH: "reports.publish",
+  REPORTS_READ_OWN_CHILDREN: "reports.read_own_children",
+  REPORTS_READ_SELF: "reports.read_self",
+  ACADEMIC_OVERSIGHT: "academic.oversight",
   NOTIFICATIONS_INBOX_READ: "notifications.inbox.read",
   AUDIT_READ: "audit.read",
 } as const;
@@ -351,3 +372,52 @@ export const LEARNING_STUDENT_BUCKETS = [
   "completed",
 ] as const;
 export type LearningStudentBucket = (typeof LEARNING_STUDENT_BUCKETS)[number];
+
+/** Formal academic assessment lifecycle. Distinct from admissions `ASSESSMENT_STATUSES`. */
+export const FORMAL_ASSESSMENT_STATUSES = [
+  "draft",
+  "open",
+  "completed",
+  "reviewed",
+  "published",
+  "archived",
+] as const;
+export type FormalAssessmentStatus = (typeof FORMAL_ASSESSMENT_STATUSES)[number];
+
+export const FORMAL_ASSESSMENT_TYPE_KEYS = [
+  "class_test",
+  "end_of_unit",
+  "mock_exam",
+  "eleven_plus_practice",
+  "spelling_test",
+  "reading_assessment",
+  "teacher_assessment",
+  "practical_assessment",
+  "baseline_assessment",
+] as const;
+export type FormalAssessmentTypeKey = (typeof FORMAL_ASSESSMENT_TYPE_KEYS)[number];
+
+export const GRADE_SCHEME_KINDS = [
+  "percentage",
+  "letter",
+  "numeric",
+  "teacher_judgement",
+  "age_related",
+  "school_defined",
+] as const;
+export type GradeSchemeKind = (typeof GRADE_SCHEME_KINDS)[number];
+
+export const RESULT_REVIEW_STATUSES = ["entered", "reviewed", "approved"] as const;
+export type ResultReviewStatus = (typeof RESULT_REVIEW_STATUSES)[number];
+
+export const REPORTING_PERIOD_STATUSES = ["planned", "open", "closed", "published"] as const;
+export type ReportingPeriodStatus = (typeof REPORTING_PERIOD_STATUSES)[number];
+
+export const ACADEMIC_REPORT_STATUSES = [
+  "draft",
+  "submitted_for_review",
+  "approved",
+  "published",
+  "archived",
+] as const;
+export type AcademicReportStatus = (typeof ACADEMIC_REPORT_STATUSES)[number];

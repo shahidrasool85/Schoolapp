@@ -116,11 +116,21 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 **Not in Phase 7:** formal assessment/report cards, rubrics, AI generation, games/XP, chat, video, S3 binary adapter, UI redesign.
 
-## Phase 8 — Results and progress reports
+## Phase 8 — Assessments, results, progress & reports (implemented)
 
-- Assessments/results model
-- Teacher feedback records
-- Simple progress report artefact (PDF later)
+**Outcome:** a school can define formal assessments, enter and review results, set modest academic targets, and publish progress reports. Parents and pupils see only released/published items.
+
+- Formal `academic_assessments` (not LMS marks, not admissions interviews) with an extensible type catalogue
+- Class/year inclusions snapshot; teacher assigned-only result entry
+- Configurable grade/attainment schemes (percentage, letter, numeric, judgements, school-defined)
+- Reporting periods per academic year (not assumed to be three terms)
+- Result history/revisions; independent `released_to_student` / `released_to_parent`
+- Lightweight review (`entered` / `reviewed` / `approved`) and assessment lifecycle `draft → open → completed → reviewed → published → archived` (review can be skipped)
+- Student progress as latest vs previous comparable result — no opaque AI score
+- Progress reports with subject sections, optional approval, and frozen publication snapshots
+- Parent/student portal visibility and Student Record academic history
+
+**Not in Phase 8:** AI report drafting/grading, PDF export, DfE census, behaviour, competitions, professional UI redesign.
 
 ## Phase 9 — AI learning
 

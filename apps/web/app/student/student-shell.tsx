@@ -28,6 +28,8 @@ const LINKS: NavLink[] = [
       { href: "/student/learning/feedback", label: "Feedback" },
     ],
   },
+  { href: "/student/results", label: "Results" },
+  { href: "/student/reports", label: "Reports" },
   { href: "/student/notifications", label: "Notifications" },
   { href: "/student/profile", label: "Profile" },
 ];

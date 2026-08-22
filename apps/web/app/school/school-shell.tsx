@@ -34,6 +34,22 @@ const LMS_NAV_PERMISSIONS = [
   "lms.submissions.mark_assigned",
 ];
 
+const ASSESSMENT_NAV_PERMISSIONS = [
+  "assessments.read",
+  "assessments.read_assigned",
+  "assessments.manage",
+  "assessments.manage_assigned",
+  "results.read",
+  "results.read_assigned",
+  "results.enter",
+  "results.enter_assigned",
+  "reports.read",
+  "reports.read_assigned",
+  "reports.manage",
+  "reports.manage_assigned",
+  "academic.oversight",
+];
+
 const LINKS: NavLink[] = [
   { href: "/school", label: "Dashboard", exact: true },
   {
@@ -77,6 +93,19 @@ const LINKS: NavLink[] = [
       { href: "/school/teaching", label: "My Teaching", exact: true, permissions: LMS_NAV_PERMISSIONS },
       { href: "/school/teaching/assignments", label: "Assignments", permissions: LMS_NAV_PERMISSIONS },
       { href: "/school/teaching/submissions", label: "Submissions / Marking", permissions: LMS_NAV_PERMISSIONS },
+    ],
+  },
+  {
+    href: "/school/assessment",
+    label: "Assessment & Progress",
+    exact: true,
+    permissions: ASSESSMENT_NAV_PERMISSIONS,
+    children: [
+      { href: "/school/assessment", label: "Overview", exact: true, permissions: ASSESSMENT_NAV_PERMISSIONS },
+      { href: "/school/assessment/assessments", label: "Assessments", permissions: ASSESSMENT_NAV_PERMISSIONS },
+      { href: "/school/assessment/results", label: "Results", permissions: ASSESSMENT_NAV_PERMISSIONS },
+      { href: "/school/assessment/reports", label: "Reports", permissions: ASSESSMENT_NAV_PERMISSIONS },
+      { href: "/school/assessment/periods", label: "Reporting periods", permissions: ASSESSMENT_NAV_PERMISSIONS },
     ],
   },
   { href: "/school/staff", label: "Staff / Teachers" },

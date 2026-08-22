@@ -15,6 +15,12 @@ import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
 import { uuidRouteParam, withSchoolActor } from "../school-context";
 import { ensurePupilSubmission, listPupilAssignments, loadPupilAssignment } from "../learning-pupil";
+import {
+  listPupilFormalResults,
+  listPupilPublishedReports,
+  listPupilSubjectProgress,
+  loadPupilPublishedReport,
+} from "../academic-pupil";
 import { z } from "zod";
 
 export function registerStudentRoutes(app: SchoolappApi) {
@@ -51,6 +57,7 @@ export function registerStudentRoutes(app: SchoolappApi) {
           attendance: { available: true },
           myLearning: { available: true },
           homework: { available: true },
+          results: { available: true },
         },
         notifications: { unreadCount, preview: comingLater },
       });
@@ -220,6 +227,43 @@ export function registerStudentRoutes(app: SchoolappApi) {
       }
       const body = await loadPupilAssignment(client, orgId, studentProfileId, assignmentId, "student");
       return c.json({ assignment: body }, submit ? 201 : 200);
+    }),
+  );
+
+  app.get("/student/results", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.RESULTS_READ_SELF);
+      const studentProfileId = await requireStudentPortalEnabled(client, orgId, userId);
+      const results = await listPupilFormalResults(client, orgId, studentProfileId, "student");
+      return c.json({ results });
+    }),
+  );
+
+  app.get("/student/progress", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.RESULTS_READ_SELF);
+      const studentProfileId = await requireStudentPortalEnabled(client, orgId, userId);
+      const progress = await listPupilSubjectProgress(client, orgId, studentProfileId, "student");
+      return c.json({ progress });
+    }),
+  );
+
+  app.get("/student/reports", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.REPORTS_READ_SELF);
+      const studentProfileId = await requireStudentPortalEnabled(client, orgId, userId);
+      const reports = await listPupilPublishedReports(client, orgId, studentProfileId);
+      return c.json({ reports });
+    }),
+  );
+
+  app.get("/student/reports/:reportId", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.REPORTS_READ_SELF);
+      const studentProfileId = await requireStudentPortalEnabled(client, orgId, userId);
+      const reportId = uuidRouteParam(c, "reportId");
+      const report = await loadPupilPublishedReport(client, orgId, studentProfileId, reportId);
+      return c.json({ report });
     }),
   );
 }

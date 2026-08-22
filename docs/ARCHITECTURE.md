@@ -1,6 +1,6 @@
 # Schoolapp — Platform Architecture
 
-**Status:** Phase 7 Teaching & Learning / LMS implemented. Later modules (formal assessment, AI, mobile) are not built.  
+**Status:** Phases 1–8 implemented (foundation through formal assessment/results/reports). Later modules (AI, mobile) are not built.  
 **Audience:** Product owner and engineering.  
 **Scope:** Multi-tenant UK school SaaS (SIS + LMS + AI learning), web first, mobile-ready.
 
@@ -474,10 +474,21 @@ Only **Platform + People + Academic structure** should be implemented first. Oth
 
 See [ADR 0016](./adr/0016-phase7-learning-lms.md). Assignments have no `class_id`; recipients are a publish-time snapshot.
 
+### 6.2b Formal assessment (Phase 8)
+
+- Types/schemes: `academic_assessment_types`, `academic_grade_schemes`, `academic_grade_scheme_levels`
+- Periods: `academic_reporting_periods`
+- Assessments: `academic_assessments`, `academic_assessment_status_history`, `academic_assessment_classes`, `academic_assessment_inclusions`
+- Results: `academic_results`, `academic_result_revisions`
+- Targets: `academic_targets`
+- Reports: `academic_reports`, `academic_report_sections`, `academic_report_status_history`, `academic_report_publications`
+
+See [ADR 0017](./adr/0017-phase8-assessment-results.md). Distinct from `learning_marks` and `admissions_assessments`.
+
 ### 6.3 Later entities (do not implement now; reserved names)
 
 - Admissions: `admissions_enquiries`, `admissions_applications`, `admissions_application_contacts`, `admissions_application_status_history`, `admissions_assessments`, `admissions_waiting_list_entries`, `admissions_offers`, `admissions_documents` (metadata only)
-- Operations: `progress_reports`, `announcements`
+- Operations: `announcements`
 - LMS later: `timetable_entries`
 - Learning: `learning_activities`, `activity_items`, `activity_reviews`, `activity_attempts`, `competitions`, `points_ledger`, `badge_definitions`, `streaks`
 
@@ -647,7 +658,7 @@ Detail: [roadmap.md](./roadmap.md).
 | **5 — SaaS hostname tenancy** | School subdomains, slug routing, onboarding foundation, custom-domain model | **Implemented** |
 | **6 — Attendance & documents** | Registers, files | **Implemented** |
 | **7 — LMS core** | Assignments, submissions, resources, marking | **Implemented** |
-| **8 — Assessment & reports** | Results, feedback, progress reports | Yes |
+| **8 — Assessment & reports** | Formal assessments, results, reporting periods, targets, progress reports | **Implemented** |
 | **9 — AI learning** | Provider port, drafts, teacher approval, attempts | Yes |
 | **10 — Gamification** | Points, badges, streaks, configurable leaderboards | Yes |
 | **11 — Mobile** | Expo parent app, then student | New clients only |

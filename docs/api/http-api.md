@@ -128,13 +128,15 @@ GET /api/v1/parent/children/{studentId}/attendance
 GET /api/v1/parent/children/{studentId}/documents
 GET /api/v1/parent/children/{studentId}/assignments
 GET /api/v1/parent/children/{studentId}/results
+GET /api/v1/parent/children/{studentId}/progress
 GET /api/v1/parent/children/{studentId}/feedback
 GET /api/v1/parent/children/{studentId}/reports
+GET /api/v1/parent/children/{studentId}/reports/{reportId}
 GET /api/v1/parent/children/{studentId}/achievements
 GET /api/v1/parent/announcements
 ```
 
-Phase 3 implements dashboard, children list, and child overview (profile + school/year/form + viewer guardianship). Phase 6 implements child attendance (parent-visible notes only). Later child modules remain unimplemented. Responses never include `restricted_contact`, admin notes, billing, or other organisations' children.
+Phase 3 implements dashboard, children list, and child overview (profile + school/year/form + viewer guardianship). Phase 6 implements child attendance (parent-visible notes only). Phase 8 implements released formal results, subject progress, and published report snapshots. Responses never include `restricted_contact`, admin notes, billing, moderation notes, or other organisations' children.
 
 ## Student portal
 
@@ -147,7 +149,10 @@ POST /api/v1/student/assignments/{id}/submissions
 GET  /api/v1/student/resources
 GET  /api/v1/student/activities
 POST /api/v1/student/activities/{id}/attempts
+GET  /api/v1/student/results
 GET  /api/v1/student/progress
+GET  /api/v1/student/reports
+GET  /api/v1/student/reports/{reportId}
 ```
 
 Phase 3 implements `me` and `dashboard` for the authenticated student's own profile in the current organisation. Phase 6 adds `GET /api/v1/student/attendance` (own marks, parent-visible notes only) when the effective student-portal policy allows access. Spoofing `X-Organisation-Id` for a school the pupil does not belong to returns `org_membership_required`. Login aliases remain organisation-scoped. A disabled student portal refuses alias login even if an alias/password exists.
@@ -283,6 +288,49 @@ GET    /api/v1/parent/children/{studentId}/assignments/{assignmentId}
 `POST /learning/assignments` always creates `draft`. Publish snapshots recipients from current targets. PATCH/publish/close/archive/resources require school-wide `lms.assignments.manage` or `created_by` of the assignment. Teachers with only `manage_assigned` cannot take over another staff member’s work merely because they share a pupil. Assignment list/dashboard filters: `status`, `classId`, `subjectId`, `dueFrom`, `dueTo`. Student list filter: `bucket` (`assigned`, `due_soon`, `overdue`, `due`, `submitted`, `returned`, `completed`). Parent endpoints never accept a submission body.
 
 Binary file upload is not implemented. Resource rows currently require a validated `http(s)` URL. Storage-port key builders exist for a later S3-compatible adapter.
+
+## Formal assessments, results, and reports (Phase 8)
+
+Distinct from `/learning/*/marks` and `/admissions/assessments`. Clients cannot set actor or timestamp fields. Cross-tenant IDs return **404**. Portal payloads omit internal notes and unreleased/unpublished items.
+
+```http
+GET    /api/v1/assessments/types
+GET    /api/v1/assessments/grade-schemes
+POST   /api/v1/assessments/grade-schemes
+GET    /api/v1/assessments/reporting-periods
+POST   /api/v1/assessments/reporting-periods
+PATCH  /api/v1/assessments/reporting-periods/{id}
+GET    /api/v1/assessments/context
+GET    /api/v1/assessments
+POST   /api/v1/assessments
+GET    /api/v1/assessments/{id}
+PATCH  /api/v1/assessments/{id}
+POST   /api/v1/assessments/{id}/open
+POST   /api/v1/assessments/{id}/complete
+POST   /api/v1/assessments/{id}/review
+POST   /api/v1/assessments/{id}/publish
+POST   /api/v1/assessments/{id}/archive
+GET    /api/v1/assessments/{id}/results
+PUT    /api/v1/assessments/{id}/results
+POST   /api/v1/assessments/{id}/results/{studentId}/review
+GET    /api/v1/assessments/{id}/summary
+GET    /api/v1/students/{studentId}/academic
+GET    /api/v1/students/{studentId}/targets
+POST   /api/v1/students/{studentId}/targets
+PATCH  /api/v1/academic-targets/{id}
+GET    /api/v1/reports
+POST   /api/v1/reports
+GET    /api/v1/reports/{id}
+PATCH  /api/v1/reports/{id}
+POST   /api/v1/reports/{id}/sections
+PATCH  /api/v1/reports/{id}/sections/{sectionId}
+POST   /api/v1/reports/{id}/submit
+POST   /api/v1/reports/{id}/approve
+POST   /api/v1/reports/{id}/publish
+POST   /api/v1/reports/{id}/archive
+```
+
+`PUT /assessments/{id}/results` accepts a class grid `{ results: [{ studentProfileId, rawScore, gradeSchemeLevelId, teacherJudgement, comment, releasedToStudent, releasedToParent }] }`.
 
 ## Files
 

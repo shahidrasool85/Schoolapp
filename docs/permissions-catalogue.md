@@ -63,6 +63,27 @@ Platform Super Admin does **not** silently receive pupil read. Tenant data requi
 | `lms.resources.read` | — | R | F | F | — | R | R (child) | F |
 | `lms.resources.manage` | — | F | F | — | — | — | — | — |
 | `lms.resources.manage_assigned` | — | — | — | F | — | — | — | — |
+| `assessments.read` | — | F | F | — | — | — | — | — |
+| `assessments.read_assigned` | — | — | — | F | — | — | — | — |
+| `assessments.manage` | — | F | F | — | — | — | — | — |
+| `assessments.manage_assigned` | — | — | — | F | — | — | — | — |
+| `results.read` | — | F | F | — | — | — | — | — |
+| `results.read_assigned` | — | — | — | F | — | — | — | — |
+| `results.enter` | — | F | F | — | — | — | — | — |
+| `results.enter_assigned` | — | — | — | F | — | — | — | — |
+| `results.review` | — | F | F | — | — | — | — | — |
+| `results.publish` | — | F | F | — | — | — | — | — |
+| `results.read_own_children` | — | — | — | — | — | — | F | — |
+| `results.read_self` | — | — | — | — | — | — | — | F |
+| `reports.read` | — | F | F | — | — | — | — | — |
+| `reports.read_assigned` | — | — | — | F | — | — | — | — |
+| `reports.manage` | — | F | F | — | — | — | — | — |
+| `reports.manage_assigned` | — | — | — | F | — | — | — | — |
+| `reports.review` | — | F | F | — | — | — | — | — |
+| `reports.publish` | — | F | F | — | — | — | — | — |
+| `reports.read_own_children` | — | — | — | — | — | — | F | — |
+| `reports.read_self` | — | — | — | — | — | — | — | F |
+| `academic.oversight` | — | F | F | — | — | — | — | — |
 | `learning.activities.generate` | — | — | F | F | — | — | — | — |
 | `learning.activities.publish` | — | — | F | — | — | — | — | — |
 | `learning.activities.attempt` | — | — | — | — | — | — | — | F |
@@ -88,6 +109,8 @@ Student portal access is school default → year-group override → class overri
 Teacher LMS access is **assigned-only**. `lms.assignments.manage_assigned` / `lms.submissions.mark_assigned` do not grant school-wide work. Year-group targeting and school-wide lists require `lms.assignments.manage` / `lms.assignments.read` (Headteacher and School Admin). Ordinary `school.staff` does not receive those keys.
 
 `lms.assignments.manage_assigned` lets a teacher create work for assigned classes/pupils and then edit/publish/close **their own** rows (`created_by`). Sharing a pupil with another teacher does not let that teacher take over lifecycle of someone else’s assignment. `lms.submissions.mark_assigned` is the key used to mark remaining authorised recipients.
+
+Formal assessment keys follow the same assigned vs school-wide split. `assessments.manage_assigned` / `results.enter_assigned` / `reports.manage_assigned` do not grant school-wide academic access. `results.review` / `results.publish` / `reports.review` / `reports.publish` and `academic.oversight` are Headteacher and School Admin. Teachers cannot publish reports unless they are separately granted `reports.publish`. Parent/student result APIs require the assessment to have been published **and** the matching release flag. Internal notes and moderation notes are omitted from portal payloads.
 
 Parent learning APIs require `portal_access = true` on the guardianship. Teacher-private notes and unreleased marks are omitted from parent and student payloads. `lms.submissions.submit` is student-only; the parent UI has no submit path.
 

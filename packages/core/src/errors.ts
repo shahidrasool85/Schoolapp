@@ -56,14 +56,23 @@ export function pgErrorToAppError(error: unknown): AppError | null {
   if (message.includes("attendance_date_outside_year")) {
     return new AppError(400, "validation_failed", "Attendance date is outside the academic year");
   }
-  if (message.includes("attendance_actor_required") || message.includes("learning_actor_required") || message.includes("learning_mark_actor_required")) {
+  if (
+    message.includes("attendance_actor_required") ||
+    message.includes("learning_actor_required") ||
+    message.includes("learning_mark_actor_required") ||
+    message.includes("academic_actor_required") ||
+    message.includes("academic_result_actor_required")
+  ) {
     return new AppError(400, "validation_failed", "The request violates a data constraint");
   }
-  if (message.includes("assignment_not_assigned")) {
+  if (message.includes("assignment_not_assigned") || message.includes("assessment_pupil_not_included")) {
     return new AppError(404, "not_found", "Not found");
   }
-  if (message.includes("learning_score_out_of_range")) {
+  if (message.includes("learning_score_out_of_range") || message.includes("academic_score_out_of_range")) {
     return new AppError(400, "validation_failed", "Score must be between 0 and the maximum marks");
+  }
+  if (message.includes("academic_report_locked")) {
+    return new AppError(409, "conflict", "Published report content cannot be edited");
   }
   if (message.includes("year_group_above_maximum")) {
     return new AppError(

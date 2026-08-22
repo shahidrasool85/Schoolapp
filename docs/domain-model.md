@@ -171,7 +171,7 @@ The original application remains after enrolment and records `converted_student_
 - `attendance_mark_revisions` — previous values when a mark is corrected
 - `student_portal_policies` and year-group/class/pupil override tables
 - `student_documents` — metadata + storage key only (no file bytes in PostgreSQL)
-- Announcements and progress reports remain later work
+- Announcements remain later work; progress reports are Phase 8 (`academic_reports`)
 - Attendance and document mutations are formally audited
 
 ## LMS (Phase 7)
@@ -189,7 +189,33 @@ Canonical learning work is **not** a single class-scoped homework row. See [ADR 
 - `learning_submission_attachments` — attachment metadata/port only (no bytes in PostgreSQL)
 - `learning_marks` — LMS/work-specific score, written feedback, release-to-pupil, release-to-parent, resubmission flag. **Not** Phase 8 formal assessment/results
 
-Timetables, rubrics, exam results, report cards, and AI-generated activities remain later work. Future AI worksheets should reuse `learning_resources`.
+Timetables, rubrics, AI-generated activities, and PDF report cards remain later work. Future AI worksheets should reuse `learning_resources`. Formal exam/assessment results live in the Phase 8 tables below — never in `learning_marks`.
+
+## Formal assessment, results, and reports (Phase 8)
+
+See [ADR 0017](./adr/0017-phase8-assessment-results.md). This domain is **not** LMS marking and **not** admissions interviews.
+
+| Concept | Table | Meaning |
+| --- | --- | --- |
+| LMS assignment mark | `learning_marks` | Homework/classwork feedback for one submission |
+| Formal assessment | `academic_assessments` | Scheduled academic assessment (test, teacher assessment, mock, …) |
+| Formal result | `academic_results` | One pupil’s score/grade/judgement for one assessment |
+| Teacher judgement | `academic_results.teacher_judgement` + scheme level | Professional assessment against a school-defined scheme |
+| Target | `academic_targets` | School-defined expected attainment for a pupil/subject/year |
+| Report | `academic_reports` + `academic_report_publications` | Progress report; published payload is frozen |
+
+- `academic_assessment_types` — organisation catalogue (`class_test`, `end_of_unit`, `mock_exam`, `eleven_plus_practice`, `spelling_test`, `reading_assessment`, `teacher_assessment`, `practical_assessment`, `baseline_assessment`) plus custom keys
+- `academic_grade_schemes` / `academic_grade_scheme_levels` — percentage, letter, numeric, teacher judgement, age-related, or school-defined. Default age-related labels are seed data, not the only model
+- `academic_reporting_periods` — belong to an academic year; optional term link; any number of periods
+- `academic_assessments` — year, subject, year group, type, date, optional max marks/weighting/scheme, status `draft \| open \| completed \| reviewed \| published \| archived`, optional `source_learning_assignment_id` for future LMS evidence (no auto-conversion)
+- `academic_assessment_classes` + `academic_assessment_inclusions` — class intent and pupil snapshot
+- `academic_results` — raw score, generated percentage, scheme level, judgement, comment, review status, independent release flags; actor/timestamps from session
+- `academic_result_revisions` — previous values on meaningful amendments
+- `academic_targets` — one target per pupil + year + subject
+- `academic_reports` / `academic_report_sections` — working copy; published/archived content is locked
+- `academic_report_publications` — immutable JSON snapshot shown to parents/pupils
+
+Progress is latest vs previous comparable result (percentage, else scheme `numeric_value`). Mixed/non-numeric schemes do not invent an average.
 
 ## AI learning and gamification (Phase 9–10)
 

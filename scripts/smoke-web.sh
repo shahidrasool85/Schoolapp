@@ -83,7 +83,13 @@ expect_page "/school/student-portal"
 expect_page "/school/teaching"
 expect_page "/school/teaching/assignments"
 expect_page "/school/teaching/submissions"
+expect_page "/school/assessment"
+expect_page "/school/assessment/assessments"
+expect_page "/school/assessment/results"
+expect_page "/school/assessment/reports"
 expect_page "/student/learning"
+expect_page "/student/results"
+expect_page "/student/reports"
 expect_page "/parent"
 expect_page "/student"
 expect_page "/student/attendance"
@@ -111,4 +117,4 @@ if ! grep -q "Sign in" /tmp/schoolapp-smoke-login.html; then
   exit 1
 fi
 
-echo "web smoke ok (health 200, platform tenant, unknown host 404, login/school/parent/student/admissions/attendance/teaching pages 200)"
+echo "web smoke ok (health 200, platform tenant, unknown host 404, login/school/parent/student/admissions/attendance/teaching/assessment pages 200)"

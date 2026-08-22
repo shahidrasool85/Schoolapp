@@ -163,4 +163,49 @@ describe("demo seed", () => {
       expect(leaked.rows[0]?.n).toBe("0");
     });
   });
+
+  it("seeds isolated Greenwood and Oak formal assessments", async () => {
+    const orgs = await pools.owner.query<{ id: string; slug: string }>(
+      "select id, slug::text as slug from organisations where slug = any($1::citext[])",
+      [["greenwood", "oakacademy"]],
+    );
+    const greenwoodId = orgs.rows.find((row) => row.slug === "greenwood")!.id;
+    const oakId = orgs.rows.find((row) => row.slug === "oakacademy")!.id;
+    const gw = await pools.owner.query<{ n: string; titles: string }>(
+      `select count(*)::text as n, string_agg(title, ',') as titles
+       from academic_assessments where organisation_id = $1`,
+      [greenwoodId],
+    );
+    const oak = await pools.owner.query<{ n: string; titles: string }>(
+      `select count(*)::text as n, string_agg(title, ',') as titles
+       from academic_assessments where organisation_id = $1`,
+      [oakId],
+    );
+    expect(Number(gw.rows[0]?.n)).toBeGreaterThanOrEqual(3);
+    expect(gw.rows[0]?.titles).toContain("Year 3 Maths Test");
+    expect(gw.rows[0]?.titles).toContain("Year 3 English reading assessment");
+    expect(gw.rows[0]?.titles).toContain("Year 3 Science practical");
+    expect(oak.rows[0]?.titles).toContain("Oak Year 3 Maths check");
+    expect(oak.rows[0]?.titles).not.toContain("Year 3 Maths Test");
+
+    const reports = await pools.owner.query<{ statuses: string }>(
+      `select string_agg(status, ',') as statuses
+       from academic_reports where organisation_id = $1`,
+      [greenwoodId],
+    );
+    expect(reports.rows[0]?.statuses).toContain("published");
+    expect(reports.rows[0]?.statuses).toContain("draft");
+
+    const admin = await pools.owner.query<{ id: string }>(
+      "select id from users where email = $1",
+      [DEMO_ACCOUNTS.greenwoodAdmin.email],
+    );
+    await withTenantContext(pools.app, admin.rows[0]!.id, greenwoodId, async (client) => {
+      const leaked = await client.query<{ n: string }>(
+        "select count(*)::text as n from academic_assessments where organisation_id = $1",
+        [oakId],
+      );
+      expect(leaked.rows[0]?.n).toBe("0");
+    });
+  });
 });

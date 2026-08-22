@@ -20,5 +20,6 @@ ADRs capture *why* we chose an approach. The narrative proposal is in [ARCHITECT
 | [0014](./0014-saas-hostname-tenancy.md) | SaaS hostname tenancy, school slugs, and custom-domain foundation | Accepted |
 | [0015](./0015-attendance-student-portal-documents.md) | Attendance marks, student portal policy, and document metadata | Accepted |
 | [0016](./0016-phase7-learning-lms.md) | Teaching & Learning / LMS core (assignments, targets, submissions, marks) | Accepted |
+| [0017](./0017-phase8-assessment-results.md) | Formal assessments, results, reporting periods, and progress reports | Accepted |
 
 Convention: one decision per file. If a decision is reversed, mark it **Superseded** and add a new ADR — do not silently edit history.

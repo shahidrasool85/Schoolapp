@@ -18,6 +18,12 @@ import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
 import { withSchoolActor, uuidRouteParam } from "../school-context";
 import { listPupilAssignments, loadPupilAssignment } from "../learning-pupil";
+import {
+  listPupilFormalResults,
+  listPupilPublishedReports,
+  listPupilSubjectProgress,
+  loadPupilPublishedReport,
+} from "../academic-pupil";
 
 export function registerParentRoutes(app: SchoolappApi) {
   app.get("/parent/dashboard", requireUser, async (c) =>
@@ -68,6 +74,8 @@ export function registerParentRoutes(app: SchoolappApi) {
           attendance: { available: true },
           homework: { available: true },
           learning: { available: true },
+          results: { available: true },
+          reports: { available: true },
           teacherFeedback: { available: true },
         },
       });
@@ -147,6 +155,47 @@ export function registerParentRoutes(app: SchoolappApi) {
       await requireLinkedChild(client, userId, orgId, studentId);
       const assignment = await loadPupilAssignment(client, orgId, studentId, assignmentId, "parent");
       return c.json({ assignment });
+    }),
+  );
+
+  app.get("/parent/children/:studentId/results", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.RESULTS_READ_OWN_CHILDREN);
+      const studentId = uuidRouteParam(c, "studentId");
+      await requireLinkedChild(client, userId, orgId, studentId);
+      const results = await listPupilFormalResults(client, orgId, studentId, "parent");
+      return c.json({ results });
+    }),
+  );
+
+  app.get("/parent/children/:studentId/progress", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.RESULTS_READ_OWN_CHILDREN);
+      const studentId = uuidRouteParam(c, "studentId");
+      await requireLinkedChild(client, userId, orgId, studentId);
+      const progress = await listPupilSubjectProgress(client, orgId, studentId, "parent");
+      return c.json({ progress });
+    }),
+  );
+
+  app.get("/parent/children/:studentId/reports", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.REPORTS_READ_OWN_CHILDREN);
+      const studentId = uuidRouteParam(c, "studentId");
+      await requireLinkedChild(client, userId, orgId, studentId);
+      const reports = await listPupilPublishedReports(client, orgId, studentId);
+      return c.json({ reports });
+    }),
+  );
+
+  app.get("/parent/children/:studentId/reports/:reportId", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.REPORTS_READ_OWN_CHILDREN);
+      const studentId = uuidRouteParam(c, "studentId");
+      const reportId = uuidRouteParam(c, "reportId");
+      await requireLinkedChild(client, userId, orgId, studentId);
+      const report = await loadPupilPublishedReport(client, orgId, studentId, reportId);
+      return c.json({ report });
     }),
   );
 }

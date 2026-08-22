@@ -43,10 +43,15 @@ describe("RLS catalog", () => {
            'learning_work_types', 'learning_assignments', 'learning_assignment_status_history',
            'learning_assignment_targets', 'learning_assignment_recipients',
            'learning_resources', 'learning_assignment_resources', 'learning_submissions',
-           'learning_submission_revisions', 'learning_submission_attachments', 'learning_marks'
+           'learning_submission_revisions', 'learning_submission_attachments', 'learning_marks',
+           'academic_assessment_types', 'academic_grade_schemes', 'academic_grade_scheme_levels',
+           'academic_reporting_periods', 'academic_assessments', 'academic_assessment_status_history',
+           'academic_assessment_classes', 'academic_assessment_inclusions', 'academic_results',
+           'academic_result_revisions', 'academic_targets', 'academic_reports',
+           'academic_report_sections', 'academic_report_status_history', 'academic_report_publications'
          )`,
     );
-    expect(result.rows.length).toBe(49);
+    expect(result.rows.length).toBe(64);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
     }
@@ -714,5 +719,126 @@ describe("RLS catalog", () => {
         [org.rows[0]!.id, submission.rows[0]!.id, actor.rows[0]!.id],
       ),
     ).rejects.toThrow(/learning_score_out_of_range/);
+  });
+
+  it("enforces Phase 8 same-org, inclusion, score, and status rules", async () => {
+    const id = randomUUID().slice(0, 8);
+    const user = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Phase8 Actor', 'staff', 'active') returning id`,
+      [`p8-actor-${id}@example.com`],
+    );
+    const org = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`p8-${id}`, "Phase8 School"],
+    );
+    const other = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`p8o-${id}`, "Phase8 Other"],
+    );
+    const year = await pools.owner.query<{ id: string }>(
+      `insert into academic_years (organisation_id, name, starts_on, ends_on, is_current)
+       values ($1, '2026/27', '2026-09-01', '2027-07-31', true) returning id`,
+      [org.rows[0]!.id],
+    );
+    const group = await pools.owner.query<{ id: string }>(
+      `insert into year_groups (organisation_id, code, name)
+       values ($1, '3', 'Year 3') returning id`,
+      [org.rows[0]!.id],
+    );
+    const subject = await pools.owner.query<{ id: string }>(
+      "insert into subjects (organisation_id, key, name) values ($1, 'mathematics', 'Mathematics') returning id",
+      [org.rows[0]!.id],
+    );
+    const type = await pools.owner.query<{ id: string }>(
+      "select id from academic_assessment_types where organisation_id = $1 and key = 'class_test'",
+      [org.rows[0]!.id],
+    );
+    const assessment = await pools.owner.query<{ id: string }>(
+      `insert into academic_assessments (
+         organisation_id, academic_year_id, title, subject_id, year_group_id,
+         assessment_type_id, assessment_date, maximum_marks, created_by
+       ) values ($1,$2,'Test',$3,$4,$5,'2026-10-01',10,$6)
+       returning id`,
+      [org.rows[0]!.id, year.rows[0]!.id, subject.rows[0]!.id, group.rows[0]!.id, type.rows[0]!.id, user.rows[0]!.id],
+    );
+    await expect(
+      pools.owner.query(
+        `insert into academic_assessments (
+           organisation_id, academic_year_id, title, subject_id, year_group_id,
+           assessment_type_id, assessment_date, created_by
+         ) values ($1,$2,'Cross',$3,$4,$5,'2026-10-01',$6)`,
+        [other.rows[0]!.id, year.rows[0]!.id, subject.rows[0]!.id, group.rows[0]!.id, type.rows[0]!.id, user.rows[0]!.id],
+      ),
+    ).rejects.toThrow(/organisation_mismatch/);
+
+    const pupil = await pools.owner.query<{ id: string }>(
+      "insert into student_profiles (organisation_id, legal_name) values ($1, 'Result Child') returning id",
+      [org.rows[0]!.id],
+    );
+    await expect(
+      pools.owner.query(
+        `insert into academic_results (
+           organisation_id, assessment_id, student_profile_id, raw_score, entered_by
+         ) values ($1,$2,$3,5,$4)`,
+        [org.rows[0]!.id, assessment.rows[0]!.id, pupil.rows[0]!.id, user.rows[0]!.id],
+      ),
+    ).rejects.toThrow(/assessment_pupil_not_included/);
+
+    await pools.owner.query(
+      `insert into academic_assessment_inclusions (organisation_id, assessment_id, student_profile_id)
+       values ($1,$2,$3)`,
+      [org.rows[0]!.id, assessment.rows[0]!.id, pupil.rows[0]!.id],
+    );
+    await expect(
+      pools.owner.query(
+        `insert into academic_results (
+           organisation_id, assessment_id, student_profile_id, raw_score, maximum_score, entered_by
+         ) values ($1,$2,$3,12,10,$4)`,
+        [org.rows[0]!.id, assessment.rows[0]!.id, pupil.rows[0]!.id, user.rows[0]!.id],
+      ),
+    ).rejects.toThrow(/academic_score_out_of_range/);
+
+    const pinned = await pools.owner.query<{ maximum_score: string; percentage: string }>(
+      `insert into academic_results (
+         organisation_id, assessment_id, student_profile_id, raw_score, maximum_score, entered_by
+       ) values ($1,$2,$3,5,2,$4)
+       returning maximum_score::text, percentage::text`,
+      [org.rows[0]!.id, assessment.rows[0]!.id, pupil.rows[0]!.id, user.rows[0]!.id],
+    );
+    expect(pinned.rows[0]?.maximum_score).toBe("10.00");
+    expect(pinned.rows[0]?.percentage).toBe("50.00");
+
+    await expect(
+      pools.owner.query("update academic_assessments set status = 'published' where id = $1", [
+        assessment.rows[0]!.id,
+      ]),
+    ).rejects.toThrow(/invalid_status_transition/);
+
+    const outsider = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Phase8 Outsider', 'staff', 'active') returning id`,
+      [`p8-out-${id}@example.com`],
+    );
+    await pools.owner.query(
+      `insert into organisation_memberships (organisation_id, user_id, status)
+       values ($1, $2, 'active')`,
+      [other.rows[0]!.id, outsider.rows[0]!.id],
+    );
+    await withTenantContext(pools.app, outsider.rows[0]!.id, other.rows[0]!.id, async (client) => {
+      await expect(
+        client.query("select snapshot_academic_assessment_inclusions($1)", [assessment.rows[0]!.id]),
+      ).rejects.toThrow(/organisation_mismatch/);
+    });
+    await pools.owner.query(
+      `insert into organisation_memberships (organisation_id, user_id, status)
+       values ($1, $2, 'active')`,
+      [org.rows[0]!.id, user.rows[0]!.id],
+    );
+    await withTenantContext(pools.app, user.rows[0]!.id, org.rows[0]!.id, async (client) => {
+      await expect(
+        client.query("select snapshot_academic_assessment_inclusions($1)", [assessment.rows[0]!.id]),
+      ).rejects.toThrow(/forbidden/);
+    });
   });
 });

@@ -151,6 +151,21 @@ async function wipeDemoData(client: pg.Client): Promise<void> {
     );
 
     const tenantDeletes = [
+      "academic_report_publications",
+      "academic_report_status_history",
+      "academic_report_sections",
+      "academic_reports",
+      "academic_result_revisions",
+      "academic_results",
+      "academic_assessment_inclusions",
+      "academic_assessment_classes",
+      "academic_assessment_status_history",
+      "academic_assessments",
+      "academic_targets",
+      "academic_reporting_periods",
+      "academic_grade_scheme_levels",
+      "academic_grade_schemes",
+      "academic_assessment_types",
       "learning_submission_attachments",
       "learning_marks",
       "learning_submission_revisions",
@@ -757,6 +772,160 @@ async function notify(
       input.title,
       input.body,
       input.createdBy,
+    ],
+  );
+}
+
+async function lookupId(client: pg.Client, sql: string, values: unknown[]): Promise<string> {
+  const result = await client.query<IdRow>(sql, values);
+  const id = result.rows[0]?.id;
+  if (!id) throw new Error(`Demo seed lookup failed: ${sql}`);
+  return id;
+}
+
+async function seedReportingPeriod(
+  client: pg.Client,
+  input: {
+    organisationId: string;
+    academicYearId: string;
+    name: string;
+    startsOn: string;
+    endsOn: string;
+    status?: string;
+  },
+): Promise<string> {
+  const inserted = await client.query<IdRow>(
+    `insert into academic_reporting_periods (
+       organisation_id, academic_year_id, name, starts_on, ends_on, status
+     ) values ($1, $2, $3, $4, $5, $6)
+     returning id`,
+    [input.organisationId, input.academicYearId, input.name, input.startsOn, input.endsOn, input.status ?? "open"],
+  );
+  return inserted.rows[0]!.id;
+}
+
+async function seedFormalAssessment(
+  client: pg.Client,
+  input: {
+    organisationId: string;
+    academicYearId: string;
+    reportingPeriodId?: string | null;
+    title: string;
+    subjectId: string;
+    yearGroupId: string;
+    typeKey: string;
+    assessmentDate: string;
+    createdBy: string;
+    classIds?: string[];
+    maximumMarks?: number | null;
+    gradeSchemeKey?: string | null;
+    status?: "draft" | "open" | "completed" | "reviewed" | "published";
+    internalNotes?: string | null;
+  },
+): Promise<string> {
+  const typeId = await lookupId(
+    client,
+    "select id from academic_assessment_types where organisation_id = $1 and key = $2",
+    [input.organisationId, input.typeKey],
+  );
+  const schemeId = input.gradeSchemeKey
+    ? await lookupId(
+        client,
+        "select id from academic_grade_schemes where organisation_id = $1 and key = $2",
+        [input.organisationId, input.gradeSchemeKey],
+      )
+    : null;
+  const inserted = await client.query<IdRow>(
+    `insert into academic_assessments (
+       organisation_id, academic_year_id, reporting_period_id, title, subject_id, year_group_id,
+       assessment_type_id, assessment_date, maximum_marks, grade_scheme_id, internal_notes, created_by
+     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+     returning id`,
+    [
+      input.organisationId,
+      input.academicYearId,
+      input.reportingPeriodId ?? null,
+      input.title,
+      input.subjectId,
+      input.yearGroupId,
+      typeId,
+      input.assessmentDate,
+      input.maximumMarks ?? null,
+      schemeId,
+      input.internalNotes ?? null,
+      input.createdBy,
+    ],
+  );
+  const id = inserted.rows[0]!.id;
+  for (const classId of input.classIds ?? []) {
+    await client.query(
+      `insert into academic_assessment_classes (organisation_id, assessment_id, class_id)
+       values ($1, $2, $3)`,
+      [input.organisationId, id, classId],
+    );
+  }
+  const status = input.status ?? "draft";
+  if (status !== "draft") {
+    await client.query("select snapshot_academic_assessment_inclusions($1)", [id]);
+    await client.query("update academic_assessments set status = 'open' where id = $1", [id]);
+    if (status === "completed" || status === "reviewed" || status === "published") {
+      await client.query("update academic_assessments set status = 'completed' where id = $1", [id]);
+    }
+    if (status === "reviewed") {
+      await client.query("update academic_assessments set status = 'reviewed' where id = $1", [id]);
+    }
+    if (status === "published") {
+      await client.query("update academic_assessments set status = 'published' where id = $1", [id]);
+    }
+  }
+  return id;
+}
+
+async function seedFormalResult(
+  client: pg.Client,
+  input: {
+    organisationId: string;
+    assessmentId: string;
+    studentProfileId: string;
+    enteredBy: string;
+    rawScore?: number | null;
+    maximumScore?: number | null;
+    gradeCode?: string | null;
+    teacherJudgement?: string | null;
+    comment?: string | null;
+    releasedToStudent?: boolean;
+    releasedToParent?: boolean;
+  },
+): Promise<void> {
+  const levelId = input.gradeCode
+    ? (
+        await client.query<IdRow>(
+          `select l.id
+           from academic_grade_scheme_levels l
+           join academic_assessments a on a.grade_scheme_id = l.scheme_id
+           where a.id = $1 and l.code = $2`,
+          [input.assessmentId, input.gradeCode],
+        )
+      ).rows[0]?.id ?? null
+    : null;
+  await client.query(
+    `insert into academic_results (
+       organisation_id, assessment_id, student_profile_id, raw_score, maximum_score,
+       grade_scheme_level_id, teacher_judgement, comment, released_to_student,
+       released_to_parent, entered_by
+     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+    [
+      input.organisationId,
+      input.assessmentId,
+      input.studentProfileId,
+      input.rawScore ?? null,
+      input.maximumScore ?? null,
+      levelId,
+      input.teacherJudgement ?? null,
+      input.comment ?? null,
+      input.releasedToStudent ?? false,
+      input.releasedToParent ?? false,
+      input.enteredBy,
     ],
   );
 }
@@ -1447,6 +1616,263 @@ async function seedGreenwood(
     academicYearId,
   });
 
+  const autumnPeriod = await seedReportingPeriod(client, {
+    organisationId: orgId,
+    academicYearId,
+    name: "Autumn Term",
+    startsOn: "2026-09-01",
+    endsOn: "2026-12-18",
+    status: "open",
+  });
+  const springPeriod = await seedReportingPeriod(client, {
+    organisationId: orgId,
+    academicYearId,
+    name: "Spring Term",
+    startsOn: "2027-01-05",
+    endsOn: "2027-03-26",
+    status: "planned",
+  });
+
+  const mathsTest = await seedFormalAssessment(client, {
+    organisationId: orgId,
+    academicYearId,
+    reportingPeriodId: autumnPeriod,
+    title: "Year 3 Maths Test",
+    subjectId: subjects.get("mathematics")!,
+    yearGroupId: yearGroups.get("3")!,
+    typeKey: "class_test",
+    assessmentDate: "2026-10-14",
+    createdBy: teacherId,
+    classIds: [classIds.get("3A")!],
+    maximumMarks: 20,
+    gradeSchemeKey: "age_related",
+    status: "published",
+    internalNotes: "Moderation: check Jack's working-towards judgement. Do not share with parents.",
+  });
+  await seedFormalResult(client, {
+    organisationId: orgId,
+    assessmentId: mathsTest,
+    studentProfileId: amelia.profileId,
+    enteredBy: teacherId,
+    rawScore: 18,
+    maximumScore: 20,
+    gradeCode: "EX",
+    comment: "Secure on place value and addition.",
+    releasedToStudent: true,
+    releasedToParent: true,
+  });
+  await seedFormalResult(client, {
+    organisationId: orgId,
+    assessmentId: mathsTest,
+    studentProfileId: jack.profileId,
+    enteredBy: teacherId,
+    rawScore: 11,
+    maximumScore: 20,
+    gradeCode: "WT",
+    comment: "Keep practising number bonds.",
+    releasedToStudent: true,
+    releasedToParent: false,
+  });
+
+  const englishReading = await seedFormalAssessment(client, {
+    organisationId: orgId,
+    academicYearId,
+    reportingPeriodId: autumnPeriod,
+    title: "Year 3 English reading assessment",
+    subjectId: subjects.get("english")!,
+    yearGroupId: yearGroups.get("3")!,
+    typeKey: "reading_assessment",
+    assessmentDate: "2026-11-04",
+    createdBy: teacherId,
+    classIds: [classIds.get("3A")!],
+    gradeSchemeKey: "age_related",
+    status: "published",
+  });
+  await seedFormalResult(client, {
+    organisationId: orgId,
+    assessmentId: englishReading,
+    studentProfileId: amelia.profileId,
+    enteredBy: teacherId,
+    gradeCode: "GD",
+    teacherJudgement: "Greater Depth",
+    comment: "Reads with fluency and inference.",
+    releasedToStudent: false,
+    releasedToParent: true,
+  });
+  await seedFormalResult(client, {
+    organisationId: orgId,
+    assessmentId: englishReading,
+    studentProfileId: jack.profileId,
+    enteredBy: teacherId,
+    gradeCode: "EX",
+    releasedToStudent: true,
+    releasedToParent: true,
+  });
+
+  const sciencePractical = await seedFormalAssessment(client, {
+    organisationId: orgId,
+    academicYearId,
+    reportingPeriodId: autumnPeriod,
+    title: "Year 3 Science practical",
+    subjectId: subjects.get("science")!,
+    yearGroupId: yearGroups.get("3")!,
+    typeKey: "practical_assessment",
+    assessmentDate: "2026-11-18",
+    createdBy: teacherId,
+    classIds: [classIds.get("3A")!],
+    maximumMarks: 10,
+    gradeSchemeKey: "percentage",
+    status: "open",
+    internalNotes: "Unreleased science scores — keep internal until moderation.",
+  });
+  await seedFormalResult(client, {
+    organisationId: orgId,
+    assessmentId: sciencePractical,
+    studentProfileId: amelia.profileId,
+    enteredBy: teacherId,
+    rawScore: 8,
+    maximumScore: 10,
+    comment: "Clear observations.",
+    releasedToStudent: false,
+    releasedToParent: false,
+  });
+
+  await seedFormalAssessment(client, {
+    organisationId: orgId,
+    academicYearId,
+    reportingPeriodId: autumnPeriod,
+    title: "Year 6 Maths Assessment",
+    subjectId: subjects.get("mathematics")!,
+    yearGroupId: yearGroups.get("6")!,
+    typeKey: "end_of_unit",
+    assessmentDate: "2026-10-21",
+    createdBy: adminId,
+    classIds: [classIds.get("6A")!],
+    maximumMarks: 40,
+    gradeSchemeKey: "percentage",
+    status: "published",
+  }).then(async (id) => {
+    await seedFormalResult(client, {
+      organisationId: orgId,
+      assessmentId: id,
+      studentProfileId: sophie.profileId,
+      enteredBy: adminId,
+      rawScore: 31,
+      maximumScore: 40,
+      releasedToStudent: true,
+      releasedToParent: true,
+    });
+  });
+
+  const ageScheme = await lookupId(
+    client,
+    "select id from academic_grade_schemes where organisation_id = $1 and key = 'age_related'",
+    [orgId],
+  );
+  const expectedLevel = await lookupId(
+    client,
+    "select id from academic_grade_scheme_levels where scheme_id = $1 and code = 'EX'",
+    [ageScheme],
+  );
+  const towardsLevel = await lookupId(
+    client,
+    "select id from academic_grade_scheme_levels where scheme_id = $1 and code = 'WT'",
+    [ageScheme],
+  );
+  await client.query(
+    `insert into academic_targets (
+       organisation_id, student_profile_id, academic_year_id, subject_id, grade_scheme_id,
+       target_level_id, target_value, baseline_level_id, baseline_value, note, created_by
+     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+    [
+      orgId,
+      amelia.profileId,
+      academicYearId,
+      subjects.get("mathematics")!,
+      ageScheme,
+      expectedLevel,
+      "Expected",
+      towardsLevel,
+      "Working Towards",
+      "End-of-year maths target from autumn baseline.",
+      teacherId,
+    ],
+  );
+
+  const publishedReport = await client.query<IdRow>(
+    `insert into academic_reports (
+       organisation_id, student_profile_id, academic_year_id, reporting_period_id,
+       general_comment, created_by
+     ) values ($1,$2,$3,$4,$5,$6)
+     returning id`,
+    [
+      orgId,
+      amelia.profileId,
+      academicYearId,
+      autumnPeriod,
+      "Amelia has settled well in Year 3A and is working at the expected standard in mathematics.",
+      teacherId,
+    ],
+  );
+  await client.query(
+    `insert into academic_report_sections (
+       organisation_id, report_id, subject_id, teacher_user_id, attainment_summary,
+       progress_judgement, teacher_comment, target_next_steps, sort_order
+     ) values ($1,$2,$3,$4,$5,$6,$7,$8,1)`,
+    [
+      orgId,
+      publishedReport.rows[0]!.id,
+      subjects.get("mathematics")!,
+      teacherId,
+      "Expected standard on the autumn maths test (18/20).",
+      "Good progress from the autumn baseline.",
+      "Amelia explains her methods clearly.",
+      "Continue with greater-depth reasoning problems.",
+    ],
+  );
+  await client.query("update academic_reports set status = 'published' where id = $1", [
+    publishedReport.rows[0]!.id,
+  ]);
+  await client.query(
+    `insert into academic_report_publications (organisation_id, report_id, payload, published_by)
+     values ($1, $2, $3::jsonb, $4)`,
+    [
+      orgId,
+      publishedReport.rows[0]!.id,
+      JSON.stringify({
+        generalComment:
+          "Amelia has settled well in Year 3A and is working at the expected standard in mathematics.",
+        sections: [
+          {
+            subject_id: subjects.get("mathematics"),
+            subject_name: "Mathematics",
+            attainment_summary: "Expected standard on the autumn maths test (18/20).",
+            progress_judgement: "Good progress from the autumn baseline.",
+            teacher_comment: "Amelia explains her methods clearly.",
+            target_next_steps: "Continue with greater-depth reasoning problems.",
+            sort_order: 1,
+          },
+        ],
+      }),
+      teacherId,
+    ],
+  );
+
+  await client.query(
+    `insert into academic_reports (
+       organisation_id, student_profile_id, academic_year_id, reporting_period_id,
+       general_comment, created_by
+     ) values ($1,$2,$3,$4,$5,$6)`,
+    [
+      orgId,
+      amelia.profileId,
+      academicYearId,
+      springPeriod,
+      "Draft spring comment — not visible to parents or pupils.",
+      teacherId,
+    ],
+  );
+
   await notify(client, {
     organisationId: orgId,
     recipientUserId: parentId,
@@ -1699,6 +2125,41 @@ async function seedOakAcademy(
       markedBy: teacherId,
     },
   });
+  const oakAutumn = await seedReportingPeriod(client, {
+    organisationId: orgId,
+    academicYearId,
+    name: "Autumn Term",
+    startsOn: "2026-09-01",
+    endsOn: "2026-12-18",
+  });
+  const oakMaths = await seedFormalAssessment(client, {
+    organisationId: orgId,
+    academicYearId,
+    reportingPeriodId: oakAutumn,
+    title: "Oak Year 3 Maths check",
+    subjectId: subjects.get("mathematics")!,
+    yearGroupId: yearGroups.get("3")!,
+    typeKey: "class_test",
+    assessmentDate: "2026-10-08",
+    createdBy: teacherId,
+    classIds: [class3.rows[0]!.id],
+    maximumMarks: 15,
+    gradeSchemeKey: "percentage",
+    status: "published",
+    internalNotes: "Oak-only formal assessment. Greenwood must never see this.",
+  });
+  await seedFormalResult(client, {
+    organisationId: orgId,
+    assessmentId: oakMaths,
+    studentProfileId: niamh.profileId,
+    enteredBy: teacherId,
+    rawScore: 13,
+    maximumScore: 15,
+    comment: "Oak-only result.",
+    releasedToStudent: true,
+    releasedToParent: true,
+  });
+
   await seedAssignment(client, {
     organisationId: orgId,
     title: "Oak science observations",

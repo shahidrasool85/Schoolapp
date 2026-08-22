@@ -5,7 +5,9 @@ import {
   computeCompleteness,
   createContinuationToken,
   defaultFormTemplate,
+  formTypeFromPublicKind,
   hashContinuationToken,
+  publicFormPath,
   mapAnswersToCanonical,
   normalizeCustomFieldKey,
   normalizeFormSlug,
@@ -83,6 +85,9 @@ describe("admissions forms", () => {
       campaignCode: "facebook",
     });
     expect(url).toContain("greenwood.localhost/admissions/enquiry/year-3-enquiry");
+    expect(publicFormPath("open_day", "summer")).toBe("/admissions/open_day/summer");
+    expect(formTypeFromPublicKind("apply")).toBe("application");
+    expect(formTypeFromPublicKind("open_day")).toBe("open_day");
     expect(url).toContain("source=facebook");
     expect(buildEmbedCode(url, 'Greenwood "Enquiry"')).toContain("<iframe");
     expect(buildEmbedCode(url, 'Greenwood "Enquiry"')).not.toContain('Greenwood "Enquiry"');

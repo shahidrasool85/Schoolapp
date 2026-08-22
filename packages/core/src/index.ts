@@ -243,6 +243,8 @@ export {
   normalizeFormSlug,
   normalizeCampaignCode,
   normalizeCustomFieldKey,
+  publicFormKind,
+  formTypeFromPublicKind,
   publicFormPath,
   publicFormEmbedPath,
   buildPublicFormUrl,

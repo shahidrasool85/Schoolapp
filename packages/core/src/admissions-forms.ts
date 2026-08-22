@@ -281,14 +281,21 @@ export function normalizeCustomFieldKey(value: string): string {
   return key;
 }
 
+export function publicFormKind(formType: AdmissionsFormType): string {
+  return formType === "application" ? "apply" : formType;
+}
+
+export function formTypeFromPublicKind(kind: string): AdmissionsFormType | null {
+  if (kind === "apply") return "application";
+  return isAdmissionsFormType(kind) ? kind : null;
+}
+
 export function publicFormPath(formType: AdmissionsFormType, slug: string): string {
-  const kind = formType === "enquiry" ? "enquiry" : "apply";
-  return `/admissions/${kind}/${slug}`;
+  return `/admissions/${publicFormKind(formType)}/${slug}`;
 }
 
 export function publicFormEmbedPath(formType: AdmissionsFormType, slug: string): string {
-  const kind = formType === "enquiry" ? "enquiry" : "apply";
-  return `/admissions/embed/${kind}/${slug}`;
+  return `/admissions/embed/${publicFormKind(formType)}/${slug}`;
 }
 
 export function buildPublicFormUrl(input: {

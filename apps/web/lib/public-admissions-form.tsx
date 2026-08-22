@@ -3,6 +3,23 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { api } from "./api";
 
+const PUBLIC_FORM_TYPES = [
+  "enquiry",
+  "application",
+  "open_day",
+  "waiting_list",
+  "scholarship",
+  "sixth_form",
+  "nursery",
+] as const;
+
+export type PublicFormType = (typeof PUBLIC_FORM_TYPES)[number];
+
+export function formTypeFromPublicKind(kind: string): PublicFormType | null {
+  if (kind === "apply") return "application";
+  return (PUBLIC_FORM_TYPES as readonly string[]).includes(kind) ? (kind as PublicFormType) : null;
+}
+
 type PublicField = {
   fieldKey: string;
   questionType: string;
@@ -42,6 +59,11 @@ type YearOption = { id: string; name: string };
 
 function fieldValue(type: string, form: FormData, key: string): unknown {
   if (type === "yes_no" || type === "declaration") return form.get(key) === "on" || form.get(key) === "true";
+  if (type === "file") {
+    const file = form.get(key);
+    if (!(file instanceof File) || !file.name) return null;
+    return { filename: file.name, contentType: file.type || "application/octet-stream", byteSize: file.size };
+  }
   if (type === "multiple_choice") return form.getAll(key);
   if (type === "address_group") {
     return {
@@ -188,6 +210,42 @@ function FieldInput({
       </label>
     );
   }
+  if (field.questionType === "multiple_choice") {
+    const selected = new Set(Array.isArray(initial) ? initial.map(String) : []);
+    return (
+      <fieldset className="span-2">
+        <legend>
+          {field.label}
+          {requiredMark}
+        </legend>
+        {field.options.map((option) => (
+          <label key={option.value} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input type="checkbox" name={field.fieldKey} value={option.value} defaultChecked={selected.has(option.value)} />
+            {option.label}
+          </label>
+        ))}
+        {field.helperText ? <small id={`${field.fieldKey}-help`} className="muted">{field.helperText}</small> : null}
+      </fieldset>
+    );
+  }
+  if (field.questionType === "file") {
+    return (
+      <label className="span-2">
+        {field.label}
+        {requiredMark}
+        <input
+          id={field.fieldKey}
+          name={field.fieldKey}
+          type="file"
+          required={field.required}
+          aria-describedby={describedBy}
+          accept=".pdf,.png,.jpg,.jpeg,.webp,.docx,application/pdf,image/jpeg,image/png,image/webp,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        />
+        <small className="muted">PDF, JPEG, PNG, WebP or DOCX, up to 8 MB. Binary storage is registered after you save a draft.</small>
+        {field.helperText ? <small id={`${field.fieldKey}-help`} className="muted">{field.helperText}</small> : null}
+      </label>
+    );
+  }
   const inputType = field.questionType === "email" ? "email" : field.questionType === "date" ? "date" : field.questionType === "number" ? "number" : "text";
   return (
     <label>
@@ -204,7 +262,7 @@ export function PublicAdmissionsForm({
   slug,
   embed = false,
 }: {
-  formType: "enquiry" | "application";
+  formType: PublicFormType;
   slug: string;
   embed?: boolean;
 }) {
@@ -221,7 +279,7 @@ export function PublicAdmissionsForm({
   );
 
   const sections = payload?.sections ?? [];
-  const isMulti = formType === "application" && sections.length > 1;
+  const isMulti = formType !== "enquiry" && sections.length > 1;
   const privacyUrl =
     payload?.form.privacyNoticeUrl && /^https?:\/\//i.test(payload.form.privacyNoticeUrl)
       ? payload.form.privacyNoticeUrl
@@ -394,7 +452,7 @@ export function PublicAdmissionsForm({
             <span />
           )}
           <div style={{ display: "flex", gap: 8 }}>
-            {formType === "application" ? (
+            {formType !== "enquiry" ? (
               <button type="button" className="secondary" onClick={() => void submitFromForm(true)}>
                 Save draft
               </button>

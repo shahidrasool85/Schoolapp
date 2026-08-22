@@ -280,7 +280,7 @@ GET    /api/v1/parent/children/{studentId}/assignments
 GET    /api/v1/parent/children/{studentId}/assignments/{assignmentId}
 ```
 
-`POST /learning/assignments` always creates `draft`. Publish snapshots recipients from current targets. Assignment list/dashboard filters: `status`, `classId`, `subjectId`, `dueFrom`, `dueTo`. Student list filter: `bucket` (`assigned`, `due_soon`, `overdue`, `due`, `submitted`, `returned`, `completed`). Parent endpoints never accept a submission body.
+`POST /learning/assignments` always creates `draft`. Publish snapshots recipients from current targets. PATCH/publish/close/archive/resources require school-wide `lms.assignments.manage` or `created_by` of the assignment. Teachers with only `manage_assigned` cannot take over another staff member’s work merely because they share a pupil. Assignment list/dashboard filters: `status`, `classId`, `subjectId`, `dueFrom`, `dueTo`. Student list filter: `bucket` (`assigned`, `due_soon`, `overdue`, `due`, `submitted`, `returned`, `completed`). Parent endpoints never accept a submission body.
 
 Binary file upload is not implemented. Resource rows currently require a validated `http(s)` URL. Storage-port key builders exist for a later S3-compatible adapter.
 

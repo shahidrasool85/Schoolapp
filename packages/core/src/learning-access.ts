@@ -200,8 +200,13 @@ export async function assertCanManageAssignment(
 ): Promise<void> {
   assertAnyPermission(actor, LMS_ASSIGN_PERMISSIONS);
   if (canManageSchoolLearning(actor)) return;
-  await assertCanReadAssignment(client, actor, assignmentId);
   if (!canManageAssignedLearning(actor)) notFound();
+  const row = await client.query<{ created_by: string }>(
+    `select created_by from learning_assignments
+     where id = $1 and organisation_id = $2`,
+    [assignmentId, actor.organisationId],
+  );
+  if (!row.rows[0] || row.rows[0].created_by !== actor.userId) notFound();
 }
 
 export async function canSeeLearningRecipient(

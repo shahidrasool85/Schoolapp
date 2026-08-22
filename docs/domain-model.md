@@ -179,7 +179,7 @@ The original application remains after enrolment and records `converted_student_
 Canonical learning work is **not** a single class-scoped homework row. See [ADR 0016](./adr/0016-phase7-learning-lms.md).
 
 - `learning_work_types` — organisation catalogue (`homework`, `classwork`, `revision`, `project`, `reading`, `practice`, `assessment_preparation`)
-- `learning_assignments` — title, instructions, subject, academic year, optional intended year group, due/available-from, estimated duration, maximum marks, submission-required flag, teacher-private notes, status `draft | published | closed | archived`. **No `class_id`.**
+- `learning_assignments` — title, instructions, subject, academic year, optional intended year group, due/available-from, estimated duration, maximum marks, submission-required flag, teacher-private notes, status `draft | published | closed | archived`. **No `class_id`.** Lifecycle (edit/publish/close/archive/resources) is school-wide `lms.assignments.manage` or the creating actor.
 - `learning_assignment_targets` — targeting intent: class, year group, and/or selected pupil (multiple rows per assignment)
 - `learning_assignment_recipients` — frozen pupil list at publish (and when a published target is added). Class/year moves later keep the original relationship
 - `learning_assignment_status_history` — publication/close/archive audit

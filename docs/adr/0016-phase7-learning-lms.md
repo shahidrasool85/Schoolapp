@@ -24,6 +24,8 @@ Two product rules would be expensive to reverse:
 
 Year-group targeting requires school-wide `lms.assignments.manage` (Headteacher / School Admin). Teachers with `lms.assignments.manage_assigned` may only target assigned classes and pupils in those classes.
 
+**Manage vs mark:** sharing a pupil or class with another teacher does **not** grant assignment lifecycle control. Publish, close, archive, edit, and resource attach require school-wide `lms.assignments.manage` **or** `created_by = actor`. Marking and reading submissions still use `canSeeLearningRecipient` (current assigned pupils, or the recipient snapshot class the teacher still teaches).
+
 ### Work types
 
 Work is not hardcoded as “Homework”. Each organisation has a catalogue (`homework`, `classwork`, `revision`, `project`, `reading`, `practice`, `assessment_preparation`) plus room for later keys. AI activities and challenges should attach to this work model later rather than inventing a parallel homework table.

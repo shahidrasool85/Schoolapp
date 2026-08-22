@@ -385,6 +385,45 @@ describe("Phase 7 teaching and learning", () => {
     const ids = body.submissions.map((row) => row.studentProfileId);
     expect(ids).toContain(pupilA.student.id);
     expect(ids).not.toContain(pupilB.student.id);
+    const close = await app.request(`/api/v1/learning/assignments/${assignment.assignment.id}/close`, {
+      method: "POST",
+      headers: teacherHdrs,
+      body: "{}",
+    });
+    expect(close.status).toBe(404);
+  });
+
+  it("lets a teacher create, publish, and close work they created for an assigned class", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const adminToken = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(adminToken, school.orgId);
+    const seeded = await seedStructure(app, hdrs);
+    await inviteTeacher(app, hdrs, id, seeded.classAId);
+    const teacherToken = await login(app, `teacher-${id}@example.com`, "teacher-pass-1");
+    const teacherHdrs = headers(teacherToken, school.orgId);
+    const created = await app.request("/api/v1/learning/assignments", {
+      method: "POST",
+      headers: teacherHdrs,
+      body: JSON.stringify({
+        title: "My class practice",
+        workTypeKey: "practice",
+        targets: [{ targetType: "class", classId: seeded.classAId }],
+      }),
+    });
+    expect(created.status).toBe(201);
+    const assignment = (await created.json()) as { assignment: { id: string } };
+    const published = await app.request(
+      `/api/v1/learning/assignments/${assignment.assignment.id}/publish`,
+      { method: "POST", headers: teacherHdrs, body: "{}" },
+    );
+    expect(published.status).toBe(200);
+    const closed = await app.request(`/api/v1/learning/assignments/${assignment.assignment.id}/close`, {
+      method: "POST",
+      headers: teacherHdrs,
+      body: "{}",
+    });
+    expect(closed.status).toBe(200);
   });
 
   it("persists student draft text before submit", async () => {

@@ -87,6 +87,8 @@ Student portal access is school default → year-group override → class overri
 
 Teacher LMS access is **assigned-only**. `lms.assignments.manage_assigned` / `lms.submissions.mark_assigned` do not grant school-wide work. Year-group targeting and school-wide lists require `lms.assignments.manage` / `lms.assignments.read` (Headteacher and School Admin). Ordinary `school.staff` does not receive those keys.
 
+`lms.assignments.manage_assigned` lets a teacher create work for assigned classes/pupils and then edit/publish/close **their own** rows (`created_by`). Sharing a pupil with another teacher does not let that teacher take over lifecycle of someone else’s assignment. `lms.submissions.mark_assigned` is the key used to mark remaining authorised recipients.
+
 Parent learning APIs require `portal_access = true` on the guardianship. Teacher-private notes and unreleased marks are omitted from parent and student payloads. `lms.submissions.submit` is student-only; the parent UI has no submit path.
 
 Parent/student document visibility is explicit. Staff-only metadata is never listed on parent/student endpoints.

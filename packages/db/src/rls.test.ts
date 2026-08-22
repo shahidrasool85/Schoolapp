@@ -681,5 +681,38 @@ describe("RLS catalog", () => {
         assignment.rows[0]!.id,
       ]),
     ).rejects.toThrow(/invalid_status_transition/);
+
+    const pupil = await pools.owner.query<{ id: string }>(
+      "insert into student_profiles (organisation_id, legal_name) values ($1, 'Marked Child') returning id",
+      [org.rows[0]!.id],
+    );
+    await pools.owner.query(
+      `insert into learning_assignment_recipients (
+         organisation_id, assignment_id, student_profile_id
+       ) values ($1, $2, $3)`,
+      [org.rows[0]!.id, assignment.rows[0]!.id, pupil.rows[0]!.id],
+    );
+    const submission = await pools.owner.query<{ id: string }>(
+      `insert into learning_submissions (
+         organisation_id, assignment_id, student_profile_id, status
+       ) values ($1, $2, $3, 'submitted') returning id`,
+      [org.rows[0]!.id, assignment.rows[0]!.id, pupil.rows[0]!.id],
+    );
+    await expect(
+      pools.owner.query(
+        `insert into learning_marks (
+           organisation_id, submission_id, score, maximum_marks, marked_by
+         ) values ($1, $2, 11, 10, $3)`,
+        [org.rows[0]!.id, submission.rows[0]!.id, actor.rows[0]!.id],
+      ),
+    ).rejects.toThrow(/learning_score_out_of_range/);
+    await expect(
+      pools.owner.query(
+        `insert into learning_marks (
+           organisation_id, submission_id, score, maximum_marks, marked_by
+         ) values ($1, $2, 5, 20, $3)`,
+        [org.rows[0]!.id, submission.rows[0]!.id, actor.rows[0]!.id],
+      ),
+    ).rejects.toThrow(/learning_score_out_of_range/);
   });
 });

@@ -699,6 +699,12 @@ begin
   if new.maximum_marks is null then
     new.maximum_marks := v_max;
   end if;
+  if v_max is not null and new.maximum_marks is not null and new.maximum_marks > v_max then
+    raise exception 'learning_score_out_of_range' using errcode = '23514';
+  end if;
+  if new.score is not null and v_max is not null and new.score > v_max then
+    raise exception 'learning_score_out_of_range' using errcode = '23514';
+  end if;
   if new.score is not null and new.maximum_marks is not null and new.score > new.maximum_marks then
     raise exception 'learning_score_out_of_range' using errcode = '23514';
   end if;

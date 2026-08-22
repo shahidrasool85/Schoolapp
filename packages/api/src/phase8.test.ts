@@ -490,7 +490,7 @@ describe("Phase 8 assessments results and reports", () => {
 
     const studentToken = await loginAlias(app, school.slug, `withdrawn-${id}`, "student-pass-1");
     await pools.owner.query(
-      `update student_enrolments set status = 'withdrawn', ended_on = current_date
+      `update student_enrolments set status = 'withdrawn', ended_on = started_on
        where student_profile_id = $1`,
       [pupil.student.id],
     );

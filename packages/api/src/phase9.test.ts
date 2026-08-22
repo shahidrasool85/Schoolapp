@@ -204,6 +204,8 @@ describe("phase 9 public admissions forms", () => {
       }),
     });
     expect(finalise.status).toBe(201);
+    const finalBody = (await finalise.json()) as { submission: { applicationReference?: string } };
+    expect(finalBody.submission.applicationReference).toMatch(/^APP-/);
     const listed = (await (await app.request("/api/v1/admissions/applications", { headers: hdrs })).json()) as {
       applications: Array<{ pupilLegalName: string; status: string }>;
     };

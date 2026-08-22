@@ -905,6 +905,19 @@ begin
     v_application_id := v_sub.application_id;
   end if;
 
+  if v_application_ref is null and coalesce(v_application_id, v_sub.application_id) is not null then
+    select reference into v_application_ref
+    from admissions_applications
+    where id = coalesce(v_application_id, v_sub.application_id)
+      and organisation_id = p_organisation_id;
+  end if;
+  if v_enquiry_ref is null and coalesce(v_enquiry_id, v_sub.enquiry_id) is not null then
+    select reference into v_enquiry_ref
+    from admissions_enquiries
+    where id = coalesce(v_enquiry_id, v_sub.enquiry_id)
+      and organisation_id = p_organisation_id;
+  end if;
+
   if v_sub.id is null then
     insert into admissions_form_submissions (
       organisation_id, form_id, form_type, completeness_status, enquiry_id, application_id,

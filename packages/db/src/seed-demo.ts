@@ -999,7 +999,7 @@ async function seedAdmissionsPublicForms(
     [input.organisationId],
   );
 
-  const campaigns =
+  const campaigns: Array<[string, string]> =
     input.schoolKey === "greenwood"
       ? [
           ["school-website", "School Website"],
@@ -1163,7 +1163,7 @@ async function seedAdmissionsPublicForms(
     { value: "friend", label: "Friend or family" },
     { value: "online", label: "Online" },
   ] }, 2);
-  await addField(applyId, applyDecl.rows[0]!.id, { key: "declaration.privacy", kind: "custom", type: "declaration", label: "I confirm the information is accurate", required: true }, 0);
+  await addField(applyId, applyDecl.rows[0]!.id, { key: "declaration_privacy", kind: "custom", type: "declaration", label: "I confirm the information is accurate", required: true }, 0);
 
   await insertForm({
     slug: input.schoolKey === "greenwood" ? "sixth-form-draft" : "oak-scholarship-draft",
@@ -1212,7 +1212,7 @@ async function seedAdmissionsPublicForms(
       JSON.stringify({
         capturedAt: new Date().toISOString(),
         privacyNoticeText: "Demo privacy notice snapshot",
-        declarations: [{ fieldKey: "declaration.privacy", label: "I confirm", accepted: true }],
+        declarations: [{ fieldKey: "declaration_privacy", label: "I confirm", accepted: true }],
       }),
       input.schoolKey === "greenwood" ? "facebook" : "oak-website",
     ],

@@ -54,7 +54,9 @@ function clientIp(c: { req: { header: (name: string) => string | undefined } }):
   return c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? c.req.header("x-real-ip") ?? null;
 }
 
-function mapPublicFields(payload: { sections?: Array<{ fields?: Array<Record<string, unknown>> }> }): FormFieldDefinition[] {
+function mapPublicFields(payload: {
+  sections?: Array<{ sectionKey?: string; fields?: Array<Record<string, unknown>> }>;
+}): FormFieldDefinition[] {
   const fields: FormFieldDefinition[] = [];
   for (const section of payload.sections ?? []) {
     for (const field of section.fields ?? []) {

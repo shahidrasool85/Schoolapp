@@ -261,7 +261,11 @@ export function normalizeCampaignCode(value: string): string {
 }
 
 export function normalizeCustomFieldKey(value: string): string {
-  const key = sanitizePlainText(value, 64).toLowerCase();
+  const key = sanitizePlainText(value, 64)
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 63);
   if (!CUSTOM_FIELD_KEY_PATTERN.test(key) || isCanonicalFieldKey(key)) {
     throw new AppError(400, "validation_failed", "Custom field key is invalid");
   }
@@ -430,7 +434,7 @@ export function defaultFormTemplate(formType: AdmissionsFormType): FormSectionDe
     section("application", "Application details", ["application.notes"]),
     section("declarations", "Documents and declarations", [
       {
-        fieldKey: "declaration.privacy",
+        fieldKey: "declaration_privacy",
         fieldKind: "custom",
         canonicalKey: null,
         questionType: "declaration",

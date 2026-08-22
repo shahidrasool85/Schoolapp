@@ -137,13 +137,16 @@ describe("phase 9 public admissions forms", () => {
     ).json()) as { form: { id: string } };
     await app.request(`/api/v1/admissions/forms/${enquiryForm.form.id}/publish`, { method: "POST", headers: hdrs });
 
-    const applyForm = (await (
-      await app.request("/api/v1/admissions/forms", {
-        method: "POST",
-        headers: hdrs,
-        body: JSON.stringify({ formType: "application", name: "Apply", slug: "apply" }),
-      })
-    ).json()) as { form: { id: string }; sections: Array<{ fields: Array<{ fieldKey: string }> }> };
+    const applyCreated = await app.request("/api/v1/admissions/forms", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ formType: "application", name: "Apply", slug: "apply" }),
+    });
+    expect(applyCreated.status).toBe(201);
+    const applyForm = (await applyCreated.json()) as {
+      form: { id: string };
+      sections: Array<{ fields: Array<{ fieldKey: string }> }>;
+    };
     await app.request(`/api/v1/admissions/forms/${applyForm.form.id}/definition`, {
       method: "PUT",
       headers: hdrs,

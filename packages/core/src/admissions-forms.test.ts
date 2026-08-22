@@ -7,6 +7,7 @@ import {
   defaultFormTemplate,
   hashContinuationToken,
   mapAnswersToCanonical,
+  normalizeCustomFieldKey,
   normalizeFormSlug,
   publicFormIsAccepting,
   sanitizePlainText,
@@ -64,7 +65,7 @@ describe("admissions forms", () => {
         { fullName: "Anita Patel", email: "anita@example.com", primaryContact: true, parentalResponsibility: true },
         { fullName: "Ravi Patel", email: "ravi@example.com", relationship: "father" },
       ],
-      "declaration.privacy": true,
+      declaration_privacy: true,
     });
     const canonical = mapAnswersToCanonical(fields, answers);
     expect(canonical.guardians).toHaveLength(2);
@@ -86,6 +87,15 @@ describe("admissions forms", () => {
     const token = createContinuationToken();
     expect(hashContinuationToken(token.token)).toBe(token.hash);
     expect(normalizeFormSlug("Year 3 Enquiry")).toBe("year-3-enquiry");
+  });
+
+  it("normalizes dotted custom keys used by the application template", () => {
+    expect(normalizeCustomFieldKey("declaration.privacy")).toBe("declaration_privacy");
+    expect(
+      defaultFormTemplate("application")
+        .flatMap((section) => section.fields)
+        .some((field) => field.fieldKey === "declaration_privacy"),
+    ).toBe(true);
   });
 
   it("fails closed for unpublished or expired forms", () => {

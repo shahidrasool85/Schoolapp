@@ -270,11 +270,15 @@ begin
   ) then
     raise exception 'organisation_mismatch' using errcode = '23514';
   end if;
-  if tg_table_name = 'admissions_form_fields' and not exists (
-    select 1 from admissions_form_sections s
-    where s.id = new.section_id and s.organisation_id = new.organisation_id
-  ) then
-    raise exception 'organisation_mismatch' using errcode = '23514';
+  -- NEW.section_id is only valid on admissions_form_fields. Nested IF avoids
+  -- evaluating that field on sections (PL/pgSQL still plans AND subqueries).
+  if tg_table_name = 'admissions_form_fields' then
+    if not exists (
+      select 1 from admissions_form_sections s
+      where s.id = new.section_id and s.organisation_id = new.organisation_id
+    ) then
+      raise exception 'organisation_mismatch' using errcode = '23514';
+    end if;
   end if;
   return new;
 end;
@@ -1010,8 +1014,7 @@ begin
   v_medical := coalesce(v_canonical->'medical', '{}'::jsonb);
 
   update student_profiles
-  set preferred_name = coalesce(preferred_name, v_app.pupil_preferred_name),
-      date_of_birth = coalesce(date_of_birth, v_app.date_of_birth),
+  set legal_name = coalesce(nullif(legal_name, ''), v_app.pupil_legal_name),
       gender = coalesce(gender, v_app.gender),
       address_line1 = coalesce(address_line1, v_app.address_line1),
       address_line2 = coalesce(address_line2, v_app.address_line2),
@@ -1019,6 +1022,15 @@ begin
       address_postcode = coalesce(address_postcode, v_app.address_postcode),
       updated_at = now()
   where id = p_student_profile_id and organisation_id = p_organisation_id;
+
+  update users u
+  set preferred_name = coalesce(u.preferred_name, v_app.pupil_preferred_name),
+      date_of_birth = coalesce(u.date_of_birth, v_app.date_of_birth),
+      updated_at = now()
+  from student_profiles p
+  where p.id = p_student_profile_id
+    and p.organisation_id = p_organisation_id
+    and u.id = p.user_id;
 
   if v_medical <> '{}'::jsonb then
     insert into student_additional_needs (

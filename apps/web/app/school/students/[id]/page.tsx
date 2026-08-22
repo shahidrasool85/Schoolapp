@@ -93,6 +93,7 @@ export default function StudentDetailPage() {
   const [data, setData] = useState<Detail | null>(null);
   const [attendance, setAttendance] = useState<AttendanceHistory | null>(null);
   const [learning, setLearning] = useState<LearningHistory | null>(null);
+  const [learningStatus, setLearningStatus] = useState<"loading" | "ready" | "error">("loading");
   const [years, setYears] = useState<Option[]>([]);
   const [groups, setGroups] = useState<Option[]>([]);
   const [classes, setClasses] = useState<Option[]>([]);
@@ -130,9 +131,11 @@ export default function StudentDetailPage() {
       const learningHistory = await api<LearningHistory>(`/api/v1/students/${studentId}/learning`);
       if (seq !== loadSeq.current) return;
       setLearning(learningHistory);
+      setLearningStatus("ready");
     } catch {
       if (seq !== loadSeq.current) return;
       setLearning(null);
+      setLearningStatus("error");
     }
   }
 
@@ -140,6 +143,7 @@ export default function StudentDetailPage() {
     setData(null);
     setAttendance(null);
     setLearning(null);
+    setLearningStatus("loading");
     setError("");
     setInvite("");
     load().catch((err: Error) => setError(err.message));
@@ -227,7 +231,11 @@ export default function StudentDetailPage() {
       ) : null}
 
       <h2>Learning</h2>
-      {learning && learning.items.length > 0 ? (
+      {learningStatus === "loading" ? (
+        <p className="muted">Loading learning history…</p>
+      ) : learningStatus === "error" ? (
+        <p className="muted">Unable to load learning history.</p>
+      ) : learning && learning.items.length > 0 ? (
         <table>
           <thead>
             <tr><th>Work</th><th>Due</th><th>Status</th><th>Feedback</th></tr>

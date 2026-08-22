@@ -46,6 +46,18 @@ export default function ParentChildAssignmentPage() {
       <p>Status: {a.submission.status.replaceAll("_", " ")}</p>
       <h2>Instructions</h2>
       <p>{a.description || "No instructions."}</p>
+      {a.resources.length > 0 ? (
+        <>
+          <h2>Resources</h2>
+          <ul>
+            {a.resources.map((resource) => (
+              <li key={resource.id}>
+                {resource.url ? <a href={resource.url}>{resource.title}</a> : resource.title}
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
       {a.mark ? (
         <>
           <h2>Teacher feedback</h2>

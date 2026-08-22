@@ -6,8 +6,7 @@ import {
   countUnreadNotifications,
   isLearningSubmissionStatus,
   loadOwnStudentProfile,
-  pupilCanSaveDraftFrom,
-  pupilCanSubmitFrom,
+  pupilCanWriteOnAssignment,
   requireStudentPortalEnabled,
   STUDENT_DASHBOARD_SECTIONS,
   summariseAttendanceMarks,
@@ -140,15 +139,31 @@ export function registerStudentRoutes(app: SchoolappApi) {
         "select status, submission_required from learning_assignments where id = $1 and organisation_id = $2",
         [assignmentId, orgId],
       );
-      if (assignment.rows[0]?.status !== "published") {
+      const assignmentStatus = assignment.rows[0]?.status ?? "";
+      const submit = parsed.data.submit !== false;
+      if (assignmentStatus !== "published" && assignmentStatus !== "closed") {
         throw new AppError(409, "conflict", "This assignment is not open for submissions");
       }
-      const current = await ensurePupilSubmission(client, orgId, assignmentId, studentProfileId);
-      const submit = parsed.data.submit !== false;
+      const existing = await client.query<{ id: string; status: string }>(
+        `select id, status from learning_submissions
+         where organisation_id = $1 and assignment_id = $2 and student_profile_id = $3`,
+        [orgId, assignmentId, studentProfileId],
+      );
+      if (!existing.rows[0] && assignmentStatus !== "published") {
+        throw new AppError(409, "conflict", "This assignment is not open for submissions");
+      }
+      const current = existing.rows[0] ?? (await ensurePupilSubmission(client, orgId, assignmentId, studentProfileId));
+      if (
+        !isLearningSubmissionStatus(current.status) ||
+        !pupilCanWriteOnAssignment(assignmentStatus, current.status, submit ? "submit" : "save")
+      ) {
+        throw new AppError(
+          409,
+          assignmentStatus === "published" ? "invalid_status_transition" : "conflict",
+          submit ? "This assignment cannot be submitted now" : "This assignment cannot be edited now",
+        );
+      }
       if (submit) {
-        if (!isLearningSubmissionStatus(current.status) || !pupilCanSubmitFrom(current.status)) {
-          throw new AppError(409, "invalid_status_transition", "This assignment cannot be submitted now");
-        }
         const nextNumber = await client.query<{ n: number }>(
           `select coalesce(max(revision_number), 0)::int + 1 as n
            from learning_submission_revisions
@@ -176,9 +191,6 @@ export function registerStudentRoutes(app: SchoolappApi) {
           [current.id, orgId, revision.rows[0]!.id, userId],
         );
       } else {
-        if (!isLearningSubmissionStatus(current.status) || !pupilCanSaveDraftFrom(current.status)) {
-          throw new AppError(409, "invalid_status_transition", "This assignment cannot be edited now");
-        }
         const nextNumber = await client.query<{ n: number }>(
           `select coalesce(max(revision_number), 0)::int + 1 as n
            from learning_submission_revisions

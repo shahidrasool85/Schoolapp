@@ -76,6 +76,20 @@ export function pupilCanSaveDraftFrom(status: LearningSubmissionStatus): boolean
   return status === "not_started" || status === "in_progress" || status === "resubmission_requested";
 }
 
+export function pupilCanWriteOnAssignment(
+  assignmentStatus: string,
+  submissionStatus: LearningSubmissionStatus,
+  mode: "save" | "submit",
+): boolean {
+  const allowedFrom = mode === "submit" ? pupilCanSubmitFrom(submissionStatus) : pupilCanSaveDraftFrom(submissionStatus);
+  if (!allowedFrom) return false;
+  if (assignmentStatus === "published") return true;
+  return (
+    assignmentStatus === "closed" &&
+    (submissionStatus === "resubmission_requested" || submissionStatus === "in_progress")
+  );
+}
+
 const BLOCKED_URL_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]", "::1"]);
 
 export function isAllowedLearningUrl(value: string): boolean {
@@ -183,21 +197,23 @@ export function studentLearningBuckets(
   ) {
     buckets.push("returned");
   }
-  if (status === "completed") buckets.push("completed");
+  if (input.releasedToStudent && status === "completed") buckets.push("completed");
   return buckets;
 }
 
 export function parentLearningStatus(input: {
   dueAt: Date | string | null;
   submissionStatus: string | null;
+  releasedToParent?: boolean;
   now?: Date;
 }): "submitted" | "not_submitted" | "overdue" | "completed" {
   const status = input.submissionStatus ?? "not_started";
-  if (status === "completed") return "completed";
+  if (status === "completed" && input.releasedToParent) return "completed";
   if (
     status === "submitted" ||
     status === "returned" ||
-    status === "resubmission_requested"
+    status === "resubmission_requested" ||
+    status === "completed"
   ) {
     return "submitted";
   }

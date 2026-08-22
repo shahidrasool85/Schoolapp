@@ -611,6 +611,7 @@ describe("Phase 7 teaching and learning", () => {
         feedback: "Well done",
         releasedToStudent: false,
         releasedToParent: false,
+        status: "completed",
         markedBy: randomUUID(),
         markedAt: "1999-01-01T00:00:00.000Z",
       }),
@@ -627,6 +628,7 @@ describe("Phase 7 teaching and learning", () => {
     };
     expect(studentDetailBody.assignment.mark).toBeNull();
     expect(studentDetailBody.assignment.submission.status).toBe("submitted");
+    expect((studentDetailBody.assignment as { buckets?: string[] }).buckets ?? []).not.toContain("completed");
     expect(JSON.stringify(studentDetailBody)).not.toContain("Do not show this note");
 
     const parentToken = await login(app, `parent-${id}@example.com`, "parent-pass-1");
@@ -663,7 +665,7 @@ describe("Phase 7 teaching and learning", () => {
         feedback: "Well done",
         releasedToStudent: true,
         releasedToParent: true,
-        status: "returned",
+        status: "completed",
       }),
     });
     const released = await app.request(`/api/v1/student/assignments/${assignment.assignment.id}`, {
@@ -806,5 +808,84 @@ describe("Phase 7 teaching and learning", () => {
       expect(leaked.rows.length).toBe(0);
     });
     expect(outsider.student.id).toBeTruthy();
+  });
+
+  it("lets a pupil resubmit after close when the teacher requested it, not before", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(token, school.orgId);
+    const seeded = await seedStructure(app, hdrs);
+    const pupil = await createStudent(app, hdrs, {
+      legalName: "Resubmit Pupil",
+      academicYearId: seeded.yearId,
+      yearGroupId: seeded.year3Id,
+      classId: seeded.classAId,
+      loginAlias: `rsb.${id}`,
+      password: "student-pass-1",
+    });
+    const created = await app.request("/api/v1/learning/assignments", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        title: "Resubmit after close",
+        workTypeKey: "practice",
+        targets: [{ targetType: "class", classId: seeded.classAId }],
+      }),
+    });
+    const assignment = (await created.json()) as { assignment: { id: string } };
+    await app.request(`/api/v1/learning/assignments/${assignment.assignment.id}/publish`, {
+      method: "POST",
+      headers: hdrs,
+      body: "{}",
+    });
+    const studentToken = await loginAlias(app, school.slug, `rsb.${id}`, "student-pass-1");
+    const studentHdrs = headers(studentToken, school.orgId);
+    const first = await app.request(`/api/v1/student/assignments/${assignment.assignment.id}/submissions`, {
+      method: "POST",
+      headers: studentHdrs,
+      body: JSON.stringify({ textResponse: "First attempt", submit: true }),
+    });
+    expect(first.status).toBe(201);
+    await app.request(`/api/v1/learning/assignments/${assignment.assignment.id}/close`, {
+      method: "POST",
+      headers: hdrs,
+      body: "{}",
+    });
+    const closedSubmit = await app.request(
+      `/api/v1/student/assignments/${assignment.assignment.id}/submissions`,
+      {
+        method: "POST",
+        headers: studentHdrs,
+        body: JSON.stringify({ textResponse: "Too late", submit: true }),
+      },
+    );
+    expect(closedSubmit.status).toBe(409);
+    const staffSubs = await app.request(
+      `/api/v1/learning/assignments/${assignment.assignment.id}/submissions`,
+      { headers: hdrs },
+    );
+    const staffBody = (await staffSubs.json()) as {
+      submissions: Array<{ submissionId: string | null; studentProfileId: string }>;
+    };
+    const mine = staffBody.submissions.find((row) => row.studentProfileId === pupil.student.id);
+    await app.request(`/api/v1/learning/submissions/${mine!.submissionId}/marks`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        status: "resubmission_requested",
+        releasedToStudent: true,
+        feedback: "Please try again",
+      }),
+    });
+    const resubmit = await app.request(
+      `/api/v1/student/assignments/${assignment.assignment.id}/submissions`,
+      {
+        method: "POST",
+        headers: studentHdrs,
+        body: JSON.stringify({ textResponse: "Second attempt", submit: true }),
+      },
+    );
+    expect(resubmit.status).toBe(201);
   });
 });

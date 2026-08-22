@@ -85,6 +85,7 @@ export function serializePupilAssignment(
       ? parentLearningStatus({
           dueAt: row.due_at ? String(row.due_at) : null,
           submissionStatus: rawStatus,
+          releasedToParent,
         })
       : audience === "student" &&
           !releasedToStudent &&

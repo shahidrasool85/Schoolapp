@@ -125,6 +125,7 @@ export {
   isSubmissionStatusTransitionAllowed,
   pupilCanSubmitFrom,
   pupilCanSaveDraftFrom,
+  pupilCanWriteOnAssignment,
   isAllowedLearningUrl,
   isScoreInRange,
   summariseLearningProgress,

@@ -7,6 +7,7 @@ import {
   learningNotificationBody,
   parentLearningStatus,
   pupilCanSubmitFrom,
+  pupilCanWriteOnAssignment,
   studentLearningBuckets,
   summariseLearningProgress,
 } from "./learning.js";
@@ -27,6 +28,10 @@ describe("learning submission lifecycle", () => {
     expect(pupilCanSubmitFrom("completed")).toBe(false);
     expect(isSubmissionStatusTransitionAllowed("submitted", "resubmission_requested")).toBe(true);
     expect(isSubmissionStatusTransitionAllowed("completed", "submitted")).toBe(false);
+    expect(pupilCanWriteOnAssignment("published", "not_started", "submit")).toBe(true);
+    expect(pupilCanWriteOnAssignment("closed", "not_started", "submit")).toBe(false);
+    expect(pupilCanWriteOnAssignment("closed", "resubmission_requested", "submit")).toBe(true);
+    expect(pupilCanWriteOnAssignment("archived", "resubmission_requested", "submit")).toBe(false);
   });
 });
 
@@ -99,13 +104,23 @@ describe("learning visibility buckets", () => {
     ).toEqual(["submitted", "returned", "completed"]);
   });
 
-  it("keeps unreleased feedback out of the returned bucket", () => {
+  it("keeps unreleased feedback out of the returned and completed buckets", () => {
     expect(
       studentLearningBuckets({
         assignmentStatus: "published",
         availableFrom: null,
         dueAt: null,
         submissionStatus: "returned",
+        releasedToStudent: false,
+        now,
+      }),
+    ).toEqual(["submitted"]);
+    expect(
+      studentLearningBuckets({
+        assignmentStatus: "closed",
+        availableFrom: null,
+        dueAt: null,
+        submissionStatus: "completed",
         releasedToStudent: false,
         now,
       }),
@@ -153,6 +168,20 @@ describe("learning helpers", () => {
         now: new Date("2026-09-10T00:00:00.000Z"),
       }),
     ).toBe("submitted");
+    expect(
+      parentLearningStatus({
+        dueAt: null,
+        submissionStatus: "completed",
+        releasedToParent: false,
+      }),
+    ).toBe("submitted");
+    expect(
+      parentLearningStatus({
+        dueAt: null,
+        submissionStatus: "completed",
+        releasedToParent: true,
+      }),
+    ).toBe("completed");
   });
 
   it("keeps notification bodies free of private notes", () => {

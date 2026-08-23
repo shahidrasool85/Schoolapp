@@ -340,7 +340,7 @@ export function registerCommunicationRoutes(app: SchoolappApi) {
              or a.created_by = $4
              or exists (
                select 1 from announcement_recipients r
-               where r.announcement_id = a.id and r.user_id = $4
+               where r.announcement_id = a.id and r.user_id = $4 and r.audience_role = 'staff'
              )
              or (
                a.status in ('published', 'expired')
@@ -683,7 +683,7 @@ export function registerCommunicationRoutes(app: SchoolappApi) {
              or e.created_by = $5
              or exists (
                select 1 from school_event_audience au
-               where au.event_id = e.id and au.user_id = $5
+               where au.event_id = e.id and au.user_id = $5 and au.audience_role = 'staff'
              )
              or (
                e.status = 'published'
@@ -700,7 +700,7 @@ export function registerCommunicationRoutes(app: SchoolappApi) {
            )
            and ($8::boolean = false or exists (
              select 1 from school_event_audience au
-             where au.event_id = e.id and au.user_id = $5
+             where au.event_id = e.id and au.user_id = $5 and au.audience_role = 'staff'
            ) or e.created_by = $5)
          order by e.starts_at, e.title`,
         [

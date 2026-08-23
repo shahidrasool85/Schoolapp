@@ -820,6 +820,29 @@ describe("Phase 10 communications and calendar", () => {
       [school.orgId, teacher.rows[0]!.id],
     );
     await inviteParent(app, hdrs, pupil.student.id, `teacher-${id}@example.com`);
+    const pupilB = await createStudent(app, hdrs, {
+      legalName: "Unassigned Child",
+      academicYearId: seeded.yearId,
+      yearGroupId: seeded.year3Id,
+      classId: seeded.classBId,
+    });
+    const parentB = await inviteParent(app, hdrs, pupilB.student.id, `teacher-${id}@example.com`);
+
+    const classBNotice = await app.request("/api/v1/announcements", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        title: "Class B family only",
+        body: "Assigned-only staff must not see this via a parent snapshot",
+        targets: [{ targetType: "class", classId: seeded.classBId }],
+      }),
+    });
+    const classBBody = (await classBNotice.json()) as { announcement: { id: string } };
+    await app.request(`/api/v1/announcements/${classBBody.announcement.id}/publish`, {
+      method: "POST",
+      headers: hdrs,
+      body: "{}",
+    });
 
     const notice = await app.request("/api/v1/announcements", {
       method: "POST",
@@ -844,5 +867,26 @@ describe("Phase 10 communications and calendar", () => {
     expect(parentList.status).toBe(200);
     const parentItems = (await parentList.json()) as { announcements: Array<{ id: string }> };
     expect(parentItems.announcements.map((row) => row.id)).toContain(noticeBody.announcement.id);
+    expect(parentItems.announcements.map((row) => row.id)).toContain(classBBody.announcement.id);
+
+    const staffLeak = await app.request(`/api/v1/announcements/${classBBody.announcement.id}`, {
+      headers: headers(teacherToken, school.orgId),
+    });
+    expect(staffLeak.status).toBe(404);
+
+    await app.request(`/api/v1/guardianships/${parentB.guardianshipId}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ portalAccess: false }),
+    });
+    const afterRevoke = await app.request("/api/v1/parent/announcements", {
+      headers: headers(teacherToken, school.orgId),
+    });
+    const afterBody = (await afterRevoke.json()) as { announcements: Array<{ id: string }> };
+    expect(afterBody.announcements.map((row) => row.id)).not.toContain(classBBody.announcement.id);
+    const staffAfter = await app.request(`/api/v1/announcements/${classBBody.announcement.id}`, {
+      headers: headers(teacherToken, school.orgId),
+    });
+    expect(staffAfter.status).toBe(404);
   });
 });

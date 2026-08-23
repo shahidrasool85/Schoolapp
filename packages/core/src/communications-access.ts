@@ -231,11 +231,9 @@ async function resolveOneTarget(
   target: CommunicationTargetInput,
 ): Promise<ResolvedAudienceMember[]> {
   if (target.targetType === "whole_school") {
-    const [staff, parents, students] = await Promise.all([
-      loadStaffAudience(client, organisationId),
-      loadParentAudience(client, organisationId),
-      loadStudentAudience(client, organisationId),
-    ]);
+    const staff = await loadStaffAudience(client, organisationId);
+    const parents = await loadParentAudience(client, organisationId);
+    const students = await loadStudentAudience(client, organisationId);
     return [...staff, ...parents, ...students];
   }
   if (target.targetType === "staff") {
@@ -863,7 +861,8 @@ export async function announcementVisibleToAssignedStaff(
 ): Promise<boolean> {
   const recipient = await client.query(
     `select 1 from announcement_recipients
-     where announcement_id = $1 and organisation_id = $2 and user_id = $3`,
+     where announcement_id = $1 and organisation_id = $2 and user_id = $3
+       and audience_role = 'staff'`,
     [announcementId, actor.organisationId, actor.userId],
   );
   if (recipient.rows[0]) return true;
@@ -936,7 +935,8 @@ export async function eventVisibleToAssignedStaff(
 ): Promise<boolean> {
   const recipient = await client.query(
     `select 1 from school_event_audience
-     where event_id = $1 and organisation_id = $2 and user_id = $3`,
+     where event_id = $1 and organisation_id = $2 and user_id = $3
+       and audience_role = 'staff'`,
     [eventId, actor.organisationId, actor.userId],
   );
   if (recipient.rows[0]) return true;

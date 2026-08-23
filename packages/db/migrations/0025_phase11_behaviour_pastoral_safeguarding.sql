@@ -591,34 +591,38 @@ begin
 end;
 $$;
 
-create or replace function phase11_lock_actor_fields()
+create or replace function phase11_lock_recorded_by()
 returns trigger
 language plpgsql
 as $$
 begin
   if tg_op = 'UPDATE' then
     new.organisation_id := old.organisation_id;
-    if tg_table_name in ('behaviour_incidents', 'behaviour_actions', 'positive_behaviour_records', 'pastoral_interventions', 'safeguarding_concerns') then
-      new.recorded_by := old.recorded_by;
-      new.recorded_at := old.recorded_at;
-    end if;
-    if tg_table_name = 'pastoral_concerns' then
-      new.raised_by := old.raised_by;
-      new.raised_at := old.raised_at;
-    end if;
+    new.recorded_by := old.recorded_by;
+    new.recorded_at := old.recorded_at;
   elsif app_current_user_id() is not null then
-    if tg_table_name in ('behaviour_incidents', 'behaviour_actions', 'positive_behaviour_records', 'pastoral_interventions', 'safeguarding_concerns') then
-      new.recorded_by := app_current_user_id();
-      new.recorded_at := coalesce(new.recorded_at, now());
-    end if;
-    if tg_table_name = 'pastoral_concerns' then
-      new.raised_by := app_current_user_id();
-      new.raised_at := coalesce(new.raised_at, now());
-    end if;
-  elsif tg_table_name in ('behaviour_incidents', 'behaviour_actions', 'positive_behaviour_records', 'pastoral_interventions', 'safeguarding_concerns')
-        and new.recorded_by is null then
+    new.recorded_by := app_current_user_id();
+    new.recorded_at := coalesce(new.recorded_at, now());
+  elsif new.recorded_by is null then
     raise exception 'behaviour_actor_required' using errcode = '23514';
-  elsif tg_table_name = 'pastoral_concerns' and new.raised_by is null then
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function phase11_lock_raised_by()
+returns trigger
+language plpgsql
+as $$
+begin
+  if tg_op = 'UPDATE' then
+    new.organisation_id := old.organisation_id;
+    new.raised_by := old.raised_by;
+    new.raised_at := old.raised_at;
+  elsif app_current_user_id() is not null then
+    new.raised_by := app_current_user_id();
+    new.raised_at := coalesce(new.raised_at, now());
+  elsif new.raised_by is null then
     raise exception 'pastoral_actor_required' using errcode = '23514';
   end if;
   return new;
@@ -665,7 +669,7 @@ $$;
 drop trigger if exists behaviour_incidents_actor_tg on behaviour_incidents;
 create trigger behaviour_incidents_actor_tg
   before insert or update on behaviour_incidents
-  for each row execute function phase11_lock_actor_fields();
+  for each row execute function phase11_lock_recorded_by();
 
 drop trigger if exists behaviour_incidents_integrity_tg on behaviour_incidents;
 create trigger behaviour_incidents_integrity_tg
@@ -793,7 +797,7 @@ $$;
 drop trigger if exists behaviour_actions_actor_tg on behaviour_actions;
 create trigger behaviour_actions_actor_tg
   before insert or update on behaviour_actions
-  for each row execute function phase11_lock_actor_fields();
+  for each row execute function phase11_lock_recorded_by();
 
 drop trigger if exists behaviour_actions_integrity_tg on behaviour_actions;
 create trigger behaviour_actions_integrity_tg
@@ -850,7 +854,7 @@ $$;
 drop trigger if exists positive_behaviour_actor_tg on positive_behaviour_records;
 create trigger positive_behaviour_actor_tg
   before insert or update on positive_behaviour_records
-  for each row execute function phase11_lock_actor_fields();
+  for each row execute function phase11_lock_recorded_by();
 
 drop trigger if exists positive_behaviour_integrity_tg on positive_behaviour_records;
 create trigger positive_behaviour_integrity_tg
@@ -887,7 +891,7 @@ $$;
 drop trigger if exists pastoral_concerns_actor_tg on pastoral_concerns;
 create trigger pastoral_concerns_actor_tg
   before insert or update on pastoral_concerns
-  for each row execute function phase11_lock_actor_fields();
+  for each row execute function phase11_lock_raised_by();
 
 drop trigger if exists pastoral_concerns_integrity_tg on pastoral_concerns;
 create trigger pastoral_concerns_integrity_tg
@@ -948,7 +952,7 @@ $$;
 drop trigger if exists pastoral_interventions_actor_tg on pastoral_interventions;
 create trigger pastoral_interventions_actor_tg
   before insert or update on pastoral_interventions
-  for each row execute function phase11_lock_actor_fields();
+  for each row execute function phase11_lock_recorded_by();
 
 drop trigger if exists pastoral_interventions_integrity_tg on pastoral_interventions;
 create trigger pastoral_interventions_integrity_tg
@@ -985,7 +989,7 @@ $$;
 drop trigger if exists safeguarding_concerns_actor_tg on safeguarding_concerns;
 create trigger safeguarding_concerns_actor_tg
   before insert or update on safeguarding_concerns
-  for each row execute function phase11_lock_actor_fields();
+  for each row execute function phase11_lock_recorded_by();
 
 drop trigger if exists safeguarding_concerns_integrity_tg on safeguarding_concerns;
 create trigger safeguarding_concerns_integrity_tg

@@ -337,18 +337,12 @@ export function registerBehaviourRoutes(app: SchoolappApi) {
             studentProfileId: item.student_profile_id,
             studentLegalName: item.legal_name,
           })),
-        witnesses: witnesses.rows.map((item) => {
+        witnesses: witnesses.rows.flatMap((item) => {
           const studentId = item.student_profile_id ? String(item.student_profile_id) : null;
           if (studentId && authorised && !authorised.has(studentId)) {
-            return {
-              student_profile_id: null,
-              student_legal_name: null,
-              staff_user_id: item.staff_user_id,
-              staff_name: item.staff_name,
-              display_name: item.display_name,
-            };
+            return [];
           }
-          return item;
+          return [item];
         }),
         actions: actions.rows.map((item) => mapBehaviourAction(item as Record<string, unknown>)),
       });
@@ -444,6 +438,9 @@ export function registerBehaviourRoutes(app: SchoolappApi) {
   app.post("/behaviour/incidents/:id/parent-contact", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       const id = uuidRouteParam(c, "id");
+      if (!canRecordBehaviour(actor)) {
+        throw new AppError(404, "not_found", "Not found");
+      }
       const existing = await loadIncident(client, orgId, id);
       await assertCanRecordStudentBehaviour(client, actor, String(existing.student_profile_id));
       const body = z
@@ -662,6 +659,9 @@ export function registerBehaviourRoutes(app: SchoolappApi) {
 
   app.patch("/behaviour/actions/:id", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
+      if (!canRecordBehaviour(actor)) {
+        throw new AppError(404, "not_found", "Not found");
+      }
       const id = uuidRouteParam(c, "id");
       const existing = await client.query(`${ACTION_SELECT} where a.id = $1 and a.organisation_id = $2`, [id, orgId]);
       if (!existing.rows[0]) throw new AppError(404, "not_found", "Not found");

@@ -549,7 +549,7 @@ describe("Phase 11 behaviour, pastoral and safeguarding", () => {
     const audit = await pools.owner.query<{ after_data: Record<string, unknown> | null }>(
       `select after_data from audit_events
        where organisation_id = $1 and entity_type = 'safeguarding_concern'
-       order by created_at desc limit 1`,
+       order by occurred_at desc limit 1`,
       [gw.orgId],
     );
     expect(JSON.stringify(audit.rows[0]?.after_data ?? {})).not.toContain("Neutral factual note");

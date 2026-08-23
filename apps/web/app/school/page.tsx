@@ -43,8 +43,9 @@ export default function SchoolDashboardPage() {
         <div className="card"><span>Subjects</span><strong>{data.counts.subjects}</strong></div>
       </div>
       <div className="banner" style={{ marginTop: 16 }}>
-        Attendance, student records, teaching &amp; learning, assessment/reports, and
-        communications/calendar are available. AI learning and mobile apps are later phases.
+        Attendance, student records, teaching &amp; learning, assessment/reports,
+        communications/calendar, and pastoral/behaviour are available. Safeguarding is a
+        separate permission-gated area. AI learning and mobile apps are later phases.
       </div>
     </>
   );

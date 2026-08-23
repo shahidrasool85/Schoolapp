@@ -7,6 +7,10 @@ import {
   assertPermission,
   assignedStudentIds,
   canListAllStudents,
+  assertCanReadStudentBehaviour,
+  assertCanReadStudentPastoral,
+  canAccessBehaviour,
+  canAccessPastoral,
   canReadStudentProfile,
   loadStudentPortalDecision,
   summariseAttendanceMarks,
@@ -231,6 +235,41 @@ export function registerPeopleRoutes(app: SchoolappApi) {
             [orgId, id],
           )
         : { rows: [] };
+      let canSeeBehaviour = false;
+      if (canAccessBehaviour(actor)) {
+        try {
+          await assertCanReadStudentBehaviour(client, actor, id);
+          canSeeBehaviour = true;
+        } catch {
+          canSeeBehaviour = false;
+        }
+      }
+      let canSeePastoral = false;
+      if (canAccessPastoral(actor)) {
+        try {
+          await assertCanReadStudentPastoral(client, actor, id);
+          canSeePastoral = true;
+        } catch {
+          canSeePastoral = false;
+        }
+      }
+      const behaviourCounts = canSeeBehaviour
+        ? await client.query<{ incident_count: string; open_incidents: string; positive_count: string }>(
+            `select
+               (select count(*) from behaviour_incidents where organisation_id = $1 and student_profile_id = $2)::text as incident_count,
+               (select count(*) from behaviour_incidents where organisation_id = $1 and student_profile_id = $2 and status in ('open', 'in_progress'))::text as open_incidents,
+               (select count(*) from positive_behaviour_records where organisation_id = $1 and student_profile_id = $2)::text as positive_count`,
+            [orgId, id],
+          )
+        : { rows: [] as Array<{ incident_count: string; open_incidents: string; positive_count: string }> };
+      const pastoralCounts = canSeePastoral
+        ? await client.query<{ open_count: string; latest_priority: string | null }>(
+            `select
+               (select count(*) from pastoral_concerns where organisation_id = $1 and student_profile_id = $2 and status in ('open', 'monitoring'))::text as open_count,
+               (select priority from pastoral_concerns where organisation_id = $1 and student_profile_id = $2 order by concern_on desc, raised_at desc limit 1) as latest_priority`,
+            [orgId, id],
+          )
+        : { rows: [] as Array<{ open_count: string; latest_priority: string | null }> };
       const portal = await loadStudentPortalDecision(client, orgId, id);
       const alias = actor.permissions.has(PERMISSIONS.STUDENTS_PROFILES_MANAGE)
         ? await client.query<{ alias: string }>(
@@ -256,6 +295,19 @@ export function registerPeopleRoutes(app: SchoolappApi) {
         })),
         guardians: guardians.rows.map(mapGuardianship),
         attendanceSummary: canReadAttendance ? summariseAttendanceMarks(attendanceRows.rows) : null,
+        behaviourSummary: canSeeBehaviour
+          ? {
+              incidentCount: Number(behaviourCounts.rows[0]?.incident_count ?? 0),
+              openIncidents: Number(behaviourCounts.rows[0]?.open_incidents ?? 0),
+              positiveCount: Number(behaviourCounts.rows[0]?.positive_count ?? 0),
+            }
+          : null,
+        pastoralSummary: canSeePastoral
+          ? {
+              openCount: Number(pastoralCounts.rows[0]?.open_count ?? 0),
+              latestPriority: pastoralCounts.rows[0]?.latest_priority ?? null,
+            }
+          : null,
         portalAccess: {
           enabled: portal.enabled,
           source: portal.source,

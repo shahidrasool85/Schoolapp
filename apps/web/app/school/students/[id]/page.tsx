@@ -52,6 +52,8 @@ type Detail = {
     hasLoginAlias?: boolean;
     alias?: string | null;
   };
+  behaviourSummary: { incidentCount: number; openIncidents: number; positiveCount: number } | null;
+  pastoralSummary: { openCount: number; latestPriority: string | null } | null;
 };
 
 type Option = { id: string; name: string };
@@ -109,6 +111,14 @@ export default function StudentDetailPage() {
     reports: Array<{ reportingPeriodName: string | null; status: string }>;
   } | null>(null);
   const [academicStatus, setAcademicStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [behaviour, setBehaviour] = useState<{
+    incidents: Array<{ id: string; occurredAt: string; categoryName: string | null; severity: string; status: string }>;
+    positives: Array<{ id: string; occurredOn: string; categoryName: string | null }>;
+  } | null>(null);
+  const [pastoral, setPastoral] = useState<{
+    concerns: Array<{ id: string; concernOn: string; categoryName: string | null; priority: string; status: string; summary: string }>;
+  } | null>(null);
+  const [safeguardingLink, setSafeguardingLink] = useState(false);
   const [years, setYears] = useState<Option[]>([]);
   const [groups, setGroups] = useState<Option[]>([]);
   const [classes, setClasses] = useState<Option[]>([]);
@@ -153,6 +163,35 @@ export default function StudentDetailPage() {
       setLearningStatus("error");
     }
     try {
+      const behaviourHistory = await api<{
+        incidents: Array<{ id: string; occurredAt: string; categoryName: string | null; severity: string; status: string }>;
+        positives: Array<{ id: string; occurredOn: string; categoryName: string | null }>;
+      }>(`/api/v1/students/${studentId}/behaviour`);
+      if (seq !== loadSeq.current) return;
+      setBehaviour(behaviourHistory);
+    } catch {
+      if (seq !== loadSeq.current) return;
+      setBehaviour(null);
+    }
+    try {
+      const pastoralHistory = await api<{
+        concerns: Array<{ id: string; concernOn: string; categoryName: string | null; priority: string; status: string; summary: string }>;
+      }>(`/api/v1/students/${studentId}/pastoral`);
+      if (seq !== loadSeq.current) return;
+      setPastoral(pastoralHistory);
+    } catch {
+      if (seq !== loadSeq.current) return;
+      setPastoral(null);
+    }
+    try {
+      await api(`/api/v1/students/${studentId}/safeguarding`);
+      if (seq !== loadSeq.current) return;
+      setSafeguardingLink(true);
+    } catch {
+      if (seq !== loadSeq.current) return;
+      setSafeguardingLink(false);
+    }
+    try {
       const academicHistory = await api<{
         results: Array<{
           assessmentTitle: string | null;
@@ -184,6 +223,9 @@ export default function StudentDetailPage() {
     setLearningStatus("loading");
     setAcademic(null);
     setAcademicStatus("loading");
+    setBehaviour(null);
+    setPastoral(null);
+    setSafeguardingLink(false);
     setError("");
     setInvite("");
     load().catch((err: Error) => setError(err.message));
@@ -330,6 +372,57 @@ export default function StudentDetailPage() {
       ) : (
         <p className="muted">No formal assessment results recorded for this pupil.</p>
       )}
+      {data.behaviourSummary ? (
+        <div className="cards">
+          <div className="card"><span>Behaviour incidents</span><strong>{data.behaviourSummary.incidentCount}</strong></div>
+          <div className="card"><span>Open incidents</span><strong>{data.behaviourSummary.openIncidents}</strong></div>
+          <div className="card"><span>Achievements</span><strong>{data.behaviourSummary.positiveCount}</strong></div>
+        </div>
+      ) : null}
+      {behaviour && (behaviour.incidents.length > 0 || behaviour.positives.length > 0) ? (
+        <>
+          <h2>Behaviour</h2>
+          <table>
+            <thead>
+              <tr><th>When</th><th>Category</th><th>Severity</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+              {behaviour.incidents.slice(0, 12).map((row) => (
+                <tr key={row.id}>
+                  <td>{new Date(row.occurredAt).toLocaleString()}</td>
+                  <td>{row.categoryName}</td>
+                  <td>{row.severity}</td>
+                  <td>{row.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      ) : null}
+      {data.pastoralSummary ? (
+        <>
+          <h2>Pastoral</h2>
+          <p className="muted">
+            Open concerns: {data.pastoralSummary.openCount}
+            {data.pastoralSummary.latestPriority ? ` · latest priority ${data.pastoralSummary.latestPriority}` : ""}
+          </p>
+          {pastoral && pastoral.concerns.length > 0 ? (
+            <ul>
+              {pastoral.concerns.map((row) => (
+                <li key={row.id}>
+                  {row.concernOn} · {row.categoryName} · {row.priority} · {row.status} — {row.summary}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </>
+      ) : null}
+      {safeguardingLink ? (
+        <p>
+          <a href={`/school/safeguarding?studentId=${data.student.id}`}>Open safeguarding records</a>
+        </p>
+      ) : null}
+
       {academic && academic.targets.length > 0 ? (
         <>
           <h3>Targets</h3>

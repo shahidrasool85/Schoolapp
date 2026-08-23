@@ -160,7 +160,22 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 **Not in Phase 10:** live chat, private messaging, email/SMS/push, WhatsApp, marketing automation, video calls, binary object storage.
 
-## Phase 11 — AI learning
+## Phase 11 — Behaviour, pastoral and safeguarding foundation (implemented)
+
+**Outcome:** staff can record behaviour incidents and achievements, raise pastoral concerns with interventions, and record safeguarding concerns with a chronology. Safeguarding is a separate, stricter permission set and never appears on ordinary student-record or parent/student APIs.
+
+- Controlled catalogues for incident, action, positive, pastoral, and safeguarding categories
+- Behaviour incidents with related pupils, witnesses, actions/consequences, revisions, and conservative parent/student visibility flags
+- Positive behaviour / achievements kept separate from incidents (no XP/leaderboards)
+- Pastoral concerns distinct from behaviour, with interventions and optional attendance references (no duplicated marks)
+- Safeguarding concerns + append-only chronology + restricted attachment metadata
+- Capability-based access; teachers remain assigned-only for behaviour; no automatic pastoral/safeguarding for teachers
+- Staff UI: Pastoral & Behaviour, plus a separate Safeguarding area
+- In-app assignment/follow-up notifications without sensitive narrative
+
+**Not in Phase 11:** AI risk scoring, external safeguarding-agency integrations, statutory exclusion workflow, behaviour gamification, parent-teacher chat, email/SMS/push.
+
+## Phase 12 — AI learning
 
 - `packages/ai` port + one provider
 - Activity drafts, moderation hook, teacher approval workflow
@@ -168,13 +183,13 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 - Year-group and subject targeting
 - Generation audit (no PII in prompts)
 
-## Phase 12 — Gamification
+## Phase 13 — Gamification
 
 - Points/XP ledgers, badges, streaks
 - Competitions: student, class, house (not school-vs-school; network tables remain governance placeholders)
 - Leaderboards honouring school flags and Children’s Code defaults (off)
 
-## Phase 13 — Mobile clients
+## Phase 14 — Mobile clients
 
 - Expo app: **parent** first (read-mostly)
 - Then **student** (attempts, homework submit if API already exists)
@@ -183,7 +198,7 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 No second backend.
 
-## Phase 14 — Integrations and hardening
+## Phase 15 — Integrations and hardening
 
 - MIS identifiers, CTF/census experiments
 - SSO (Microsoft 365 / Google Workspace) if schools demand it

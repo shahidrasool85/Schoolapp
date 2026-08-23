@@ -62,7 +62,10 @@ export function pgErrorToAppError(error: unknown): AppError | null {
     message.includes("learning_mark_actor_required") ||
     message.includes("academic_actor_required") ||
     message.includes("academic_result_actor_required") ||
-    message.includes("communication_actor_required")
+    message.includes("communication_actor_required") ||
+    message.includes("behaviour_actor_required") ||
+    message.includes("pastoral_actor_required") ||
+    message.includes("safeguarding_actor_required")
   ) {
     return new AppError(400, "validation_failed", "The request violates a data constraint");
   }
@@ -99,6 +102,9 @@ export function pgErrorToAppError(error: unknown): AppError | null {
   }
   if (message.includes("student_already_in_form_class")) {
     return new AppError(409, "conflict", "Student already has an active form class in this academic year");
+  }
+  if (message.includes("safeguarding_history_immutable")) {
+    return new AppError(409, "conflict", "Safeguarding chronology entries cannot be overwritten");
   }
   if (message.includes("invalid_status_transition") || message.includes("application_status_invalid")) {
     return new AppError(409, "invalid_status_transition", "This status change is not allowed");

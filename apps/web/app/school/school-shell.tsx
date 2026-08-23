@@ -34,6 +34,23 @@ const LMS_NAV_PERMISSIONS = [
   "lms.submissions.mark_assigned",
 ];
 
+const BEHAVIOUR_NAV_PERMISSIONS = [
+  "behaviour.read",
+  "behaviour.record",
+  "behaviour.manage",
+  "behaviour.read_assigned",
+  "behaviour.positive.record",
+];
+
+const PASTORAL_NAV_PERMISSIONS = ["pastoral.read", "pastoral.manage", "pastoral.read_assigned"];
+
+const SAFEGUARDING_NAV_PERMISSIONS = [
+  "safeguarding.read",
+  "safeguarding.record",
+  "safeguarding.manage",
+  "safeguarding.assign",
+];
+
 const COMMUNICATION_NAV_PERMISSIONS = [
   "announcements.read",
   "announcements.read_assigned",
@@ -121,6 +138,22 @@ const LINKS: NavLink[] = [
       { href: "/school/assessment/reports", label: "Reports", permissions: ASSESSMENT_NAV_PERMISSIONS },
       { href: "/school/assessment/periods", label: "Reporting periods", permissions: ASSESSMENT_NAV_PERMISSIONS },
     ],
+  },
+  {
+    href: "/school/pastoral",
+    label: "Pastoral & Behaviour",
+    exact: true,
+    permissions: [...BEHAVIOUR_NAV_PERMISSIONS, ...PASTORAL_NAV_PERMISSIONS],
+    children: [
+      { href: "/school/pastoral/behaviour", label: "Behaviour", permissions: BEHAVIOUR_NAV_PERMISSIONS },
+      { href: "/school/pastoral/achievements", label: "Achievements", permissions: BEHAVIOUR_NAV_PERMISSIONS },
+      { href: "/school/pastoral/concerns", label: "Pastoral", permissions: PASTORAL_NAV_PERMISSIONS },
+    ],
+  },
+  {
+    href: "/school/safeguarding",
+    label: "Safeguarding",
+    permissions: SAFEGUARDING_NAV_PERMISSIONS,
   },
   {
     href: "/school/communications",

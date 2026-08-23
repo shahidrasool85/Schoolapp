@@ -239,7 +239,19 @@ Progress is latest vs previous comparable result (percentage, else scheme `numer
 
 Parent and student visibility uses the snapshot plus current portal/enrolment rules. Expired notices leave active lists. Staff-only targets never leak to portals.
 
-## AI learning and gamification (Phase 11–12)
+## Behaviour, pastoral and safeguarding (Phase 11)
+
+These are related staff workflows but **not** the same data category. Safeguarding never appears on ordinary student-record payloads or parent/student APIs.
+
+- `behaviour_incident_categories` / `behaviour_action_categories` / `positive_behaviour_categories` / `behaviour_locations` — school-configurable catalogues
+- `behaviour_incidents` — pupil, occurred_at, category, location, optional class, description, severity, action taken, follow-up, status, conservative visibility flags; `recorded_by` / `recorded_at` are session-stamped
+- `behaviour_incident_related_pupils` / `behaviour_incident_witnesses` / `behaviour_incident_revisions`
+- `behaviour_actions` — configurable consequences (including suspension/exclusion placeholders, not a statutory workflow)
+- `positive_behaviour_records` — praise/merits/achievements, compatible with later rewards without XP
+- `pastoral_concerns` / `pastoral_interventions` — distinct from incidents; optional attendance date-range reference (does not duplicate marks)
+- `safeguarding_concerns` / `safeguarding_chronology_entries` / `safeguarding_attachments` — separate architecture; chronology is append-only (amendments supersede, they do not overwrite)
+
+## AI learning and gamification (Phase 12–13)
 
 - `learning_activities` — type (quiz, flashcards, timed challenge, puzzle, …), year group, subject, difficulty, `status`
 - `activity_items` — questions/cards; versioned so attempts stay consistent

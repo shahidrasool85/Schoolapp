@@ -113,6 +113,18 @@ Platform Super Admin does **not** silently receive pupil read. Tenant data requi
 | `calendar.manage_school` | — | F | F | — | — | — | — | — |
 | `calendar.read_own_children` | — | — | — | — | — | — | F | — |
 | `calendar.read_self` | — | — | — | — | — | — | — | F |
+| `behaviour.read` | — | F | F | — | — | — | — | — |
+| `behaviour.record` | — | F | F | F | — | — | — | — |
+| `behaviour.manage` | — | F | F | — | — | — | — | — |
+| `behaviour.read_assigned` | — | — | — | F | — | — | — | — |
+| `behaviour.positive.record` | — | F | F | F | — | — | — | — |
+| `pastoral.read` | — | F | F | — | — | — | — | — |
+| `pastoral.manage` | — | F | F | — | — | — | — | — |
+| `pastoral.read_assigned` | — | — | — | — | — | — | — | — |
+| `safeguarding.read` | — | F | F | — | — | — | — | — |
+| `safeguarding.record` | — | F | F | — | — | — | — | — |
+| `safeguarding.manage` | — | F | F | — | — | — | — | — |
+| `safeguarding.assign` | — | F | F | — | — | — | — | — |
 | `external_identifiers.upn.read` | — | F | F | — | R | — | — | — |
 
 `students.documents.read_self` is seeded on the Student role for a later pupil-visible documents API. No current route checks that permission, so it does not grant access by itself.
@@ -142,5 +154,11 @@ Parent learning APIs require `portal_access = true` on the guardianship. Teacher
 Parent/student document visibility is explicit. Staff-only metadata is never listed on parent/student endpoints.
 
 Teacher announcement/calendar access is **assigned-only**. `announcements.broadcast` and `calendar.manage_school` are School Admin / Headteacher. Ordinary teachers cannot target whole-school, all-staff, all-parent, all-student, or year-group audiences. Parent communication APIs require `portal_access = true`. Student communication APIs re-check current primary enrolment and Student Portal policy. Staff-only notices never appear on parent/student routes.
+
+Behaviour access is broader than pastoral or safeguarding. Teachers receive `behaviour.read_assigned`, `behaviour.record`, and `behaviour.positive.record` only. They do **not** receive pastoral or safeguarding keys. Safeguarding APIs return **404** (not 403) when the actor lacks a safeguarding capability so record existence is not leaked. Parent and student roles receive no behaviour/pastoral/safeguarding keys; Phase 11 keeps portal visibility conservative even when staff set `parent_visible` / `student_visible` flags.
+
+Safeguarding tables also require a safeguarding capability at RLS, in addition to tenant isolation. Formal audit for safeguarding stores IDs and status metadata, not concern narrative.
+
+`pastoral.read_assigned` is seeded for later form-tutor / head-of-year grants and is not on the default Teacher role.
 
 Unused module keys are seeded so later phases do not hardcode role names; those modules are not implemented in Phase 1.

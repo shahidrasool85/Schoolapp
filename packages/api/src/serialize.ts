@@ -920,6 +920,198 @@ export function mapRelatedSubject(row: Record<string, unknown>) {
   };
 }
 
+export function mapCatalogueItem(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    key: row.key,
+    name: row.name,
+    sortOrder: row.sort_order,
+    isSystem: row.is_system,
+    isActive: row.is_active,
+  };
+}
+
+export function mapBehaviourIncident(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    studentProfileId: row.student_profile_id,
+    studentLegalName: row.student_legal_name ?? null,
+    occurredAt: row.occurred_at,
+    categoryId: row.category_id,
+    categoryKey: row.category_key ?? null,
+    categoryName: row.category_name ?? null,
+    locationId: row.location_id ?? null,
+    locationKey: row.location_key ?? null,
+    locationName: row.location_name ?? null,
+    classId: row.class_id ?? null,
+    className: row.class_name ?? null,
+    description: row.description,
+    severity: row.severity,
+    actionTaken: row.action_taken ?? null,
+    followUpRequired: row.follow_up_required,
+    followUpDueOn: row.follow_up_due_on ?? null,
+    status: row.status,
+    parentVisible: row.parent_visible,
+    studentVisible: row.student_visible,
+    parentContacted: row.parent_contacted,
+    parentContactedAt: row.parent_contacted_at ?? null,
+    parentContactSummary: row.parent_contact_summary ?? null,
+    recordedBy: row.recorded_by,
+    recordedByName: row.recorded_by_name ?? null,
+    recordedAt: row.recorded_at,
+    yearGroupId: row.year_group_id ?? null,
+    yearGroupName: row.year_group_name ?? null,
+  };
+}
+
+export function mapPositiveBehaviour(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    studentProfileId: row.student_profile_id,
+    studentLegalName: row.student_legal_name ?? null,
+    occurredOn: row.occurred_on,
+    categoryId: row.category_id,
+    categoryKey: row.category_key ?? null,
+    categoryName: row.category_name ?? null,
+    classId: row.class_id ?? null,
+    className: row.class_name ?? null,
+    description: row.description ?? null,
+    parentVisible: row.parent_visible,
+    studentVisible: row.student_visible,
+    recordedBy: row.recorded_by,
+    recordedByName: row.recorded_by_name ?? null,
+    recordedAt: row.recorded_at,
+  };
+}
+
+export function mapBehaviourAction(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    studentProfileId: row.student_profile_id,
+    studentLegalName: row.student_legal_name ?? null,
+    incidentId: row.incident_id ?? null,
+    categoryId: row.category_id,
+    categoryKey: row.category_key ?? null,
+    categoryName: row.category_name ?? null,
+    notes: row.notes ?? null,
+    status: row.status,
+    actionOn: row.action_on,
+    completedOn: row.completed_on ?? null,
+    parentContacted: row.parent_contacted,
+    parentContactedAt: row.parent_contacted_at ?? null,
+    parentContactSummary: row.parent_contact_summary ?? null,
+    recordedBy: row.recorded_by,
+    recordedByName: row.recorded_by_name ?? null,
+    recordedAt: row.recorded_at,
+  };
+}
+
+export function mapPastoralConcern(row: Record<string, unknown>, options?: { includeConfidential?: boolean }) {
+  const includeConfidential = options?.includeConfidential !== false;
+  const base = {
+    id: row.id,
+    studentProfileId: row.student_profile_id,
+    studentLegalName: row.student_legal_name ?? null,
+    categoryId: row.category_id,
+    categoryKey: row.category_key ?? null,
+    categoryName: row.category_name ?? null,
+    concernOn: row.concern_on,
+    summary: row.summary,
+    priority: row.priority,
+    assignedStaffUserId: row.assigned_staff_user_id ?? null,
+    assignedStaffName: row.assigned_staff_name ?? null,
+    status: row.status,
+    followUpDueOn: row.follow_up_due_on ?? null,
+    attendanceRelated: row.attendance_related,
+    attendanceFrom: row.attendance_from ?? null,
+    attendanceTo: row.attendance_to ?? null,
+    parentContacted: row.parent_contacted,
+    parentContactedAt: row.parent_contacted_at ?? null,
+    parentContactSummary: row.parent_contact_summary ?? null,
+    raisedBy: row.raised_by,
+    raisedByName: row.raised_by_name ?? null,
+    raisedAt: row.raised_at,
+    yearGroupId: row.year_group_id ?? null,
+    yearGroupName: row.year_group_name ?? null,
+  };
+  if (!includeConfidential) {
+    return base;
+  }
+  return {
+    ...base,
+    detailedNotes: row.detailed_notes ?? null,
+  };
+}
+
+export function mapPastoralIntervention(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    concernId: row.concern_id,
+    interventionType: row.intervention_type,
+    responsibleStaffUserId: row.responsible_staff_user_id,
+    responsibleStaffName: row.responsible_staff_name ?? null,
+    actionOn: row.action_on,
+    outcome: row.outcome ?? null,
+    nextReviewOn: row.next_review_on ?? null,
+    notes: row.notes ?? null,
+    recordedBy: row.recorded_by,
+    recordedByName: row.recorded_by_name ?? null,
+    recordedAt: row.recorded_at,
+  };
+}
+
+export function mapSafeguardingConcern(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    studentProfileId: row.student_profile_id,
+    studentLegalName: row.student_legal_name ?? null,
+    aroseAt: row.arose_at,
+    categoryId: row.category_id,
+    categoryKey: row.category_key ?? null,
+    categoryName: row.category_name ?? null,
+    factualDescription: row.factual_description,
+    immediateActionTaken: row.immediate_action_taken ?? null,
+    assignedSafeguardingLeadUserId: row.assigned_safeguarding_lead_user_id ?? null,
+    assignedSafeguardingLeadName: row.assigned_safeguarding_lead_name ?? null,
+    status: row.status,
+    followUpDueOn: row.follow_up_due_on ?? null,
+    recordedBy: row.recorded_by,
+    recordedByName: row.recorded_by_name ?? null,
+    recordedAt: row.recorded_at,
+    yearGroupId: row.year_group_id ?? null,
+    yearGroupName: row.year_group_name ?? null,
+  };
+}
+
+export function mapSafeguardingChronology(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    concernId: row.concern_id,
+    occurredAt: row.occurred_at,
+    entryType: row.entry_type,
+    factualNote: row.factual_note,
+    actionOutcome: row.action_outcome ?? null,
+    actorUserId: row.actor_user_id,
+    actorName: row.actor_name ?? null,
+    amendmentOfId: row.amendment_of_id ?? null,
+    superseded: row.superseded,
+    recordedAt: row.recorded_at,
+  };
+}
+
+export function mapPastoralAttachment(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    parentKind: row.parent_kind,
+    parentId: row.parent_id,
+    title: row.title,
+    storageBackend: row.storage_backend,
+    contentType: row.content_type ?? null,
+    byteSize: row.byte_size ?? null,
+    createdAt: row.created_at,
+  };
+}
+
 export function mapPublishedReportSection(section: Record<string, unknown>) {
   return {
     id: section.id ?? null,

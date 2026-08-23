@@ -399,6 +399,50 @@ POST   /api/v1/calendar/events/{id}/archive
 
 Scheduled rows activate on authorised list/read. Resource payloads expose URL metadata only (`storageKey` omitted). Email/SMS/push are not implemented.
 
+## Behaviour, pastoral and safeguarding (Phase 11)
+
+Staff APIs. Teachers are assigned-only for behaviour. Pastoral and safeguarding require their own capabilities. Missing safeguarding permission returns **404**. Clients cannot set `recordedBy`, `raisedBy`, or chronology `actorUserId`. Safeguarding audit payloads store IDs/status only. Parent/student routes do not expose these records in Phase 11.
+
+```http
+GET    /api/v1/behaviour/categories
+GET    /api/v1/behaviour/incidents
+POST   /api/v1/behaviour/incidents
+GET    /api/v1/behaviour/incidents/{id}
+PATCH  /api/v1/behaviour/incidents/{id}
+GET    /api/v1/behaviour/incidents/{id}/history
+POST   /api/v1/behaviour/incidents/{id}/parent-contact
+GET    /api/v1/behaviour/positives
+POST   /api/v1/behaviour/positives
+GET    /api/v1/behaviour/positives/{id}
+GET    /api/v1/behaviour/actions
+POST   /api/v1/behaviour/actions
+PATCH  /api/v1/behaviour/actions/{id}
+GET    /api/v1/behaviour/summary
+GET    /api/v1/students/{studentId}/behaviour
+GET    /api/v1/pastoral/categories
+GET    /api/v1/pastoral/concerns
+POST   /api/v1/pastoral/concerns
+GET    /api/v1/pastoral/concerns/{id}
+PATCH  /api/v1/pastoral/concerns/{id}
+POST   /api/v1/pastoral/concerns/{id}/interventions
+POST   /api/v1/pastoral/concerns/{id}/parent-contact
+PATCH  /api/v1/pastoral/interventions/{id}
+GET    /api/v1/pastoral/summary
+GET    /api/v1/students/{studentId}/pastoral
+GET    /api/v1/safeguarding/categories
+GET    /api/v1/safeguarding/concerns
+POST   /api/v1/safeguarding/concerns
+GET    /api/v1/safeguarding/concerns/{id}
+PATCH  /api/v1/safeguarding/concerns/{id}
+POST   /api/v1/safeguarding/concerns/{id}/assign
+POST   /api/v1/safeguarding/concerns/{id}/chronology
+POST   /api/v1/safeguarding/concerns/{id}/attachments
+GET    /api/v1/safeguarding/summary
+GET    /api/v1/students/{studentId}/safeguarding
+```
+
+`GET /students/{id}` may include `behaviourSummary` / `pastoralSummary` when the actor has those permissions. It never includes safeguarding narrative or keys.
+
 ## Files
 
 ```http

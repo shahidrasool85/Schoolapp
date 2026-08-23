@@ -174,16 +174,19 @@ async function inviteParent(
         portalAccess,
       }),
     })
-  ).json()) as { invitationToken: string };
-  await app.request("/api/v1/invitations/accept", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      token: guardian.invitationToken,
-      fullName: "Pat Parent",
-      password: "parent-pass-1",
-    }),
-  });
+  ).json()) as { invitationToken: string | null; guardianshipId: string };
+  if (guardian.invitationToken) {
+    await app.request("/api/v1/invitations/accept", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: guardian.invitationToken,
+        fullName: "Pat Parent",
+        password: "parent-pass-1",
+      }),
+    });
+  }
+  return { guardianshipId: guardian.guardianshipId };
 }
 
 describe("Phase 10 communications and calendar", () => {
@@ -660,5 +663,112 @@ describe("Phase 10 communications and calendar", () => {
 
     const staffExpired = await app.request(`/api/v1/announcements/${expiredBody.announcement.id}`, { headers: hdrs });
     expect(staffExpired.status).toBe(200);
+  });
+
+  it("re-checks live portal_access so revoked guardians cannot read or acknowledge old snapshots", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const adminToken = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(adminToken, school.orgId);
+    const seeded = await seedStructure(app, hdrs);
+    const pupilA = await createStudent(app, hdrs, {
+      legalName: "Child A",
+      academicYearId: seeded.yearId,
+      yearGroupId: seeded.year3Id,
+      classId: seeded.classAId,
+    });
+    const pupilB = await createStudent(app, hdrs, {
+      legalName: "Child B",
+      academicYearId: seeded.yearId,
+      yearGroupId: seeded.year3Id,
+      classId: seeded.classBId,
+    });
+    const parentA = await inviteParent(app, hdrs, pupilA.student.id, `revoked-${id}@example.com`);
+    await inviteParent(app, hdrs, pupilB.student.id, `revoked-${id}@example.com`);
+
+    const noticeA = await app.request("/api/v1/announcements", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        title: "Class A only",
+        body: "Should vanish when A is revoked",
+        acknowledgementRequired: true,
+        targets: [{ targetType: "class", classId: seeded.classAId }],
+      }),
+    });
+    const noticeABody = (await noticeA.json()) as { announcement: { id: string } };
+    await app.request(`/api/v1/announcements/${noticeABody.announcement.id}/publish`, {
+      method: "POST",
+      headers: hdrs,
+      body: "{}",
+    });
+
+    const noticeB = await app.request("/api/v1/announcements", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        title: "Class B only",
+        body: "Should remain while B is authorised",
+        targets: [{ targetType: "class", classId: seeded.classBId }],
+      }),
+    });
+    const noticeBBody = (await noticeB.json()) as { announcement: { id: string } };
+    await app.request(`/api/v1/announcements/${noticeBBody.announcement.id}/publish`, {
+      method: "POST",
+      headers: hdrs,
+      body: "{}",
+    });
+
+    const eventA = await app.request("/api/v1/calendar/events", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        title: "Class A trip",
+        eventTypeKey: "trip",
+        startsAt: "2026-10-01T09:00:00.000Z",
+        endsAt: "2026-10-01T15:00:00.000Z",
+        targets: [{ targetType: "class", classId: seeded.classAId }],
+      }),
+    });
+    const eventABody = (await eventA.json()) as { event: { id: string } };
+    await app.request(`/api/v1/calendar/events/${eventABody.event.id}/publish`, {
+      method: "POST",
+      headers: hdrs,
+      body: "{}",
+    });
+
+    const parentToken = await login(app, `revoked-${id}@example.com`, "parent-pass-1");
+    const parentHdrs = headers(parentToken, school.orgId);
+    const before = await app.request("/api/v1/parent/announcements", { headers: parentHdrs });
+    const beforeBody = (await before.json()) as { announcements: Array<{ id: string }> };
+    expect(beforeBody.announcements.map((row) => row.id)).toEqual(
+      expect.arrayContaining([noticeABody.announcement.id, noticeBBody.announcement.id]),
+    );
+
+    await app.request(`/api/v1/guardianships/${parentA.guardianshipId}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ portalAccess: false }),
+    });
+
+    const after = await app.request("/api/v1/parent/announcements", { headers: parentHdrs });
+    const afterBody = (await after.json()) as { announcements: Array<{ id: string }> };
+    expect(afterBody.announcements.map((row) => row.id)).toContain(noticeBBody.announcement.id);
+    expect(afterBody.announcements.map((row) => row.id)).not.toContain(noticeABody.announcement.id);
+
+    const hidden = await app.request(`/api/v1/parent/announcements/${noticeABody.announcement.id}`, {
+      headers: parentHdrs,
+    });
+    expect(hidden.status).toBe(404);
+    const ack = await app.request(`/api/v1/parent/announcements/${noticeABody.announcement.id}/acknowledge`, {
+      method: "POST",
+      headers: parentHdrs,
+      body: "{}",
+    });
+    expect(ack.status).toBe(404);
+
+    const events = await app.request("/api/v1/parent/calendar/events", { headers: parentHdrs });
+    const eventsBody = (await events.json()) as { events: Array<{ id: string }> };
+    expect(eventsBody.events.map((row) => row.id)).not.toContain(eventABody.event.id);
   });
 });

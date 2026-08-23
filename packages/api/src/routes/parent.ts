@@ -216,10 +216,12 @@ export function registerParentRoutes(app: SchoolappApi) {
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       assertPermission(actor, PERMISSIONS.ANNOUNCEMENTS_READ_OWN_CHILDREN);
       await activateDueAnnouncements(client, orgId, userId);
+      const childIds = [...(await guardianChildIds(client, userId, orgId))];
       const announcements = await listPortalAnnouncements(client, {
         orgId,
         userId,
         audienceRole: "parent",
+        allowedStudentIds: childIds,
       });
       return c.json({ announcements });
     }),
@@ -230,13 +232,14 @@ export function registerParentRoutes(app: SchoolappApi) {
       assertPermission(actor, PERMISSIONS.ANNOUNCEMENTS_READ_OWN_CHILDREN);
       await activateDueAnnouncements(client, orgId, userId);
       const announcementId = uuidRouteParam(c, "announcementId");
+      const childIds = [...(await guardianChildIds(client, userId, orgId))];
       const announcement = await loadPortalAnnouncement(client, {
         orgId,
         userId,
         announcementId,
         audienceRole: "parent",
+        allowedStudentIds: childIds,
       });
-      const childIds = [...(await guardianChildIds(client, userId, orgId))];
       await markPortalAnnouncementRead(client, orgId, userId, announcementId);
       return c.json({
         announcement: {
@@ -252,7 +255,14 @@ export function registerParentRoutes(app: SchoolappApi) {
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       assertPermission(actor, PERMISSIONS.ANNOUNCEMENTS_READ_OWN_CHILDREN);
       const announcementId = uuidRouteParam(c, "announcementId");
-      await loadPortalAnnouncement(client, { orgId, userId, announcementId, audienceRole: "parent" });
+      const childIds = [...(await guardianChildIds(client, userId, orgId))];
+      await loadPortalAnnouncement(client, {
+        orgId,
+        userId,
+        announcementId,
+        audienceRole: "parent",
+        allowedStudentIds: childIds,
+      });
       const state = await markPortalAnnouncementRead(client, orgId, userId, announcementId);
       return c.json({ readAt: state.read_at, acknowledgedAt: state.acknowledged_at });
     }),
@@ -262,7 +272,14 @@ export function registerParentRoutes(app: SchoolappApi) {
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       assertPermission(actor, PERMISSIONS.ANNOUNCEMENTS_READ_OWN_CHILDREN);
       const announcementId = uuidRouteParam(c, "announcementId");
-      await loadPortalAnnouncement(client, { orgId, userId, announcementId, audienceRole: "parent" });
+      const childIds = [...(await guardianChildIds(client, userId, orgId))];
+      await loadPortalAnnouncement(client, {
+        orgId,
+        userId,
+        announcementId,
+        audienceRole: "parent",
+        allowedStudentIds: childIds,
+      });
       const state = await acknowledgePortalAnnouncement(client, orgId, userId, announcementId);
       return c.json({ readAt: state.read_at, acknowledgedAt: state.acknowledged_at });
     }),
@@ -272,14 +289,15 @@ export function registerParentRoutes(app: SchoolappApi) {
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       assertPermission(actor, PERMISSIONS.CALENDAR_READ_OWN_CHILDREN);
       await activateDueEvents(client, orgId, userId);
+      const childIds = [...(await guardianChildIds(client, userId, orgId))];
       const events = await listPortalEvents(client, {
         orgId,
         userId,
         audienceRole: "parent",
         from: c.req.query("from"),
         to: c.req.query("to"),
+        allowedStudentIds: childIds,
       });
-      const childIds = [...(await guardianChildIds(client, userId, orgId))];
       const withRelated = [];
       for (const event of events) {
         withRelated.push({
@@ -296,8 +314,14 @@ export function registerParentRoutes(app: SchoolappApi) {
       assertPermission(actor, PERMISSIONS.CALENDAR_READ_OWN_CHILDREN);
       await activateDueEvents(client, orgId, userId);
       const eventId = uuidRouteParam(c, "eventId");
-      const event = await loadPortalEvent(client, { orgId, userId, eventId, audienceRole: "parent" });
       const childIds = [...(await guardianChildIds(client, userId, orgId))];
+      const event = await loadPortalEvent(client, {
+        orgId,
+        userId,
+        eventId,
+        audienceRole: "parent",
+        allowedStudentIds: childIds,
+      });
       return c.json({
         event: {
           ...event,

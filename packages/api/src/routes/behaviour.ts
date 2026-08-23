@@ -15,6 +15,7 @@ import {
   requireClassInOrganisation,
   requireStudentInOrganisation,
 } from "@schoolapp/core";
+import type { Actor } from "@schoolapp/domain";
 import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
 import { uuidRouteParam, withSchoolActor } from "../school-context";
@@ -113,6 +114,7 @@ async function loadIncident(client: pg.PoolClient, orgId: string, id: string) {
 
 async function replaceRelated(
   client: pg.PoolClient,
+  actor: Actor,
   orgId: string,
   incidentId: string,
   studentIds: string[] | undefined,
@@ -124,6 +126,7 @@ async function replaceRelated(
   );
   for (const studentId of studentIds) {
     await requireStudentInOrganisation(client, orgId, studentId);
+    await assertCanReadStudentBehaviour(client, actor, studentId);
     await client.query(
       `insert into behaviour_incident_related_pupils (organisation_id, incident_id, student_profile_id)
        values ($1, $2, $3)`,
@@ -134,6 +137,7 @@ async function replaceRelated(
 
 async function replaceWitnesses(
   client: pg.PoolClient,
+  actor: Actor,
   orgId: string,
   incidentId: string,
   witnesses:
@@ -148,6 +152,7 @@ async function replaceWitnesses(
   for (const witness of witnesses) {
     if (witness.studentProfileId) {
       await requireStudentInOrganisation(client, orgId, witness.studentProfileId);
+      await assertCanReadStudentBehaviour(client, actor, witness.studentProfileId);
     }
     await client.query(
       `insert into behaviour_incident_witnesses (
@@ -281,8 +286,8 @@ export function registerBehaviourRoutes(app: SchoolappApi) {
         ],
       );
       const id = inserted.rows[0]!.id;
-      await replaceRelated(client, orgId, id, body.relatedStudentIds);
-      await replaceWitnesses(client, orgId, id, body.witnesses);
+      await replaceRelated(client, actor, orgId, id, body.relatedStudentIds);
+      await replaceWitnesses(client, actor, orgId, id, body.witnesses);
       await auditBehaviour(client, {
         organisationId: orgId,
         actorUserId: userId,
@@ -303,6 +308,7 @@ export function registerBehaviourRoutes(app: SchoolappApi) {
       const id = uuidRouteParam(c, "id");
       const row = await loadIncident(client, orgId, id);
       await assertCanReadStudentBehaviour(client, actor, String(row.student_profile_id));
+      const authorised = await loadAuthorisedBehaviourStudentIds(client, actor);
       const related = await client.query(
         `select r.student_profile_id, sp.legal_name
          from behaviour_incident_related_pupils r
@@ -325,11 +331,25 @@ export function registerBehaviourRoutes(app: SchoolappApi) {
       ]);
       return c.json({
         incident: mapBehaviourIncident(row),
-        relatedPupils: related.rows.map((item) => ({
-          studentProfileId: item.student_profile_id,
-          studentLegalName: item.legal_name,
-        })),
-        witnesses: witnesses.rows,
+        relatedPupils: related.rows
+          .filter((item) => authorised === null || authorised.has(String(item.student_profile_id)))
+          .map((item) => ({
+            studentProfileId: item.student_profile_id,
+            studentLegalName: item.legal_name,
+          })),
+        witnesses: witnesses.rows.map((item) => {
+          const studentId = item.student_profile_id ? String(item.student_profile_id) : null;
+          if (studentId && authorised && !authorised.has(studentId)) {
+            return {
+              student_profile_id: null,
+              student_legal_name: null,
+              staff_user_id: item.staff_user_id,
+              staff_name: item.staff_name,
+              display_name: item.display_name,
+            };
+          }
+          return item;
+        }),
         actions: actions.rows.map((item) => mapBehaviourAction(item as Record<string, unknown>)),
       });
     }),
@@ -388,8 +408,8 @@ export function registerBehaviourRoutes(app: SchoolappApi) {
           canManageBehaviour(actor) ? (body.studentVisible ?? null) : null,
         ],
       );
-      if (body.relatedStudentIds) await replaceRelated(client, orgId, id, body.relatedStudentIds);
-      if (body.witnesses) await replaceWitnesses(client, orgId, id, body.witnesses);
+      if (body.relatedStudentIds) await replaceRelated(client, actor, orgId, id, body.relatedStudentIds);
+      if (body.witnesses) await replaceWitnesses(client, actor, orgId, id, body.witnesses);
       await auditBehaviour(client, {
         organisationId: orgId,
         actorUserId: userId,

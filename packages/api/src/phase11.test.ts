@@ -291,6 +291,42 @@ describe("Phase 11 behaviour, pastoral and safeguarding", () => {
     });
     expect(foreignPupil.status).toBe(404);
 
+    const relatedLeak = await app.request("/api/v1/behaviour/incidents", {
+      method: "POST",
+      headers: teacherH,
+      body: JSON.stringify({
+        studentProfileId: assigned.student.id,
+        occurredAt: "2026-09-15T10:05:00Z",
+        categoryId: incidentCategory,
+        description: "Related pupil must stay assigned-only.",
+        relatedStudentIds: [other.student.id],
+        witnesses: [{ studentProfileId: other.student.id }],
+      }),
+    });
+    expect(relatedLeak.status).toBe(404);
+
+    const adminRelated = await app.request("/api/v1/behaviour/incidents", {
+      method: "POST",
+      headers: gwH,
+      body: JSON.stringify({
+        studentProfileId: assigned.student.id,
+        occurredAt: "2026-09-15T10:06:00Z",
+        categoryId: incidentCategory,
+        description: "Admin may link another pupil.",
+        relatedStudentIds: [other.student.id],
+        witnesses: [{ studentProfileId: other.student.id }],
+      }),
+    });
+    expect(adminRelated.status).toBe(201);
+    const adminRelatedBody = (await adminRelated.json()) as { incident: { id: string } };
+    const teacherRelatedRead = await app.request(`/api/v1/behaviour/incidents/${adminRelatedBody.incident.id}`, {
+      headers: teacherH,
+    });
+    expect(teacherRelatedRead.status).toBe(200);
+    const teacherRelatedJson = await teacherRelatedRead.json();
+    expect(JSON.stringify(teacherRelatedJson)).not.toContain("Other Pupil");
+    expect(JSON.stringify(teacherRelatedJson)).not.toContain(other.student.id);
+
     const oakAsTeacher = await app.request("/api/v1/behaviour/incidents", {
       method: "POST",
       headers: teacherH,

@@ -23,5 +23,6 @@ ADRs capture *why* we chose an approach. The narrative proposal is in [ARCHITECT
 | [0017](./0017-phase8-assessment-results.md) | Formal assessments, results, reporting periods, and progress reports | Accepted |
 | [0018](./0018-phase9-public-admissions-forms.md) | Public admissions forms, embeds, and draft tokens | Accepted |
 | [0019](./0019-phase10-communications-calendar.md) | Announcements, targeting, and school calendar | Accepted |
+| [0020](./0020-phase11-behaviour-pastoral-safeguarding.md) | Behaviour, pastoral, and safeguarding foundation | Accepted |
 
 Convention: one decision per file. If a decision is reversed, mark it **Superseded** and add a new ADR — do not silently edit history.

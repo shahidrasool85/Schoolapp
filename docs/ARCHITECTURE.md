@@ -492,6 +492,14 @@ See [ADR 0017](./adr/0017-phase8-assessment-results.md). Distinct from `learning
 
 See [ADR 0019](./adr/0019-phase10-communications-calendar.md). Recipients are a publish-time snapshot. Scheduled publication activates on authorised read without rewriting `published_by` to the first reader. Assigned teachers cannot read other authors' unpublished school-wide drafts.
 
+### 6.2d Behaviour, pastoral and safeguarding (Phase 11)
+
+- Behaviour: `behaviour_incidents`, related pupils/witnesses/revisions, `behaviour_actions`, `positive_behaviour_records`, configurable catalogues
+- Pastoral: `pastoral_concerns`, `pastoral_interventions` (distinct from incidents)
+- Safeguarding: `safeguarding_concerns`, append-only `safeguarding_chronology_entries`, restricted `safeguarding_attachments`
+
+See [ADR 0020](./adr/0020-phase11-behaviour-pastoral-safeguarding.md). Safeguarding is a separate permission set and is not included on ordinary student-record payloads.
+
 ### 6.3 Later entities (do not implement now; reserved names)
 
 - Admissions: `admissions_enquiries`, `admissions_applications`, `admissions_application_contacts`, `admissions_application_status_history`, `admissions_assessments`, `admissions_waiting_list_entries`, `admissions_offers`, `admissions_documents` (metadata only)

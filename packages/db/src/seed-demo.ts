@@ -151,6 +151,27 @@ async function wipeDemoData(client: pg.Client): Promise<void> {
     );
 
     const tenantDeletes = [
+      "safeguarding_attachments",
+      "safeguarding_chronology_entries",
+      "safeguarding_concern_revisions",
+      "safeguarding_concerns",
+      "pastoral_record_attachments",
+      "pastoral_interventions",
+      "pastoral_concern_revisions",
+      "pastoral_concerns",
+      "behaviour_action_revisions",
+      "behaviour_actions",
+      "behaviour_incident_witnesses",
+      "behaviour_incident_related_pupils",
+      "behaviour_incident_revisions",
+      "behaviour_incidents",
+      "positive_behaviour_records",
+      "behaviour_incident_categories",
+      "behaviour_action_categories",
+      "positive_behaviour_categories",
+      "behaviour_locations",
+      "pastoral_concern_categories",
+      "safeguarding_concern_categories",
       "announcement_recipient_subjects",
       "announcement_recipients",
       "announcement_resources",
@@ -699,6 +720,173 @@ async function seedGuardian(
       input.priority ?? 1,
     ],
   );
+}
+
+async function catalogueId(
+  client: pg.Client,
+  table:
+    | "behaviour_incident_categories"
+    | "behaviour_action_categories"
+    | "positive_behaviour_categories"
+    | "behaviour_locations"
+    | "pastoral_concern_categories"
+    | "safeguarding_concern_categories",
+  organisationId: string,
+  key: string,
+): Promise<string> {
+  return lookupId(client, `select id from ${table} where organisation_id = $1 and key = $2`, [
+    organisationId,
+    key,
+  ]);
+}
+
+async function seedBehaviourIncident(
+  client: pg.Client,
+  input: {
+    organisationId: string;
+    studentProfileId: string;
+    occurredAt: string;
+    categoryKey: string;
+    locationKey?: string;
+    classId?: string;
+    description: string;
+    severity?: string;
+    actionTaken?: string;
+    status?: string;
+    recordedBy: string;
+  },
+): Promise<string> {
+  const created = await client.query<IdRow>(
+    `insert into behaviour_incidents (
+       organisation_id, student_profile_id, occurred_at, category_id, location_id, class_id,
+       description, severity, action_taken, status, recorded_by
+     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+     returning id`,
+    [
+      input.organisationId,
+      input.studentProfileId,
+      input.occurredAt,
+      await catalogueId(client, "behaviour_incident_categories", input.organisationId, input.categoryKey),
+      input.locationKey
+        ? await catalogueId(client, "behaviour_locations", input.organisationId, input.locationKey)
+        : null,
+      input.classId ?? null,
+      input.description,
+      input.severity ?? "low",
+      input.actionTaken ?? null,
+      input.status ?? "open",
+      input.recordedBy,
+    ],
+  );
+  return created.rows[0]!.id;
+}
+
+async function seedPositiveRecord(
+  client: pg.Client,
+  input: {
+    organisationId: string;
+    studentProfileId: string;
+    occurredOn: string;
+    categoryKey: string;
+    classId?: string;
+    description: string;
+    recordedBy: string;
+  },
+): Promise<string> {
+  const created = await client.query<IdRow>(
+    `insert into positive_behaviour_records (
+       organisation_id, student_profile_id, occurred_on, category_id, class_id, description, recorded_by
+     ) values ($1,$2,$3,$4,$5,$6,$7)
+     returning id`,
+    [
+      input.organisationId,
+      input.studentProfileId,
+      input.occurredOn,
+      await catalogueId(client, "positive_behaviour_categories", input.organisationId, input.categoryKey),
+      input.classId ?? null,
+      input.description,
+      input.recordedBy,
+    ],
+  );
+  return created.rows[0]!.id;
+}
+
+async function seedPastoralConcern(
+  client: pg.Client,
+  input: {
+    organisationId: string;
+    studentProfileId: string;
+    categoryKey: string;
+    concernOn: string;
+    summary: string;
+    detailedNotes?: string;
+    priority?: string;
+    assignedStaffUserId?: string;
+    attendanceRelated?: boolean;
+    followUpDueOn?: string;
+    raisedBy: string;
+  },
+): Promise<string> {
+  const created = await client.query<IdRow>(
+    `insert into pastoral_concerns (
+       organisation_id, student_profile_id, category_id, concern_on, summary, detailed_notes,
+       priority, assigned_staff_user_id, attendance_related, follow_up_due_on, raised_by
+     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+     returning id`,
+    [
+      input.organisationId,
+      input.studentProfileId,
+      await catalogueId(client, "pastoral_concern_categories", input.organisationId, input.categoryKey),
+      input.concernOn,
+      input.summary,
+      input.detailedNotes ?? null,
+      input.priority ?? "medium",
+      input.assignedStaffUserId ?? null,
+      input.attendanceRelated ?? false,
+      input.followUpDueOn ?? null,
+      input.raisedBy,
+    ],
+  );
+  return created.rows[0]!.id;
+}
+
+async function seedSafeguardingConcern(
+  client: pg.Client,
+  input: {
+    organisationId: string;
+    studentProfileId: string;
+    categoryKey: string;
+    aroseAt: string;
+    factualDescription: string;
+    immediateActionTaken?: string;
+    assignedUserId?: string;
+    recordedBy: string;
+  },
+): Promise<string> {
+  const created = await client.query<IdRow>(
+    `insert into safeguarding_concerns (
+       organisation_id, student_profile_id, arose_at, category_id, factual_description,
+       immediate_action_taken, assigned_safeguarding_lead_user_id, recorded_by
+     ) values ($1,$2,$3,$4,$5,$6,$7,$8)
+     returning id`,
+    [
+      input.organisationId,
+      input.studentProfileId,
+      input.aroseAt,
+      await catalogueId(client, "safeguarding_concern_categories", input.organisationId, input.categoryKey),
+      input.factualDescription,
+      input.immediateActionTaken ?? null,
+      input.assignedUserId ?? null,
+      input.recordedBy,
+    ],
+  );
+  await client.query(
+    `insert into safeguarding_chronology_entries (
+       organisation_id, concern_id, occurred_at, entry_type, factual_note, actor_user_id
+     ) values ($1,$2,$3,'note','Concern recorded in demo seed.',$4)`,
+    [input.organisationId, created.rows[0]!.id, input.aroseAt, input.recordedBy],
+  );
+  return created.rows[0]!.id;
 }
 
 async function eventTypeId(client: pg.Client, organisationId: string, key: string): Promise<string> {
@@ -2588,6 +2776,112 @@ async function seedGreenwood(
     body: "INSET day is 2 September. Registers open from 1 September — take AM and PM for your form class.",
   });
 
+  await seedPositiveRecord(client, {
+    organisationId: orgId,
+    studentProfileId: amelia.profileId,
+    occurredOn: "2026-09-12",
+    categoryKey: "excellent_work",
+    classId: class3A,
+    description: "Careful fractions work and a clear explanation to the class.",
+    recordedBy: teacherId,
+  });
+  await seedBehaviourIncident(client, {
+    organisationId: orgId,
+    studentProfileId: amelia.profileId,
+    occurredAt: "2026-09-15T10:15:00Z",
+    categoryKey: "disruption",
+    locationKey: "classroom",
+    classId: class3A,
+    description: "Called out during the input. Reminder given and work completed.",
+    severity: "low",
+    actionTaken: "Verbal reminder.",
+    status: "resolved",
+    recordedBy: teacherId,
+  });
+  await seedBehaviourIncident(client, {
+    organisationId: orgId,
+    studentProfileId: jack.profileId,
+    occurredAt: "2026-09-16T09:10:00Z",
+    categoryKey: "unkindness",
+    locationKey: "playground",
+    description: "Pushed into a game without joining in fairly.",
+    severity: "low",
+    status: "resolved",
+    recordedBy: teacherId,
+  });
+  await seedBehaviourIncident(client, {
+    organisationId: orgId,
+    studentProfileId: jack.profileId,
+    occurredAt: "2026-09-18T11:40:00Z",
+    categoryKey: "disruption",
+    locationKey: "classroom",
+    classId: class3A,
+    description: "Repeated calling out after a previous reminder.",
+    severity: "medium",
+    status: "in_progress",
+    recordedBy: teacherId,
+  });
+  await seedBehaviourIncident(client, {
+    organisationId: orgId,
+    studentProfileId: jack.profileId,
+    occurredAt: "2026-09-22T13:05:00Z",
+    categoryKey: "defiance",
+    locationKey: "corridor",
+    description: "Did not line up when asked. Restorative conversation planned.",
+    severity: "medium",
+    status: "open",
+    recordedBy: teacherId,
+  });
+  const yusufPastoral = await seedPastoralConcern(client, {
+    organisationId: orgId,
+    studentProfileId: yusuf.profileId,
+    categoryKey: "attendance_concern",
+    concernOn: "2026-09-20",
+    summary: "Several late marks this fortnight; pastoral check-in arranged.",
+    detailedNotes: "Internal note: discuss morning routine with form tutor. Not for parent portal.",
+    priority: "medium",
+    assignedStaffUserId: headId,
+    attendanceRelated: true,
+    followUpDueOn: "2026-10-04",
+    raisedBy: adminId,
+  });
+  await client.query(
+    `insert into pastoral_interventions (
+       organisation_id, concern_id, intervention_type, responsible_staff_user_id,
+       action_on, outcome, next_review_on, recorded_by
+     ) values ($1,$2,'pupil_meeting',$3,'2026-09-21','Calm conversation. Agreed to check in next week.','2026-10-04',$4)`,
+    [orgId, yusufPastoral, headId, adminId],
+  );
+  await seedSafeguardingConcern(client, {
+    organisationId: orgId,
+    studentProfileId: sophie.profileId,
+    categoryKey: "change_in_presentation",
+    aroseAt: "2026-09-19T15:10:00Z",
+    factualDescription:
+      "Member of staff recorded a change in presentation after lunch. Facts only; DSL to review.",
+    immediateActionTaken: "Passed to the designated safeguarding lead the same afternoon.",
+    assignedUserId: headId,
+    recordedBy: adminId,
+  });
+  await notify(client, {
+    organisationId: orgId,
+    recipientUserId: headId,
+    createdBy: adminId,
+    type: "safeguarding_assigned",
+    category: "safeguarding",
+    title: "Safeguarding item assigned",
+    body: "A safeguarding item has been assigned to you.",
+  });
+  await notify(client, {
+    organisationId: orgId,
+    recipientUserId: headId,
+    createdBy: adminId,
+    type: "pastoral_assigned",
+    category: "pastoral",
+    title: "Pastoral item assigned",
+    body: "A pastoral item has been assigned to you.",
+  });
+
   await seedAdmissionsPublicForms(client, {
     organisationId: orgId,
     createdBy: adminId,
@@ -2909,6 +3203,49 @@ async function seedOakAcademy(
     pupil: "Ruby Adeyemi",
     yearGroupId: yearGroups.get("3")!,
     academicYearId,
+  });
+
+  await seedPositiveRecord(client, {
+    organisationId: orgId,
+    studentProfileId: niamh.profileId,
+    occurredOn: "2026-09-11",
+    categoryKey: "kindness",
+    classId: class3.rows[0]!.id,
+    description: "Helped a new classmate find the cloakroom.",
+    recordedBy: teacherId,
+  });
+  await seedBehaviourIncident(client, {
+    organisationId: orgId,
+    studentProfileId: niamh.profileId,
+    occurredAt: "2026-09-17T10:05:00Z",
+    categoryKey: "equipment",
+    locationKey: "classroom",
+    classId: class3.rows[0]!.id,
+    description: "Oak-only incident: forgot reading book twice this week.",
+    severity: "low",
+    status: "open",
+    recordedBy: teacherId,
+  });
+  await seedPastoralConcern(client, {
+    organisationId: orgId,
+    studentProfileId: niamh.profileId,
+    categoryKey: "friendship",
+    concernOn: "2026-09-18",
+    summary: "Oak-only pastoral note about playground friendships.",
+    detailedNotes: "Internal Oak pastoral note. Greenwood must never see this.",
+    priority: "low",
+    assignedStaffUserId: teacherId,
+    raisedBy: adminId,
+  });
+  await seedSafeguardingConcern(client, {
+    organisationId: orgId,
+    studentProfileId: niamh.profileId,
+    categoryKey: "general_concern",
+    aroseAt: "2026-09-18T16:00:00Z",
+    factualDescription: "Oak-only safeguarding record for tenant isolation tests. Neutral demo content.",
+    immediateActionTaken: "Recorded for the Oak DSL.",
+    assignedUserId: adminId,
+    recordedBy: adminId,
   });
 
   await seedAdmissionsPublicForms(client, {

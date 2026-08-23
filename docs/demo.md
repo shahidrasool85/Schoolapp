@@ -126,7 +126,9 @@ Sign in as **Greenwood School Admin** at http://greenwood.localhost:3000/login, 
 - Teaching & Learning (`/school/teaching`) — assignments, submissions, marking
 - Assessment & Progress (`/school/assessment`) — formal assessments, result entry, reports
 - Communications (`/school/communications`) — announcements and calendar
-- Students (open Amelia Khan — attendance, Learning history, and Academic / Results)
+- Pastoral & Behaviour (`/school/pastoral`) — incidents, achievements, pastoral concerns
+- Safeguarding (`/school/safeguarding`) — restricted; Headteacher and School Admin only in the demo
+- Students (open Amelia Khan — attendance, Learning history, Academic / Results, and behaviour summary)
 - Attendance → My registers (Hannah Cole’s 3A) or School attendance
 - Student portal (year-group enable/disable; Reception can be turned on)
 - Staff / Teachers

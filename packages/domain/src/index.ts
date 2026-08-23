@@ -112,6 +112,18 @@ export const PERMISSIONS = {
   CALENDAR_MANAGE_SCHOOL: "calendar.manage_school",
   CALENDAR_READ_OWN_CHILDREN: "calendar.read_own_children",
   CALENDAR_READ_SELF: "calendar.read_self",
+  BEHAVIOUR_READ: "behaviour.read",
+  BEHAVIOUR_RECORD: "behaviour.record",
+  BEHAVIOUR_MANAGE: "behaviour.manage",
+  BEHAVIOUR_READ_ASSIGNED: "behaviour.read_assigned",
+  BEHAVIOUR_POSITIVE_RECORD: "behaviour.positive.record",
+  PASTORAL_READ: "pastoral.read",
+  PASTORAL_MANAGE: "pastoral.manage",
+  PASTORAL_READ_ASSIGNED: "pastoral.read_assigned",
+  SAFEGUARDING_READ: "safeguarding.read",
+  SAFEGUARDING_RECORD: "safeguarding.record",
+  SAFEGUARDING_MANAGE: "safeguarding.manage",
+  SAFEGUARDING_ASSIGN: "safeguarding.assign",
   AUDIT_READ: "audit.read",
 } as const;
 
@@ -250,6 +262,10 @@ export const NOTIFICATION_TYPES = [
   "announcement_important",
   "announcement_acknowledgement",
   "calendar_upcoming",
+  "pastoral_assigned",
+  "safeguarding_assigned",
+  "pastoral_follow_up",
+  "behaviour_follow_up",
   "general",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
@@ -264,6 +280,9 @@ export const NOTIFICATION_CATEGORIES = [
   "reports",
   "admissions",
   "calendar",
+  "behaviour",
+  "pastoral",
+  "safeguarding",
   "general",
 ] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
@@ -623,3 +642,119 @@ export const BROADCAST_TARGET_TYPES = [
   "students",
   "year_group",
 ] as const;
+
+export const BEHAVIOUR_INCIDENT_STATUSES = ["open", "in_progress", "resolved", "closed"] as const;
+export type BehaviourIncidentStatus = (typeof BEHAVIOUR_INCIDENT_STATUSES)[number];
+
+export const BEHAVIOUR_SEVERITIES = ["low", "medium", "high"] as const;
+export type BehaviourSeverity = (typeof BEHAVIOUR_SEVERITIES)[number];
+
+export const BEHAVIOUR_ACTION_STATUSES = ["planned", "in_progress", "completed", "cancelled"] as const;
+export type BehaviourActionStatus = (typeof BEHAVIOUR_ACTION_STATUSES)[number];
+
+export const PASTORAL_CONCERN_STATUSES = ["open", "monitoring", "resolved", "closed"] as const;
+export type PastoralConcernStatus = (typeof PASTORAL_CONCERN_STATUSES)[number];
+
+export const PASTORAL_PRIORITIES = ["low", "medium", "high"] as const;
+export type PastoralPriority = (typeof PASTORAL_PRIORITIES)[number];
+
+export const PASTORAL_INTERVENTION_TYPES = [
+  "pupil_meeting",
+  "parent_meeting",
+  "parent_contact",
+  "mentoring",
+  "support_plan",
+  "internal_referral",
+  "review",
+] as const;
+export type PastoralInterventionType = (typeof PASTORAL_INTERVENTION_TYPES)[number];
+
+export const SAFEGUARDING_CONCERN_STATUSES = ["open", "monitoring", "referred_internal", "closed"] as const;
+export type SafeguardingConcernStatus = (typeof SAFEGUARDING_CONCERN_STATUSES)[number];
+
+export const SAFEGUARDING_CHRONOLOGY_ENTRY_TYPES = [
+  "note",
+  "action",
+  "decision",
+  "contact",
+  "review",
+  "amendment",
+] as const;
+export type SafeguardingChronologyEntryType = (typeof SAFEGUARDING_CHRONOLOGY_ENTRY_TYPES)[number];
+
+export const BEHAVIOUR_INCIDENT_CATEGORY_KEYS = [
+  "disruption",
+  "defiance",
+  "unkindness",
+  "physical_incident",
+  "unsafe_behaviour",
+  "late_to_lesson",
+  "equipment",
+  "other",
+] as const;
+export type BehaviourIncidentCategoryKey = (typeof BEHAVIOUR_INCIDENT_CATEGORY_KEYS)[number];
+
+export const BEHAVIOUR_ACTION_CATEGORY_KEYS = [
+  "verbal_warning",
+  "parent_contact",
+  "detention",
+  "restorative_conversation",
+  "loss_of_privilege",
+  "internal_intervention",
+  "suspension_placeholder",
+  "exclusion_placeholder",
+] as const;
+export type BehaviourActionCategoryKey = (typeof BEHAVIOUR_ACTION_CATEGORY_KEYS)[number];
+
+export const POSITIVE_BEHAVIOUR_CATEGORY_KEYS = [
+  "praise",
+  "merit",
+  "excellent_work",
+  "kindness",
+  "leadership",
+  "effort",
+  "attendance_achievement",
+] as const;
+export type PositiveBehaviourCategoryKey = (typeof POSITIVE_BEHAVIOUR_CATEGORY_KEYS)[number];
+
+export const BEHAVIOUR_LOCATION_KEYS = [
+  "classroom",
+  "playground",
+  "corridor",
+  "dining_hall",
+  "assembly",
+  "trip",
+  "other",
+] as const;
+export type BehaviourLocationKey = (typeof BEHAVIOUR_LOCATION_KEYS)[number];
+
+export const PASTORAL_CONCERN_CATEGORY_KEYS = [
+  "wellbeing",
+  "attendance_concern",
+  "friendship",
+  "emotional_support",
+  "family_circumstance",
+  "engagement",
+  "repeated_behaviour",
+] as const;
+export type PastoralConcernCategoryKey = (typeof PASTORAL_CONCERN_CATEGORY_KEYS)[number];
+
+export const SAFEGUARDING_CONCERN_CATEGORY_KEYS = [
+  "general_concern",
+  "wellbeing_safety",
+  "disclosure",
+  "unexplained_injury",
+  "change_in_presentation",
+  "home_circumstance",
+  "other",
+] as const;
+export type SafeguardingConcernCategoryKey = (typeof SAFEGUARDING_CONCERN_CATEGORY_KEYS)[number];
+
+export const PASTORAL_RECORD_ATTACHMENT_PARENT_KINDS = [
+  "incident",
+  "positive",
+  "action",
+  "pastoral_concern",
+  "pastoral_intervention",
+] as const;
+export type PastoralRecordAttachmentParentKind = (typeof PASTORAL_RECORD_ATTACHMENT_PARENT_KINDS)[number];

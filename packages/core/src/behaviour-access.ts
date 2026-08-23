@@ -278,7 +278,13 @@ export async function auditBehaviour(
     action: input.action,
     entityType: input.entityType,
     entityId: input.entityId,
-    after: auditSafeBehaviourAfter(input),
+    after: auditSafeBehaviourAfter({
+      id: input.entityId,
+      studentProfileId: input.studentProfileId,
+      status: input.status,
+      categoryId: input.categoryId,
+      severity: input.severity,
+    }),
   });
 }
 
@@ -302,7 +308,13 @@ export async function auditSafeguarding(
     action: input.action,
     entityType: input.entityType,
     entityId: input.entityId,
-    after: auditSafeSafeguardingAfter(input),
+    after: auditSafeSafeguardingAfter({
+      id: input.entityId,
+      studentProfileId: input.studentProfileId,
+      status: input.status,
+      categoryId: input.categoryId,
+      assignedUserId: input.assignedUserId,
+    }),
   });
 }
 

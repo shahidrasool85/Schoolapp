@@ -108,7 +108,6 @@ export async function listPortalAnnouncements(
     `${PORTAL_ANNOUNCEMENT_SELECT}
      where a.organisation_id = $1
        and r.user_id = $2
-       and r.audience_role = $3
        and a.status in ('published', 'expired')
        and (
          $4::boolean = true
@@ -155,7 +154,6 @@ export async function loadPortalAnnouncement(
      where a.organisation_id = $1
        and a.id = $2
        and r.user_id = $3
-       and r.audience_role = $4
        and a.status in ('published', 'expired')
        and (
          ($4 = 'student' and r.audience_role = 'student')
@@ -251,7 +249,6 @@ export async function listPortalEvents(
     `${PORTAL_EVENT_SELECT}
      where e.organisation_id = $1
        and au.user_id = $2
-       and au.audience_role = $3
        and e.status = 'published'
        and ($4::timestamptz is null or e.ends_at >= $4::timestamptz)
        and ($5::timestamptz is null or e.starts_at <= $5::timestamptz)
@@ -297,7 +294,6 @@ export async function loadPortalEvent(
      where e.organisation_id = $1
        and e.id = $2
        and au.user_id = $3
-       and au.audience_role = $4
        and e.status in ('published', 'cancelled')
        and (
          ($4 = 'student' and au.audience_role = 'student')

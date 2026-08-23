@@ -163,18 +163,18 @@ async function inviteParent(
   email: string,
   portalAccess = true,
 ) {
-  const guardian = (await (
-    await app.request(`/api/v1/students/${studentId}/guardians`, {
-      method: "POST",
-      headers: hdrs,
-      body: JSON.stringify({
-        email,
-        fullName: "Pat Parent",
-        relationship: "mother",
-        portalAccess,
-      }),
-    })
-  ).json()) as { invitationToken: string | null; guardianshipId: string };
+  const created = await app.request(`/api/v1/students/${studentId}/guardians`, {
+    method: "POST",
+    headers: hdrs,
+    body: JSON.stringify({
+      email,
+      fullName: "Pat Parent",
+      relationship: "mother",
+      portalAccess,
+    }),
+  });
+  expect(created.status).toBe(201);
+  const guardian = (await created.json()) as { invitationToken: string | null; guardianshipId: string };
   if (guardian.invitationToken) {
     await app.request("/api/v1/invitations/accept", {
       method: "POST",

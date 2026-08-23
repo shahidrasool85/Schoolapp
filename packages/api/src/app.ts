@@ -88,7 +88,16 @@ export function createApiApp(config: ApiConfig) {
 
   app.onError((error, c) => {
     if (error instanceof AppError) {
-      return c.json({ error: { code: error.code, message: error.message } }, error.status as 400);
+      return c.json(
+        {
+          error: {
+            code: error.code,
+            message: error.message,
+            ...(error.details ? { details: error.details } : {}),
+          },
+        },
+        error.status as 400,
+      );
     }
     console.error(error);
     return c.json({ error: { code: "internal_error", message: "Internal error" } }, 500);

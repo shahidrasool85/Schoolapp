@@ -84,16 +84,38 @@ function mapPublicFields(payload: {
   return fields;
 }
 
+function emptyToUndefined(value: unknown) {
+  return value === "" || value === null ? undefined : value;
+}
+
 const submitSchema = z.object({
   answers: z.record(z.unknown()),
-  source: z.string().max(80).optional(),
-  campaignCode: z.string().max(80).optional(),
-  continuationToken: z.string().max(200).optional(),
-  publicId: z.string().uuid().optional(),
-  idempotencyKey: z.string().max(120).optional(),
-  captchaToken: z.string().max(4000).optional(),
+  source: z.preprocess(emptyToUndefined, z.string().max(80).optional()),
+  campaignCode: z.preprocess(emptyToUndefined, z.string().max(80).optional()),
+  continuationToken: z.preprocess(emptyToUndefined, z.string().max(200).optional()),
+  publicId: z.preprocess(emptyToUndefined, z.string().uuid().optional()),
+  idempotencyKey: z.preprocess(emptyToUndefined, z.string().max(120).optional()),
+  captchaToken: z.preprocess(emptyToUndefined, z.string().max(4000).optional()),
   draft: z.boolean().optional(),
 });
+
+function publicSubmitSchemaError(error: z.ZodError): AppError {
+  const key = String(error.issues[0]?.path[0] ?? "");
+  if (key === "answers") {
+    return new AppError(400, "validation_failed", "The form answers could not be read");
+  }
+  if (key === "publicId" || key === "continuationToken") {
+    return new AppError(
+      400,
+      "validation_failed",
+      "This saved draft could not be continued. Start the form again or use the continuation link.",
+    );
+  }
+  if (key === "idempotencyKey") {
+    return new AppError(400, "validation_failed", "The submission could not be verified. Please try again.");
+  }
+  return new AppError(400, "validation_failed", "The submission could not be read");
+}
 
 export function registerPublicFormRoutes(app: SchoolappApi) {
   app.get("/public/admissions/forms/:formType/:slug", async (c) => {
@@ -156,7 +178,7 @@ export function registerPublicFormRoutes(app: SchoolappApi) {
       throw new AppError(400, "validation_failed", "Invalid JSON");
     }
     const parsed = submitSchema.safeParse(json);
-    if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid submission payload");
+    if (!parsed.success) throw publicSubmitSchemaError(parsed.error);
 
     const ipHash = hashClientIp(clientIp(c));
     assertNotRateLimited(

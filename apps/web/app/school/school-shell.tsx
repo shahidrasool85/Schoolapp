@@ -96,7 +96,7 @@ const LINKS: NavLink[] = [
       { href: "/school/admissions/offers", label: "Offers", permissionPrefix: "admissions." },
     ],
   },
-  { href: "/school/students", label: "Students" },
+  { href: "/school/students", label: "Pupils" },
   {
     href: "/school/attendance",
     label: "Attendance",

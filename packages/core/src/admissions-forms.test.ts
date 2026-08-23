@@ -56,6 +56,74 @@ describe("admissions forms", () => {
     expect(computeCompleteness({ draft: false, fields, answers })).toBe("complete");
   });
 
+  it("accepts a browser-shaped application payload with an unused second guardian row", () => {
+    const fields = defaultFormTemplate("application").flatMap((section) => section.fields);
+    const year = "11111111-1111-1111-1111-111111111111";
+    const group = "22222222-2222-2222-2222-222222222222";
+    const answers = validatePublicAnswers(fields, {
+      "child.legal_name": "Noah Patel",
+      "child.preferred_name": "",
+      "child.date_of_birth": "2017-05-05",
+      "child.gender": "",
+      "child.address": { line1: "", line2: "", town: "", postcode: "" },
+      "child.intended_academic_year_id": year,
+      "child.intended_year_group_id": group,
+      "child.proposed_start_date": "",
+      "child.current_school": "",
+      "child.previous_school": "",
+      guardians: [
+        {
+          fullName: "Anita Patel",
+          email: "anita@example.com",
+          phone: "",
+          relationship: "mother",
+          parentalResponsibility: true,
+          primaryContact: true,
+        },
+        {
+          fullName: "",
+          email: "",
+          phone: "",
+          relationship: "",
+          parentalResponsibility: false,
+          primaryContact: false,
+        },
+      ],
+      "previous_education.school_name": "",
+      "previous_education.start_date": "",
+      "previous_education.end_date": "",
+      "previous_education.report_details": "",
+      "medical.allergies": "",
+      "medical.conditions": "",
+      "medical.medication": "",
+      "medical.dietary": "",
+      "medical.send_notes": "",
+      "emergency.full_name": "",
+      "emergency.relationship": "",
+      "emergency.telephone": "",
+      "emergency.authorised_collection": false,
+      "application.notes": "",
+      declaration_privacy: true,
+    });
+    expect(answers.guardians).toHaveLength(1);
+    try {
+      validatePublicAnswers(fields, {
+        "child.legal_name": "Noah Patel",
+        "child.date_of_birth": "not-a-date",
+        "child.intended_academic_year_id": year,
+        "child.intended_year_group_id": group,
+        guardians: [{ fullName: "Anita Patel", email: "anita@example.com" }],
+        declaration_privacy: true,
+      });
+      throw new Error("expected validation failure");
+    } catch (err) {
+      expect(err).toBeInstanceOf(AppError);
+      expect((err as AppError).message).toMatch(/date/i);
+      expect((err as AppError).details?.fieldKey).toBe("child.date_of_birth");
+      expect((err as AppError).details?.sectionKey).toBe("child");
+    }
+  });
+
   it("maps multiple guardians and keeps completeness separate from draft", () => {
     const fields = defaultFormTemplate("application").flatMap((section) => section.fields);
     const year = "11111111-1111-1111-1111-111111111111";

@@ -12,6 +12,7 @@ type Guardian = {
   guardianEmail: string | null;
   relationship: string;
   hasParentalResponsibility: boolean;
+  portalAccess: boolean;
   endedOn: string | null;
 };
 
@@ -35,7 +36,7 @@ export default function ParentsPage() {
       {error ? <p className="error">{error}</p> : null}
       <table>
         <thead>
-          <tr><th>Parent</th><th>Email</th><th>Child</th><th>Relationship</th><th>PR</th><th>Status</th></tr>
+          <tr><th>Parent</th><th>Email</th><th>Child</th><th>Relationship</th><th>PR</th><th>Portal</th><th>Status</th></tr>
         </thead>
         <tbody>
           {guardians.map((row) => (
@@ -49,6 +50,7 @@ export default function ParentsPage() {
               </td>
               <td>{row.relationship}</td>
               <td>{row.hasParentalResponsibility ? "Yes" : "No"}</td>
+              <td>{row.portalAccess ? "Enabled" : "Off"}</td>
               <td>{row.endedOn ?? "current"}</td>
             </tr>
           ))}

@@ -4,26 +4,92 @@ import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { api } from "../../../../../lib/api";
 
+type Canonical = {
+  child?: {
+    legalName?: string;
+    preferredName?: string;
+    dateOfBirth?: string;
+    gender?: string;
+    address?: { line1?: string; line2?: string; town?: string; postcode?: string };
+    intendedAcademicYearId?: string;
+    intendedYearGroupId?: string;
+    proposedStartDate?: string;
+    currentSchool?: string;
+    previousSchool?: string;
+  };
+  guardians?: Array<{
+    fullName?: string;
+    relationship?: string;
+    parentalResponsibility?: boolean;
+    email?: string;
+    phone?: string;
+    primaryContact?: boolean;
+    address?: { line1?: string; line2?: string; town?: string; postcode?: string };
+  }>;
+  previousEducation?: {
+    schoolName?: string;
+    startDate?: string;
+    endDate?: string;
+    reportDetails?: string;
+  };
+  emergency?: {
+    fullName?: string;
+    relationship?: string;
+    telephone?: string;
+    authorisedCollection?: boolean;
+  };
+  medical?: {
+    allergies?: string;
+    conditions?: string;
+    medication?: string;
+    dietary?: string;
+    sendNotes?: string;
+  };
+  notes?: string;
+};
+
 type Detail = {
   application: {
     id: string;
     reference: string;
     status: string;
     pupilLegalName: string;
+    pupilPreferredName: string | null;
     dateOfBirth: string | null;
+    gender: string | null;
+    addressLine1: string | null;
+    addressLine2: string | null;
+    addressTown: string | null;
+    addressPostcode: string | null;
     intendedAcademicYearId: string | null;
     intendedAcademicYearName: string | null;
     intendedYearGroupId: string | null;
     intendedYearGroupName: string | null;
+    intendedEntryDate: string | null;
     previousSchool: string | null;
+    currentSchool: string | null;
     internalNotes: string | null;
     convertedStudentProfileId: string | null;
     completenessStatus: string | null;
+    source: string | null;
+    publicFormName: string | null;
+    campaignLabel: string | null;
+    submittedAt: string | null;
+    extraFields: { canonical?: Canonical } | null;
   };
   formSubmission?: {
     answers: Record<string, unknown>;
+    canonicalSnapshot?: Canonical;
+    declarationSnapshot?: {
+      capturedAt?: string;
+      privacyNoticeText?: string | null;
+      declarations?: Array<{ fieldKey: string; label: string; accepted: boolean }>;
+    } | null;
     sourceCode?: string | null;
+    campaignLabel?: string | null;
+    formName?: string | null;
     completenessStatus?: string;
+    submittedAt?: string | null;
   } | null;
   contacts: Array<{
     id: string;
@@ -32,6 +98,13 @@ type Detail = {
     telephone: string | null;
     relationship: string;
     isPrimary: boolean;
+    hasParentalResponsibility: boolean;
+    isEmergency: boolean;
+    authorisedCollection: boolean;
+    addressLine1: string | null;
+    addressLine2: string | null;
+    addressTown: string | null;
+    addressPostcode: string | null;
     userId: string | null;
   }>;
   history: Array<{
@@ -53,6 +126,26 @@ const STATUSES = [
   "assessment_pending", "assessment_completed", "waiting_list", "offer_pending",
   "offer_made", "accepted", "deferred", "rejected", "withdrawn", "enrolled",
 ];
+
+function display(value: unknown): string {
+  if (value == null || value === "") return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  return String(value);
+}
+
+function formatAddress(parts: Array<string | null | undefined>): string {
+  const cleaned = parts.map((part) => part?.trim()).filter(Boolean);
+  return cleaned.length ? cleaned.join(", ") : "—";
+}
+
+function Field({ label, value }: { label: string; value: unknown }) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>{display(value)}</dd>
+    </div>
+  );
+}
 
 export default function ApplicationDetailPage() {
   const params = useParams<{ id: string }>();
@@ -140,7 +233,7 @@ export default function ApplicationDetailPage() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const guardianLinks = data?.contacts
-      .filter((contact) => form.get(`link-${contact.id}`) === "on")
+      .filter((contact) => !contact.isEmergency && form.get(`link-${contact.id}`) === "on")
       .map((contact) => ({
         contactId: contact.id,
         portalAccess: form.get(`portal-${contact.id}`) === "on",
@@ -158,52 +251,173 @@ export default function ApplicationDetailPage() {
         }),
       },
     );
-    setMessage(`Converted to student ${body.studentProfileId}.`);
+    setMessage(`Converted to pupil ${body.studentProfileId}.`);
     await load();
   }
 
   if (error && !data) return <p className="error">{error}</p>;
   if (!data) return <p>Loading…</p>;
   const app = data.application;
+  const snapshot = data.formSubmission?.canonicalSnapshot ?? app.extraFields?.canonical ?? {};
+  const child = snapshot.child ?? {};
+  const guardians = data.contacts.filter((contact) => !contact.isEmergency);
+  const emergencies = data.contacts.filter((contact) => contact.isEmergency);
+  const answers = data.formSubmission?.answers ?? {};
+  const customAnswers = Object.entries(answers).filter(([key]) => {
+    return !key.includes(".") && key !== "guardians" && !key.startsWith("declaration");
+  });
 
   return (
     <>
       <h1>{app.reference}</h1>
       <p className="muted">{app.pupilLegalName} · {app.status.replaceAll("_", " ")}</p>
+
+      <h2>Application record</h2>
       <dl className="profile-list">
-        <div><dt>Date of birth</dt><dd>{app.dateOfBirth ?? "—"}</dd></div>
-        <div><dt>Intake</dt><dd>{app.intendedAcademicYearName ?? "—"}</dd></div>
-        <div><dt>Year group</dt><dd>{app.intendedYearGroupName ?? "—"}</dd></div>
-        <div><dt>Previous school</dt><dd>{app.previousSchool ?? "—"}</dd></div>
+        <Field label="Pupil legal name" value={app.pupilLegalName} />
+        <Field label="Preferred name" value={app.pupilPreferredName ?? child.preferredName} />
+        <Field label="Date of birth" value={app.dateOfBirth ?? child.dateOfBirth} />
+        <Field label="Gender" value={app.gender ?? child.gender} />
+        <Field label="Intake" value={app.intendedAcademicYearName} />
+        <Field label="Year group" value={app.intendedYearGroupName} />
+        <Field label="Proposed start" value={app.intendedEntryDate ?? child.proposedStartDate} />
+        <Field
+          label="Address"
+          value={formatAddress([
+            app.addressLine1 ?? child.address?.line1,
+            app.addressLine2 ?? child.address?.line2,
+            app.addressTown ?? child.address?.town,
+            app.addressPostcode ?? child.address?.postcode,
+          ])}
+        />
+        <Field label="Current school" value={app.currentSchool ?? child.currentSchool} />
+        <Field label="Previous school" value={app.previousSchool ?? child.previousSchool} />
+        <Field label="Form used" value={data.formSubmission?.formName ?? app.publicFormName} />
+        <Field label="Submitted" value={data.formSubmission?.submittedAt ?? app.submittedAt} />
+        <Field label="Source / campaign" value={data.formSubmission?.campaignLabel ?? app.campaignLabel ?? app.source} />
+        <Field label="Completeness" value={app.completenessStatus ?? data.formSubmission?.completenessStatus} />
         <div>
-          <dt>Converted student</dt>
+          <dt>Enrolled pupil</dt>
           <dd>
             {app.convertedStudentProfileId
-              ? <a href={`/school/students/${app.convertedStudentProfileId}`}>Open student</a>
+              ? <a href={`/school/students/${app.convertedStudentProfileId}`}>Open pupil record</a>
               : "Not enrolled"}
           </dd>
         </div>
       </dl>
 
-      <h2>Contacts</h2>
-      <table>
-        <thead><tr><th>Name</th><th>Email</th><th>Telephone</th><th>Relationship</th><th>User</th></tr></thead>
-        <tbody>
-          {data.contacts.map((contact) => (
-            <tr key={contact.id}>
-              <td>{contact.fullName}</td>
-              <td>{contact.email ?? "—"}</td>
-              <td>{contact.telephone ?? "—"}</td>
-              <td>{contact.relationship}</td>
-              <td>{contact.userId ? "Existing identity" : "No portal user yet"}</td>
+      <h2>Parents / guardians</h2>
+      {guardians.length === 0 ? <p className="muted">No parents or guardians recorded.</p> : (
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Telephone</th>
+              <th>Relationship</th>
+              <th>Primary</th>
+              <th>Parental responsibility</th>
+              <th>Address</th>
+              <th>Portal user</th>
             </tr>
+          </thead>
+          <tbody>
+            {guardians.map((contact) => (
+              <tr key={contact.id}>
+                <td>{contact.fullName}</td>
+                <td>{contact.email ?? "—"}</td>
+                <td>{contact.telephone ?? "—"}</td>
+                <td>{contact.relationship}</td>
+                <td>{contact.isPrimary ? "Yes" : "No"}</td>
+                <td>{contact.hasParentalResponsibility ? "Yes" : "No"}</td>
+                <td>{formatAddress([contact.addressLine1, contact.addressLine2, contact.addressTown, contact.addressPostcode])}</td>
+                <td>{contact.userId ? "Existing identity" : "No portal user yet"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <h2>Previous education</h2>
+      <dl className="profile-list">
+        <Field label="School" value={snapshot.previousEducation?.schoolName ?? app.previousSchool ?? app.currentSchool} />
+        <Field label="From" value={snapshot.previousEducation?.startDate} />
+        <Field label="To" value={snapshot.previousEducation?.endDate} />
+        <Field label="Report / reference" value={snapshot.previousEducation?.reportDetails} />
+      </dl>
+
+      <h2>Medical and additional needs</h2>
+      <p className="muted">Visible to authorised admissions staff only. This is not shown on parent or student portals.</p>
+      <dl className="profile-list">
+        <Field label="Allergies" value={snapshot.medical?.allergies} />
+        <Field label="Medical conditions" value={snapshot.medical?.conditions} />
+        <Field label="Medication" value={snapshot.medical?.medication} />
+        <Field label="Dietary requirements" value={snapshot.medical?.dietary} />
+        <Field label="SEND / additional needs" value={snapshot.medical?.sendNotes} />
+      </dl>
+
+      <h2>Emergency contacts and collection</h2>
+      {emergencies.length === 0 && !snapshot.emergency?.fullName ? (
+        <p className="muted">No emergency contacts recorded.</p>
+      ) : (
+        <dl className="profile-list">
+          {(emergencies.length ? emergencies : [{
+            id: "snapshot",
+            fullName: snapshot.emergency?.fullName ?? "—",
+            relationship: snapshot.emergency?.relationship ?? "—",
+            telephone: snapshot.emergency?.telephone ?? null,
+            authorisedCollection: Boolean(snapshot.emergency?.authorisedCollection),
+          }]).map((contact) => (
+            <div key={contact.id}>
+              <dt>{contact.fullName}</dt>
+              <dd>
+                {contact.relationship}
+                {contact.telephone ? ` · ${contact.telephone}` : ""}
+                {" · "}
+                {contact.authorisedCollection ? "Authorised to collect" : "Not authorised to collect"}
+              </dd>
+            </div>
           ))}
-        </tbody>
-      </table>
+        </dl>
+      )}
+
+      {customAnswers.length > 0 ? (
+        <>
+          <h2>Application-specific answers</h2>
+          <dl className="profile-list">
+            {customAnswers.map(([key, value]) => (
+              <Field key={key} label={key.replaceAll("_", " ")} value={typeof value === "boolean" ? value : value} />
+            ))}
+          </dl>
+        </>
+      ) : null}
+
+      {snapshot.notes || app.internalNotes ? (
+        <>
+          <h2>Notes</h2>
+          <p>{snapshot.notes ?? app.internalNotes}</p>
+        </>
+      ) : null}
+
+      {data.formSubmission?.declarationSnapshot ? (
+        <>
+          <h2>Declarations</h2>
+          <ul>
+            {(data.formSubmission.declarationSnapshot.declarations ?? []).map((item) => (
+              <li key={item.fieldKey}>
+                {item.label}: {item.accepted ? "accepted" : "not accepted"}
+              </li>
+            ))}
+          </ul>
+          {data.formSubmission.declarationSnapshot.capturedAt ? (
+            <p className="muted">Captured {data.formSubmission.declarationSnapshot.capturedAt}</p>
+          ) : null}
+        </>
+      ) : null}
 
       <h2>Status</h2>
       {app.status === "enrolled" ? (
-        <p className="muted">Enrolled. Status can no longer be changed here; conversion is complete.</p>
+        <p className="muted">Enrolled. Status can no longer be changed here; the original application is retained as history.</p>
       ) : (
         <form className="card form-grid" onSubmit={changeStatus}>
           <label>
@@ -274,10 +488,10 @@ export default function ApplicationDetailPage() {
 
       {app.status === "accepted" || app.status === "enrolled" ? (
         <>
-          <h2>Convert to enrolled student</h2>
+          <h2>Convert to enrolled pupil</h2>
           <p className="muted">
-            This creates the canonical student record. Application contacts do not receive portal
-            access unless you tick it below.
+            This creates or reuses the live pupil record. The application stays as admissions history.
+            Parent portal access is not granted unless you tick it below.
           </p>
           <form className="card stack" onSubmit={(e) => enrol(e).catch((err: Error) => setError(err.message))}>
             <div className="form-grid">
@@ -304,7 +518,7 @@ export default function ApplicationDetailPage() {
               </label>
               <label>Admission number<input name="admissionNumber" /></label>
             </div>
-            {data.contacts.map((contact) => (
+            {guardians.map((contact) => (
               <label key={contact.id}>
                 <span>
                   <input type="checkbox" name={`link-${contact.id}`} defaultChecked={Boolean(contact.email)} />
@@ -312,28 +526,17 @@ export default function ApplicationDetailPage() {
                 </span>
                 <span>
                   <input type="checkbox" name={`portal-${contact.id}`} />
-                  Grant parent portal access
+                  Enable parent portal access
                 </span>
               </label>
             ))}
             <div>
               <button type="submit" disabled={Boolean(app.convertedStudentProfileId)}>
-                {app.convertedStudentProfileId ? "Already converted" : "Enrol student"}
+                {app.convertedStudentProfileId ? "Already converted" : "Enrol pupil"}
               </button>
             </div>
           </form>
         </>
-      ) : null}
-
-      {data.formSubmission ? (
-        <section className="card">
-          <h2>Submitted form answers</h2>
-          <p className="muted">
-            Completeness: {data.application.completenessStatus ?? data.formSubmission.completenessStatus ?? "—"} ·
-            Source: {data.formSubmission.sourceCode ?? "—"}
-          </p>
-          <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(data.formSubmission.answers, null, 2)}</pre>
-        </section>
       ) : null}
 
       <h2>History</h2>

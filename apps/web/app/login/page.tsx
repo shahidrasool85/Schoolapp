@@ -4,17 +4,18 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, setOrgId, setToken } from "../../lib/api";
 import {
+  hasParentRole,
+  hasStaffRole,
   hasStudentRole,
-  homePath,
-  pickMembership,
-  pickPortalMembership,
   type Membership,
 } from "../../lib/portal";
 import { loadPublicTenant, membershipForHost, type PublicTenant } from "../../lib/tenant";
 
+type SchoolPersona = "staff" | "parent" | "student";
+
 export default function LoginPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<"email" | "student">("email");
+  const [persona, setPersona] = useState<SchoolPersona>("staff");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [organisationSlug, setOrganisationSlug] = useState("");
@@ -45,13 +46,13 @@ export default function LoginPage() {
         method: "POST",
         orgId: null,
         body: JSON.stringify(
-          mode === "email"
-            ? { email, password }
-            : {
+          persona === "student"
+            ? {
                 organisationSlug: tenant?.kind === "school" ? tenant.organisation.slug : organisationSlug,
                 username,
                 password,
-              },
+              }
+            : { email, password },
         ),
       });
       setToken(body.accessToken);
@@ -66,13 +67,23 @@ export default function LoginPage() {
           setOrgId(null);
           return;
         }
-        if (mode === "student" && !hasStudentRole(current.roleKeys)) {
+        if (persona === "staff" && !hasStaffRole(current.roleKeys)) {
+          setError("This account cannot use staff sign-in at this school.");
+          setOrgId(null);
+          return;
+        }
+        if (persona === "parent" && !hasParentRole(current.roleKeys)) {
+          setError("This account cannot use the parent portal at this school.");
+          setOrgId(null);
+          return;
+        }
+        if (persona === "student" && !hasStudentRole(current.roleKeys)) {
           setError("This account cannot use the student portal at this school.");
           setOrgId(null);
           return;
         }
         setOrgId(current.organisationId);
-        router.push(mode === "student" ? "/student" : homePath(current.roleKeys));
+        router.push(persona === "staff" ? "/school" : persona === "parent" ? "/parent" : "/student");
         return;
       }
       if (me.isPlatformAdmin) {
@@ -80,23 +91,7 @@ export default function LoginPage() {
         router.push("/platform");
         return;
       }
-      const current =
-        mode === "student"
-          ? pickPortalMembership(memberships.memberships, "student", body.organisationId) ??
-            memberships.memberships.find(
-              (m) =>
-                m.status === "active" &&
-                m.slug === organisationSlug &&
-                hasStudentRole(m.roleKeys),
-            ) ??
-            null
-          : pickMembership(memberships.memberships, body.organisationId);
-      if (!current) {
-        setError("No active school membership was found for this account.");
-        return;
-      }
-      setOrgId(current.organisationId);
-      router.push(mode === "student" ? "/student" : homePath(current.roleKeys));
+      setError("Use your school address to sign in as staff, a parent or a student.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign in failed");
     }
@@ -113,55 +108,65 @@ export default function LoginPage() {
     );
   }
 
-  return (
-    <main style={{ fontFamily: "system-ui", maxWidth: 480, margin: "4rem auto", padding: 16 }}>
-      <h1>{schoolName ?? "Sign in"}</h1>
-      {schoolName ? <p className="muted">Sign in to your school</p> : null}
-      <div className="toolbar" style={{ marginBottom: 16 }}>
-        <button
-          type="button"
-          className={mode === "email" ? undefined : "secondary"}
-          onClick={() => setMode("email")}
-        >
-          Staff or parent
-        </button>
-        <button
-          type="button"
-          className={mode === "student" ? undefined : "secondary"}
-          onClick={() => setMode("student")}
-        >
-          Student
-        </button>
-      </div>
-      <form onSubmit={onSubmit} className="form-grid">
-        {mode === "email" ? (
+  if (tenant?.kind !== "school") {
+    return (
+      <main style={{ fontFamily: "system-ui", maxWidth: 480, margin: "4rem auto", padding: 16 }}>
+        <h1>Platform sign in</h1>
+        <p className="muted">Platform administrators sign in here. School staff, parents and students use their school address.</p>
+        <form onSubmit={onSubmit} className="form-grid">
           <label>
             Email
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
           </label>
+          <label>
+            Password
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={8}
+            />
+          </label>
+          <button type="submit">Sign in</button>
+        </form>
+        {error ? <p className="error">{error}</p> : null}
+      </main>
+    );
+  }
+
+  return (
+    <main style={{ fontFamily: "system-ui", maxWidth: 480, margin: "4rem auto", padding: 16 }}>
+      <h1>{schoolName}</h1>
+      <p className="muted">Sign in to your school</p>
+      <div className="toolbar" style={{ marginBottom: 16 }}>
+        {(["staff", "parent", "student"] as const).map((value) => (
+          <button
+            key={value}
+            type="button"
+            className={persona === value ? undefined : "secondary"}
+            onClick={() => setPersona(value)}
+          >
+            {value === "staff" ? "Staff" : value === "parent" ? "Parent" : "Student"}
+          </button>
+        ))}
+      </div>
+      <form onSubmit={onSubmit} className="form-grid">
+        {persona === "student" ? (
+          <label>
+            Username
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+              autoCapitalize="none"
+            />
+          </label>
         ) : (
-          <>
-            {tenant?.kind === "school" ? null : (
-              <label>
-                School code
-                <input
-                  value={organisationSlug}
-                  onChange={(e) => setOrganisationSlug(e.target.value)}
-                  required
-                  autoCapitalize="none"
-                />
-              </label>
-            )}
-            <label>
-              Username
-              <input
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                required
-                autoCapitalize="none"
-              />
-            </label>
-          </>
+          <label>
+            Email
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          </label>
         )}
         <label>
           Password
@@ -175,6 +180,9 @@ export default function LoginPage() {
         </label>
         <button type="submit">Sign in</button>
       </form>
+      {persona === "staff" ? (
+        <p className="muted">Staff includes school administrators, the headteacher, teachers and other authorised staff. Your role is applied after you sign in.</p>
+      ) : null}
       {error ? <p className="error">{error}</p> : null}
     </main>
   );

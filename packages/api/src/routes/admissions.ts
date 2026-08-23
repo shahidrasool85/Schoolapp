@@ -101,7 +101,8 @@ const APPLICATION_SQL = `
          a.intended_year_group_id, yg.name as intended_year_group_name, a.intended_entry_date::text,
          a.previous_school, a.current_school, a.application_date::text, a.submitted_at,
          a.source, a.internal_notes, a.assigned_staff_profile_id, u.full_name as assigned_staff_name,
-         a.converted_student_profile_id, a.converted_at, a.public_form_id, a.campaign_id,
+         a.converted_student_profile_id, a.converted_at, a.public_form_id, f.name as public_form_name,
+         a.campaign_id, camp.label as campaign_label, a.extra_fields,
          a.completeness_status, a.gender, a.address_line1, a.address_line2, a.address_town,
          a.address_postcode, a.created_at, a.updated_at
   from admissions_applications a
@@ -109,6 +110,8 @@ const APPLICATION_SQL = `
   left join year_groups yg on yg.id = a.intended_year_group_id
   left join staff_profiles sp on sp.id = a.assigned_staff_profile_id
   left join users u on u.id = sp.user_id
+  left join admissions_forms f on f.id = a.public_form_id
+  left join admissions_campaigns camp on camp.id = a.campaign_id
   where a.organisation_id = $1
 `;
 

@@ -88,6 +88,14 @@ export default function EnquiriesPage() {
       <div className="toolbar">
         <h1>Enquiries</h1>
       </div>
+      <p className="muted">
+        Record a telephone, walk-in or email enquiry here. Public enquiry forms use the same
+        Enquiries list — families do not create a separate record. Convert an enquiry to start
+        an application without retyping pupil and guardian details.
+      </p>
+      <p className="muted">
+        Public forms live under <Link href="/school/admissions/forms">Admissions → Forms</Link>.
+      </p>
       <form className="card form-grid" onSubmit={onSubmit}>
         <label>Pupil name<input name="pupilLegalName" required /></label>
         <label>Date of birth<input name="dateOfBirth" type="date" /></label>

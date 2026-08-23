@@ -106,16 +106,25 @@ export default function EnquiryDetailPage() {
         </p>
       ) : (
         <p>
-          <button type="button" onClick={convert}>Convert to application</button>
+          <button type="button" onClick={convert}>Start application from this enquiry</button>
         </p>
       )}
       {submission ? (
         <section className="card">
-          <h2>Submitted form answers</h2>
-          <p className="muted">Source: {submission.sourceCode ?? "—"}</p>
-          <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(submission.answers, null, 2)}</pre>
+          <h2>Public form answers</h2>
+          <p className="muted">Source: {submission.sourceCode ?? "staff or unattributed"}</p>
+          <dl className="profile-list">
+            {Object.entries(submission.answers).map(([key, value]) => (
+              <div key={key}>
+                <dt>{key.replaceAll("_", " ").replaceAll(".", " / ")}</dt>
+                <dd>{typeof value === "boolean" ? (value ? "Yes" : "No") : value == null || value === "" ? "—" : String(value)}</dd>
+              </div>
+            ))}
+          </dl>
         </section>
-      ) : null}
+      ) : (
+        <p className="muted">This enquiry was entered by staff, not a public form.</p>
+      )}
       {message ? <p>{message}</p> : null}
       {error ? <p className="error">{error}</p> : null}
     </>

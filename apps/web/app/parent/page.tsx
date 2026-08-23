@@ -3,15 +3,12 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
-import { ComingLaterCard } from "../../components/coming-later";
-import type { ComingLater, PortalChild, PortalSchool } from "../../lib/portal";
+import type { PortalChild, PortalSchool } from "../../lib/portal";
 
 type Dashboard = {
   school: PortalSchool;
   children: PortalChild[];
-  upcoming: ComingLater;
-  recentActivity: ComingLater;
-  notifications: { unreadCount: number; preview: ComingLater };
+  notifications: { unreadCount: number };
 };
 
 export default function ParentDashboardPage() {
@@ -38,19 +35,29 @@ export default function ParentDashboardPage() {
       ) : (
         <div className="cards">
           {data.children.map((child) => (
-            <Link className="card child-card" href={`/parent/children/${child.id}`} key={child.id}>
-              <strong>{child.displayName}</strong>
-              <span>{child.currentYearGroupName ?? "Year group not set"}</span>
-              <span>{child.currentFormClassName ?? "No form class"}</span>
-              <span className="muted">{child.school.name}</span>
-            </Link>
+            <div className="card" key={child.id}>
+              <Link className="child-card" href={`/parent/children/${child.id}`}>
+                <strong>{child.displayName}</strong>
+                <span>{child.currentYearGroupName ?? "Year group not set"}</span>
+                <span>{child.currentFormClassName ?? "No form class"}</span>
+              </Link>
+              <p>
+                <Link href={`/parent/children/${child.id}`}>Profile</Link>
+                {" · "}
+                <Link href={`/parent/children/${child.id}#attendance`}>Attendance</Link>
+                {" · "}
+                <Link href={`/parent/children/${child.id}/learning`}>Learning</Link>
+                {" · "}
+                <Link href={`/parent/children/${child.id}/results`}>Results</Link>
+                {" · "}
+                <Link href={`/parent/children/${child.id}/reports`}>Reports</Link>
+              </p>
+            </div>
           ))}
         </div>
       )}
       <h2>This week</h2>
       <div className="cards">
-        <ComingLaterCard title="Upcoming" message={data.upcoming.message} />
-        <ComingLaterCard title="Recent activity" message={data.recentActivity.message} />
         <Link className="card" href="/parent/notices">
           <strong>Notices</strong>
           <p>School announcements for your family.</p>

@@ -12,11 +12,18 @@ import {
   buildPublicFormUrl,
   canManageAdmissionsCampaigns,
   canManageAdmissionsForms,
+  canManageApplications,
+  canManageEnquiries,
   canReadAdmissionsCampaigns,
   canReadAdmissionsForms,
   canReadPublicSubmissions,
+  computeCompleteness,
+  createContinuationToken,
+  declarationSnapshot,
   defaultFormTemplate,
+  hashContinuationToken,
   isCanonicalFieldKey,
+  mapAnswersToCanonical,
   normalizeCampaignCode,
   normalizeCustomFieldKey,
   normalizeFormSlug,
@@ -26,7 +33,9 @@ import {
   sanitizeHelperText,
   sanitizePlainText,
   safePrivacyNoticeUrl,
+  validatePublicAnswers,
   writeAudit,
+  type FormFieldDefinition,
 } from "@schoolapp/core";
 import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
@@ -633,6 +642,107 @@ export function registerAdmissionsFormRoutes(app: SchoolappApi) {
         [orgId],
       );
       return c.json({ sources: rows.rows });
+    }),
+  );
+
+  app.post("/admissions/forms/:id/staff-submissions", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      if (!canManageApplications(actor) && !canManageEnquiries(actor)) {
+        throw new AppError(403, "forbidden", "Missing permission");
+      }
+      const id = uuidRouteParam(c, "id");
+      const form = await loadForm(client, orgId, id);
+      if (String(form.status) !== "published") {
+        throw new AppError(400, "validation_failed", "Choose a published form to record this application");
+      }
+      const parsed = z
+        .object({
+          answers: z.record(z.unknown()),
+          draft: z.boolean().optional(),
+          continuationToken: z.string().max(200).optional().nullable(),
+          publicId: z.string().uuid().optional().nullable(),
+          idempotencyKey: z.string().max(120).optional().nullable(),
+          source: z.string().max(80).optional().nullable(),
+        })
+        .safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "The submission could not be read");
+      const definition = await loadDefinition(client, orgId, id);
+      const fields: FormFieldDefinition[] = [];
+      for (const section of definition) {
+        if (!section.enabled) continue;
+        for (const field of section.fields) {
+          if (!field.enabled) continue;
+          fields.push({
+            fieldKey: String(field.fieldKey),
+            fieldKind: field.fieldKind === "canonical" ? "canonical" : "custom",
+            canonicalKey: (field.canonicalKey as FormFieldDefinition["canonicalKey"]) ?? null,
+            questionType: field.questionType as FormFieldDefinition["questionType"],
+            label: String(field.label),
+            helperText: field.helperText ? String(field.helperText) : null,
+            required: Boolean(field.required),
+            enabled: true,
+            sortOrder: Number(field.sortOrder ?? 0),
+            sectionKey: String(section.sectionKey ?? ""),
+            options: Array.isArray(field.options) ? (field.options as FormFieldDefinition["options"]) : [],
+            documentPurpose: (field.documentPurpose as FormFieldDefinition["documentPurpose"]) ?? null,
+          });
+        }
+      }
+      const answers = validatePublicAnswers(fields, parsed.data.answers, { draft: parsed.data.draft });
+      const canonical = mapAnswersToCanonical(fields, answers);
+      const completeness = computeCompleteness({ draft: Boolean(parsed.data.draft), fields, answers });
+      const declaration = parsed.data.draft
+        ? null
+        : declarationSnapshot({
+            fields,
+            answers,
+            privacyNoticeText: form.privacy_notice_text ? String(form.privacy_notice_text) : null,
+            privacyNoticeUrl: form.privacy_notice_url ? String(form.privacy_notice_url) : null,
+          });
+      let tokenHash = parsed.data.continuationToken ? hashContinuationToken(parsed.data.continuationToken) : null;
+      let issuedToken: string | undefined;
+      if (parsed.data.draft && !tokenHash) {
+        const created = createContinuationToken();
+        tokenHash = created.hash;
+        issuedToken = created.token;
+      }
+      const submitted = await client.query<{ submit_public_admissions_form: Record<string, unknown> }>(
+        `select submit_public_admissions_form(
+           $1,$2,$3,$4::jsonb,$5::jsonb,$6::jsonb,$7,$8,$9,$10,$11,$12,$13,$14
+         )`,
+        [
+          orgId,
+          String(form.form_type),
+          String(form.slug),
+          JSON.stringify(answers),
+          JSON.stringify(canonical),
+          declaration ? JSON.stringify(declaration) : null,
+          "staff",
+          parsed.data.source ? sanitizePlainText(parsed.data.source, 80).toLowerCase() : "staff",
+          Boolean(parsed.data.draft),
+          tokenHash,
+          parsed.data.publicId ?? null,
+          null,
+          parsed.data.idempotencyKey ? hashContinuationToken(parsed.data.idempotencyKey) : null,
+          completeness,
+        ],
+      );
+      const result = submitted.rows[0]!.submit_public_admissions_form;
+      return c.json(
+        {
+          submission: {
+            publicId: result.publicId,
+            completeness: result.completeness,
+            formType: result.formType,
+            enquiryId: result.enquiryId ?? null,
+            enquiryReference: result.enquiryReference ?? null,
+            applicationId: result.applicationId ?? null,
+            applicationReference: result.applicationReference ?? null,
+            continuationToken: issuedToken ?? (parsed.data.draft ? parsed.data.continuationToken : undefined) ?? null,
+          },
+        },
+        parsed.data.draft ? 200 : 201,
+      );
     }),
   );
 }

@@ -86,7 +86,7 @@ Leave this terminal open. Open a browser when it says it is ready.
 | Oak Academy | http://oakacademy.localhost:3000 |
 | Oak Academy sign in | http://oakacademy.localhost:3000/login |
 
-Use the **school** URL for school staff, parents, and students. Use **localhost** for the Platform Admin.
+Use the **school** URL for school staff, parents, and students. On a school host choose **Staff**, **Parent** or **Student**. Staff are routed by their actual membership after sign-in — they do not choose School Admin versus Teacher. Use **localhost** for the Platform Admin.
 
 Modern browsers treat `*.localhost` as your own computer. If a school URL will not open, add this line to your hosts file and retry:
 
@@ -107,7 +107,7 @@ All passwords are obviously labelled demo values. Do not use them anywhere live.
 | Headteacher | Greenwood Academy | Email `demo.head@greenwood.test` | `DemoPass-Headteacher-1` |
 | Teacher | Greenwood Academy | Email `demo.teacher@greenwood.test` | `DemoPass-Teacher-1` |
 | Parent | Greenwood Academy | Email `demo.parent@greenwood.test` | `DemoPass-Parent-1` |
-| Student | Greenwood Academy | Choose **Student**, username `amelia.khan` (school code `greenwood` if asked) | `DemoPass-Student-1` |
+| Student | Greenwood Academy | Choose **Student**, username `amelia.khan` | `DemoPass-Student-1` |
 | Oak Academy School Admin | Oak Academy | Email `demo.admin@oakacademy.test` at http://oakacademy.localhost:3000/login | `DemoPass-OakAdmin-1` |
 
 Also created for isolation checks (optional):

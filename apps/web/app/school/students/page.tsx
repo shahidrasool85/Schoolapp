@@ -57,7 +57,7 @@ export default function StudentsPage() {
         }),
       });
       event.currentTarget.reset();
-      setMessage("Student created.");
+      setMessage("Pupil created.");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create student");
@@ -67,7 +67,7 @@ export default function StudentsPage() {
   return (
     <>
       <div className="toolbar">
-        <h1>Students</h1>
+        <h1>Pupils</h1>
       </div>
       <p className="muted">
         Current year group and form class are derived from enrolments and dated class

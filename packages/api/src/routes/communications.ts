@@ -342,14 +342,17 @@ export function registerCommunicationRoutes(app: SchoolappApi) {
                select 1 from announcement_recipients r
                where r.announcement_id = a.id and r.user_id = $4
              )
-             or exists (
-               select 1 from announcement_targets t
-               where t.announcement_id = a.id
-                 and (
-                   t.target_type in ('whole_school', 'staff')
-                   or t.class_id = any($5::uuid[])
-                   or t.student_profile_id = any($6::uuid[])
-                 )
+             or (
+               a.status in ('published', 'expired')
+               and exists (
+                 select 1 from announcement_targets t
+                 where t.announcement_id = a.id
+                   and (
+                     t.target_type in ('whole_school', 'staff')
+                     or t.class_id = any($5::uuid[])
+                     or t.student_profile_id = any($6::uuid[])
+                   )
+               )
              )
            )
          order by a.pinned desc, a.created_at desc`,
@@ -682,14 +685,17 @@ export function registerCommunicationRoutes(app: SchoolappApi) {
                select 1 from school_event_audience au
                where au.event_id = e.id and au.user_id = $5
              )
-             or exists (
-               select 1 from school_event_targets t
-               where t.event_id = e.id
-                 and (
-                   t.target_type in ('whole_school', 'staff')
-                   or t.class_id = any($6::uuid[])
-                   or t.student_profile_id = any($7::uuid[])
-                 )
+             or (
+               e.status = 'published'
+               and exists (
+                 select 1 from school_event_targets t
+                 where t.event_id = e.id
+                   and (
+                     t.target_type in ('whole_school', 'staff')
+                     or t.class_id = any($6::uuid[])
+                     or t.student_profile_id = any($7::uuid[])
+                   )
+               )
              )
            )
            and ($8::boolean = false or exists (

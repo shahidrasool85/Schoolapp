@@ -749,6 +749,8 @@ export async function activateDueAnnouncements(
     title: string;
     priority: string;
     acknowledgement_required: boolean;
+    created_by: string;
+    published_by: string | null;
   }>(
     `update announcements
      set status = 'published'
@@ -756,7 +758,7 @@ export async function activateDueAnnouncements(
        and status = 'scheduled'
        and publish_at is not null
        and publish_at <= now()
-     returning id, title, priority, acknowledgement_required`,
+     returning id, title, priority, acknowledgement_required, created_by, published_by`,
     [organisationId],
   );
   const ids: string[] = [];
@@ -764,7 +766,7 @@ export async function activateDueAnnouncements(
     await snapshotAnnouncementRecipients(client, organisationId, row.id);
     await notifyAnnouncementPublished(client, {
       organisationId,
-      actorUserId,
+      actorUserId: row.published_by ?? row.created_by ?? actorUserId,
       announcementId: row.id,
       title: row.title,
       priority: row.priority,
@@ -789,14 +791,20 @@ export async function activateDueEvents(
   organisationId: string,
   actorUserId: string,
 ): Promise<string[]> {
-  const due = await client.query<{ id: string; title: string; starts_at: string }>(
+  const due = await client.query<{
+    id: string;
+    title: string;
+    starts_at: string;
+    created_by: string;
+    published_by: string | null;
+  }>(
     `update school_events
      set status = 'published'
      where organisation_id = $1
        and status = 'scheduled'
        and publish_at is not null
        and publish_at <= now()
-     returning id, title, starts_at::text`,
+     returning id, title, starts_at::text, created_by, published_by`,
     [organisationId],
   );
   const ids: string[] = [];
@@ -804,7 +812,7 @@ export async function activateDueEvents(
     await snapshotEventAudience(client, organisationId, row.id);
     await notifyEventUpcoming(client, {
       organisationId,
-      actorUserId,
+      actorUserId: row.published_by ?? row.created_by ?? actorUserId,
       eventId: row.id,
       title: row.title,
       startsAt: row.starts_at,
@@ -859,6 +867,13 @@ export async function announcementVisibleToAssignedStaff(
     [announcementId, actor.organisationId, actor.userId],
   );
   if (recipient.rows[0]) return true;
+  const published = await client.query<{ status: string }>(
+    `select status from announcements where id = $1 and organisation_id = $2`,
+    [announcementId, actor.organisationId],
+  );
+  if (!published.rows[0] || !["published", "expired"].includes(published.rows[0].status)) {
+    return false;
+  }
   const classIds = await assignedClassIds(client, actor.userId, actor.organisationId!);
   const studentIds = await assignedStudentIds(client, actor.userId, actor.organisationId!);
   const targets = await client.query<{
@@ -925,6 +940,13 @@ export async function eventVisibleToAssignedStaff(
     [eventId, actor.organisationId, actor.userId],
   );
   if (recipient.rows[0]) return true;
+  const published = await client.query<{ status: string }>(
+    `select status from school_events where id = $1 and organisation_id = $2`,
+    [eventId, actor.organisationId],
+  );
+  if (!published.rows[0] || published.rows[0].status !== "published") {
+    return false;
+  }
   const classIds = await assignedClassIds(client, actor.userId, actor.organisationId!);
   const studentIds = await assignedStudentIds(client, actor.userId, actor.organisationId!);
   const targets = await client.query<{

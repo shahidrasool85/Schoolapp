@@ -115,14 +115,17 @@ export async function listPortalAnnouncements(
          or a.status = 'published' and (a.expires_at is null or a.expires_at > now())
        )
        and (
-         $5::uuid[] is null
-         or exists (
-           select 1
-           from announcement_recipient_subjects s
-           where s.announcement_id = a.id
-             and s.organisation_id = a.organisation_id
-             and s.user_id = r.user_id
-             and s.student_profile_id = any($5::uuid[])
+         ($3 = 'student' and r.audience_role = 'student')
+         or (
+           $3 = 'parent'
+           and exists (
+             select 1
+             from announcement_recipient_subjects s
+             where s.announcement_id = a.id
+               and s.organisation_id = a.organisation_id
+               and s.user_id = r.user_id
+               and s.student_profile_id = any($5::uuid[])
+           )
          )
        )
      order by a.pinned desc, a.published_at desc, a.created_at desc`,
@@ -155,14 +158,17 @@ export async function loadPortalAnnouncement(
        and r.audience_role = $4
        and a.status in ('published', 'expired')
        and (
-         $5::uuid[] is null
-         or exists (
-           select 1
-           from announcement_recipient_subjects s
-           where s.announcement_id = a.id
-             and s.organisation_id = a.organisation_id
-             and s.user_id = r.user_id
-             and s.student_profile_id = any($5::uuid[])
+         ($4 = 'student' and r.audience_role = 'student')
+         or (
+           $4 = 'parent'
+           and exists (
+             select 1
+             from announcement_recipient_subjects s
+             where s.announcement_id = a.id
+               and s.organisation_id = a.organisation_id
+               and s.user_id = r.user_id
+               and s.student_profile_id = any($5::uuid[])
+           )
          )
        )`,
     [
@@ -250,14 +256,17 @@ export async function listPortalEvents(
        and ($4::timestamptz is null or e.ends_at >= $4::timestamptz)
        and ($5::timestamptz is null or e.starts_at <= $5::timestamptz)
        and (
-         $6::uuid[] is null
-         or exists (
-           select 1
-           from school_event_audience_subjects s
-           where s.event_id = e.id
-             and s.organisation_id = e.organisation_id
-             and s.user_id = au.user_id
-             and s.student_profile_id = any($6::uuid[])
+         ($3 = 'student' and au.audience_role = 'student')
+         or (
+           $3 = 'parent'
+           and exists (
+             select 1
+             from school_event_audience_subjects s
+             where s.event_id = e.id
+               and s.organisation_id = e.organisation_id
+               and s.user_id = au.user_id
+               and s.student_profile_id = any($6::uuid[])
+           )
          )
        )
      order by e.starts_at, e.title`,
@@ -291,14 +300,17 @@ export async function loadPortalEvent(
        and au.audience_role = $4
        and e.status in ('published', 'cancelled')
        and (
-         $5::uuid[] is null
-         or exists (
-           select 1
-           from school_event_audience_subjects s
-           where s.event_id = e.id
-             and s.organisation_id = e.organisation_id
-             and s.user_id = au.user_id
-             and s.student_profile_id = any($5::uuid[])
+         ($4 = 'student' and au.audience_role = 'student')
+         or (
+           $4 = 'parent'
+           and exists (
+             select 1
+             from school_event_audience_subjects s
+             where s.event_id = e.id
+               and s.organisation_id = e.organisation_id
+               and s.user_id = au.user_id
+               and s.student_profile_id = any($5::uuid[])
+           )
          )
        )`,
     [

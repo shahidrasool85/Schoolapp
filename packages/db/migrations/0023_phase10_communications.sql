@@ -565,9 +565,15 @@ begin
   end if;
 
   if old.status is distinct from new.status then
-    if new.status = 'published' then
+    if new.status = 'scheduled' then
+      new.published_by := coalesce(old.published_by, v_actor, new.published_by);
+    elsif new.status = 'published' then
       new.published_at := coalesce(old.published_at, now());
-      new.published_by := coalesce(v_actor, old.published_by, new.published_by);
+      if old.status = 'scheduled' then
+        new.published_by := coalesce(old.published_by, new.published_by, old.created_by);
+      else
+        new.published_by := coalesce(v_actor, old.published_by, new.published_by, old.created_by);
+      end if;
     elsif new.status = 'archived' then
       new.archived_at := now();
       new.archived_by := coalesce(v_actor, new.archived_by);
@@ -804,9 +810,15 @@ begin
   end if;
 
   if old.status is distinct from new.status then
-    if new.status = 'published' then
+    if new.status = 'scheduled' then
+      new.published_by := coalesce(old.published_by, v_actor, new.published_by);
+    elsif new.status = 'published' then
       new.published_at := coalesce(old.published_at, now());
-      new.published_by := coalesce(v_actor, old.published_by, new.published_by);
+      if old.status = 'scheduled' then
+        new.published_by := coalesce(old.published_by, new.published_by, old.created_by);
+      else
+        new.published_by := coalesce(v_actor, old.published_by, new.published_by, old.created_by);
+      end if;
     elsif new.status = 'archived' then
       new.archived_at := now();
       new.archived_by := coalesce(v_actor, new.archived_by);

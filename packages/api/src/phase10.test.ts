@@ -406,6 +406,24 @@ describe("Phase 10 communications and calendar", () => {
       }),
     });
     expect(ownClass.status).toBe(201);
+
+    const adminDraft = await app.request("/api/v1/announcements", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        title: "Unpublished whole school",
+        body: "Teachers must not see this draft",
+        targets: [{ targetType: "whole_school" }],
+      }),
+    });
+    const adminDraftBody = (await adminDraft.json()) as { announcement: { id: string } };
+    const leakedDraft = await app.request(`/api/v1/announcements/${adminDraftBody.announcement.id}`, {
+      headers: teacherHdrs,
+    });
+    expect(leakedDraft.status).toBe(404);
+    const teacherList = await app.request("/api/v1/announcements", { headers: teacherHdrs });
+    const teacherItems = (await teacherList.json()) as { announcements: Array<{ id: string }> };
+    expect(teacherItems.announcements.map((row) => row.id)).not.toContain(adminDraftBody.announcement.id);
   });
 
   it("keeps parent and student visibility scoped and never leaks staff-only fields", async () => {
@@ -621,11 +639,16 @@ describe("Phase 10 communications and calendar", () => {
       createdBody.announcement.id,
     ]);
 
-    const listed = await app.request("/api/v1/announcements", { headers: hdrs });
-    const listedBody = (await listed.json()) as { announcements: Array<{ id: string; status: string }> };
-    expect(listedBody.announcements.find((row) => row.id === createdBody.announcement.id)?.status).toBe(
-      "published",
-    );
+    const parentToken = await login(app, `sched-${id}@example.com`, "parent-pass-1");
+    const parentHdrs = headers(parentToken, school.orgId);
+    const activatedList = await app.request("/api/v1/parent/announcements", { headers: parentHdrs });
+    expect(activatedList.status).toBe(200);
+    const activated = await app.request(`/api/v1/announcements/${createdBody.announcement.id}`, { headers: hdrs });
+    const activatedBody = (await activated.json()) as {
+      announcement: { status: string; publishedBy: string };
+    };
+    expect(activatedBody.announcement.status).toBe("published");
+    expect(activatedBody.announcement.publishedBy).toBe(school.adminId);
 
     const laterExpiry = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     const expired = await app.request("/api/v1/announcements", {
@@ -653,9 +676,8 @@ describe("Phase 10 communications and calendar", () => {
     );
     await app.request("/api/v1/announcements", { headers: hdrs });
 
-    const parentToken = await login(app, `sched-${id}@example.com`, "parent-pass-1");
     const parentList = await app.request("/api/v1/parent/announcements", {
-      headers: headers(parentToken, school.orgId),
+      headers: parentHdrs,
     });
     const parentItems = (await parentList.json()) as { announcements: Array<{ id: string }> };
     expect(parentItems.announcements.map((row) => row.id)).toContain(createdBody.announcement.id);
@@ -770,5 +792,57 @@ describe("Phase 10 communications and calendar", () => {
     const events = await app.request("/api/v1/parent/calendar/events", { headers: parentHdrs });
     const eventsBody = (await events.json()) as { events: Array<{ id: string }> };
     expect(eventsBody.events.map((row) => row.id)).not.toContain(eventABody.event.id);
+  });
+
+  it("lets a staff guardian still see family notices on the parent portal", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const adminToken = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(adminToken, school.orgId);
+    const seeded = await seedStructure(app, hdrs);
+    const pupil = await createStudent(app, hdrs, {
+      legalName: "Staff Child",
+      academicYearId: seeded.yearId,
+      yearGroupId: seeded.year3Id,
+      classId: seeded.classAId,
+    });
+    await inviteTeacher(app, hdrs, id, seeded.classAId);
+    const teacher = await pools.owner.query<{ id: string }>("select id from users where email = $1", [
+      `teacher-${id}@example.com`,
+    ]);
+    await pools.owner.query(
+      `insert into membership_roles (membership_id, role_id)
+       select m.id, r.id
+       from organisation_memberships m
+       join roles r on r.key = 'school.parent' and r.organisation_id is null
+       where m.organisation_id = $1 and m.user_id = $2
+       on conflict do nothing`,
+      [school.orgId, teacher.rows[0]!.id],
+    );
+    await inviteParent(app, hdrs, pupil.student.id, `teacher-${id}@example.com`);
+
+    const notice = await app.request("/api/v1/announcements", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        title: "Whole school family notice",
+        body: "Staff who are also parents must still see this",
+        targets: [{ targetType: "whole_school" }],
+      }),
+    });
+    const noticeBody = (await notice.json()) as { announcement: { id: string } };
+    await app.request(`/api/v1/announcements/${noticeBody.announcement.id}/publish`, {
+      method: "POST",
+      headers: hdrs,
+      body: "{}",
+    });
+
+    const teacherToken = await login(app, `teacher-${id}@example.com`, "teacher-pass-1");
+    const parentList = await app.request("/api/v1/parent/announcements", {
+      headers: headers(teacherToken, school.orgId),
+    });
+    expect(parentList.status).toBe(200);
+    const parentItems = (await parentList.json()) as { announcements: Array<{ id: string }> };
+    expect(parentItems.announcements.map((row) => row.id)).toContain(noticeBody.announcement.id);
   });
 });

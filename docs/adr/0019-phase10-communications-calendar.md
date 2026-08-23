@@ -25,7 +25,7 @@ School-wide audiences require `announcements.broadcast`. Teachers with `announce
 
 ### Scheduling
 
-No job queue is introduced. Scheduled rows activate on authorised list/read for that organisation (`publish_at <= now()`), then snapshot and notify. A later cron can call `activate_due_communications` if schools need notifications before the first request. Expired notices leave active portal lists but remain readable to authorised staff.
+No job queue is introduced. Scheduled rows activate on authorised list/read for that organisation (`publish_at <= now()`), then snapshot and notify. The staff member who scheduled the row remains `published_by`; the first parent/student/staff reader is not recorded as publisher. A later cron can call `activate_due_communications` if schools need notifications before the first request. Expired notices leave active portal lists but remain readable to authorised staff.
 
 ### Notifications
 
@@ -33,7 +33,7 @@ Reuse `create_inbox_notification` with idempotency keys `announcement:published:
 
 ### Visibility
 
-Parent APIs require active guardianship and `portal_access = true` on every request. Publish-time recipient snapshots preserve class-move history, but a revoked or ended guardianship cannot list, open, or acknowledge items that no longer relate to an authorised child. Student APIs re-check current primary enrolment and effective Student Portal policy on every request. Staff-only targets never appear on parent/student routes. Storage keys are omitted from API payloads.
+Parent APIs require active guardianship and `portal_access = true` on every request. Publish-time recipient snapshots preserve class-move history, but a revoked or ended guardianship cannot list, open, or acknowledge items that no longer relate to an authorised child. A user who is both staff and a guardian still sees family notices on the parent portal via live child subjects even if the snapshot stored them as staff first. Teachers with assigned-only access cannot read other people's draft or scheduled school-wide notices. Student APIs re-check current primary enrolment and effective Student Portal policy on every request. Staff-only targets never appear on parent/student routes. Storage keys are omitted from API payloads.
 
 ## Alternatives considered
 

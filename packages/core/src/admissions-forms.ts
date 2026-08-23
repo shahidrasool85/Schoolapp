@@ -524,21 +524,28 @@ function isBlank(value: unknown): boolean {
   return String(value).trim() === "";
 }
 
-function assertEmail(value: string, label: string) {
+function fieldError(field: FormFieldDefinition, message: string): never {
+  throw new AppError(400, "validation_failed", message, {
+    fieldKey: field.fieldKey,
+    sectionKey: field.sectionKey || undefined,
+  });
+}
+
+function assertEmail(value: string, field: FormFieldDefinition, label = field.label) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) || value.length > 120) {
-    throw new AppError(400, "validation_failed", `${label} must be a valid email`);
+    fieldError(field, `${label} must be a valid email`);
   }
 }
 
-function assertDate(value: string, label: string) {
+function assertDate(value: string, field: FormFieldDefinition) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(value))) {
-    throw new AppError(400, "validation_failed", `${label} must be a valid date`);
+    fieldError(field, `${field.label} must be a valid date`);
   }
 }
 
-function assertUuid(value: string, label: string) {
+function assertUuid(value: string, field: FormFieldDefinition) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
-    throw new AppError(400, "validation_failed", `${label} is invalid`);
+    fieldError(field, `${field.label} is invalid`);
   }
 }
 
@@ -546,7 +553,7 @@ export function validateFieldAnswer(field: FormFieldDefinition, raw: unknown): u
   if (!field.enabled) return undefined;
   if (isBlank(raw)) {
     if (field.required) {
-      throw new AppError(400, "validation_failed", `${field.label} is required`);
+      fieldError(field, `${field.label} is required`);
     }
     return undefined;
   }
@@ -559,18 +566,18 @@ export function validateFieldAnswer(field: FormFieldDefinition, raw: unknown): u
       return sanitizePlainText(raw, 4000);
     case "email": {
       const email = sanitizePlainText(raw, 120).toLowerCase();
-      assertEmail(email, field.label);
+      assertEmail(email, field);
       return email;
     }
     case "date": {
       const date = sanitizePlainText(raw, 10);
-      assertDate(date, field.label);
+      assertDate(date, field);
       return date;
     }
     case "number": {
       const n = typeof raw === "number" ? raw : Number(String(raw).trim());
       if (!Number.isFinite(n) || Math.abs(n) > 1_000_000_000) {
-        throw new AppError(400, "validation_failed", `${field.label} must be a number`);
+        fieldError(field, `${field.label} must be a number`);
       }
       return n;
     }
@@ -578,7 +585,7 @@ export function validateFieldAnswer(field: FormFieldDefinition, raw: unknown): u
     case "declaration": {
       const accepted = raw === true || raw === "true" || raw === "yes";
       if (field.required && !accepted) {
-        throw new AppError(400, "validation_failed", `${field.label} must be accepted`);
+        fieldError(field, `${field.label} must be accepted`);
       }
       return accepted;
     }
@@ -589,15 +596,15 @@ export function validateFieldAnswer(field: FormFieldDefinition, raw: unknown): u
           field.canonicalKey !== "child.intended_academic_year_id" &&
           field.canonicalKey !== "child.intended_year_group_id"
         ) {
-          throw new AppError(400, "validation_failed", `${field.label} is not a valid choice`);
+          fieldError(field, `${field.label} is not a valid choice`);
         }
-        assertUuid(value, field.label);
+        assertUuid(value, field);
       }
       if (
         field.canonicalKey === "child.intended_academic_year_id" ||
         field.canonicalKey === "child.intended_year_group_id"
       ) {
-        assertUuid(value, field.label);
+        assertUuid(value, field);
       }
       return value;
     }
@@ -606,31 +613,31 @@ export function validateFieldAnswer(field: FormFieldDefinition, raw: unknown): u
       const allowed = new Set(field.options.map((option) => option.value));
       const cleaned = values.map((item) => sanitizePlainText(item, 80));
       if (field.options.length && cleaned.some((item) => !allowed.has(item))) {
-        throw new AppError(400, "validation_failed", `${field.label} contains an invalid choice`);
+        fieldError(field, `${field.label} contains an invalid choice`);
       }
       return cleaned;
     }
     case "address_group": {
       const address = parseAddress(raw);
       if (field.required && !address?.line1) {
-        throw new AppError(400, "validation_failed", `${field.label} is required`);
+        fieldError(field, `${field.label} is required`);
       }
       return address;
     }
     case "guardian_group": {
       const rows = Array.isArray(raw) ? raw : [raw];
       if (rows.length > PUBLIC_FORM_MAX_GUARDIANS) {
-        throw new AppError(400, "validation_failed", "Too many guardians");
+        fieldError(field, "Too many parents / guardians");
       }
       const guardians = rows.map(parseGuardian).filter((row): row is GuardianValue => row !== null);
       if (field.required && guardians.length === 0) {
-        throw new AppError(400, "validation_failed", `${field.label} is required`);
+        fieldError(field, `${field.label} is required`);
       }
       if (field.required && !guardians.some((row) => row.email)) {
-        throw new AppError(400, "validation_failed", "At least one guardian email is required");
+        fieldError(field, "At least one parent / guardian email is required");
       }
       for (const guardian of guardians) {
-        if (guardian.email) assertEmail(guardian.email, "Guardian email");
+        if (guardian.email) assertEmail(guardian.email, field, "Parent / guardian email");
       }
       if (!guardians.some((row) => row.primaryContact) && guardians[0]) {
         guardians[0].primaryContact = true;
@@ -640,16 +647,16 @@ export function validateFieldAnswer(field: FormFieldDefinition, raw: unknown): u
     case "file": {
       const rec = asRecord(raw);
       if (!rec) {
-        throw new AppError(400, "validation_failed", `${field.label} is invalid`);
+        fieldError(field, `${field.label} is invalid`);
       }
       const filename = sanitizePlainText(rec.filename ?? rec.originalFilename, 120);
       const contentType = sanitizePlainText(rec.contentType, 120);
       const byteSize = Number(rec.byteSize ?? rec.byte_size ?? 0);
       if (!filename) {
-        throw new AppError(400, "validation_failed", `${field.label} requires a filename`);
+        fieldError(field, `${field.label} requires a filename`);
       }
       if (!isAllowedAdmissionsUpload({ filename, contentType, byteSize })) {
-        throw new AppError(400, "validation_failed", `${field.label} file type or size is not allowed`);
+        fieldError(field, `${field.label} file type or size is not allowed`);
       }
       return {
         filename,
@@ -659,7 +666,7 @@ export function validateFieldAnswer(field: FormFieldDefinition, raw: unknown): u
       } satisfies FileAnswerValue;
     }
     default:
-      throw new AppError(400, "validation_failed", `${field.label} has an unsupported type`);
+      fieldError(field, `${field.label} has an unsupported type`);
   }
 }
 

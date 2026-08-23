@@ -76,6 +76,8 @@ expect_page "/school/students"
 expect_page "/school/staff"
 expect_page "/school/parents"
 expect_page "/school/admissions"
+expect_page "/school/admissions/applications"
+expect_page "/school/admissions/applications/new"
 expect_page "/school/admissions/forms"
 expect_page "/school/admissions/campaigns"
 expect_page "/admissions/enquiry/year-3-enquiry"
@@ -131,6 +133,10 @@ if [ "${code}" != "200" ]; then
 fi
 if ! grep -q "Sign in" /tmp/schoolapp-smoke-login.html; then
   echo "/login HTML did not include Sign in" >&2
+  exit 1
+fi
+if ! grep -q "Platform sign in" /tmp/schoolapp-smoke-login.html; then
+  echo "/login HTML did not include Platform sign in" >&2
   exit 1
 fi
 

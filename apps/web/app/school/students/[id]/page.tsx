@@ -36,6 +36,8 @@ type Detail = {
     guardianEmail: string | null;
     relationship: string;
     hasParentalResponsibility: boolean;
+    portalAccess: boolean;
+    membershipStatus: string | null;
     endedOn: string | null;
   }>;
   attendanceSummary: {
@@ -249,6 +251,19 @@ export default function StudentDetailPage() {
     await load();
   }
 
+  async function togglePortal(guardianId: string, portalAccess: boolean) {
+    setError("");
+    try {
+      await api(`/api/v1/guardianships/${guardianId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ portalAccess }),
+      });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update parent portal access");
+    }
+  }
+
   async function addGuardian(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -281,7 +296,9 @@ export default function StudentDetailPage() {
       </p>
       <p>
         Student portal: {data.portalAccess.enabled ? "enabled" : "disabled"}
-        {data.portalAccess.hasLoginAlias ? ` · login alias ${data.portalAccess.alias}` : ""}
+        {data.portalAccess.hasLoginAlias ? ` · login alias ${data.portalAccess.alias}` : " · no student login yet"}
+        {" · "}
+        <a href="/school/student-portal">Student Portal policy</a>
       </p>
       {data.attendanceSummary ? (
         <div className="cards">
@@ -531,7 +548,7 @@ export default function StudentDetailPage() {
       <h2>Parents / guardians</h2>
       <table>
         <thead>
-          <tr><th>Name</th><th>Email</th><th>Relationship</th><th>PR</th><th>Status</th></tr>
+          <tr><th>Name</th><th>Email</th><th>Relationship</th><th>PR</th><th>Parent portal</th><th>Account</th><th>Status</th></tr>
         </thead>
         <tbody>
           {data.guardians.map((row) => (
@@ -540,6 +557,24 @@ export default function StudentDetailPage() {
               <td>{row.guardianEmail}</td>
               <td>{row.relationship}</td>
               <td>{row.hasParentalResponsibility ? "Yes" : "No"}</td>
+              <td>
+                {row.endedOn ? "—" : (
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => togglePortal(row.id, !row.portalAccess)}
+                  >
+                    {row.portalAccess ? "Enabled" : "Off"}
+                  </button>
+                )}
+              </td>
+              <td>
+                {row.membershipStatus === "invited"
+                  ? "Invite pending"
+                  : row.membershipStatus === "active"
+                    ? "Account active"
+                    : "—"}
+              </td>
               <td>{row.endedOn ?? "current"}</td>
             </tr>
           ))}

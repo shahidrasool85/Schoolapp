@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { api } from "./api";
+import { api, ApiError } from "./api";
 
 const PUBLIC_FORM_TYPES = [
   "enquiry",
@@ -261,10 +261,21 @@ export function PublicAdmissionsForm({
   formType,
   slug,
   embed = false,
+  mode = "public",
+  formId,
+  onCreated,
 }: {
   formType: PublicFormType;
   slug: string;
   embed?: boolean;
+  mode?: "public" | "staff";
+  formId?: string;
+  onCreated?: (result: {
+    applicationId?: string;
+    applicationReference?: string;
+    enquiryId?: string;
+    enquiryReference?: string;
+  }) => void;
 }) {
   const [payload, setPayload] = useState<PublicFormPayload | null>(null);
   const [step, setStep] = useState(0);
@@ -287,26 +298,50 @@ export function PublicAdmissionsForm({
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    api<PublicFormPayload>(`/api/v1/public/admissions/forms/${formType}/${slug}`, { orgId: null })
-      .then(async (body) => {
-        const token = params.get("continue");
-        if (token) {
-          try {
-            const draft = await api<{ publicId?: string; answers?: Record<string, unknown> }>(
-              `/api/v1/public/admissions/forms/${formType}/${slug}/draft?token=${encodeURIComponent(token)}`,
-              { orgId: null },
-            );
-            setDraftAnswers(draft.answers ?? {});
-            setPublicId(draft.publicId ?? null);
-            setContinuation(token);
-          } catch {
-            setError("This saved draft could not be opened. You can start the form again.");
-          }
+    const load = async () => {
+      if (mode === "staff" && formId) {
+        const [formBody, yearsBody, groupsBody] = await Promise.all([
+          api<{
+            form: PublicFormPayload["form"] & { name: string };
+            sections: PublicSection[];
+          }>(`/api/v1/admissions/forms/${formId}`),
+          api<{ academicYears: YearOption[] }>("/api/v1/academic-years"),
+          api<{ yearGroups: YearOption[] }>("/api/v1/year-groups"),
+        ]);
+        setPayload({
+          form: {
+            ...formBody.form,
+            allowedAcademicYearIds: formBody.form.allowedAcademicYearIds ?? [],
+            allowedYearGroupIds: formBody.form.allowedYearGroupIds ?? [],
+          },
+          organisation: { name: "Staff entry" },
+          academicYears: yearsBody.academicYears,
+          yearGroups: groupsBody.yearGroups,
+          sections: formBody.sections.filter((section) => section.fields?.length),
+        });
+        return;
+      }
+      const body = await api<PublicFormPayload>(`/api/v1/public/admissions/forms/${formType}/${slug}`, {
+        orgId: null,
+      });
+      const token = params.get("continue");
+      if (token) {
+        try {
+          const draft = await api<{ publicId?: string; answers?: Record<string, unknown> }>(
+            `/api/v1/public/admissions/forms/${formType}/${slug}/draft?token=${encodeURIComponent(token)}`,
+            { orgId: null },
+          );
+          setDraftAnswers(draft.answers ?? {});
+          setPublicId(draft.publicId ?? null);
+          setContinuation(token);
+        } catch {
+          setError("This saved draft could not be opened. You can start the form again.");
         }
-        setPayload(body);
-      })
-      .catch((err: Error) => setError(err.message));
-  }, [formType, slug]);
+      }
+      setPayload(body);
+    };
+    load().catch((err: Error) => setError(err.message));
+  }, [formType, slug, mode, formId]);
 
   const brandStyle = useMemo(
     () =>
@@ -332,31 +367,39 @@ export function PublicAdmissionsForm({
     }
     try {
       const source = new URLSearchParams(window.location.search).get("source") ?? undefined;
+      const requestBody: Record<string, unknown> = {
+        answers,
+        draft,
+        idempotencyKey: idempotencyKey.current,
+      };
+      if (source) requestBody.source = source;
+      if (continuation) requestBody.continuationToken = continuation;
+      if (publicId) requestBody.publicId = publicId;
+      if (mode === "staff") requestBody.source = "staff";
+      const path =
+        mode === "staff" && formId
+          ? `/api/v1/admissions/forms/${formId}/staff-submissions`
+          : `/api/v1/public/admissions/forms/${formType}/${slug}/submissions`;
       const body = await api<{
         submission: {
           publicId?: string;
+          enquiryId?: string;
           enquiryReference?: string;
+          applicationId?: string;
           applicationReference?: string;
           continuationToken?: string;
         };
-      }>(`/api/v1/public/admissions/forms/${formType}/${slug}/submissions`, {
+      }>(path, {
         method: "POST",
-        orgId: null,
-        body: JSON.stringify({
-          answers,
-          source,
-          draft,
-          continuationToken: continuation,
-          publicId,
-          idempotencyKey: idempotencyKey.current,
-        }),
+        orgId: mode === "staff" ? undefined : null,
+        body: JSON.stringify(requestBody),
       });
       if (body.submission.publicId) setPublicId(body.submission.publicId);
       if (draft) {
         const token = body.submission.continuationToken ?? continuation;
         setContinuation(token);
         setError("");
-        if (token) {
+        if (token && mode === "public") {
           const next = new URL(window.location.href);
           next.searchParams.set("continue", token);
           window.history.replaceState({}, "", next.toString());
@@ -364,13 +407,34 @@ export function PublicAdmissionsForm({
         alert("Draft saved. Keep this page or the continuation link to resume later.");
         return;
       }
+      onCreated?.({
+        applicationId: body.submission.applicationId,
+        applicationReference: body.submission.applicationReference,
+        enquiryId: body.submission.enquiryId,
+        enquiryReference: body.submission.enquiryReference,
+      });
+      if (mode === "staff") return;
       setDone({
         title: payload.form.successTitle ?? "Thank you",
         text: payload.form.successText ?? "We have received your submission.",
         reference: body.submission.enquiryReference ?? body.submission.applicationReference,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not submit the form");
+      const message = err instanceof Error ? err.message : "Could not submit the form";
+      setError(message);
+      const fieldKey = err instanceof ApiError ? err.details?.fieldKey : undefined;
+      const sectionKey = err instanceof ApiError ? err.details?.sectionKey : undefined;
+      const index = sections.findIndex(
+        (section) =>
+          section.sectionKey === sectionKey ||
+          section.fields.some((field) => field.fieldKey === fieldKey),
+      );
+      if (index >= 0) setStep(index);
+      queueMicrotask(() => {
+        const target = document.getElementById(fieldKey ?? `${sectionKey ?? ""}-section`);
+        target?.scrollIntoView({ behavior: "smooth", block: "center" });
+        if (target instanceof HTMLElement) target.focus();
+      });
     }
   }
 
@@ -396,7 +460,7 @@ export function PublicAdmissionsForm({
 
   return (
     <main className={`public-form${embed ? " embed" : ""}`} style={brandStyle}>
-      <p className="muted">{payload.organisation.name}</p>
+      {mode === "public" ? <p className="muted">{payload.organisation.name}</p> : null}
       <h1>{payload.form.name}</h1>
       {payload.form.description ? <p>{payload.form.description}</p> : null}
       {isMulti ? (

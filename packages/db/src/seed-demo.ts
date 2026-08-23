@@ -1546,29 +1546,67 @@ async function seedAdmissionsPublicForms(
      values ($1,$2,'guardians','Parents / guardians',1) returning id`,
     [input.organisationId, applyId],
   );
+  const applyEducation = await client.query<IdRow>(
+    `insert into admissions_form_sections (organisation_id, form_id, section_key, title, sort_order)
+     values ($1,$2,'previous_education','Previous education',2) returning id`,
+    [input.organisationId, applyId],
+  );
   const applyMedical = await client.query<IdRow>(
     `insert into admissions_form_sections (organisation_id, form_id, section_key, title, sort_order)
-     values ($1,$2,'medical','Medical and additional needs',2) returning id`,
+     values ($1,$2,'medical','Medical and additional needs',3) returning id`,
+    [input.organisationId, applyId],
+  );
+  const applyEmergency = await client.query<IdRow>(
+    `insert into admissions_form_sections (organisation_id, form_id, section_key, title, sort_order)
+     values ($1,$2,'emergency','Emergency contacts',4) returning id`,
+    [input.organisationId, applyId],
+  );
+  const applyDetails = await client.query<IdRow>(
+    `insert into admissions_form_sections (organisation_id, form_id, section_key, title, sort_order)
+     values ($1,$2,'application','Application details',5) returning id`,
     [input.organisationId, applyId],
   );
   const applyDecl = await client.query<IdRow>(
     `insert into admissions_form_sections (organisation_id, form_id, section_key, title, sort_order)
-     values ($1,$2,'declarations','Declarations',3) returning id`,
+     values ($1,$2,'declarations','Documents and declarations',6) returning id`,
     [input.organisationId, applyId],
   );
   await addField(applyId, applyChild.rows[0]!.id, { key: "child.legal_name", kind: "canonical", type: "short_text", label: "Child's legal name", required: true }, 0);
-  await addField(applyId, applyChild.rows[0]!.id, { key: "child.date_of_birth", kind: "canonical", type: "date", label: "Date of birth", required: true }, 1);
-  await addField(applyId, applyChild.rows[0]!.id, { key: "child.intended_academic_year_id", kind: "canonical", type: "single_choice", label: "Intended academic year", required: true }, 2);
-  await addField(applyId, applyChild.rows[0]!.id, { key: "child.intended_year_group_id", kind: "canonical", type: "single_choice", label: "Intended year group", required: true }, 3);
+  await addField(applyId, applyChild.rows[0]!.id, { key: "child.preferred_name", kind: "canonical", type: "short_text", label: "Preferred name" }, 1);
+  await addField(applyId, applyChild.rows[0]!.id, { key: "child.date_of_birth", kind: "canonical", type: "date", label: "Date of birth", required: true }, 2);
+  await addField(applyId, applyChild.rows[0]!.id, { key: "child.gender", kind: "canonical", type: "single_choice", label: "Gender", options: [
+    { value: "female", label: "Female" },
+    { value: "male", label: "Male" },
+    { value: "prefer_not_to_say", label: "Prefer not to say" },
+  ] }, 3);
+  await addField(applyId, applyChild.rows[0]!.id, { key: "child.address", kind: "canonical", type: "address_group", label: "Child's address" }, 4);
+  await addField(applyId, applyChild.rows[0]!.id, { key: "child.intended_academic_year_id", kind: "canonical", type: "single_choice", label: "Intended academic year", required: true }, 5);
+  await addField(applyId, applyChild.rows[0]!.id, { key: "child.intended_year_group_id", kind: "canonical", type: "single_choice", label: "Intended year group", required: true }, 6);
+  await addField(applyId, applyChild.rows[0]!.id, { key: "child.proposed_start_date", kind: "canonical", type: "date", label: "Proposed start date" }, 7);
+  await addField(applyId, applyChild.rows[0]!.id, { key: "child.current_school", kind: "canonical", type: "short_text", label: "Current school" }, 8);
+  await addField(applyId, applyChild.rows[0]!.id, { key: "child.previous_school", kind: "canonical", type: "short_text", label: "Previous school" }, 9);
   await addField(applyId, applyGuardians.rows[0]!.id, { key: "guardians", kind: "canonical", type: "guardian_group", label: "Parents / guardians", required: true }, 0);
+  await addField(applyId, applyEducation.rows[0]!.id, { key: "previous_education.school_name", kind: "canonical", type: "short_text", label: "Current or previous school" }, 0);
+  await addField(applyId, applyEducation.rows[0]!.id, { key: "previous_education.start_date", kind: "canonical", type: "date", label: "Dates attended (from)" }, 1);
+  await addField(applyId, applyEducation.rows[0]!.id, { key: "previous_education.end_date", kind: "canonical", type: "date", label: "Dates attended (to)" }, 2);
+  await addField(applyId, applyEducation.rows[0]!.id, { key: "previous_education.report_details", kind: "canonical", type: "long_text", label: "Previous report or reference details" }, 3);
   await addField(applyId, applyMedical.rows[0]!.id, { key: "medical.allergies", kind: "canonical", type: "long_text", label: "Allergies" }, 0);
-  await addField(applyId, applyMedical.rows[0]!.id, { key: "sibling_at_school", kind: "custom", type: "yes_no", label: "Does the child have a sibling at this school?" }, 1);
-  await addField(applyId, applyMedical.rows[0]!.id, { key: "how_heard", kind: "custom", type: "single_choice", label: "How did you hear about us?", options: [
+  await addField(applyId, applyMedical.rows[0]!.id, { key: "medical.conditions", kind: "canonical", type: "long_text", label: "Medical conditions" }, 1);
+  await addField(applyId, applyMedical.rows[0]!.id, { key: "medical.medication", kind: "canonical", type: "long_text", label: "Medication" }, 2);
+  await addField(applyId, applyMedical.rows[0]!.id, { key: "medical.dietary", kind: "canonical", type: "short_text", label: "Dietary requirements" }, 3);
+  await addField(applyId, applyMedical.rows[0]!.id, { key: "medical.send_notes", kind: "canonical", type: "long_text", label: "SEND / additional support notes" }, 4);
+  await addField(applyId, applyEmergency.rows[0]!.id, { key: "emergency.full_name", kind: "canonical", type: "short_text", label: "Emergency contact name" }, 0);
+  await addField(applyId, applyEmergency.rows[0]!.id, { key: "emergency.relationship", kind: "canonical", type: "short_text", label: "Emergency contact relationship" }, 1);
+  await addField(applyId, applyEmergency.rows[0]!.id, { key: "emergency.telephone", kind: "canonical", type: "phone", label: "Emergency telephone" }, 2);
+  await addField(applyId, applyEmergency.rows[0]!.id, { key: "emergency.authorised_collection", kind: "canonical", type: "yes_no", label: "Authorised to collect the child" }, 3);
+  await addField(applyId, applyDetails.rows[0]!.id, { key: "application.notes", kind: "canonical", type: "long_text", label: "Anything else we should know" }, 0);
+  await addField(applyId, applyDetails.rows[0]!.id, { key: "sibling_at_school", kind: "custom", type: "yes_no", label: "Does the child have a sibling at this school?" }, 1);
+  await addField(applyId, applyDetails.rows[0]!.id, { key: "how_heard", kind: "custom", type: "single_choice", label: "How did you hear about us?", options: [
     { value: "tour", label: "School tour" },
     { value: "friend", label: "Friend or family" },
     { value: "online", label: "Online" },
   ] }, 2);
-  await addField(applyId, applyDecl.rows[0]!.id, { key: "declaration_privacy", kind: "custom", type: "declaration", label: "I confirm the information is accurate", required: true }, 0);
+  await addField(applyId, applyDecl.rows[0]!.id, { key: "declaration_privacy", kind: "custom", type: "declaration", label: "I confirm the information is accurate and I have read the privacy notice", required: true }, 0);
 
   await insertForm({
     slug: input.schoolKey === "greenwood" ? "sixth-form-draft" : "oak-scholarship-draft",

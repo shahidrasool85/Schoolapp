@@ -134,7 +134,7 @@ export default function ParentChildDetailPage() {
           ) : null}
         </dl>
       </div>
-      <h2>Attendance</h2>
+      <h2 id="attendance">Attendance</h2>
       {attendanceError ? (
         <p className="error">{attendanceError}</p>
       ) : attendance ? (

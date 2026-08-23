@@ -22,6 +22,31 @@ type Enquiry = {
   convertedApplicationId: string | null;
 };
 
+function formatAnswer(value: unknown): string {
+  if (value == null || value === "") return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value)) {
+    const items = value.map((item) => formatAnswer(item)).filter((item) => item !== "—");
+    return items.join("; ") || "—";
+  }
+  if (typeof value === "object") {
+    const rec = value as Record<string, unknown>;
+    if (rec.line1 || rec.town || rec.postcode) {
+      return [rec.line1, rec.line2, rec.town, rec.postcode].filter(Boolean).join(", ") || "—";
+    }
+    if (rec.fullName) {
+      return [rec.fullName, rec.email, rec.phone ?? rec.telephone, rec.relationship]
+        .filter(Boolean)
+        .join(" · ");
+    }
+    const parts = Object.entries(rec)
+      .filter(([, item]) => item != null && item !== "")
+      .map(([key, item]) => `${key}: ${formatAnswer(item)}`);
+    return parts.join(", ") || "—";
+  }
+  return String(value);
+}
+
 export default function EnquiryDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -106,16 +131,25 @@ export default function EnquiryDetailPage() {
         </p>
       ) : (
         <p>
-          <button type="button" onClick={convert}>Convert to application</button>
+          <button type="button" onClick={convert}>Start application from this enquiry</button>
         </p>
       )}
       {submission ? (
         <section className="card">
-          <h2>Submitted form answers</h2>
-          <p className="muted">Source: {submission.sourceCode ?? "—"}</p>
-          <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(submission.answers, null, 2)}</pre>
+          <h2>Public form answers</h2>
+          <p className="muted">Source: {submission.sourceCode ?? "staff or unattributed"}</p>
+          <dl className="profile-list">
+            {Object.entries(submission.answers).map(([key, value]) => (
+              <div key={key}>
+                <dt>{key.replaceAll("_", " ").replaceAll(".", " / ")}</dt>
+                <dd>{formatAnswer(value)}</dd>
+              </div>
+            ))}
+          </dl>
         </section>
-      ) : null}
+      ) : (
+        <p className="muted">This enquiry was entered by staff, not a public form.</p>
+      )}
       {message ? <p>{message}</p> : null}
       {error ? <p className="error">{error}</p> : null}
     </>

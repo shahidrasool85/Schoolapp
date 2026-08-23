@@ -54,7 +54,15 @@ export default function AdmissionsDashboardPage() {
     <>
       <h1>Admissions</h1>
       <p className="muted">
-        Enquiry through to enrolment. An applicant is not an enrolled student until conversion.
+        Enquiry through to enrolment. Public forms and staff-entered records use the same
+        admissions workflow. An applicant is not an enrolled pupil until conversion.
+      </p>
+      <p>
+        <Link href="/school/admissions/forms">Public forms</Link>
+        {" · "}
+        <Link href="/school/admissions/enquiries">Enquiries</Link>
+        {" · "}
+        <Link href="/school/admissions/applications">Applications</Link>
       </p>
       <div className="cards">
         {CARDS.map((card) => (

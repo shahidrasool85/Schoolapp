@@ -26,6 +26,7 @@ export class ApiError extends Error {
     public status: number,
     public code: string,
     message: string,
+    public details?: { fieldKey?: string; sectionKey?: string },
   ) {
     super(message);
   }
@@ -48,8 +49,15 @@ export async function api<T>(
   const response = await fetch(path, { ...options, headers, credentials: "include" });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = (body as { error?: { code?: string; message?: string } }).error;
-    throw new ApiError(response.status, error?.code ?? "error", error?.message ?? "Request failed");
+    const error = (body as {
+      error?: { code?: string; message?: string; details?: { fieldKey?: string; sectionKey?: string } };
+    }).error;
+    throw new ApiError(
+      response.status,
+      error?.code ?? "error",
+      error?.message ?? "Request failed",
+      error?.details,
+    );
   }
   return body as T;
 }

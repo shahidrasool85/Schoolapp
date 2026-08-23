@@ -1,6 +1,6 @@
 # Schoolapp — Platform Architecture
 
-**Status:** Phases 1–8 implemented (foundation through formal assessment/results/reports). Later modules (AI, mobile) are not built.  
+**Status:** Phases 1–9 implemented (foundation through public admissions forms). Later modules (AI, mobile) are not built.  
 **Audience:** Product owner and engineering.  
 **Scope:** Multi-tenant UK school SaaS (SIS + LMS + AI learning), web first, mobile-ready.
 
@@ -141,7 +141,7 @@ flowchart TB
 ### 2.3 Request path (every authenticated school-scoped call)
 
 1. Client sends session (cookie) or `Authorization: Bearer`. It **may** send `X-Organisation-Id` as a **requested** context. That header is never written to the database session as-is.
-2. API resolves the **Host** (see [ADR 0014](./adr/0014-saas-hostname-tenancy.md)). A school hostname selects that organisation; a mismatched `X-Organisation-Id` is `org_host_mismatch`. The platform apex does not auto-select a school. `X-Forwarded-Host` is ignored unless `TRUST_PROXY=true`.
+2. API resolves the **Host** (see [ADR 0014](./adr/0014-saas-hostname-tenancy.md)). A school hostname selects that organisation; a mismatched `X-Organisation-Id` is `org_host_mismatch`. The platform apex does not auto-select a school. `X-Forwarded-Host` is ignored unless `TRUST_PROXY=true`. Public admissions form routes use the same host binding and never treat a client organisation header as tenant authority ([ADR 0018](./adr/0018-phase9-public-admissions-forms.md)).
 3. API validates the token via the auth adapter and loads the **user**.
 4. API **revalidates memberships from the database** (not from the header, not from JWT org claims, not from the visual school name). `list_memberships_for_user` (or equivalent) runs without tenant context.
 5. If the route is school-scoped and no organisation was bound from hostname or header → `org_context_required`. If bound but no **active** membership → `org_membership_required`. Platform Super Admin on `/platform/*` uses the platform host only. Entering a tenant as Super Admin is an explicit, audited path, not a default.
@@ -659,10 +659,11 @@ Detail: [roadmap.md](./roadmap.md).
 | **6 — Attendance & documents** | Registers, files | **Implemented** |
 | **7 — LMS core** | Assignments, submissions, resources, marking | **Implemented** |
 | **8 — Assessment & reports** | Formal assessments, results, reporting periods, targets, progress reports | **Implemented** |
-| **9 — AI learning** | Provider port, drafts, teacher approval, attempts | Yes |
-| **10 — Gamification** | Points, badges, streaks, configurable leaderboards | Yes |
-| **11 — Mobile** | Expo parent app, then student | New clients only |
-| **12 — Integrations** | MIS, CTF, census, SSO | Later |
+| **9 — Public admissions forms** | Configurable enquiry/application forms, embeds, QR, campaigns | **Implemented** |
+| **10 — AI learning** | Provider port, drafts, teacher approval, attempts | Yes |
+| **11 — Gamification** | Points, badges, streaks, configurable leaderboards | Yes |
+| **12 — Mobile** | Expo parent app, then student | New clients only |
+| **13 — Integrations** | MIS, CTF, census, SSO | Later |
 
 Each phase ships behind feature flags per organisation. Mobile starts only when the parent/student API has been used in production by the web portals (so the contract is proven).
 

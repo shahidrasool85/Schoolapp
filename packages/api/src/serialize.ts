@@ -237,6 +237,8 @@ export function mapEnquiry(row: Record<string, unknown>) {
     id: row.id,
     reference: row.reference,
     status: row.status,
+    publicFormId: row.public_form_id ?? null,
+    campaignId: row.campaign_id ?? null,
     pupilLegalName: row.pupil_legal_name,
     pupilPreferredName: row.pupil_preferred_name ?? null,
     dateOfBirth: row.date_of_birth ?? null,
@@ -263,7 +265,15 @@ export function mapApplication(row: Record<string, unknown>) {
     id: row.id,
     reference: row.reference,
     status: row.status,
+    completenessStatus: row.completeness_status ?? null,
     enquiryId: row.enquiry_id ?? null,
+    publicFormId: row.public_form_id ?? null,
+    campaignId: row.campaign_id ?? null,
+    gender: row.gender ?? null,
+    addressLine1: row.address_line1 ?? null,
+    addressLine2: row.address_line2 ?? null,
+    addressTown: row.address_town ?? null,
+    addressPostcode: row.address_postcode ?? null,
     pupilLegalName: row.pupil_legal_name,
     pupilPreferredName: row.pupil_preferred_name ?? null,
     dateOfBirth: row.date_of_birth ?? null,
@@ -297,7 +307,79 @@ export function mapApplicationContact(row: Record<string, unknown>) {
     relationship: row.relationship,
     isPrimary: row.is_primary,
     hasParentalResponsibility: row.has_parental_responsibility,
+    isEmergency: row.is_emergency ?? false,
+    authorisedCollection: row.authorised_collection ?? false,
+    addressLine1: row.address_line1 ?? null,
+    addressLine2: row.address_line2 ?? null,
+    addressTown: row.address_town ?? null,
+    addressPostcode: row.address_postcode ?? null,
     userId: row.user_id ?? null,
+  };
+}
+
+export function mapAdmissionsForm(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    publicId: row.public_id,
+    slug: row.slug,
+    formType: row.form_type,
+    name: row.name,
+    description: row.description ?? null,
+    status: row.status,
+    opensAt: row.opens_at ?? null,
+    closesAt: row.closes_at ?? null,
+    successTitle: row.success_title ?? null,
+    successText: row.success_text ?? null,
+    privacyNoticeUrl: row.privacy_notice_url ?? null,
+    privacyNoticeText: row.privacy_notice_text ?? null,
+    allowedAcademicYearIds: row.allowed_academic_year_ids ?? [],
+    allowedYearGroupIds: row.allowed_year_group_ids ?? [],
+    publishedAt: row.published_at ?? null,
+    unpublishedAt: row.unpublished_at ?? null,
+    submissionsCount: row.submissions_count ?? 0,
+    publicPath: row.public_path ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function mapAdmissionsCampaign(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    publicCode: row.public_code,
+    label: row.label,
+    description: row.description ?? null,
+    enabled: row.enabled,
+    submissionsCount: row.submissions_count ?? 0,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function mapFormSubmission(row: Record<string, unknown>, options?: { includeAnswers?: boolean }) {
+  const base = {
+    id: row.id,
+    publicId: row.public_id,
+    formId: row.form_id,
+    formName: row.form_name ?? null,
+    formType: row.form_type,
+    completenessStatus: row.completeness_status,
+    enquiryId: row.enquiry_id ?? null,
+    enquiryReference: row.enquiry_reference ?? null,
+    applicationId: row.application_id ?? null,
+    applicationReference: row.application_reference ?? null,
+    campaignId: row.campaign_id ?? null,
+    campaignLabel: row.campaign_label ?? null,
+    sourceCode: row.source_code ?? null,
+    submittedAt: row.submitted_at ?? null,
+    createdAt: row.created_at,
+  };
+  if (!options?.includeAnswers) return base;
+  return {
+    ...base,
+    answers: row.answers ?? {},
+    canonicalSnapshot: row.canonical_snapshot ?? {},
+    declarationSnapshot: row.declaration_snapshot ?? null,
   };
 }
 

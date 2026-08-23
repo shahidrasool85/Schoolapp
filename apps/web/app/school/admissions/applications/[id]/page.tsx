@@ -18,7 +18,13 @@ type Detail = {
     previousSchool: string | null;
     internalNotes: string | null;
     convertedStudentProfileId: string | null;
+    completenessStatus: string | null;
   };
+  formSubmission?: {
+    answers: Record<string, unknown>;
+    sourceCode?: string | null;
+    completenessStatus?: string;
+  } | null;
   contacts: Array<{
     id: string;
     fullName: string;
@@ -317,6 +323,17 @@ export default function ApplicationDetailPage() {
             </div>
           </form>
         </>
+      ) : null}
+
+      {data.formSubmission ? (
+        <section className="card">
+          <h2>Submitted form answers</h2>
+          <p className="muted">
+            Completeness: {data.application.completenessStatus ?? data.formSubmission.completenessStatus ?? "—"} ·
+            Source: {data.formSubmission.sourceCode ?? "—"}
+          </p>
+          <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(data.formSubmission.answers, null, 2)}</pre>
+        </section>
       ) : null}
 
       <h2>History</h2>

@@ -59,7 +59,7 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 **Outcome:** a school can manage enquiries, applications, lightweight assessments/interviews, waiting lists, offers, and a controlled conversion of an accepted applicant into the canonical student/enrolment model.
 
 - Admissions dashboard (counts + filtered-list links)
-- Enquiries (staff API designed for a future public website form; public form not built)
+- Enquiries (staff API; public website form delivered in Phase 9)
 - Applications with stable references, contacts, status history, and extensible `extra_fields`
 - Controlled status machine (including deferred); `enrolled` only via conversion
 - Assessments/interviews (not an exam engine)
@@ -69,7 +69,7 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 - Permissions: `admissions.read`, `admissions.enquiries.manage`, `admissions.applications.manage`, `admissions.offers.manage`, `admissions.decide`, `admissions.convert`
 - In-app notifications for a few events when the contact already has a user identity
 
-**Not in Phase 4:** attendance, LMS, results, AI, payments, document binaries, public website form, ranking algorithms, email/SMS/push.
+**Not in Phase 4:** attendance, LMS, results, AI, payments, document binaries, ranking algorithms, email/SMS/push. Public website forms are Phase 9.
 
 ## Phase 5 — SaaS tenant routing, school subdomains, and onboarding foundation (implemented)
 
@@ -132,7 +132,22 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 **Not in Phase 8:** AI report drafting/grading, PDF export, DfE census, behaviour, competitions, professional UI redesign.
 
-## Phase 9 — AI learning
+## Phase 9 — Admissions forms, public applications & embeds (implemented)
+
+**Outcome:** a School Admin configures public enquiry/application forms, shares or embeds them, and parent submissions enter the existing admissions workflow.
+
+- Controlled form builder (sections, canonical fields, custom questions)
+- Public hostname-bound URLs and secure iframe embeds
+- QR codes encoding only the public URL
+- Source/campaign tracking and simple counts
+- Completeness status separate from admissions decisions
+- Declaration snapshots; medical/additional needs with stricter permissions
+- Document metadata via the existing storage port (binaries deferred)
+- Rate limiting + captcha port (default `none`)
+
+**Not in Phase 9:** application fees, CRM/email marketing, social-network APIs, AI scoring, JS embed SDK, production object storage.
+
+## Phase 10 — AI learning
 
 - `packages/ai` port + one provider
 - Activity drafts, moderation hook, teacher approval workflow
@@ -140,13 +155,13 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 - Year-group and subject targeting
 - Generation audit (no PII in prompts)
 
-## Phase 10 — Gamification
+## Phase 11 — Gamification
 
 - Points/XP ledgers, badges, streaks
 - Competitions: student, class, house (not school-vs-school; network tables remain governance placeholders)
 - Leaderboards honouring school flags and Children’s Code defaults (off)
 
-## Phase 11 — Mobile clients
+## Phase 12 — Mobile clients
 
 - Expo app: **parent** first (read-mostly)
 - Then **student** (attempts, homework submit if API already exists)
@@ -155,7 +170,7 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 No second backend.
 
-## Phase 12 — Integrations and hardening
+## Phase 13 — Integrations and hardening
 
 - MIS identifiers, CTF/census experiments
 - SSO (Microsoft 365 / Google Workspace) if schools demand it

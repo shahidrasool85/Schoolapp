@@ -1,6 +1,6 @@
 # Schoolapp documentation
 
-Architecture **accepted**. Phases 1–8 (foundation through formal assessments, results, and progress reports) are implemented. Later product modules (AI, games, mobile) are not built yet.
+Architecture **accepted**. Phases 1–9 (foundation through public admissions forms) are implemented. Later product modules (AI, games, mobile) are not built yet.
 
 | Document | Contents |
 | --- | --- |
@@ -14,5 +14,7 @@ Architecture **accepted**. Phases 1–8 (foundation through formal assessments, 
 | [project-structure.md](./project-structure.md) | Intended monorepo |
 | [permissions-catalogue.md](./permissions-catalogue.md) | Seed RBAC matrix |
 | [demo.md](./demo.md) | Local browser demo: install, seed, start, URLs, and test logins |
+| [embed-admissions-forms.md](./embed-admissions-forms.md) | Website iframe embed instructions |
+| [security/public-admissions-forms.md](./security/public-admissions-forms.md) | Public-form threat model and deployment notes |
 
 Please review [ARCHITECTURE.md](./ARCHITECTURE.md) first, then the ADRs you disagree with.

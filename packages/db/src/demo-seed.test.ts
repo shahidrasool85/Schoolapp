@@ -208,4 +208,40 @@ describe("demo seed", () => {
       expect(leaked.rows[0]?.n).toBe("0");
     });
   });
+
+  it("seeds isolated Greenwood and Oak public admissions forms", async () => {
+    const orgs = await pools.owner.query<{ id: string; slug: string }>(
+      "select id, slug::text as slug from organisations where slug = any($1::citext[])",
+      [["greenwood", "oakacademy"]],
+    );
+    const greenwoodId = orgs.rows.find((row) => row.slug === "greenwood")!.id;
+    const oakId = orgs.rows.find((row) => row.slug === "oakacademy")!.id;
+    const gw = await pools.owner.query<{ n: string; slugs: string }>(
+      `select count(*)::text as n, string_agg(slug, ',') as slugs
+       from admissions_forms where organisation_id = $1`,
+      [greenwoodId],
+    );
+    const oak = await pools.owner.query<{ n: string; slugs: string }>(
+      `select count(*)::text as n, string_agg(slug, ',') as slugs
+       from admissions_forms where organisation_id = $1`,
+      [oakId],
+    );
+    expect(gw.rows[0]?.slugs).toContain("year-3-enquiry");
+    expect(gw.rows[0]?.slugs).toContain("year-3-application");
+    expect(gw.rows[0]?.slugs).toContain("sixth-form-draft");
+    expect(oak.rows[0]?.slugs).toContain("oak-enquiry");
+    expect(oak.rows[0]?.slugs).not.toContain("year-3-enquiry");
+
+    const admin = await pools.owner.query<{ id: string }>(
+      "select id from users where email = $1",
+      [DEMO_ACCOUNTS.greenwoodAdmin.email],
+    );
+    await withTenantContext(pools.app, admin.rows[0]!.id, greenwoodId, async (client) => {
+      const leaked = await client.query<{ n: string }>(
+        "select count(*)::text as n from admissions_forms where organisation_id = $1",
+        [oakId],
+      );
+      expect(leaked.rows[0]?.n).toBe("0");
+    });
+  });
 });

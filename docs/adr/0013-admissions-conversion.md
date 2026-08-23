@@ -31,5 +31,5 @@ Phase 4 adds a school admissions workflow. An applicant must not become an enrol
 ## Consequences
 
 - Later LMS/attendance modules must use converted `student_profiles`, not admissions rows.
-- Offer payments/deposits, public website enquiry forms, document upload, and ranking algorithms remain later work.
+- Offer payments/deposits, document binaries, and ranking algorithms remain later work. Public website enquiry/application forms are delivered in Phase 9 ([ADR 0018](./0018-phase9-public-admissions-forms.md)).
 - In-app notifications may be written for contacts who already have a user identity; email/SMS/push are still out of scope.

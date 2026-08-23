@@ -15,6 +15,11 @@ export const ADMISSIONS_READ_PERMISSIONS = [
   PERMISSIONS.ADMISSIONS_OFFERS_MANAGE,
   PERMISSIONS.ADMISSIONS_DECIDE,
   PERMISSIONS.ADMISSIONS_CONVERT,
+  PERMISSIONS.ADMISSIONS_FORMS_READ,
+  PERMISSIONS.ADMISSIONS_FORMS_MANAGE,
+  PERMISSIONS.ADMISSIONS_CAMPAIGNS_READ,
+  PERMISSIONS.ADMISSIONS_CAMPAIGNS_MANAGE,
+  PERMISSIONS.ADMISSIONS_PUBLIC_SUBMISSIONS_READ,
 ] as const;
 
 const MANAGE_TRANSITIONS: Record<ApplicationStatus, readonly ApplicationStatus[]> = {
@@ -84,6 +89,38 @@ export function canDecideAdmissions(actor: Actor): boolean {
 
 export function canConvertAdmissions(actor: Actor): boolean {
   return actor.permissions.has(PERMISSIONS.ADMISSIONS_CONVERT);
+}
+
+export function canReadAdmissionsForms(actor: Actor): boolean {
+  return actorHasAny(actor, [
+    PERMISSIONS.ADMISSIONS_FORMS_READ,
+    PERMISSIONS.ADMISSIONS_FORMS_MANAGE,
+    PERMISSIONS.ADMISSIONS_READ,
+  ]);
+}
+
+export function canManageAdmissionsForms(actor: Actor): boolean {
+  return actor.permissions.has(PERMISSIONS.ADMISSIONS_FORMS_MANAGE);
+}
+
+export function canReadAdmissionsCampaigns(actor: Actor): boolean {
+  return actorHasAny(actor, [
+    PERMISSIONS.ADMISSIONS_CAMPAIGNS_READ,
+    PERMISSIONS.ADMISSIONS_CAMPAIGNS_MANAGE,
+    PERMISSIONS.ADMISSIONS_READ,
+  ]);
+}
+
+export function canManageAdmissionsCampaigns(actor: Actor): boolean {
+  return actor.permissions.has(PERMISSIONS.ADMISSIONS_CAMPAIGNS_MANAGE);
+}
+
+export function canReadPublicSubmissions(actor: Actor): boolean {
+  return actorHasAny(actor, [
+    PERMISSIONS.ADMISSIONS_PUBLIC_SUBMISSIONS_READ,
+    PERMISSIONS.ADMISSIONS_READ,
+    PERMISSIONS.ADMISSIONS_FORMS_MANAGE,
+  ]);
 }
 
 export function allowedApplicationTransitions(from: ApplicationStatus): readonly ApplicationStatus[] {

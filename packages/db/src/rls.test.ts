@@ -48,10 +48,13 @@ describe("RLS catalog", () => {
            'academic_reporting_periods', 'academic_assessments', 'academic_assessment_status_history',
            'academic_assessment_classes', 'academic_assessment_inclusions', 'academic_results',
            'academic_result_revisions', 'academic_targets', 'academic_reports',
-           'academic_report_sections', 'academic_report_status_history', 'academic_report_publications'
+           'academic_report_sections', 'academic_report_status_history', 'academic_report_publications',
+           'admissions_campaigns', 'admissions_forms', 'admissions_form_sections',
+           'admissions_form_fields', 'admissions_form_submissions', 'admissions_form_documents',
+           'student_additional_needs'
          )`,
     );
-    expect(result.rows.length).toBe(64);
+    expect(result.rows.length).toBe(71);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
     }
@@ -840,5 +843,58 @@ describe("RLS catalog", () => {
         client.query("select snapshot_academic_assessment_inclusions($1)", [assessment.rows[0]!.id]),
       ).rejects.toThrow(/forbidden/);
     });
+  });
+
+  it("keeps public admissions forms and submissions tenant-isolated", async () => {
+    const id = randomUUID().slice(0, 8);
+    const orgA = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-form-a-${id}`, "Forms A"],
+    );
+    const orgB = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-form-b-${id}`, "Forms B"],
+    );
+    const userA = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Forms A', 'staff', 'active') returning id`,
+      [`rls-form-a-${id}@example.com`],
+    );
+    await pools.owner.query(
+      `insert into organisation_memberships (organisation_id, user_id, status) values ($1, $2, 'active')`,
+      [orgA.rows[0]!.id, userA.rows[0]!.id],
+    );
+    const formA = await pools.owner.query<{ id: string }>(
+      `insert into admissions_forms (organisation_id, slug, form_type, name, status)
+       values ($1, 'enquiry', 'enquiry', 'A form', 'published') returning id`,
+      [orgA.rows[0]!.id],
+    );
+    const formB = await pools.owner.query<{ id: string }>(
+      `insert into admissions_forms (organisation_id, slug, form_type, name, status)
+       values ($1, 'enquiry', 'enquiry', 'B form', 'published') returning id`,
+      [orgB.rows[0]!.id],
+    );
+    await pools.owner.query(
+      `insert into admissions_form_submissions (organisation_id, form_id, form_type, completeness_status)
+       values ($1, $2, 'enquiry', 'complete'), ($3, $4, 'enquiry', 'complete')`,
+      [orgA.rows[0]!.id, formA.rows[0]!.id, orgB.rows[0]!.id, formB.rows[0]!.id],
+    );
+
+    const visible = await withTenantContext(pools.app, userA.rows[0]!.id, orgA.rows[0]!.id, async (client) => {
+      const forms = await client.query("select name from admissions_forms");
+      const submissions = await client.query("select form_id from admissions_form_submissions");
+      await expect(
+        client.query(
+          `insert into admissions_form_submissions (organisation_id, form_id, form_type)
+           values ($1, $2, 'enquiry')`,
+          [orgB.rows[0]!.id, formB.rows[0]!.id],
+        ),
+      ).rejects.toThrow();
+      return {
+        forms: forms.rows.map((row) => row.name),
+        submissions: submissions.rowCount,
+      };
+    });
+    expect(visible).toEqual({ forms: ["A form"], submissions: 1 });
   });
 });

@@ -4,7 +4,7 @@ export async function writeAudit(
   client: pg.PoolClient,
   input: {
     organisationId: string;
-    actorUserId: string;
+    actorUserId: string | null;
     action: string;
     entityType: string;
     entityId?: string | null;

@@ -163,6 +163,16 @@ Keep prospective people **out of** `class_memberships` and current `student_enro
 
 The original application remains after enrolment and records `converted_student_profile_id`. The student profile records `admitted_from_application_id`.
 
+## Public admissions forms (Phase 9)
+
+See [ADR 0018](./adr/0018-phase9-public-admissions-forms.md).
+
+Entities: `admissions_forms`, `admissions_form_sections`, `admissions_form_fields`, `admissions_form_submissions`, `admissions_form_documents`, `admissions_campaigns`, `student_additional_needs`.
+
+Form types are extensible (`enquiry`, `application`, plus reserved `open_day`, `waiting_list`, `scholarship`, `sixth_form`, `nursery`). Status: `draft | published | unpublished`. Completeness (`draft | submitted | missing_documents | complete`) is stored on the submission and must not be treated as an admissions decision.
+
+Canonical answers map into enquiry/application/contact columns. Custom questions stay on the submission. Conversion copies identity, address, guardians, and additional needs only.
+
 ## Operations (Phase 6)
 
 - `attendance_session_types` — organisation-configurable sessions (default AM/PM)

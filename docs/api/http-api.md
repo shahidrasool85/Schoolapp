@@ -251,7 +251,38 @@ Dashboard counts match their list filters (`awaitingReview` is `under_review` on
 
 `POST .../enrol` body may include `academicYearId`, `yearGroupId`, `classId`, `admissionNumber`, `existingStudentProfileId`, and `guardianLinks: [{ contactId, portalAccess }]`. Retrying returns the same student and does not re-notify. The application record is not deleted.
 
-A future public school-website enquiry form should POST the same enquiry fields; the public unauthenticated endpoint is not implemented in Phase 4.
+Public forms (unauthenticated, school host only; ignore `X-Organisation-Id` as tenant authority):
+
+```http
+GET    /api/v1/public/admissions/forms/{formType}/{slug}
+GET    /api/v1/public/admissions/forms/{formType}/{slug}/draft?token=
+POST   /api/v1/public/admissions/forms/{formType}/{slug}/submissions
+POST   /api/v1/public/admissions/forms/{formType}/{slug}/documents
+```
+
+Staff form administration:
+
+```http
+GET    /api/v1/admissions/forms
+POST   /api/v1/admissions/forms
+GET    /api/v1/admissions/forms/{id}
+PATCH  /api/v1/admissions/forms/{id}
+PUT    /api/v1/admissions/forms/{id}/definition
+POST   /api/v1/admissions/forms/{id}/publish
+POST   /api/v1/admissions/forms/{id}/unpublish
+POST   /api/v1/admissions/forms/{id}/duplicate
+GET    /api/v1/admissions/forms/{id}/share
+GET    /api/v1/admissions/forms/{id}/submissions
+GET    /api/v1/admissions/form-submissions/{id}
+GET    /api/v1/admissions/campaigns
+POST   /api/v1/admissions/campaigns
+PATCH  /api/v1/admissions/campaigns/{id}
+GET    /api/v1/admissions/sources
+```
+
+Public submissions resolve the organisation from `Host`. A mismatched `X-Organisation-Id` returns `403 org_host_mismatch`. Unknown, unpublished, and expired forms return `404`. Oversized bodies return `413 payload_too_large`. Enquiry submissions create `admissions_enquiries`; application submissions create `admissions_applications` with contacts. Completeness is independent of decision status.
+
+See [public form security](../security/public-admissions-forms.md) and [embed instructions](../embed-admissions-forms.md).
 
 ## Staff / LMS
 

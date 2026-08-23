@@ -552,12 +552,12 @@ describe("Phase 10 communications and calendar", () => {
     });
     expect(parent2Ack.status).toBe(200);
 
+    const studentToken = await loginAlias(app, school.slug, `prt.${id}`, "student-pass-1");
     await app.request(`/api/v1/year-groups/${seeded.year3Id}`, {
       method: "PATCH",
       headers: hdrs,
       body: JSON.stringify({ studentLoginEnabled: false }),
     });
-    const studentToken = await loginAlias(app, school.slug, `prt.${id}`, "student-pass-1");
     const disabled = await app.request("/api/v1/student/announcements", {
       headers: headers(studentToken, school.orgId),
     });
@@ -641,9 +641,13 @@ describe("Phase 10 communications and calendar", () => {
       headers: hdrs,
       body: "{}",
     });
-    await pools.owner.query("update announcements set expires_at = now() - interval '1 minute' where id = $1", [
-      expiredBody.announcement.id,
-    ]);
+    await pools.owner.query(
+      `update announcements
+       set publish_at = now() - interval '2 minutes',
+           expires_at = now() - interval '1 minute'
+       where id = $1`,
+      [expiredBody.announcement.id],
+    );
     await app.request("/api/v1/announcements", { headers: hdrs });
 
     const parentToken = await login(app, `sched-${id}@example.com`, "parent-pass-1");

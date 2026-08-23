@@ -30,6 +30,8 @@ const LINKS: NavLink[] = [
   },
   { href: "/student/results", label: "Results" },
   { href: "/student/reports", label: "Reports" },
+  { href: "/student/notices", label: "Notices" },
+  { href: "/student/calendar", label: "Calendar" },
   { href: "/student/notifications", label: "Notifications" },
   { href: "/student/profile", label: "Profile" },
 ];

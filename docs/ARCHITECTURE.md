@@ -1,6 +1,6 @@
 # Schoolapp — Platform Architecture
 
-**Status:** Phases 1–9 implemented (foundation through public admissions forms). Later modules (AI, mobile) are not built.  
+**Status:** Phases 1–10 implemented (foundation through communications and school calendar). Later modules (AI, mobile) are not built.  
 **Audience:** Product owner and engineering.  
 **Scope:** Multi-tenant UK school SaaS (SIS + LMS + AI learning), web first, mobile-ready.
 
@@ -485,10 +485,16 @@ See [ADR 0016](./adr/0016-phase7-learning-lms.md). Assignments have no `class_id
 
 See [ADR 0017](./adr/0017-phase8-assessment-results.md). Distinct from `learning_marks` and `admissions_assessments`.
 
+### 6.2c Communications and calendar (Phase 10)
+
+- Announcements: `announcements`, `announcement_status_history`, `announcement_targets`, `announcement_recipients`, `announcement_recipient_subjects`, `announcement_resources`
+- Calendar: `school_event_types`, `school_events`, `school_event_status_history`, `school_event_targets`, `school_event_audience`, `school_event_audience_subjects`, `school_event_resources`
+
+See [ADR 0019](./adr/0019-phase10-communications-calendar.md). Recipients are a publish-time snapshot. Scheduled publication activates on authorised read.
+
 ### 6.3 Later entities (do not implement now; reserved names)
 
 - Admissions: `admissions_enquiries`, `admissions_applications`, `admissions_application_contacts`, `admissions_application_status_history`, `admissions_assessments`, `admissions_waiting_list_entries`, `admissions_offers`, `admissions_documents` (metadata only)
-- Operations: `announcements`
 - LMS later: `timetable_entries`
 - Learning: `learning_activities`, `activity_items`, `activity_reviews`, `activity_attempts`, `competitions`, `points_ledger`, `badge_definitions`, `streaks`
 

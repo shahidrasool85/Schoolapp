@@ -21,6 +21,7 @@ import { registerAssessmentRoutes } from "./routes/assessments";
 import { registerPublicRoutes } from "./routes/public";
 import { registerAdmissionsFormRoutes } from "./routes/admissions-forms";
 import { registerPublicFormRoutes } from "./routes/public-forms";
+import { registerCommunicationRoutes } from "./routes/communications";
 
 export type { ApiConfig, ApiEnv, SchoolappApi } from "./types";
 
@@ -73,6 +74,7 @@ export function createApiApp(config: ApiConfig) {
   registerDocumentRoutes(app);
   registerLearningRoutes(app);
   registerAssessmentRoutes(app);
+  registerCommunicationRoutes(app);
 
   app.notFound((c) =>
     c.json({ error: { code: "not_found", message: "Not found" } }, 404),

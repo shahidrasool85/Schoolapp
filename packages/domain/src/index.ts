@@ -96,6 +96,22 @@ export const PERMISSIONS = {
   REPORTS_READ_SELF: "reports.read_self",
   ACADEMIC_OVERSIGHT: "academic.oversight",
   NOTIFICATIONS_INBOX_READ: "notifications.inbox.read",
+  ANNOUNCEMENTS_READ: "announcements.read",
+  ANNOUNCEMENTS_READ_ASSIGNED: "announcements.read_assigned",
+  ANNOUNCEMENTS_MANAGE: "announcements.manage",
+  ANNOUNCEMENTS_MANAGE_ASSIGNED: "announcements.manage_assigned",
+  ANNOUNCEMENTS_PUBLISH: "announcements.publish",
+  ANNOUNCEMENTS_BROADCAST: "announcements.broadcast",
+  ANNOUNCEMENTS_ACKNOWLEDGEMENTS_READ: "announcements.acknowledgements.read",
+  ANNOUNCEMENTS_READ_OWN_CHILDREN: "announcements.read_own_children",
+  ANNOUNCEMENTS_READ_SELF: "announcements.read_self",
+  CALENDAR_READ: "calendar.read",
+  CALENDAR_READ_ASSIGNED: "calendar.read_assigned",
+  CALENDAR_MANAGE: "calendar.manage",
+  CALENDAR_MANAGE_ASSIGNED: "calendar.manage_assigned",
+  CALENDAR_MANAGE_SCHOOL: "calendar.manage_school",
+  CALENDAR_READ_OWN_CHILDREN: "calendar.read_own_children",
+  CALENDAR_READ_SELF: "calendar.read_self",
   AUDIT_READ: "audit.read",
 } as const;
 
@@ -230,6 +246,10 @@ export const NOTIFICATION_TYPES = [
   "learning_due",
   "learning_feedback",
   "learning_resubmission",
+  "announcement_published",
+  "announcement_important",
+  "announcement_acknowledgement",
+  "calendar_upcoming",
   "general",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
@@ -243,6 +263,7 @@ export const NOTIFICATION_CATEGORIES = [
   "competition",
   "reports",
   "admissions",
+  "calendar",
   "general",
 ] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
@@ -521,3 +542,84 @@ export const ACADEMIC_REPORT_STATUSES = [
   "archived",
 ] as const;
 export type AcademicReportStatus = (typeof ACADEMIC_REPORT_STATUSES)[number];
+
+export const ANNOUNCEMENT_STATUSES = [
+  "draft",
+  "scheduled",
+  "published",
+  "expired",
+  "archived",
+] as const;
+export type AnnouncementStatus = (typeof ANNOUNCEMENT_STATUSES)[number];
+
+export const ANNOUNCEMENT_PRIORITIES = ["normal", "important", "urgent"] as const;
+export type AnnouncementPriority = (typeof ANNOUNCEMENT_PRIORITIES)[number];
+
+export const COMMUNICATION_TARGET_TYPES = [
+  "whole_school",
+  "staff",
+  "parents",
+  "students",
+  "year_group",
+  "class",
+  "student",
+  "staff_member",
+] as const;
+export type CommunicationTargetType = (typeof COMMUNICATION_TARGET_TYPES)[number];
+
+export const COMMUNICATION_AUDIENCE_ROLES = ["staff", "parent", "student"] as const;
+export type CommunicationAudienceRole = (typeof COMMUNICATION_AUDIENCE_ROLES)[number];
+
+export const COMMUNICATION_RESOURCE_KINDS = [
+  "pdf",
+  "worksheet",
+  "image",
+  "url",
+  "video",
+  "document",
+] as const;
+export type CommunicationResourceKind = (typeof COMMUNICATION_RESOURCE_KINDS)[number];
+
+export const SCHOOL_EVENT_STATUSES = [
+  "draft",
+  "scheduled",
+  "published",
+  "cancelled",
+  "archived",
+] as const;
+export type SchoolEventStatus = (typeof SCHOOL_EVENT_STATUSES)[number];
+
+export const SCHOOL_EVENT_TYPE_KEYS = [
+  "school_holiday",
+  "inset_day",
+  "parents_evening",
+  "assembly",
+  "sports_day",
+  "open_day",
+  "trip",
+  "exam",
+  "class_event",
+  "club",
+  "meeting",
+] as const;
+export type SchoolEventTypeKey = (typeof SCHOOL_EVENT_TYPE_KEYS)[number];
+
+export const COMMUNICATION_RELATED_KINDS = [
+  "none",
+  "academic_year",
+  "term",
+  "class",
+  "year_group",
+  "assessment",
+  "assignment",
+  "admissions_open_day",
+] as const;
+export type CommunicationRelatedKind = (typeof COMMUNICATION_RELATED_KINDS)[number];
+
+export const BROADCAST_TARGET_TYPES = [
+  "whole_school",
+  "staff",
+  "parents",
+  "students",
+  "year_group",
+] as const;

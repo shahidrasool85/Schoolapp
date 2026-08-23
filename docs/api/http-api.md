@@ -134,9 +134,14 @@ GET /api/v1/parent/children/{studentId}/reports
 GET /api/v1/parent/children/{studentId}/reports/{reportId}
 GET /api/v1/parent/children/{studentId}/achievements
 GET /api/v1/parent/announcements
+GET /api/v1/parent/announcements/{id}
+POST /api/v1/parent/announcements/{id}/read
+POST /api/v1/parent/announcements/{id}/acknowledge
+GET /api/v1/parent/calendar/events
+GET /api/v1/parent/calendar/events/{id}
 ```
 
-Phase 3 implements dashboard, children list, and child overview (profile + school/year/form + viewer guardianship). Phase 6 implements child attendance (parent-visible notes only). Phase 8 implements released formal results, subject progress, and published report snapshots. Responses never include `restricted_contact`, admin notes, billing, moderation notes, or other organisations' children.
+Phase 3 implements dashboard, children list, and child overview (profile + school/year/form + viewer guardianship). Phase 6 implements child attendance (parent-visible notes only). Phase 8 implements released formal results, subject progress, and published report snapshots. Phase 10 implements family notices and calendar (authorised children only; no staff-only rows; no actor/storage-key fields). Responses never include `restricted_contact`, admin notes, billing, moderation notes, or other organisations' children.
 
 ## Student portal
 
@@ -153,6 +158,12 @@ GET  /api/v1/student/results
 GET  /api/v1/student/progress
 GET  /api/v1/student/reports
 GET  /api/v1/student/reports/{reportId}
+GET  /api/v1/student/announcements
+GET  /api/v1/student/announcements/{id}
+POST /api/v1/student/announcements/{id}/read
+POST /api/v1/student/announcements/{id}/acknowledge
+GET  /api/v1/student/calendar/events
+GET  /api/v1/student/calendar/events/{id}
 ```
 
 Phase 3 implements `me` and `dashboard` for the authenticated student's own profile in the current organisation. Phase 6 adds `GET /api/v1/student/attendance` (own marks, parent-visible notes only) when the effective student-portal policy allows access. Spoofing `X-Organisation-Id` for a school the pupil does not belong to returns `org_membership_required`. Login aliases remain organisation-scoped. A disabled student portal refuses alias login even if an alias/password exists.
@@ -362,6 +373,31 @@ POST   /api/v1/reports/{id}/archive
 ```
 
 `PUT /assessments/{id}/results` accepts a class grid `{ results: [{ studentProfileId, rawScore, gradeSchemeLevelId, teacherJudgement, comment, releasedToStudent, releasedToParent }] }`.
+
+## Communications and calendar (Phase 10)
+
+Staff APIs. Teachers require assigned class/pupil access for create/target. School-wide audiences require `announcements.broadcast` / `calendar.manage_school`. Cross-tenant target IDs return **404**. Clients cannot set `createdBy` / `publishedBy` or another user’s read/ack timestamps.
+
+```http
+GET    /api/v1/announcements
+POST   /api/v1/announcements
+GET    /api/v1/announcements/{id}
+PATCH  /api/v1/announcements/{id}
+POST   /api/v1/announcements/{id}/publish
+POST   /api/v1/announcements/{id}/archive
+GET    /api/v1/announcements/{id}/receipts
+POST   /api/v1/announcements/{id}/read
+POST   /api/v1/announcements/{id}/acknowledge
+GET    /api/v1/calendar/event-types
+GET    /api/v1/calendar/events
+POST   /api/v1/calendar/events
+GET    /api/v1/calendar/events/{id}
+PATCH  /api/v1/calendar/events/{id}
+POST   /api/v1/calendar/events/{id}/publish
+POST   /api/v1/calendar/events/{id}/archive
+```
+
+Scheduled rows activate on authorised list/read. Resource payloads expose URL metadata only (`storageKey` omitted). Email/SMS/push are not implemented.
 
 ## Files
 

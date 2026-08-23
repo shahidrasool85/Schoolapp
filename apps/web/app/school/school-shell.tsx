@@ -34,6 +34,18 @@ const LMS_NAV_PERMISSIONS = [
   "lms.submissions.mark_assigned",
 ];
 
+const COMMUNICATION_NAV_PERMISSIONS = [
+  "announcements.read",
+  "announcements.read_assigned",
+  "announcements.manage",
+  "announcements.manage_assigned",
+  "calendar.read",
+  "calendar.read_assigned",
+  "calendar.manage",
+  "calendar.manage_assigned",
+  "calendar.manage_school",
+];
+
 const ASSESSMENT_NAV_PERMISSIONS = [
   "assessments.read",
   "assessments.read_assigned",
@@ -108,6 +120,16 @@ const LINKS: NavLink[] = [
       { href: "/school/assessment/results", label: "Results", permissions: ASSESSMENT_NAV_PERMISSIONS },
       { href: "/school/assessment/reports", label: "Reports", permissions: ASSESSMENT_NAV_PERMISSIONS },
       { href: "/school/assessment/periods", label: "Reporting periods", permissions: ASSESSMENT_NAV_PERMISSIONS },
+    ],
+  },
+  {
+    href: "/school/communications",
+    label: "Communications",
+    exact: true,
+    permissions: COMMUNICATION_NAV_PERMISSIONS,
+    children: [
+      { href: "/school/communications/announcements", label: "Announcements", permissions: COMMUNICATION_NAV_PERMISSIONS },
+      { href: "/school/communications/calendar", label: "Calendar", permissions: COMMUNICATION_NAV_PERMISSIONS },
     ],
   },
   { href: "/school/staff", label: "Staff / Teachers" },

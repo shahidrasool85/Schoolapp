@@ -147,7 +147,20 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 **Not in Phase 9:** application fees, CRM/email marketing, social-network APIs, AI scoring, JS embed SDK, production object storage.
 
-## Phase 10 — AI learning
+## Phase 10 — Communications, announcements, and school calendar (implemented)
+
+**Outcome:** staff can publish targeted announcements and calendar events; parents and students see only authorised items; read/acknowledgement state is per recipient.
+
+- Canonical announcements (`draft / scheduled / published / expired / archived`) with priority, pin, expiry, optional acknowledgement
+- Target model (whole school, staff, parents, students, year groups, classes, selected pupils/staff) plus publish-time recipient snapshot
+- School event catalogue and calendar with the same targeting/visibility rules
+- Parent Notices + family calendar; student Notices + own calendar
+- In-app notifications (`announcement_published`, `announcement_important`, `announcement_acknowledgement`, `calendar_upcoming`) with idempotency
+- Request-time activation for scheduled rows (no job queue)
+
+**Not in Phase 10:** live chat, private messaging, email/SMS/push, WhatsApp, marketing automation, video calls, binary object storage.
+
+## Phase 11 — AI learning
 
 - `packages/ai` port + one provider
 - Activity drafts, moderation hook, teacher approval workflow
@@ -155,13 +168,13 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 - Year-group and subject targeting
 - Generation audit (no PII in prompts)
 
-## Phase 11 — Gamification
+## Phase 12 — Gamification
 
 - Points/XP ledgers, badges, streaks
 - Competitions: student, class, house (not school-vs-school; network tables remain governance placeholders)
 - Leaderboards honouring school flags and Children’s Code defaults (off)
 
-## Phase 12 — Mobile clients
+## Phase 13 — Mobile clients
 
 - Expo app: **parent** first (read-mostly)
 - Then **student** (attempts, homework submit if API already exists)
@@ -170,7 +183,7 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 No second backend.
 
-## Phase 13 — Integrations and hardening
+## Phase 14 — Integrations and hardening
 
 - MIS identifiers, CTF/census experiments
 - SSO (Microsoft 365 / Google Workspace) if schools demand it

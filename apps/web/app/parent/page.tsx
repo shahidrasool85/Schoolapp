@@ -51,6 +51,14 @@ export default function ParentDashboardPage() {
       <div className="cards">
         <ComingLaterCard title="Upcoming" message={data.upcoming.message} />
         <ComingLaterCard title="Recent activity" message={data.recentActivity.message} />
+        <Link className="card" href="/parent/notices">
+          <strong>Notices</strong>
+          <p>School announcements for your family.</p>
+        </Link>
+        <Link className="card" href="/parent/calendar">
+          <strong>Calendar</strong>
+          <p>Events for your authorised children.</p>
+        </Link>
         <Link className="card" href="/parent/notifications">
           <strong>Notifications</strong>
           <p>

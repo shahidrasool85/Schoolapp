@@ -227,7 +227,19 @@ See [ADR 0017](./adr/0017-phase8-assessment-results.md). This domain is **not** 
 
 Progress is latest vs previous comparable result (percentage, else scheme `numeric_value`). Mixed/non-numeric schemes do not invent an average.
 
-## AI learning and gamification (Phase 9–10)
+## Communications and school calendar (Phase 10)
+
+- `announcements` — title, body, priority, controlled status, publish/expiry, pin, acknowledgement required, session-stamped creator/publisher
+- `announcement_targets` — whole school / staff / parents / students / year group / class / selected pupil / selected staff (no single `class_id`)
+- `announcement_recipients` — one row per announcement + user with delivered/read/acknowledged timestamps
+- `announcement_recipient_subjects` — which child/class/year a parent or student row relates to (historical snapshot)
+- `school_event_types` — extensible catalogue (holiday, INSET, parents’ evening, trip, exam, …)
+- `school_events` — start/end, all-day, location, status, optional generic `related_kind`/`related_id`
+- `school_event_targets` / `school_event_audience` — same targeting and snapshot rules as announcements
+
+Parent and student visibility uses the snapshot plus current portal/enrolment rules. Expired notices leave active lists. Staff-only targets never leak to portals.
+
+## AI learning and gamification (Phase 11–12)
 
 - `learning_activities` — type (quiz, flashcards, timed challenge, puzzle, …), year group, subject, difficulty, `status`
 - `activity_items` — questions/cards; versioned so attempts stay consistent

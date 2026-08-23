@@ -50,6 +50,14 @@ export default function StudentHomePage() {
           <strong>My Learning</strong>
           <p>Assigned work, due dates and feedback.</p>
         </Link>
+        <Link className="card" href="/student/notices">
+          <strong>Notices</strong>
+          <p>School announcements for you.</p>
+        </Link>
+        <Link className="card" href="/student/calendar">
+          <strong>Calendar</strong>
+          <p>Your school events.</p>
+        </Link>
         <Link className="card" href="/student/results">
           <strong>Results</strong>
           <p>Released formal results and published reports.</p>

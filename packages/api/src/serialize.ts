@@ -799,6 +799,127 @@ export function mapAcademicReportSection(row: Record<string, unknown>) {
   };
 }
 
+export function mapCommunicationResource(row: Record<string, unknown>, options?: { includeStorageKey?: boolean }) {
+  const base = {
+    id: row.id,
+    title: row.title,
+    resourceKind: row.resource_kind,
+    url: row.url ?? null,
+    contentType: row.content_type ?? null,
+    byteSize: row.byte_size ?? null,
+    storageBackend: row.storage_backend ?? "unconfigured",
+  };
+  if (options?.includeStorageKey) {
+    return { ...base, storageKey: row.storage_key ?? null };
+  }
+  return base;
+}
+
+export function mapCommunicationTarget(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    targetType: row.target_type,
+    classId: row.class_id ?? null,
+    className: row.class_name ?? null,
+    yearGroupId: row.year_group_id ?? null,
+    yearGroupName: row.year_group_name ?? null,
+    studentProfileId: row.student_profile_id ?? null,
+    studentLegalName: row.student_legal_name ?? null,
+    staffUserId: row.staff_user_id ?? null,
+    staffName: row.staff_name ?? null,
+  };
+}
+
+export function mapAnnouncement(
+  row: Record<string, unknown>,
+  options?: { audience?: "staff" | "parent" | "student" },
+) {
+  const audience = options?.audience ?? "staff";
+  const base = {
+    id: row.id,
+    title: row.title,
+    body: row.body,
+    priority: row.priority,
+    status: row.effective_status ?? row.status,
+    publishAt: row.publish_at ?? null,
+    publishedAt: row.published_at ?? null,
+    expiresAt: row.expires_at ?? null,
+    acknowledgementRequired: row.acknowledgement_required,
+    pinned: row.pinned,
+    createdAt: row.created_at,
+  };
+  if (audience !== "staff") {
+    return {
+      ...base,
+      readAt: row.read_at ?? null,
+      acknowledgedAt: row.acknowledged_at ?? null,
+    };
+  }
+  return {
+    ...base,
+    createdBy: row.created_by ?? null,
+    createdByName: row.created_by_name ?? null,
+    publishedBy: row.published_by ?? null,
+    publishedByName: row.published_by_name ?? null,
+  };
+}
+
+export function mapSchoolEventType(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    key: row.key,
+    name: row.name,
+    sortOrder: row.sort_order,
+    isSystem: row.is_system,
+  };
+}
+
+export function mapSchoolEvent(
+  row: Record<string, unknown>,
+  options?: { audience?: "staff" | "parent" | "student" },
+) {
+  const audience = options?.audience ?? "staff";
+  const base = {
+    id: row.id,
+    title: row.title,
+    description: row.description ?? null,
+    eventTypeId: row.event_type_id,
+    eventTypeKey: row.event_type_key ?? null,
+    eventTypeName: row.event_type_name ?? null,
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    allDay: row.all_day,
+    location: row.location ?? null,
+    status: row.status,
+    publishAt: row.publish_at ?? null,
+    publishedAt: row.published_at ?? null,
+    relatedKind: row.related_kind ?? "none",
+    relatedId: row.related_id ?? null,
+    resourceUrl: row.resource_url ?? null,
+  };
+  if (audience !== "staff") {
+    return base;
+  }
+  return {
+    ...base,
+    createdBy: row.created_by ?? null,
+    createdByName: row.created_by_name ?? null,
+    publishedBy: row.published_by ?? null,
+    acknowledgementRequired: row.acknowledgement_required,
+  };
+}
+
+export function mapRelatedSubject(row: Record<string, unknown>) {
+  return {
+    studentProfileId: row.student_profile_id,
+    studentDisplayName: row.student_display_name ?? row.student_legal_name ?? null,
+    classId: row.class_id ?? null,
+    className: row.class_name ?? null,
+    yearGroupId: row.year_group_id ?? null,
+    yearGroupName: row.year_group_name ?? null,
+  };
+}
+
 export function mapPublishedReportSection(section: Record<string, unknown>) {
   return {
     id: section.id ?? null,

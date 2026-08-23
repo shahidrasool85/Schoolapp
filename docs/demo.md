@@ -125,6 +125,7 @@ Sign in as **Greenwood School Admin** at http://greenwood.localhost:3000/login, 
 - School Admin dashboard (`/school`)
 - Teaching & Learning (`/school/teaching`) — assignments, submissions, marking
 - Assessment & Progress (`/school/assessment`) — formal assessments, result entry, reports
+- Communications (`/school/communications`) — announcements and calendar
 - Students (open Amelia Khan — attendance, Learning history, and Academic / Results)
 - Attendance → My registers (Hannah Cole’s 3A) or School attendance
 - Student portal (year-group enable/disable; Reception can be turned on)
@@ -132,11 +133,11 @@ Sign in as **Greenwood School Admin** at http://greenwood.localhost:3000/login, 
 - Parents / Guardians
 - Admissions → Forms, Sources / Campaigns, Enquiries, Applications
 
-Sign in as the Greenwood **teacher** and open Teaching & Learning. You should see Year 3 work for 3A (and 3B subject work), with unsubmitted, submitted, marked, and resubmission-requested examples. Attendance → My registers should still show 3A, not the whole school.
+Sign in as the Greenwood **teacher** and open Teaching & Learning. You should see Year 3 work for 3A (and 3B subject work), with unsubmitted, submitted, marked, and resubmission-requested examples. Attendance → My registers should still show 3A, not the whole school. Communications should let the teacher create a class notice for 3A, not a whole-school broadcast.
 
-Sign in as the Greenwood **parent** and open the parent portal (`/parent`). You should see Amelia Khan and Yusuf Khan, attendance, Learning (assignments/due/status; marks only when released to parents), released formal results, published reports, and notifications. Unreleased results and the draft spring report must not appear.
+Sign in as the Greenwood **parent** and open the parent portal (`/parent`). You should see Amelia Khan and Yusuf Khan, attendance, Learning (assignments/due/status; marks only when released to parents), released formal results, published reports, Notices, Calendar, and notifications. Unreleased results, the draft spring report, and the staff-only briefing must not appear. Family calendar rows should name which child/class they relate to.
 
-Sign in as the Greenwood **student** (Student tab, username `amelia.khan`) and open My Learning (`/student/learning`) plus Results (`/student/results`). You should see assigned work and only student-released formal results. Parent-only English reading and unreleased science must not appear. Teacher-private notes must not appear.
+Sign in as the Greenwood **student** (Student tab, username `amelia.khan`) and open My Learning (`/student/learning`) plus Results (`/student/results`) and Notices. You should see assigned work, student-released formal results, the whole-school welcome, and the Year 3 swimming notice. Parent-only English reading, unreleased science, parents' evening booking copy, and staff-only notices must not appear.
 
 Sign in as **Oak Academy School Admin** at http://oakacademy.localhost:3000/login. You should see Oak pupils such as Niamh Okonkwo and Oak comprehension work, **not** Greenwood’s Amelia Khan or Year 3 Fractions.
 
@@ -145,7 +146,7 @@ Sign in as **Platform Admin** at http://localhost:3000/login. You should land on
 ## 7. Limitations
 
 - This is local demo data only. Names, emails, and passwords are fake and clearly labelled.
-- AI learning, binary document upload, announcements, PDF report cards, and mobile apps are **not built yet**. Formal assessments/results/reports are in Phase 8. Public admissions forms are in Phase 9.
+- AI learning, binary document upload, PDF report cards, and mobile apps are **not built yet**. Formal assessments/results/reports are in Phase 8. Public admissions forms are in Phase 9. Announcements and the school calendar are in Phase 10.
 - Learning resources are URL metadata only; S3-compatible binary upload is deferred.
 - Demo attendance is seeded from 1 September 2026 (the 2026/27 year). If “today” is before term, registers default to the year start.
 - There is no production wildcard DNS, TLS, or Plesk setup in this path.

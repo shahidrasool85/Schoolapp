@@ -55,6 +55,13 @@ export interface ObjectStoragePort {
     documentId: string;
     filename: string;
   }): string;
+  buildCommunicationResourceKey(input: {
+    organisationId: string;
+    kind: "announcement" | "event";
+    parentId: string;
+    resourceId: string;
+    filename: string;
+  }): string;
   createUploadIntent(input: CreateUploadIntentInput): Promise<UploadIntent>;
 }
 
@@ -103,6 +110,17 @@ export class UnconfiguredObjectStorage implements ObjectStoragePort {
   }): string {
     const safeName = input.filename.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80) || "document";
     return `org/${input.organisationId}/admissions/submissions/${input.submissionId}/documents/${input.documentId}/${safeName}`;
+  }
+
+  buildCommunicationResourceKey(input: {
+    organisationId: string;
+    kind: "announcement" | "event";
+    parentId: string;
+    resourceId: string;
+    filename: string;
+  }): string {
+    const safeName = input.filename.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80) || "resource";
+    return `org/${input.organisationId}/communications/${input.kind}/${input.parentId}/${input.resourceId}/${safeName}`;
   }
 
   async createUploadIntent(input: CreateUploadIntentInput): Promise<UploadIntent> {

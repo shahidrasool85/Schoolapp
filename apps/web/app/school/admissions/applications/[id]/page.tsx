@@ -130,6 +130,25 @@ const STATUSES = [
 function display(value: unknown): string {
   if (value == null || value === "") return "—";
   if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value)) {
+    const items = value.map((item) => display(item)).filter((item) => item !== "—");
+    return items.join("; ") || "—";
+  }
+  if (typeof value === "object") {
+    const rec = value as Record<string, unknown>;
+    if (rec.line1 || rec.town || rec.postcode) {
+      return [rec.line1, rec.line2, rec.town, rec.postcode].filter(Boolean).join(", ") || "—";
+    }
+    if (rec.fullName || rec.filename) {
+      return [rec.fullName ?? rec.filename, rec.email, rec.phone ?? rec.telephone, rec.relationship, rec.purpose]
+        .filter(Boolean)
+        .join(" · ");
+    }
+    const parts = Object.entries(rec)
+      .filter(([, item]) => item != null && item !== "")
+      .map(([key, item]) => `${key}: ${display(item)}`);
+    return parts.join(", ") || "—";
+  }
   return String(value);
 }
 

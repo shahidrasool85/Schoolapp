@@ -163,7 +163,9 @@ export async function assertCanRecordStudentBehaviour(
   if (!canRecordBehaviour(actor) && !canRecordPositiveBehaviour(actor)) {
     notFound();
   }
-  if (canManageBehaviour(actor) || canReadSchoolBehaviour(actor)) {
+  // School-wide read must not expand write scope. Only manage may record
+  // for pupils outside the actor's assigned classes.
+  if (canManageBehaviour(actor)) {
     return;
   }
   const assigned = await assignedStudentIds(client, actor.userId, actor.organisationId!);
@@ -209,13 +211,12 @@ export async function requireStaffUserInOrganisation(
   const result = await client.query(
     `select 1
      from organisation_memberships m
-     join membership_roles mr on mr.membership_id = m.id
-     join roles r on r.id = mr.role_id
+     join users u on u.id = m.user_id
      where m.organisation_id = $1
        and m.user_id = $2
        and m.status = 'active'
        and m.ended_at is null
-       and r.key in ('school.admin', 'school.headteacher', 'school.teacher', 'school.admissions', 'school.staff')`,
+       and u.user_kind = 'staff'`,
     [organisationId, userId],
   );
   if (!result.rows[0]) {

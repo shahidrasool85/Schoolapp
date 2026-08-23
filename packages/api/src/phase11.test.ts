@@ -419,7 +419,7 @@ describe("Phase 11 behaviour, pastoral and safeguarding", () => {
     );
     await pools.owner.query(
       `insert into role_permissions (role_id, permission_key)
-       values ($1, 'students.profiles.read'), ($1, 'behaviour.read'), ($1, 'pastoral.read')`,
+       values ($1, 'students.profiles.read'), ($1, 'behaviour.read'), ($1, 'behaviour.record'), ($1, 'pastoral.read')`,
       [role.rows[0]!.id],
     );
     const membership = await pools.owner.query<{ id: string }>(
@@ -439,6 +439,27 @@ describe("Phase 11 behaviour, pastoral and safeguarding", () => {
     const opsSg = await app.request(`/api/v1/safeguarding/concerns/${sg.concern.id}`, { headers: opsH });
     expect(opsSg.status).toBe(404);
     expect(await opsSg.text()).not.toContain("Neutral factual note");
+
+    const opsList = await app.request("/api/v1/behaviour/incidents", { headers: opsH });
+    expect(opsList.status).toBe(200);
+    const opsWrite = await app.request("/api/v1/behaviour/incidents", {
+      method: "POST",
+      headers: opsH,
+      body: JSON.stringify({
+        studentProfileId: assigned.student.id,
+        occurredAt: "2026-09-15T11:00:00Z",
+        categoryId: incidentCategory,
+        description: "School-wide read must not expand write scope.",
+      }),
+    });
+    expect(opsWrite.status).toBe(404);
+
+    const assignOps = await app.request(`/api/v1/pastoral/concerns/${pastoralBody.concern.id}`, {
+      method: "PATCH",
+      headers: gwH,
+      body: JSON.stringify({ assignedStaffUserId: opsId }),
+    });
+    expect(assignOps.status).toBe(200);
 
     const parentSg = await app.request(`/api/v1/safeguarding/concerns/${sg.concern.id}`, { headers: parentH });
     expect(parentSg.status).toBe(404);

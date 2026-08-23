@@ -51,10 +51,15 @@ describe("RLS catalog", () => {
            'academic_report_sections', 'academic_report_status_history', 'academic_report_publications',
            'admissions_campaigns', 'admissions_forms', 'admissions_form_sections',
            'admissions_form_fields', 'admissions_form_submissions', 'admissions_form_documents',
-           'student_additional_needs'
+           'student_additional_needs',
+           'school_event_types', 'announcements', 'announcement_status_history',
+           'announcement_targets', 'announcement_recipients', 'announcement_recipient_subjects',
+           'announcement_resources', 'school_events', 'school_event_status_history',
+           'school_event_targets', 'school_event_audience', 'school_event_audience_subjects',
+           'school_event_resources'
          )`,
     );
-    expect(result.rows.length).toBe(71);
+    expect(result.rows.length).toBe(84);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
     }
@@ -896,5 +901,69 @@ describe("RLS catalog", () => {
       };
     });
     expect(visible).toEqual({ forms: ["A form"], submissions: 1 });
+  });
+
+  it("rejects cross-organisation announcement and calendar targets", async () => {
+    const id = randomUUID().slice(0, 8);
+    const orgA = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-comms-a-${id}`, "Comms A"],
+    );
+    const orgB = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-comms-b-${id}`, "Comms B"],
+    );
+    const actor = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Admin', 'staff', 'active') returning id`,
+      [`rls-comms-${id}@example.com`],
+    );
+    const yearB = await pools.owner.query<{ id: string }>(
+      `insert into academic_years (organisation_id, name, starts_on, ends_on, is_current)
+       values ($1, '2026/27', '2026-09-01', '2027-07-31', true) returning id`,
+      [orgB.rows[0]!.id],
+    );
+    const classB = await pools.owner.query<{ id: string }>(
+      `insert into classes (organisation_id, academic_year_id, name, class_type)
+       values ($1, $2, '3A', 'form') returning id`,
+      [orgB.rows[0]!.id, yearB.rows[0]!.id],
+    );
+    const announcement = await pools.owner.query<{ id: string }>(
+      `insert into announcements (organisation_id, title, body, created_by)
+       values ($1, 'Notice', 'Body', $2) returning id`,
+      [orgA.rows[0]!.id, actor.rows[0]!.id],
+    );
+    await expect(
+      pools.owner.query(
+        `insert into announcement_targets (
+           organisation_id, announcement_id, target_type, class_id
+         ) values ($1, $2, 'class', $3)`,
+        [orgA.rows[0]!.id, announcement.rows[0]!.id, classB.rows[0]!.id],
+      ),
+    ).rejects.toThrow(/organisation_mismatch/);
+
+    const eventType = await pools.owner.query<{ id: string }>(
+      "select id from school_event_types where organisation_id = $1 and key = 'meeting'",
+      [orgA.rows[0]!.id],
+    );
+    const event = await pools.owner.query<{ id: string }>(
+      `insert into school_events (
+         organisation_id, title, event_type_id, starts_at, ends_at, created_by
+       ) values ($1, 'Meet', $2, now(), now() + interval '1 hour', $3) returning id`,
+      [orgA.rows[0]!.id, eventType.rows[0]!.id, actor.rows[0]!.id],
+    );
+    await expect(
+      pools.owner.query(
+        `insert into school_event_targets (
+           organisation_id, event_id, target_type, class_id
+         ) values ($1, $2, 'class', $3)`,
+        [orgA.rows[0]!.id, event.rows[0]!.id, classB.rows[0]!.id],
+      ),
+    ).rejects.toThrow(/organisation_mismatch/);
+    await expect(
+      pools.owner.query("update school_events set ends_at = starts_at - interval '1 hour' where id = $1", [
+        event.rows[0]!.id,
+      ]),
+    ).rejects.toThrow(/event_dates_invalid/);
   });
 });

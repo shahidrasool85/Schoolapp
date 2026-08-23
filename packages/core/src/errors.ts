@@ -61,7 +61,8 @@ export function pgErrorToAppError(error: unknown): AppError | null {
     message.includes("learning_actor_required") ||
     message.includes("learning_mark_actor_required") ||
     message.includes("academic_actor_required") ||
-    message.includes("academic_result_actor_required")
+    message.includes("academic_result_actor_required") ||
+    message.includes("communication_actor_required")
   ) {
     return new AppError(400, "validation_failed", "The request violates a data constraint");
   }
@@ -70,6 +71,12 @@ export function pgErrorToAppError(error: unknown): AppError | null {
   }
   if (message.includes("learning_score_out_of_range") || message.includes("academic_score_out_of_range")) {
     return new AppError(400, "validation_failed", "Score must be between 0 and the maximum marks");
+  }
+  if (message.includes("acknowledgement_not_required")) {
+    return new AppError(400, "validation_failed", "Acknowledgement is not required for this notice");
+  }
+  if (message.includes("event_dates_invalid")) {
+    return new AppError(400, "validation_failed", "Event end must be on or after the start");
   }
   if (message.includes("academic_report_locked")) {
     return new AppError(409, "conflict", "Published report content cannot be edited");

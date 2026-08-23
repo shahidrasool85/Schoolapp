@@ -1,5 +1,7 @@
 import { PERMISSIONS } from "@schoolapp/domain";
 import {
+  activateDueAnnouncements,
+  activateDueEvents,
   AppError,
   assertPermission,
   comingLater,
@@ -24,6 +26,17 @@ import {
   listPupilSubjectProgress,
   loadPupilPublishedReport,
 } from "../academic-pupil";
+import {
+  acknowledgePortalAnnouncement,
+  listPortalAnnouncements,
+  listPortalEvents,
+  loadPortalAnnouncement,
+  loadPortalAnnouncementResources,
+  loadPortalAnnouncementSubjects,
+  loadPortalEvent,
+  loadPortalEventSubjects,
+  markPortalAnnouncementRead,
+} from "../communications-portal";
 
 export function registerParentRoutes(app: SchoolappApi) {
   app.get("/parent/dashboard", requireUser, async (c) =>
@@ -196,6 +209,125 @@ export function registerParentRoutes(app: SchoolappApi) {
       await requireLinkedChild(client, userId, orgId, studentId);
       const report = await loadPupilPublishedReport(client, orgId, studentId, reportId);
       return c.json({ report });
+    }),
+  );
+
+  app.get("/parent/announcements", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ANNOUNCEMENTS_READ_OWN_CHILDREN);
+      await activateDueAnnouncements(client, orgId, userId);
+      const childIds = [...(await guardianChildIds(client, userId, orgId))];
+      const announcements = await listPortalAnnouncements(client, {
+        orgId,
+        userId,
+        audienceRole: "parent",
+        allowedStudentIds: childIds,
+      });
+      return c.json({ announcements });
+    }),
+  );
+
+  app.get("/parent/announcements/:announcementId", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ANNOUNCEMENTS_READ_OWN_CHILDREN);
+      await activateDueAnnouncements(client, orgId, userId);
+      const announcementId = uuidRouteParam(c, "announcementId");
+      const childIds = [...(await guardianChildIds(client, userId, orgId))];
+      const announcement = await loadPortalAnnouncement(client, {
+        orgId,
+        userId,
+        announcementId,
+        audienceRole: "parent",
+        allowedStudentIds: childIds,
+      });
+      await markPortalAnnouncementRead(client, orgId, userId, announcementId);
+      return c.json({
+        announcement: {
+          ...announcement,
+          resources: await loadPortalAnnouncementResources(client, orgId, announcementId),
+          related: await loadPortalAnnouncementSubjects(client, orgId, announcementId, userId, childIds),
+        },
+      });
+    }),
+  );
+
+  app.post("/parent/announcements/:announcementId/read", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ANNOUNCEMENTS_READ_OWN_CHILDREN);
+      const announcementId = uuidRouteParam(c, "announcementId");
+      const childIds = [...(await guardianChildIds(client, userId, orgId))];
+      await loadPortalAnnouncement(client, {
+        orgId,
+        userId,
+        announcementId,
+        audienceRole: "parent",
+        allowedStudentIds: childIds,
+      });
+      const state = await markPortalAnnouncementRead(client, orgId, userId, announcementId);
+      return c.json({ readAt: state.read_at, acknowledgedAt: state.acknowledged_at });
+    }),
+  );
+
+  app.post("/parent/announcements/:announcementId/acknowledge", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ANNOUNCEMENTS_READ_OWN_CHILDREN);
+      const announcementId = uuidRouteParam(c, "announcementId");
+      const childIds = [...(await guardianChildIds(client, userId, orgId))];
+      await loadPortalAnnouncement(client, {
+        orgId,
+        userId,
+        announcementId,
+        audienceRole: "parent",
+        allowedStudentIds: childIds,
+      });
+      const state = await acknowledgePortalAnnouncement(client, orgId, userId, announcementId);
+      return c.json({ readAt: state.read_at, acknowledgedAt: state.acknowledged_at });
+    }),
+  );
+
+  app.get("/parent/calendar/events", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.CALENDAR_READ_OWN_CHILDREN);
+      await activateDueEvents(client, orgId, userId);
+      const childIds = [...(await guardianChildIds(client, userId, orgId))];
+      const events = await listPortalEvents(client, {
+        orgId,
+        userId,
+        audienceRole: "parent",
+        from: c.req.query("from"),
+        to: c.req.query("to"),
+        allowedStudentIds: childIds,
+      });
+      const withRelated = [];
+      for (const event of events) {
+        withRelated.push({
+          ...event,
+          related: await loadPortalEventSubjects(client, orgId, String(event.id), userId, childIds),
+        });
+      }
+      return c.json({ events: withRelated });
+    }),
+  );
+
+  app.get("/parent/calendar/events/:eventId", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.CALENDAR_READ_OWN_CHILDREN);
+      await activateDueEvents(client, orgId, userId);
+      const eventId = uuidRouteParam(c, "eventId");
+      const childIds = [...(await guardianChildIds(client, userId, orgId))];
+      const event = await loadPortalEvent(client, {
+        orgId,
+        userId,
+        eventId,
+        audienceRole: "parent",
+        allowedStudentIds: childIds,
+      });
+      return c.json({
+        event: {
+          ...event,
+          related: await loadPortalEventSubjects(client, orgId, eventId, userId, childIds),
+        },
+      });
     }),
   );
 }

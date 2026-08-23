@@ -151,6 +151,19 @@ async function wipeDemoData(client: pg.Client): Promise<void> {
     );
 
     const tenantDeletes = [
+      "announcement_recipient_subjects",
+      "announcement_recipients",
+      "announcement_resources",
+      "announcement_targets",
+      "announcement_status_history",
+      "announcements",
+      "school_event_audience_subjects",
+      "school_event_audience",
+      "school_event_resources",
+      "school_event_targets",
+      "school_event_status_history",
+      "school_events",
+      "school_event_types",
       "admissions_form_documents",
       "student_additional_needs",
       "admissions_form_submissions",
@@ -686,6 +699,210 @@ async function seedGuardian(
       input.priority ?? 1,
     ],
   );
+}
+
+async function eventTypeId(client: pg.Client, organisationId: string, key: string): Promise<string> {
+  return lookupId(
+    client,
+    "select id from school_event_types where organisation_id = $1 and key = $2",
+    [organisationId, key],
+  );
+}
+
+async function seedAnnouncement(
+  client: pg.Client,
+  input: {
+    organisationId: string;
+    title: string;
+    body: string;
+    createdBy: string;
+    priority?: string;
+    acknowledgementRequired?: boolean;
+    pinned?: boolean;
+    expiresAtSql?: string | null;
+    targets: Array<{
+      targetType: string;
+      classId?: string;
+      yearGroupId?: string;
+      studentProfileId?: string;
+      staffUserId?: string;
+    }>;
+    resource?: { title: string; kind: string; url: string };
+    recipients: Array<{
+      userId: string;
+      audienceRole: "staff" | "parent" | "student";
+      subjects?: Array<{ studentProfileId: string; classId?: string | null; yearGroupId?: string | null }>;
+    }>;
+  },
+): Promise<string> {
+  const created = await client.query<IdRow>(
+    `insert into announcements (
+       organisation_id, title, body, priority, acknowledgement_required, pinned, created_by, expires_at
+     ) values ($1, $2, $3, $4, $5, $6, $7, ${input.expiresAtSql ?? "null"})
+     returning id`,
+    [
+      input.organisationId,
+      input.title,
+      input.body,
+      input.priority ?? "normal",
+      input.acknowledgementRequired ?? false,
+      input.pinned ?? false,
+      input.createdBy,
+    ],
+  );
+  const announcementId = created.rows[0]!.id;
+  for (const target of input.targets) {
+    await client.query(
+      `insert into announcement_targets (
+         organisation_id, announcement_id, target_type, class_id, year_group_id, student_profile_id, staff_user_id, created_by
+       ) values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        input.organisationId,
+        announcementId,
+        target.targetType,
+        target.classId ?? null,
+        target.yearGroupId ?? null,
+        target.studentProfileId ?? null,
+        target.staffUserId ?? null,
+        input.createdBy,
+      ],
+    );
+  }
+  if (input.resource) {
+    await client.query(
+      `insert into announcement_resources (organisation_id, announcement_id, title, resource_kind, url, created_by)
+       values ($1, $2, $3, $4, $5, $6)`,
+      [
+        input.organisationId,
+        announcementId,
+        input.resource.title,
+        input.resource.kind,
+        input.resource.url,
+        input.createdBy,
+      ],
+    );
+  }
+  await client.query("update announcements set status = 'published', published_by = $2 where id = $1", [
+    announcementId,
+    input.createdBy,
+  ]);
+  for (const recipient of input.recipients) {
+    await client.query(
+      `insert into announcement_recipients (organisation_id, announcement_id, user_id, audience_role)
+       values ($1, $2, $3, $4)
+       on conflict (announcement_id, user_id) do nothing`,
+      [input.organisationId, announcementId, recipient.userId, recipient.audienceRole],
+    );
+    for (const subject of recipient.subjects ?? []) {
+      await client.query(
+        `insert into announcement_recipient_subjects (
+           organisation_id, announcement_id, user_id, student_profile_id, class_id, year_group_id
+         ) values ($1, $2, $3, $4, $5, $6)
+         on conflict (announcement_id, user_id, student_profile_id) do nothing`,
+        [
+          input.organisationId,
+          announcementId,
+          recipient.userId,
+          subject.studentProfileId,
+          subject.classId ?? null,
+          subject.yearGroupId ?? null,
+        ],
+      );
+    }
+  }
+  return announcementId;
+}
+
+async function seedSchoolEvent(
+  client: pg.Client,
+  input: {
+    organisationId: string;
+    title: string;
+    description?: string | null;
+    typeKey: string;
+    startsAt: string;
+    endsAt: string;
+    allDay?: boolean;
+    location?: string | null;
+    createdBy: string;
+    targets: Array<{
+      targetType: string;
+      classId?: string;
+      yearGroupId?: string;
+      studentProfileId?: string;
+      staffUserId?: string;
+    }>;
+    audience: Array<{
+      userId: string;
+      audienceRole: "staff" | "parent" | "student";
+      subjects?: Array<{ studentProfileId: string; classId?: string | null; yearGroupId?: string | null }>;
+    }>;
+  },
+): Promise<string> {
+  const created = await client.query<IdRow>(
+    `insert into school_events (
+       organisation_id, title, description, event_type_id, starts_at, ends_at, all_day, location, created_by
+     ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     returning id`,
+    [
+      input.organisationId,
+      input.title,
+      input.description ?? null,
+      await eventTypeId(client, input.organisationId, input.typeKey),
+      input.startsAt,
+      input.endsAt,
+      input.allDay ?? false,
+      input.location ?? null,
+      input.createdBy,
+    ],
+  );
+  const eventId = created.rows[0]!.id;
+  for (const target of input.targets) {
+    await client.query(
+      `insert into school_event_targets (
+         organisation_id, event_id, target_type, class_id, year_group_id, student_profile_id, staff_user_id, created_by
+       ) values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        input.organisationId,
+        eventId,
+        target.targetType,
+        target.classId ?? null,
+        target.yearGroupId ?? null,
+        target.studentProfileId ?? null,
+        target.staffUserId ?? null,
+        input.createdBy,
+      ],
+    );
+  }
+  await client.query("update school_events set status = 'published', published_by = $2 where id = $1", [
+    eventId,
+    input.createdBy,
+  ]);
+  for (const member of input.audience) {
+    await client.query(
+      `insert into school_event_audience (organisation_id, event_id, user_id, audience_role)
+       values ($1, $2, $3, $4)
+       on conflict (event_id, user_id) do nothing`,
+      [input.organisationId, eventId, member.userId, member.audienceRole],
+    );
+    for (const subject of member.subjects ?? []) {
+      await client.query(
+        `insert into school_event_audience_subjects (
+           organisation_id, event_id, user_id, student_profile_id, class_id, year_group_id
+         ) values ($1, $2, $3, $4, $5, $6)
+         on conflict (event_id, user_id, student_profile_id) do nothing`,
+        [
+          input.organisationId,
+          eventId,
+          member.userId,
+          subject.studentProfileId,
+          subject.classId ?? null,
+          subject.yearGroupId ?? null,
+        ],
+      );
+    }
+  }
+  return eventId;
 }
 
 async function weekdaysFrom(start: string, count: number): Promise<string[]> {
@@ -2124,6 +2341,189 @@ async function seedGreenwood(
     ],
   );
 
+  const class3A = classIds.get("3A")!;
+  const ameliaSubject = { studentProfileId: amelia.profileId, classId: class3A, yearGroupId: year3 };
+  const yusufSubject = {
+    studentProfileId: yusuf.profileId,
+    classId: classIds.get("5A")!,
+    yearGroupId: yearGroups.get("5")!,
+  };
+  const jackSubject = { studentProfileId: jack.profileId, classId: class3A, yearGroupId: year3 };
+
+  await seedAnnouncement(client, {
+    organisationId: orgId,
+    title: "Welcome back to Greenwood",
+    body: "Term starts on 1 September. Please read the parent and student notices in the portal.",
+    createdBy: adminId,
+    pinned: true,
+    targets: [{ targetType: "whole_school" }],
+    resource: {
+      title: "Term dates",
+      kind: "url",
+      url: "https://example.com/greenwood/term-dates",
+    },
+    recipients: [
+      { userId: adminId, audienceRole: "staff" },
+      { userId: headId, audienceRole: "staff" },
+      { userId: teacherId, audienceRole: "staff" },
+      { userId: parentId, audienceRole: "parent", subjects: [ameliaSubject, yusufSubject] },
+      { userId: secondParentId, audienceRole: "parent" },
+      { userId: amelia.userId, audienceRole: "student", subjects: [ameliaSubject] },
+      { userId: yusuf.userId, audienceRole: "student", subjects: [yusufSubject] },
+    ],
+  });
+  await seedAnnouncement(client, {
+    organisationId: orgId,
+    title: "Parents' evening bookings",
+    body: "Book your autumn parents' evening slot. This notice is for families only.",
+    createdBy: adminId,
+    priority: "important",
+    targets: [{ targetType: "parents" }],
+    recipients: [
+      { userId: parentId, audienceRole: "parent", subjects: [ameliaSubject, yusufSubject] },
+      { userId: secondParentId, audienceRole: "parent" },
+    ],
+  });
+  await seedAnnouncement(client, {
+    organisationId: orgId,
+    title: "Year 3 swimming kit",
+    body: "3A pupils need a named swimming kit next Wednesday.",
+    createdBy: teacherId,
+    targets: [{ targetType: "class", classId: class3A }],
+    recipients: [
+      { userId: teacherId, audienceRole: "staff" },
+      { userId: parentId, audienceRole: "parent", subjects: [ameliaSubject] },
+      { userId: amelia.userId, audienceRole: "student", subjects: [ameliaSubject] },
+      { userId: jack.userId, audienceRole: "student", subjects: [jackSubject] },
+    ],
+  });
+  await seedAnnouncement(client, {
+    organisationId: orgId,
+    title: "Staff briefing Friday",
+    body: "Internal briefing in the staff room at 08:00. Do not share with families.",
+    createdBy: adminId,
+    priority: "urgent",
+    targets: [{ targetType: "staff" }],
+    recipients: [
+      { userId: adminId, audienceRole: "staff" },
+      { userId: headId, audienceRole: "staff" },
+      { userId: teacherId, audienceRole: "staff" },
+    ],
+  });
+  await seedAnnouncement(client, {
+    organisationId: orgId,
+    title: "Acceptable use policy reminder",
+    body: "Please acknowledge that you have read this term's acceptable use reminder.",
+    createdBy: adminId,
+    acknowledgementRequired: true,
+    targets: [{ targetType: "whole_school" }],
+    recipients: [
+      { userId: adminId, audienceRole: "staff" },
+      { userId: headId, audienceRole: "staff" },
+      { userId: teacherId, audienceRole: "staff" },
+      { userId: parentId, audienceRole: "parent", subjects: [ameliaSubject, yusufSubject] },
+      { userId: secondParentId, audienceRole: "parent" },
+      { userId: amelia.userId, audienceRole: "student", subjects: [ameliaSubject] },
+    ],
+  });
+
+  await seedSchoolEvent(client, {
+    organisationId: orgId,
+    title: "October half term",
+    description: "School closed for October half term.",
+    typeKey: "school_holiday",
+    startsAt: "2026-10-26T00:00:00Z",
+    endsAt: "2026-10-30T23:59:00Z",
+    allDay: true,
+    createdBy: adminId,
+    targets: [{ targetType: "whole_school" }],
+    audience: [
+      { userId: adminId, audienceRole: "staff" },
+      { userId: headId, audienceRole: "staff" },
+      { userId: teacherId, audienceRole: "staff" },
+      { userId: parentId, audienceRole: "parent", subjects: [ameliaSubject, yusufSubject] },
+      { userId: amelia.userId, audienceRole: "student", subjects: [ameliaSubject] },
+    ],
+  });
+  await seedSchoolEvent(client, {
+    organisationId: orgId,
+    title: "INSET day",
+    typeKey: "inset_day",
+    startsAt: "2026-09-01T00:00:00Z",
+    endsAt: "2026-09-01T23:59:00Z",
+    allDay: true,
+    createdBy: adminId,
+    targets: [{ targetType: "whole_school" }],
+    audience: [
+      { userId: adminId, audienceRole: "staff" },
+      { userId: teacherId, audienceRole: "staff" },
+      { userId: parentId, audienceRole: "parent", subjects: [ameliaSubject, yusufSubject] },
+      { userId: amelia.userId, audienceRole: "student", subjects: [ameliaSubject] },
+    ],
+  });
+  await seedSchoolEvent(client, {
+    organisationId: orgId,
+    title: "Autumn parents' evening",
+    description: "Year 3 families meet form tutors.",
+    typeKey: "parents_evening",
+    startsAt: "2026-10-14T16:00:00Z",
+    endsAt: "2026-10-14T19:00:00Z",
+    location: "Main hall",
+    createdBy: adminId,
+    targets: [{ targetType: "year_group", yearGroupId: year3 }],
+    audience: [
+      { userId: teacherId, audienceRole: "staff" },
+      { userId: parentId, audienceRole: "parent", subjects: [ameliaSubject] },
+      { userId: amelia.userId, audienceRole: "student", subjects: [ameliaSubject] },
+    ],
+  });
+  await seedSchoolEvent(client, {
+    organisationId: orgId,
+    title: "Sports day",
+    typeKey: "sports_day",
+    startsAt: "2026-06-19T09:00:00Z",
+    endsAt: "2026-06-19T15:00:00Z",
+    location: "Playing field",
+    createdBy: adminId,
+    targets: [{ targetType: "whole_school" }],
+    audience: [
+      { userId: adminId, audienceRole: "staff" },
+      { userId: teacherId, audienceRole: "staff" },
+      { userId: parentId, audienceRole: "parent", subjects: [ameliaSubject, yusufSubject] },
+      { userId: amelia.userId, audienceRole: "student", subjects: [ameliaSubject] },
+    ],
+  });
+  await seedSchoolEvent(client, {
+    organisationId: orgId,
+    title: "Year 3 science museum trip",
+    typeKey: "trip",
+    startsAt: "2026-11-12T09:00:00Z",
+    endsAt: "2026-11-12T15:30:00Z",
+    location: "Science Museum",
+    createdBy: teacherId,
+    targets: [{ targetType: "class", classId: class3A }],
+    audience: [
+      { userId: teacherId, audienceRole: "staff" },
+      { userId: parentId, audienceRole: "parent", subjects: [ameliaSubject] },
+      { userId: amelia.userId, audienceRole: "student", subjects: [ameliaSubject] },
+    ],
+  });
+  await seedSchoolEvent(client, {
+    organisationId: orgId,
+    title: "Staff meeting",
+    typeKey: "meeting",
+    startsAt: "2026-09-04T15:30:00Z",
+    endsAt: "2026-09-04T16:30:00Z",
+    location: "Staff room",
+    createdBy: adminId,
+    targets: [{ targetType: "staff" }],
+    audience: [
+      { userId: adminId, audienceRole: "staff" },
+      { userId: headId, audienceRole: "staff" },
+      { userId: teacherId, audienceRole: "staff" },
+    ],
+  });
+
   await notify(client, {
     organisationId: orgId,
     recipientUserId: parentId,
@@ -2417,6 +2817,63 @@ async function seedOakAcademy(
     comment: "Oak-only result.",
     releasedToStudent: true,
     releasedToParent: true,
+  });
+
+  await seedAnnouncement(client, {
+    organisationId: orgId,
+    title: "Oak Academy term start",
+    body: "Welcome back to Oak Academy. Greenwood families must never see this notice.",
+    createdBy: adminId,
+    targets: [{ targetType: "whole_school" }],
+    recipients: [
+      { userId: adminId, audienceRole: "staff" },
+      { userId: teacherId, audienceRole: "staff" },
+      {
+        userId: parentId,
+        audienceRole: "parent",
+        subjects: [{ studentProfileId: niamh.profileId, classId: class3.rows[0]!.id, yearGroupId: yearGroups.get("3")! }],
+      },
+      {
+        userId: niamh.userId,
+        audienceRole: "student",
+        subjects: [{ studentProfileId: niamh.profileId, classId: class3.rows[0]!.id, yearGroupId: yearGroups.get("3")! }],
+      },
+    ],
+  });
+  await seedAnnouncement(client, {
+    organisationId: orgId,
+    title: "Oak staff-only briefing",
+    body: "Internal Oak notice. Parents and Greenwood must never see this.",
+    createdBy: adminId,
+    targets: [{ targetType: "staff" }],
+    recipients: [
+      { userId: adminId, audienceRole: "staff" },
+      { userId: teacherId, audienceRole: "staff" },
+    ],
+  });
+  await seedSchoolEvent(client, {
+    organisationId: orgId,
+    title: "Oak INSET day",
+    typeKey: "inset_day",
+    startsAt: "2026-09-02T00:00:00Z",
+    endsAt: "2026-09-02T23:59:00Z",
+    allDay: true,
+    createdBy: adminId,
+    targets: [{ targetType: "whole_school" }],
+    audience: [
+      { userId: adminId, audienceRole: "staff" },
+      { userId: teacherId, audienceRole: "staff" },
+      {
+        userId: parentId,
+        audienceRole: "parent",
+        subjects: [{ studentProfileId: niamh.profileId, classId: class3.rows[0]!.id, yearGroupId: yearGroups.get("3")! }],
+      },
+      {
+        userId: niamh.userId,
+        audienceRole: "student",
+        subjects: [{ studentProfileId: niamh.profileId, classId: class3.rows[0]!.id, yearGroupId: yearGroups.get("3")! }],
+      },
+    ],
   });
 
   await seedAssignment(client, {

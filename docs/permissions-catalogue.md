@@ -97,6 +97,22 @@ Platform Super Admin does **not** silently receive pupil read. Tenant data requi
 | `gamification.leaderboards.configure` | — | — | F | — | — | — | — | — |
 | `audit.read` | F | F | F | — | — | — | — | — |
 | `notifications.inbox.read` | — | F | F | F | F | F | F | F |
+| `announcements.read` | — | F | F | — | — | — | — | — |
+| `announcements.read_assigned` | — | — | — | F | F | F | — | — |
+| `announcements.manage` | — | F | F | — | — | — | — | — |
+| `announcements.manage_assigned` | — | — | — | F | — | — | — | — |
+| `announcements.publish` | — | F | F | — | — | — | — | — |
+| `announcements.broadcast` | — | F | F | — | — | — | — | — |
+| `announcements.acknowledgements.read` | — | F | F | — | — | — | — | — |
+| `announcements.read_own_children` | — | — | — | — | — | — | F | — |
+| `announcements.read_self` | — | — | — | — | — | — | — | F |
+| `calendar.read` | — | F | F | — | — | — | — | — |
+| `calendar.read_assigned` | — | — | — | F | F | F | — | — |
+| `calendar.manage` | — | F | F | — | — | — | — | — |
+| `calendar.manage_assigned` | — | — | — | F | — | — | — | — |
+| `calendar.manage_school` | — | F | F | — | — | — | — | — |
+| `calendar.read_own_children` | — | — | — | — | — | — | F | — |
+| `calendar.read_self` | — | — | — | — | — | — | — | F |
 | `external_identifiers.upn.read` | — | F | F | — | R | — | — | — |
 
 `students.documents.read_self` is seeded on the Student role for a later pupil-visible documents API. No current route checks that permission, so it does not grant access by itself.
@@ -124,5 +140,7 @@ Formal assessment keys follow the same assigned vs school-wide split. `assessmen
 Parent learning APIs require `portal_access = true` on the guardianship. Teacher-private notes and unreleased marks are omitted from parent and student payloads. `lms.submissions.submit` is student-only; the parent UI has no submit path.
 
 Parent/student document visibility is explicit. Staff-only metadata is never listed on parent/student endpoints.
+
+Teacher announcement/calendar access is **assigned-only**. `announcements.broadcast` and `calendar.manage_school` are School Admin / Headteacher. Ordinary teachers cannot target whole-school, all-staff, all-parent, all-student, or year-group audiences. Parent communication APIs require `portal_access = true`. Student communication APIs re-check current primary enrolment and Student Portal policy. Staff-only notices never appear on parent/student routes.
 
 Unused module keys are seeded so later phases do not hardcode role names; those modules are not implemented in Phase 1.

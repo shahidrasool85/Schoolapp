@@ -17,6 +17,8 @@ import { loadPublicTenant, membershipForHost, switchSchoolLocation } from "../..
 const LINKS = [
   { href: "/parent", label: "Dashboard" },
   { href: "/parent/children", label: "My Children" },
+  { href: "/parent/notices", label: "Notices" },
+  { href: "/parent/calendar", label: "Calendar" },
   { href: "/parent/notifications", label: "Notifications" },
   { href: "/parent/account", label: "Account" },
 ];

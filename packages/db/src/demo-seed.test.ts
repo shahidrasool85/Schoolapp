@@ -244,4 +244,47 @@ describe("demo seed", () => {
       expect(leaked.rows[0]?.n).toBe("0");
     });
   });
+
+  it("seeds isolated Greenwood and Oak communications", async () => {
+    const orgs = await pools.owner.query<{ id: string; slug: string }>(
+      "select id, slug::text as slug from organisations where slug = any($1::citext[])",
+      [["greenwood", "oakacademy"]],
+    );
+    const greenwoodId = orgs.rows.find((row) => row.slug === "greenwood")!.id;
+    const oakId = orgs.rows.find((row) => row.slug === "oakacademy")!.id;
+    const gw = await pools.owner.query<{ n: string; titles: string }>(
+      `select count(*)::text as n, string_agg(title, ',') as titles
+       from announcements where organisation_id = $1`,
+      [greenwoodId],
+    );
+    const oak = await pools.owner.query<{ n: string; titles: string }>(
+      `select count(*)::text as n, string_agg(title, ',') as titles
+       from announcements where organisation_id = $1`,
+      [oakId],
+    );
+    expect(gw.rows[0]?.titles).toContain("Welcome back to Greenwood");
+    expect(gw.rows[0]?.titles).toContain("Staff briefing Friday");
+    expect(gw.rows[0]?.titles).toContain("Acceptable use policy reminder");
+    expect(oak.rows[0]?.titles).toContain("Oak Academy term start");
+    expect(oak.rows[0]?.titles).not.toContain("Welcome back to Greenwood");
+
+    const events = await pools.owner.query<{ titles: string }>(
+      `select string_agg(title, ',') as titles from school_events where organisation_id = $1`,
+      [greenwoodId],
+    );
+    expect(events.rows[0]?.titles).toContain("Year 3 science museum trip");
+    expect(events.rows[0]?.titles).toContain("Staff meeting");
+
+    const admin = await pools.owner.query<{ id: string }>(
+      "select id from users where email = $1",
+      [DEMO_ACCOUNTS.greenwoodAdmin.email],
+    );
+    await withTenantContext(pools.app, admin.rows[0]!.id, greenwoodId, async (client) => {
+      const leaked = await client.query<{ n: string }>(
+        "select count(*)::text as n from announcements where organisation_id = $1",
+        [oakId],
+      );
+      expect(leaked.rows[0]?.n).toBe("0");
+    });
+  });
 });

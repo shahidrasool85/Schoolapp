@@ -40,6 +40,8 @@ export function isAnnouncementPriority(value: string): value is AnnouncementPrio
   return (ANNOUNCEMENT_PRIORITIES as readonly string[]).includes(value);
 }
 
+export type { CommunicationTargetType };
+
 export function isCommunicationTargetType(value: string): value is CommunicationTargetType {
   return (COMMUNICATION_TARGET_TYPES as readonly string[]).includes(value);
 }

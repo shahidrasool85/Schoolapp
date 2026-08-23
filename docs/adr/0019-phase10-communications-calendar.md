@@ -33,7 +33,7 @@ Reuse `create_inbox_notification` with idempotency keys `announcement:published:
 
 ### Visibility
 
-Parent APIs require active guardianship and `portal_access = true`. Student APIs re-check current primary enrolment and effective Student Portal policy on every request. Staff-only targets never appear on parent/student routes. Storage keys are omitted from API payloads.
+Parent APIs require active guardianship and `portal_access = true` on every request. Publish-time recipient snapshots preserve class-move history, but a revoked or ended guardianship cannot list, open, or acknowledge items that no longer relate to an authorised child. Student APIs re-check current primary enrolment and effective Student Portal policy on every request. Staff-only targets never appear on parent/student routes. Storage keys are omitted from API payloads.
 
 ## Alternatives considered
 

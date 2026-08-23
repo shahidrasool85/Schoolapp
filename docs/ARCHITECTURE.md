@@ -490,7 +490,7 @@ See [ADR 0017](./adr/0017-phase8-assessment-results.md). Distinct from `learning
 - Announcements: `announcements`, `announcement_status_history`, `announcement_targets`, `announcement_recipients`, `announcement_recipient_subjects`, `announcement_resources`
 - Calendar: `school_event_types`, `school_events`, `school_event_status_history`, `school_event_targets`, `school_event_audience`, `school_event_audience_subjects`, `school_event_resources`
 
-See [ADR 0019](./adr/0019-phase10-communications-calendar.md). Recipients are a publish-time snapshot. Scheduled publication activates on authorised read.
+See [ADR 0019](./adr/0019-phase10-communications-calendar.md). Recipients are a publish-time snapshot. Scheduled publication activates on authorised read without rewriting `published_by` to the first reader. Assigned teachers cannot read other authors' unpublished school-wide drafts.
 
 ### 6.3 Later entities (do not implement now; reserved names)
 

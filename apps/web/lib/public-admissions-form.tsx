@@ -413,6 +413,7 @@ export function PublicAdmissionsForm({
         enquiryId: body.submission.enquiryId,
         enquiryReference: body.submission.enquiryReference,
       });
+      if (mode === "staff") return;
       setDone({
         title: payload.form.successTitle ?? "Thank you",
         text: payload.form.successText ?? "We have received your submission.",

@@ -392,10 +392,16 @@ export default function ApplicationDetailPage() {
         </>
       ) : null}
 
-      {snapshot.notes || app.internalNotes ? (
+      {snapshot.notes ? (
         <>
-          <h2>Notes</h2>
-          <p>{snapshot.notes ?? app.internalNotes}</p>
+          <h2>Applicant notes</h2>
+          <p>{snapshot.notes}</p>
+        </>
+      ) : null}
+      {app.internalNotes ? (
+        <>
+          <h2>Internal notes</h2>
+          <p>{app.internalNotes}</p>
         </>
       ) : null}
 

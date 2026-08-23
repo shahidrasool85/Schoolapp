@@ -22,8 +22,11 @@ export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [error, setError] = useState("");
   const [tenant, setTenant] = useState<PublicTenant | { kind: "unknown" } | null>(null);
+  const [schoolHost, setSchoolHost] = useState(false);
 
   useEffect(() => {
+    const host = window.location.hostname;
+    setSchoolHost(host !== "localhost" && host !== "127.0.0.1");
     loadPublicTenant()
       .then((value) => {
         setTenant(value);
@@ -37,6 +40,10 @@ export default function LoginPage() {
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     setError("");
+    if (schoolHost && tenant?.kind !== "school") {
+      setError("School sign-in is still loading. Please try again.");
+      return;
+    }
     try {
       const body = await api<{
         accessToken: string;
@@ -98,6 +105,15 @@ export default function LoginPage() {
   }
 
   const schoolName = tenant?.kind === "school" ? tenant.organisation.name : null;
+
+  if (schoolHost && !tenant) {
+    return (
+      <main style={{ fontFamily: "system-ui", maxWidth: 480, margin: "4rem auto", padding: 16 }}>
+        <h1>Sign in</h1>
+        <p className="muted">Loading school sign-in…</p>
+      </main>
+    );
+  }
 
   if (tenant?.kind === "unknown") {
     return (

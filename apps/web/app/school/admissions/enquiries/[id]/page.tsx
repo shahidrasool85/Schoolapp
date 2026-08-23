@@ -22,6 +22,31 @@ type Enquiry = {
   convertedApplicationId: string | null;
 };
 
+function formatAnswer(value: unknown): string {
+  if (value == null || value === "") return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value)) {
+    const items = value.map((item) => formatAnswer(item)).filter((item) => item !== "—");
+    return items.join("; ") || "—";
+  }
+  if (typeof value === "object") {
+    const rec = value as Record<string, unknown>;
+    if (rec.line1 || rec.town || rec.postcode) {
+      return [rec.line1, rec.line2, rec.town, rec.postcode].filter(Boolean).join(", ") || "—";
+    }
+    if (rec.fullName) {
+      return [rec.fullName, rec.email, rec.phone ?? rec.telephone, rec.relationship]
+        .filter(Boolean)
+        .join(" · ");
+    }
+    const parts = Object.entries(rec)
+      .filter(([, item]) => item != null && item !== "")
+      .map(([key, item]) => `${key}: ${formatAnswer(item)}`);
+    return parts.join(", ") || "—";
+  }
+  return String(value);
+}
+
 export default function EnquiryDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -117,7 +142,7 @@ export default function EnquiryDetailPage() {
             {Object.entries(submission.answers).map(([key, value]) => (
               <div key={key}>
                 <dt>{key.replaceAll("_", " ").replaceAll(".", " / ")}</dt>
-                <dd>{typeof value === "boolean" ? (value ? "Yes" : "No") : value == null || value === "" ? "—" : String(value)}</dd>
+                <dd>{formatAnswer(value)}</dd>
               </div>
             ))}
           </dl>

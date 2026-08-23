@@ -200,6 +200,7 @@ export function mapGuardianship(row: Record<string, unknown>) {
     isEmergencyContact: row.is_emergency_contact,
     livesWithStudent: row.lives_with_student,
     portalAccess: row.portal_access,
+    membershipStatus: row.membership_status ?? null,
     priority: row.priority,
     startedOn: row.started_on,
     endedOn: row.ended_on,

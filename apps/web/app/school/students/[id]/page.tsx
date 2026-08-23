@@ -37,6 +37,7 @@ type Detail = {
     relationship: string;
     hasParentalResponsibility: boolean;
     portalAccess: boolean;
+    membershipStatus: string | null;
     endedOn: string | null;
   }>;
   attendanceSummary: {
@@ -547,7 +548,7 @@ export default function StudentDetailPage() {
       <h2>Parents / guardians</h2>
       <table>
         <thead>
-          <tr><th>Name</th><th>Email</th><th>Relationship</th><th>PR</th><th>Parent portal</th><th>Status</th></tr>
+          <tr><th>Name</th><th>Email</th><th>Relationship</th><th>PR</th><th>Parent portal</th><th>Account</th><th>Status</th></tr>
         </thead>
         <tbody>
           {data.guardians.map((row) => (
@@ -566,6 +567,13 @@ export default function StudentDetailPage() {
                     {row.portalAccess ? "Enabled" : "Off"}
                   </button>
                 )}
+              </td>
+              <td>
+                {row.membershipStatus === "invited"
+                  ? "Invite pending"
+                  : row.membershipStatus === "active"
+                    ? "Account active"
+                    : "—"}
               </td>
               <td>{row.endedOn ?? "current"}</td>
             </tr>

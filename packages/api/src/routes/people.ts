@@ -212,9 +212,13 @@ export function registerPeopleRoutes(app: SchoolappApi) {
             `select g.id, g.student_profile_id, g.guardian_user_id, u.full_name, u.email,
                     g.relationship, g.has_parental_responsibility, g.is_emergency_contact,
                     g.lives_with_student, g.portal_access, g.priority,
-                    g.started_on::text, g.ended_on::text
+                    g.started_on::text, g.ended_on::text, m.status as membership_status
              from guardianships g
              join users u on u.id = g.guardian_user_id
+             left join organisation_memberships m
+               on m.user_id = u.id
+              and m.organisation_id = g.organisation_id
+              and m.ended_at is null
              where g.student_profile_id = $1 and g.organisation_id = $2
              order by g.priority, u.full_name`,
             [id, orgId],
@@ -704,10 +708,15 @@ export function registerPeopleRoutes(app: SchoolappApi) {
         `select g.id, g.student_profile_id, sp.legal_name as student_legal_name,
                 g.guardian_user_id, u.full_name, u.email, g.relationship,
                 g.has_parental_responsibility, g.is_emergency_contact, g.lives_with_student,
-                g.portal_access, g.priority, g.started_on::text, g.ended_on::text
+                g.portal_access, g.priority, g.started_on::text, g.ended_on::text,
+                m.status as membership_status
          from guardianships g
          join users u on u.id = g.guardian_user_id
          join student_profiles sp on sp.id = g.student_profile_id
+         left join organisation_memberships m
+           on m.user_id = u.id
+          and m.organisation_id = g.organisation_id
+          and m.ended_at is null
          where g.organisation_id = $1
          order by u.full_name, sp.legal_name`,
         [orgId],

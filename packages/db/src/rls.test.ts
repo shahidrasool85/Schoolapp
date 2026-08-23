@@ -973,4 +973,63 @@ describe("RLS catalog", () => {
       ]),
     ).rejects.toThrow(/event_dates_invalid/);
   });
+
+  it("lets school admin see invited parent identities without exposing them to other parents", async () => {
+    const id = randomUUID().slice(0, 8);
+    const org = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-inv-${id}`, "Invited visibility"],
+    );
+    const admin = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Admin', 'staff', 'active') returning id`,
+      [`rls-inv-admin-${id}@example.com`],
+    );
+    const parent = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Active Parent', 'parent', 'active') returning id`,
+      [`rls-inv-parent-${id}@example.com`],
+    );
+    const invited = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Invited Parent', 'parent', 'active') returning id`,
+      [`rls-inv-new-${id}@example.com`],
+    );
+    const adminMembership = await pools.owner.query<{ id: string }>(
+      `insert into organisation_memberships (organisation_id, user_id, status)
+       values ($1, $2, 'active') returning id`,
+      [org.rows[0]!.id, admin.rows[0]!.id],
+    );
+    const parentMembership = await pools.owner.query<{ id: string }>(
+      `insert into organisation_memberships (organisation_id, user_id, status)
+       values ($1, $2, 'active') returning id`,
+      [org.rows[0]!.id, parent.rows[0]!.id],
+    );
+    await pools.owner.query(
+      `insert into organisation_memberships (organisation_id, user_id, status)
+       values ($1, $2, 'invited')`,
+      [org.rows[0]!.id, invited.rows[0]!.id],
+    );
+    await pools.owner.query(
+      `insert into membership_roles (membership_id, role_id)
+       select $1, id from roles where organisation_id is null and key = 'school.admin'`,
+      [adminMembership.rows[0]!.id],
+    );
+    await pools.owner.query(
+      `insert into membership_roles (membership_id, role_id)
+       select $1, id from roles where organisation_id is null and key = 'school.parent'`,
+      [parentMembership.rows[0]!.id],
+    );
+
+    await withTenantContext(pools.app, admin.rows[0]!.id, org.rows[0]!.id, async (client) => {
+      const seen = await client.query("select id from users where id = $1", [invited.rows[0]!.id]);
+      expect(seen.rowCount).toBe(1);
+    });
+    await withTenantContext(pools.app, parent.rows[0]!.id, org.rows[0]!.id, async (client) => {
+      const hidden = await client.query("select id from users where id = $1", [invited.rows[0]!.id]);
+      expect(hidden.rowCount).toBe(0);
+      const self = await client.query("select id from users where id = $1", [parent.rows[0]!.id]);
+      expect(self.rowCount).toBe(1);
+    });
+  });
 });

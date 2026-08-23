@@ -317,7 +317,8 @@ describe("phase 11.5 workflow integration", () => {
     const detail = (await (
       await app.request(`/api/v1/admissions/applications/${staffBody.submission.applicationId}`, { headers: hdrs })
     ).json()) as { contacts: Array<{ id: string; email: string | null; isEmergency?: boolean }> };
-    const parent = detail.contacts.find((row) => row.email);
+    const parent = detail.contacts.find((row) => row.email && !row.isEmergency);
+    expect(parent?.email).toMatch(/anita/i);
     const enrolled = await app.request(
       `/api/v1/admissions/applications/${staffBody.submission.applicationId}/enrol`,
       {
@@ -339,10 +340,28 @@ describe("phase 11.5 workflow integration", () => {
       await app.request(`/api/v1/students/${enrolBody.studentProfileId}`, { headers: hdrs })
     ).json()) as {
       student: { legalName: string };
-      guardians: Array<{ guardianEmail: string | null; portalAccess: boolean }>;
+      guardians: Array<{ guardianEmail: string | null; portalAccess: boolean; membershipStatus: string | null }>;
     };
     expect(pupil.student.legalName).toBe("Ibrahim Khan");
-    expect(pupil.guardians.some((row) => row.guardianEmail?.includes("ibrahim") && row.portalAccess)).toBe(true);
+    expect(pupil.guardians.length).toBeGreaterThan(0);
+    expect(pupil.guardians.some((row) => row.portalAccess)).toBe(true);
+    expect(pupil.guardians.some((row) => (row.guardianEmail ?? "").includes("anita"))).toBe(true);
+    expect(pupil.guardians.some((row) => row.membershipStatus === "invited")).toBe(true);
+
+    const parents = (await (await app.request("/api/v1/guardians", { headers: hdrs })).json()) as {
+      guardians: Array<{ guardianEmail: string | null; studentProfileId: string }>;
+    };
+    expect(
+      parents.guardians.some(
+        (row) =>
+          row.studentProfileId === enrolBody.studentProfileId && (row.guardianEmail ?? "").includes("anita"),
+      ),
+    ).toBe(true);
+
+    const teacherDeniedPupil = await app.request(`/api/v1/students/${enrolBody.studentProfileId}`, {
+      headers: headers(teacherToken, school.orgId),
+    });
+    expect(teacherDeniedPupil.status).toBe(404);
 
     const stillApplication = await app.request(
       `/api/v1/admissions/applications/${staffBody.submission.applicationId}`,

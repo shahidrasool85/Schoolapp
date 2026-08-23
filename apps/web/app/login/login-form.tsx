@@ -1,8 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, setOrgId, setToken } from "../../lib/api";
+import { resolveLoginBranding, type PublicLoginBranding } from "../../lib/login-branding";
 import {
   hasParentRole,
   hasStaffRole,
@@ -10,14 +11,33 @@ import {
   type Membership,
 } from "../../lib/portal";
 import { loadPublicTenant, membershipForHost, type PublicTenant } from "../../lib/tenant";
+import { EyeIcon, EyeOffIcon, ParentIcon, StaffIcon, StudentIcon } from "./login-icons";
+import { LoginShell } from "./login-shell";
 
 type SchoolPersona = "staff" | "parent" | "student";
 
+const PERSONAS: Array<{
+  value: SchoolPersona;
+  label: string;
+  Icon: typeof StaffIcon;
+}> = [
+  { value: "staff", label: "Staff", Icon: StaffIcon },
+  { value: "parent", label: "Parent", Icon: ParentIcon },
+  { value: "student", label: "Student", Icon: StudentIcon },
+];
+
+function tenantBranding(tenant: PublicTenant | { kind: "unknown" } | null): PublicLoginBranding | null {
+  if (tenant?.kind !== "school") return null;
+  return tenant.organisation.branding ?? null;
+}
+
 export function LoginForm({ initialSchoolHost }: { initialSchoolHost: boolean }) {
   const router = useRouter();
+  const passwordId = useId();
   const [persona, setPersona] = useState<SchoolPersona>("staff");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [organisationSlug, setOrganisationSlug] = useState("");
   const [username, setUsername] = useState("");
   const [error, setError] = useState("");
@@ -104,70 +124,80 @@ export function LoginForm({ initialSchoolHost }: { initialSchoolHost: boolean })
     }
   }
 
-  const schoolName = tenant?.kind === "school" ? tenant.organisation.name : null;
+  const branding = resolveLoginBranding({
+    organisationName: tenant?.kind === "school" ? tenant.organisation.name : null,
+    hostname: tenant && "hostname" in tenant ? tenant.hostname : null,
+    branding: tenantBranding(tenant),
+    fallbackName: schoolHost ? "School portal" : "Schoolapp",
+  });
 
   if (schoolHost && !tenant) {
     return (
-      <main style={{ fontFamily: "system-ui", maxWidth: 480, margin: "4rem auto", padding: 16 }}>
-        <h1>Sign in</h1>
-        <p className="muted">Loading school sign-in…</p>
-      </main>
+      <LoginShell mode="loading" branding={branding}>
+        <h2 className="login-heading">Sign in</h2>
+        <p className="login-lede muted">Loading school sign-in…</p>
+      </LoginShell>
     );
   }
 
   if (tenant?.kind === "unknown") {
     return (
-      <main style={{ fontFamily: "system-ui", maxWidth: 480, margin: "4rem auto", padding: 16 }}>
-        <h1>School not found</h1>
-        <p className="muted">This address is not an active school on the platform.</p>
-      </main>
+      <LoginShell mode="unknown" branding={branding}>
+        <h2 className="login-heading">School not found</h2>
+        <p className="login-lede muted">This address is not an active school on the platform.</p>
+      </LoginShell>
     );
   }
 
   if (tenant?.kind !== "school") {
     return (
-      <main style={{ fontFamily: "system-ui", maxWidth: 480, margin: "4rem auto", padding: 16 }}>
-        <h1>Platform sign in</h1>
-        <p className="muted">Platform administrators sign in here. School staff, parents and students use their school address.</p>
-        <form onSubmit={onSubmit} className="form-grid">
-          <label>
-            Email
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-          </label>
-          <label>
-            Password
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={8}
-            />
-          </label>
-          <button type="submit">Sign in</button>
+      <LoginShell mode="platform" branding={branding}>
+        <h2 className="login-heading">Platform sign in</h2>
+        <p className="login-lede muted">
+          Schoolapp Platform Administration. Platform administrators sign in here. School staff,
+          parents and students use their school address.
+        </p>
+        <form onSubmit={onSubmit} className="login-form">
+          <EmailField value={email} onChange={setEmail} />
+          <PasswordField
+            id={`${passwordId}-platform`}
+            value={password}
+            onChange={setPassword}
+            showPassword={showPassword}
+            onToggle={() => setShowPassword((value) => !value)}
+          />
+          <button type="submit" className="login-submit">
+            Sign in
+          </button>
         </form>
         {error ? <p className="error">{error}</p> : null}
-      </main>
+      </LoginShell>
     );
   }
 
   return (
-    <main style={{ fontFamily: "system-ui", maxWidth: 480, margin: "4rem auto", padding: 16 }}>
-      <h1>{schoolName}</h1>
-      <p className="muted">Sign in to your school</p>
-      <div className="toolbar" style={{ marginBottom: 16 }}>
-        {(["staff", "parent", "student"] as const).map((value) => (
-          <button
-            key={value}
-            type="button"
-            className={persona === value ? undefined : "secondary"}
-            onClick={() => setPersona(value)}
-          >
-            {value === "staff" ? "Staff" : value === "parent" ? "Parent" : "Student"}
-          </button>
-        ))}
-      </div>
-      <form onSubmit={onSubmit} className="form-grid">
+    <LoginShell mode="school" branding={branding}>
+      <h2 className="login-heading">Welcome Back</h2>
+      <p className="login-lede muted">Please sign in to access your school portal.</p>
+      <fieldset className="login-personas">
+        <legend className="login-personas-legend">Select your portal</legend>
+        <div className="login-persona-grid" role="tablist" aria-label="Select your portal">
+          {PERSONAS.map(({ value, label, Icon }) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={persona === value}
+              className={persona === value ? "login-persona is-active" : "login-persona"}
+              onClick={() => setPersona(value)}
+            >
+              <Icon className="login-persona-icon" />
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
+      </fieldset>
+      <form onSubmit={onSubmit} className="login-form">
         {persona === "student" ? (
           <label>
             Username
@@ -176,30 +206,85 @@ export function LoginForm({ initialSchoolHost }: { initialSchoolHost: boolean })
               onChange={(e) => setUsername(e.target.value)}
               required
               autoCapitalize="none"
+              autoComplete="username"
             />
           </label>
         ) : (
-          <label>
-            Email
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-          </label>
+          <EmailField value={email} onChange={setEmail} />
         )}
-        <label>
-          Password
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            minLength={8}
-          />
-        </label>
-        <button type="submit">Sign in</button>
+        <PasswordField
+          id={`${passwordId}-school`}
+          value={password}
+          onChange={setPassword}
+          showPassword={showPassword}
+          onToggle={() => setShowPassword((value) => !value)}
+        />
+        <button type="submit" className="login-submit">
+          Sign in
+        </button>
       </form>
       {persona === "staff" ? (
-        <p className="muted">Staff includes school administrators, the headteacher, teachers and other authorised staff. Your role is applied after you sign in.</p>
+        <p className="login-support muted">
+          Staff includes school administrators, the headteacher, teachers and other authorised
+          staff. Your access is determined automatically after sign-in.
+        </p>
       ) : null}
       {error ? <p className="error">{error}</p> : null}
-    </main>
+    </LoginShell>
+  );
+}
+
+function EmailField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <label>
+      Email address
+      <input
+        type="email"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        required
+        autoComplete="email"
+      />
+    </label>
+  );
+}
+
+function PasswordField({
+  id,
+  value,
+  onChange,
+  showPassword,
+  onToggle,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  showPassword: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <label htmlFor={id}>
+      Password
+      <span className="login-password-wrap">
+        <input
+          id={id}
+          type={showPassword ? "text" : "password"}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          required
+          minLength={8}
+          autoComplete="current-password"
+        />
+        <button
+          type="button"
+          className="login-password-toggle"
+          onClick={onToggle}
+          aria-label={showPassword ? "Hide password" : "Show password"}
+          aria-pressed={showPassword}
+        >
+          {showPassword ? <EyeOffIcon className="login-password-icon" /> : <EyeIcon className="login-password-icon" />}
+        </button>
+      </span>
+    </label>
   );
 }

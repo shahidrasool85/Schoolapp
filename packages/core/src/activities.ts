@@ -121,6 +121,10 @@ export function activityResponseWindowOpen(input: {
   return new Date(input.responseDeadlineAt).getTime() >= (input.now ?? new Date()).getTime();
 }
 
+export function activityOpenForStaffChanges(status: string): boolean {
+  return status === "draft" || status === "published" || status === "closed";
+}
+
 export function activityVisibleOnPortal(input: {
   status: string;
   parentVisible?: boolean;

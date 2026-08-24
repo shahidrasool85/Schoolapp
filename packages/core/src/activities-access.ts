@@ -986,6 +986,8 @@ export async function listCalendarActivities(
     to?: string | null;
     studentIds?: string[] | null;
     staffUserId?: string | null;
+    classIds?: string[] | null;
+    studentIds?: string[] | null;
     schoolWide?: boolean;
     parentVisibleOnly?: boolean;
     studentVisibleOnly?: boolean;
@@ -1017,6 +1019,15 @@ export async function listCalendarActivities(
            select 1 from school_activity_eligible_pupils e
            where e.activity_id = a.id and e.student_profile_id = any($7::uuid[])
          ))
+         or ($8::uuid[] is not null and exists (
+           select 1 from school_activity_targets t
+           where t.activity_id = a.id
+             and (
+               t.target_type = 'whole_school'
+               or t.class_id = any($8::uuid[])
+               or t.student_profile_id = any($7::uuid[])
+             )
+         ))
        )
      order by a.starts_at, a.title`,
     [
@@ -1027,6 +1038,7 @@ export async function listCalendarActivities(
       input.schoolWide ?? false,
       input.staffUserId ?? null,
       input.studentIds ?? null,
+      input.classIds ?? null,
     ],
   );
   return rows.rows as Array<Record<string, unknown>>;

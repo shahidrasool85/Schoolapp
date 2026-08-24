@@ -547,6 +547,16 @@ describe("Phase 14 activities, consents, and parent responses", () => {
     await app.request(`/api/v1/activities/${assigned.activity.id}/publish`, { method: "POST", headers: hdrs, body: "{}" });
     await app.request(`/api/v1/activities/${unrelated.activity.id}/publish`, { method: "POST", headers: hdrs, body: "{}" });
     await app.request(`/api/v1/activities/${oakTrip.activity.id}/publish`, { method: "POST", headers: oakHdrs, body: "{}" });
+    const classTrip = await createTrip(app, hdrs, {
+      title: "Class museum for calendar",
+      targets: [{ targetType: "class", classId: seeded.classAId }],
+    });
+    await app.request(`/api/v1/activities/${classTrip.activity.id}/publish`, { method: "POST", headers: hdrs, body: "{}" });
+    const teacherCalendar = (await (await app.request("/api/v1/calendar/events", { headers: teacherHdrs })).json()) as {
+      activities: Array<{ id: string }>;
+    };
+    expect(teacherCalendar.activities.map((row) => row.id)).toContain(assigned.activity.id);
+    expect(teacherCalendar.activities.map((row) => row.id)).toContain(classTrip.activity.id);
 
     const teacherList = (await (await app.request("/api/v1/activities", { headers: teacherHdrs })).json()) as {
       activities: Array<{ id: string }>;
@@ -570,11 +580,24 @@ describe("Phase 14 activities, consents, and parent responses", () => {
     });
     expect(teacherPublish.status).toBe(403);
 
-    await app.request(`/api/v1/activities/${assigned.activity.id}/participants`, {
+    const added = await app.request(`/api/v1/activities/${assigned.activity.id}/participants`, {
       method: "POST",
       headers: hdrs,
       body: JSON.stringify({ studentProfileId: pupil.student.id }),
     });
+    expect(added.status).toBe(201);
+    expect(((await added.json()) as { registrationStatus: string }).registrationStatus).toBe("confirmed");
+    const consentTrip = await createTrip(app, hdrs, {
+      title: "Consent required add",
+      targets: [{ targetType: "student", studentProfileId: pupil.student.id }],
+    });
+    await app.request(`/api/v1/activities/${consentTrip.activity.id}/publish`, { method: "POST", headers: hdrs, body: "{}" });
+    const pendingAdd = await app.request(`/api/v1/activities/${consentTrip.activity.id}/participants`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ studentProfileId: pupil.student.id }),
+    });
+    expect(((await pendingAdd.json()) as { registrationStatus: string }).registrationStatus).toBe("expected");
     const offline = await app.request(
       `/api/v1/activities/${assigned.activity.id}/participants/${pupil.student.id}/offline-response`,
       {
@@ -640,6 +663,20 @@ describe("Phase 14 activities, consents, and parent responses", () => {
     const stillThere = await app.request(`/api/v1/activities/${assigned.activity.id}`, { headers: hdrs });
     expect(stillThere.status).toBe(200);
     expect(((await stillThere.json()) as { activity: { status: string } }).activity.status).toBe("cancelled");
+    const offlineCancelled = await app.request(
+      `/api/v1/activities/${assigned.activity.id}/participants/${pupil.student.id}/offline-response`,
+      {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({ response: "consented", staffNote: "Too late" }),
+      },
+    );
+    expect(offlineCancelled.status).toBe(409);
+    const withdrawCancelled = await app.request(
+      `/api/v1/activities/${assigned.activity.id}/participants/${pupil.student.id}/withdraw`,
+      { method: "POST", headers: hdrs, body: "{}" },
+    );
+    expect(withdrawCancelled.status).toBe(409);
   });
 
   it("stores Phase 13 files with explicit visibility and calendar source=activity", async () => {

@@ -723,6 +723,8 @@ export function registerCommunicationRoutes(app: SchoolappApi) {
         to,
         staffUserId: userId,
         schoolWide: canReadSchoolCalendar(actor) || canReadSchoolActivities(actor),
+        studentIds: canReadSchoolCalendar(actor) || canReadSchoolActivities(actor) ? null : studentIds,
+        classIds: canReadSchoolCalendar(actor) || canReadSchoolActivities(actor) ? null : classIds,
       });
       return c.json({
         events: rows.rows.map((row) => mapSchoolEvent(row as Record<string, unknown>)),

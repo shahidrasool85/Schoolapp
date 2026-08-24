@@ -8,6 +8,7 @@ import {
   allocateRegistrationStatus,
   expandActivityOccurrences,
   isActivityStatusTransitionAllowed,
+  activityOpenForStaffChanges,
   nextWaitingListPosition,
   snapshotConsentWording,
 } from "./activities.js";
@@ -19,6 +20,9 @@ describe("activities domain", () => {
     expect(isActivityStatusTransitionAllowed("published", "draft")).toBe(false);
     expect(isActivityStatusTransitionAllowed("cancelled", "published")).toBe(false);
     expect(isActivityStatusTransitionAllowed("archived", "published")).toBe(false);
+    expect(activityOpenForStaffChanges("draft")).toBe(true);
+    expect(activityOpenForStaffChanges("published")).toBe(true);
+    expect(activityOpenForStaffChanges("completed")).toBe(false);
   });
 
   it("requires end on or after start and a sensible deadline", () => {

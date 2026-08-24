@@ -485,6 +485,7 @@ export {
   activityDatesValid,
   activityDeadlineValid,
   activityResponseWindowOpen,
+  activityOpenForStaffChanges,
   activityVisibleOnPortal,
   activityDocumentVisibleToAudience,
   activityStaffSeesMedicalWindow,

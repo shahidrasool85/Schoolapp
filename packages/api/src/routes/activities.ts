@@ -7,6 +7,7 @@ import {
   AppError,
   activityDatesValid,
   activityDeadlineValid,
+  activityOpenForStaffChanges,
   activityStaffSeesMedicalWindow,
   allocateRegistrationStatus,
   applyConsentDecision,
@@ -781,15 +782,21 @@ export function registerActivityRoutes(app: SchoolappApi) {
         })
         .safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid participant");
+      if (!activityOpenForStaffChanges(String(existing.status))) {
+        throw new AppError(409, "activity_closed", "This activity is no longer open to change");
+      }
       if (!(await pupilIsEligible(client, orgId, activityId, parsed.data.studentProfileId))) {
         throw new AppError(400, "no_longer_eligible", "This pupil is not eligible for the activity");
       }
       const locked = await lockActivityCapacity(client, orgId, activityId);
-      const status = allocateRegistrationStatus({
-        capacity: locked.capacity,
-        confirmedCount: locked.confirmedCount,
-        preferConfirmed: true,
-      });
+      const consentRequired = Boolean(existing.consent_required);
+      const status = consentRequired
+        ? "expected"
+        : allocateRegistrationStatus({
+            capacity: locked.capacity,
+            confirmedCount: locked.confirmedCount,
+            preferConfirmed: true,
+          });
       await upsertParticipant(client, {
         organisationId: orgId,
         activityId,
@@ -826,6 +833,9 @@ export function registerActivityRoutes(app: SchoolappApi) {
         })
         .safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid response");
+      if (!activityOpenForStaffChanges(String(existing.status))) {
+        throw new AppError(409, "activity_closed", "This activity is no longer open to change");
+      }
       if (!(await pupilIsEligible(client, orgId, activityId, studentId))) {
         throw new AppError(400, "no_longer_eligible", "This pupil is not eligible for the activity");
       }
@@ -858,6 +868,9 @@ export function registerActivityRoutes(app: SchoolappApi) {
       const activityId = uuidRouteParam(c, "activityId");
       const studentId = uuidRouteParam(c, "studentId");
       const existing = await assertCanManageStaffActivity(client, actor, activityId);
+      if (!activityOpenForStaffChanges(String(existing.status))) {
+        throw new AppError(409, "activity_closed", "This activity is no longer open to change");
+      }
       const locked = await lockActivityCapacity(client, orgId, activityId);
       const status = allocateRegistrationStatus({
         capacity: locked.capacity,
@@ -897,6 +910,9 @@ export function registerActivityRoutes(app: SchoolappApi) {
       const activityId = uuidRouteParam(c, "activityId");
       const studentId = uuidRouteParam(c, "studentId");
       const existing = await assertCanManageStaffActivity(client, actor, activityId);
+      if (!activityOpenForStaffChanges(String(existing.status))) {
+        throw new AppError(409, "activity_closed", "This activity is no longer open to change");
+      }
       await lockActivityCapacity(client, orgId, activityId);
       await client.query(
         `update school_activity_participants

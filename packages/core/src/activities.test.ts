@@ -127,5 +127,15 @@ describe("activities domain", () => {
       recurrenceUntil: null,
     });
     expect(trip).toHaveLength(1);
+    const sameDayWindow = expandActivityOccurrences({
+      startsAt: "2026-11-12T09:00:00.000Z",
+      endsAt: "2026-11-12T15:30:00.000Z",
+      occurrenceKind: "one_off",
+      recurrenceWeekdays: null,
+      recurrenceUntil: null,
+      from: "2026-11-12",
+      to: "2026-11-12",
+    });
+    expect(sameDayWindow).toHaveLength(1);
   });
 });

@@ -1031,6 +1031,7 @@ export async function loadActivitySafetySummaries(
   organisationId: string,
   activityId: string,
   studentIds: string[],
+  options: { includeMedicalFields?: boolean } = {},
 ): Promise<
   Array<{
     studentProfileId: string;
@@ -1049,29 +1050,53 @@ export async function loadActivitySafetySummaries(
   }>
 > {
   if (studentIds.length === 0) return [];
-  const pupils = await client.query<{
-    id: string;
-    legal_name: string;
-    allergies: string | null;
-    medication: string | null;
-    dietary_requirements: string | null;
-    medical_conditions: string | null;
-  }>(
-    `select sp.id, sp.legal_name,
-            n.allergies, n.medication, n.dietary_requirements, n.medical_conditions
-     from student_profiles sp
-     left join student_additional_needs n
-       on n.student_profile_id = sp.id and n.organisation_id = sp.organisation_id
-     where sp.organisation_id = $1
-       and sp.id = any($2::uuid[])
-       and exists (
-         select 1 from school_activity_participants p
-         where p.activity_id = $3
-           and p.student_profile_id = sp.id
-           and p.registration_status in ('confirmed', 'expected')
-       )`,
-    [organisationId, studentIds, activityId],
-  );
+  const includeMedical = options.includeMedicalFields === true;
+  const pupils = includeMedical
+    ? await client.query<{
+        id: string;
+        legal_name: string;
+        allergies: string | null;
+        medication: string | null;
+        dietary_requirements: string | null;
+        medical_conditions: string | null;
+      }>(
+        `select sp.id, sp.legal_name,
+                n.allergies, n.medication, n.dietary_requirements, n.medical_conditions
+         from student_profiles sp
+         left join student_additional_needs n
+           on n.student_profile_id = sp.id and n.organisation_id = sp.organisation_id
+         where sp.organisation_id = $1
+           and sp.id = any($2::uuid[])
+           and exists (
+             select 1 from school_activity_participants p
+             where p.activity_id = $3
+               and p.student_profile_id = sp.id
+               and p.registration_status in ('confirmed', 'expected')
+           )`,
+        [organisationId, studentIds, activityId],
+      )
+    : await client.query<{
+        id: string;
+        legal_name: string;
+        allergies: string | null;
+        medication: string | null;
+        dietary_requirements: string | null;
+        medical_conditions: string | null;
+      }>(
+        `select sp.id, sp.legal_name,
+                null::text as allergies, null::text as medication,
+                null::text as dietary_requirements, null::text as medical_conditions
+         from student_profiles sp
+         where sp.organisation_id = $1
+           and sp.id = any($2::uuid[])
+           and exists (
+             select 1 from school_activity_participants p
+             where p.activity_id = $3
+               and p.student_profile_id = sp.id
+               and p.registration_status in ('confirmed', 'expected')
+           )`,
+        [organisationId, studentIds, activityId],
+      );
   const contacts = await client.query<{
     student_profile_id: string;
     full_name: string;
@@ -1080,16 +1105,11 @@ export async function loadActivitySafetySummaries(
     is_emergency_contact: boolean;
     has_parental_responsibility: boolean;
   }>(
-    `select g.student_profile_id, u.full_name, g.relationship, u.email,
-            g.is_emergency_contact, g.has_parental_responsibility
-     from guardianships g
-     join users u on u.id = g.guardian_user_id
-     where g.organisation_id = $1
-       and g.student_profile_id = any($2::uuid[])
-       and (g.ended_on is null or g.ended_on >= current_date)
-       and g.restricted_contact = false
-     order by g.is_emergency_contact desc, g.priority, u.full_name`,
-    [organisationId, studentIds],
+    `select student_profile_id, full_name, relationship, email,
+            is_emergency_contact, has_parental_responsibility
+       from list_activity_safety_contacts($1, $2)
+      where student_profile_id = any($3::uuid[])`,
+    [organisationId, activityId, studentIds],
   );
   return pupils.rows.map((pupil) => ({
     studentProfileId: pupil.id,

@@ -504,18 +504,20 @@ export function registerStudentRoutes(app: SchoolappApi) {
       }
       const from = c.req.query("from") ?? isoDate();
       const to = c.req.query("to") ?? addDaysSafe(from, 14);
+      const activityFrom = c.req.query("from") ?? null;
+      const activityTo = c.req.query("to") ?? null;
       const lessons = await listPupilTimetable(client, orgId, studentProfileId, from, to);
       const activityRows = await listCalendarActivities(client, {
         organisationId: orgId,
-        from,
-        to,
+        from: activityFrom,
+        to: activityTo,
         studentIds: [studentProfileId],
         studentVisibleOnly: true,
       });
       return c.json({
         events: withRelated,
         lessons: lessons.map((item) => mapTimetableOccurrence(item, { includeInternal: false })),
-        activities: calendarItemsFromActivities(activityRows, from, to),
+        activities: calendarItemsFromActivities(activityRows, activityFrom, activityTo),
       });
     }),
   );

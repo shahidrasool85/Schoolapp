@@ -329,6 +329,8 @@ export function registerParentRoutes(app: SchoolappApi) {
       }
       const from = c.req.query("from") ?? isoDate();
       const to = c.req.query("to") ?? addDaysSafe(from, 14);
+      const activityFrom = c.req.query("from") ?? null;
+      const activityTo = c.req.query("to") ?? null;
       const lessons = [];
       for (const childId of childIds) {
         const items = await listPupilTimetable(client, orgId, childId, from, to);
@@ -341,12 +343,16 @@ export function registerParentRoutes(app: SchoolappApi) {
       }
       const activityRows = await listCalendarActivities(client, {
         organisationId: orgId,
-        from,
-        to,
+        from: activityFrom,
+        to: activityTo,
         studentIds: childIds,
         parentVisibleOnly: true,
       });
-      return c.json({ events: withRelated, lessons, activities: calendarItemsFromActivities(activityRows, from, to) });
+      return c.json({
+        events: withRelated,
+        lessons,
+        activities: calendarItemsFromActivities(activityRows, activityFrom, activityTo),
+      });
     }),
   );
 

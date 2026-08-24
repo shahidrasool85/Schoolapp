@@ -222,8 +222,9 @@ async function createTrip(
       ...input,
     }),
   });
-  expect(created.status, await created.text()).toBe(201);
-  return (await created.json()) as {
+  const bodyText = await created.clone().text();
+  expect(created.status, bodyText).toBe(201);
+  return JSON.parse(bodyText) as {
     activity: { id: string; consentVersion: number; staffNotes?: string | null };
     consentClauses: Array<{ wording: string }>;
   };
@@ -587,8 +588,10 @@ describe("Phase 14 activities, consents, and parent responses", () => {
     expect(history.responses[0]?.guardianUserId).toBeNull();
     expect(history.responses[0]?.staffNote).toContain("Paper consent");
 
+    const me = (await (await app.request("/api/v1/me", { headers: hdrs })).json()) as { permissions: string[] };
+    expect(me.permissions).toContain("activities.medical_summary.read");
     const medical = await app.request(`/api/v1/activities/${assigned.activity.id}/safety-summary`, { headers: hdrs });
-    expect(medical.status).toBe(200);
+    expect(medical.status, await medical.clone().text()).toBe(200);
     const medicalBody = (await medical.json()) as {
       liveMedical: boolean;
       snapshot: boolean;
@@ -599,6 +602,7 @@ describe("Phase 14 activities, consents, and parent responses", () => {
     expect(JSON.stringify(medicalBody)).toContain("Peanuts");
     expect(JSON.stringify(medicalBody)).not.toContain("Safeguarding");
     expect(JSON.stringify(medicalBody)).not.toContain("narrative");
+    expect(JSON.stringify(medicalBody)).not.toMatch(/restricted[_]?contact/i);
 
     const teacherMedical = await app.request(`/api/v1/activities/${assigned.activity.id}/safety-summary`, {
       headers: teacherHdrs,
@@ -611,10 +615,14 @@ describe("Phase 14 activities, consents, and parent responses", () => {
 
     const oakLeak = await app.request(`/api/v1/activities/${oakTrip.activity.id}`, { headers: hdrs });
     expect(oakLeak.status).toBe(404);
-    const fakePupil = await app.request(`/api/v1/activities/${assigned.activity.id}/eligible`, {
+    const oakLookingAtGreenwood = await app.request(`/api/v1/activities/${assigned.activity.id}/eligible`, {
+      headers: oakHdrs,
+    });
+    expect(oakLookingAtGreenwood.status).toBe(404);
+    const swappedTenant = await app.request(`/api/v1/activities/${assigned.activity.id}/eligible`, {
       headers: jsonHeaders(token, oak.orgId),
     });
-    expect(fakePupil.status).toBe(404);
+    expect(swappedTenant.status).toBe(403);
 
     const cancel = await app.request(`/api/v1/activities/${assigned.activity.id}/cancel`, {
       method: "POST",

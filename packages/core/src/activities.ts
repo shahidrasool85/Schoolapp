@@ -256,8 +256,12 @@ export function expandActivityOccurrences(input: {
   const durationMs = Math.max(0, end.getTime() - start.getTime());
   const firstDate = input.startsAt.slice(0, 10);
   if (input.occurrenceKind !== "recurring" || !input.recurrenceWeekdays?.length || !input.recurrenceUntil) {
-    if (input.from && end.toISOString() < input.from) return [];
-    if (input.to && start.toISOString() > input.to) return [];
+    const fromDate = input.from?.slice(0, 10) ?? null;
+    const toDate = input.to?.slice(0, 10) ?? null;
+    const endDate = end.toISOString().slice(0, 10);
+    const startDate = start.toISOString().slice(0, 10);
+    if (fromDate && endDate < fromDate) return [];
+    if (toDate && startDate > toDate) return [];
     return [{ startsAt: input.startsAt, endsAt: input.endsAt, date: firstDate }];
   }
   const rangeFrom = input.from?.slice(0, 10) ?? firstDate;

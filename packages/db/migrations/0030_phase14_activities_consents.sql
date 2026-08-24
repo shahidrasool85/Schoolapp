@@ -57,6 +57,15 @@ join (
   on r.key = x.role_key and r.organisation_id is null
 on conflict do nothing;
 
+insert into role_permissions (role_id, permission_key)
+select org_role.id, rp.permission_key
+from roles sys
+join role_permissions rp on rp.role_id = sys.id
+join roles org_role on org_role.key = sys.key and org_role.organisation_id is not null
+where sys.organisation_id is null
+  and rp.permission_key like 'activities.%'
+on conflict do nothing;
+
 -- ---------------------------------------------------------------------------
 -- Notification types / categories
 -- ---------------------------------------------------------------------------
@@ -795,6 +804,93 @@ drop trigger if exists school_activity_response_channel_tg on school_activity_re
 create trigger school_activity_response_channel_tg
   before insert or update on school_activity_responses
   for each row execute function school_activity_response_channel_tg();
+
+-- Emergency contacts for activity safety summaries. Reads restricted_contact
+-- as table owner so schoolapp_app never needs SELECT on that column.
+create or replace function list_activity_safety_contacts(
+  p_organisation_id uuid,
+  p_activity_id uuid
+)
+returns table (
+  student_profile_id uuid,
+  full_name text,
+  relationship text,
+  email text,
+  is_emergency_contact boolean,
+  has_parental_responsibility boolean
+)
+language plpgsql
+stable
+security definer
+set search_path = pg_catalog, public
+as $$
+begin
+  if p_organisation_id is distinct from app_current_organisation_id() then
+    raise exception 'forbidden' using errcode = '42501';
+  end if;
+  if app_current_user_id() is null then
+    raise exception 'forbidden' using errcode = '42501';
+  end if;
+  if not app_is_platform_admin() and not exists (
+    select 1 from organisation_memberships m
+    where m.organisation_id = p_organisation_id
+      and m.user_id = app_current_user_id()
+      and m.status = 'active'
+      and m.ended_at is null
+  ) then
+    raise exception 'tenant_context_membership_required' using errcode = '42501';
+  end if;
+  if not exists (
+    select 1 from school_activities a
+    where a.id = p_activity_id and a.organisation_id = p_organisation_id
+  ) then
+    raise exception 'not_found' using errcode = 'P0002';
+  end if;
+  if not (
+    actor_has_permission(app_current_user_id(), p_organisation_id, 'activities.medical_summary.read')
+    or actor_has_permission(app_current_user_id(), p_organisation_id, 'activities.manage')
+    or exists (
+      select 1 from school_activity_staff s
+      where s.activity_id = p_activity_id
+        and s.organisation_id = p_organisation_id
+        and s.staff_user_id = app_current_user_id()
+    )
+    or exists (
+      select 1 from school_activities a
+      where a.id = p_activity_id
+        and a.organisation_id = p_organisation_id
+        and a.created_by = app_current_user_id()
+    )
+  ) then
+    raise exception 'forbidden' using errcode = '42501';
+  end if;
+
+  return query
+  select g.student_profile_id,
+         u.full_name,
+         g.relationship,
+         u.email::text,
+         g.is_emergency_contact,
+         g.has_parental_responsibility
+    from guardianships g
+    join users u on u.id = g.guardian_user_id
+   where g.organisation_id = p_organisation_id
+     and g.restricted_contact = false
+     and (g.ended_on is null or g.ended_on >= current_date)
+     and exists (
+       select 1
+         from school_activity_participants p
+        where p.activity_id = p_activity_id
+          and p.organisation_id = p_organisation_id
+          and p.student_profile_id = g.student_profile_id
+          and p.registration_status in ('confirmed', 'expected')
+     )
+   order by g.is_emergency_contact desc, g.priority, u.full_name;
+end;
+$$;
+
+revoke all on function list_activity_safety_contacts(uuid, uuid) from public;
+grant execute on function list_activity_safety_contacts(uuid, uuid) to schoolapp_app;
 
 -- ---------------------------------------------------------------------------
 -- Org defaults

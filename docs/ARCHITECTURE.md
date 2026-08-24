@@ -510,7 +510,7 @@ See [ADR 0020](./adr/0020-phase11-behaviour-pastoral-safeguarding.md). Safeguard
 - Participants / waiting list: `school_activity_participants`
 - Documents / updates: `school_activity_documents` (Phase 13 `stored_objects`, domain `activity`), `school_activity_updates`
 
-See [ADR 0023](./adr/0023-phase14-activities-consents.md). Calendar list APIs include an `activities` array with `source: "activity"`. Medical/emergency data is read live and is not snapshotted onto the activity.
+See [ADR 0023](./adr/0023-phase14-activities-consents.md). Calendar list APIs include an `activities` array with `source: "activity"`. Medical/emergency data is read live and is not snapshotted onto the activity. Emergency contacts are loaded via `list_activity_safety_contacts` so the app role never SELECTs `guardianships.restricted_contact`.
 
 ### 6.3 Later entities (do not implement now; reserved names)
 

@@ -15,7 +15,7 @@ A second events system, a second notification inbox, or a copy of pupil medical 
 
 `school_activities` is the system of record. Activity types are an organisation catalogue (`trip`, `residential`, `visit`, `club`, `after_school`, `breakfast_club`, `sports_fixture`, `workshop`, `performance`, `extracurricular`, `other`) plus school-defined keys. Statuses are controlled: `draft`, `published`, `closed`, `completed`, `cancelled`, `archived`.
 
-Calendar APIs expose published activities as a distinct `source: "activity"` array. They are not duplicated into `school_events`.
+Calendar APIs expose published activities as a distinct `source: "activity"` array. They are not duplicated into `school_events`. Parent and student calendar endpoints keep the existing short timetable window, but list relevant activities independently unless the client passes `from`/`to`.
 
 ### Targeting vs participation
 
@@ -35,7 +35,7 @@ Null capacity is unlimited. Confirmed places are allocated inside the tenant tra
 
 ### Medical / emergency summary
 
-**Live authorised pupil data, not a stored trip snapshot.** Activity staff with `activities.medical_summary.read` (or assigned staff inside the operational window, for emergency contacts only) see a deliberately small payload: allergy, medication, dietary requirement, limited medical flag, and emergency/parental-responsibility contacts. `send_notes`, pastoral narrative, and safeguarding never appear. Access ends for assigned staff after the activity operational window (end time + 24 hours). Guardian telephone is not on the current guardianship row, so the summary uses name, relationship, and email.
+**Live authorised pupil data, not a stored trip snapshot.** Activity staff with `activities.medical_summary.read` (or assigned staff inside the operational window, for emergency contacts only) see a deliberately small payload: allergy, medication, dietary requirement, limited medical flag, and emergency/parental-responsibility contacts. `send_notes`, pastoral narrative, and safeguarding never appear. Restricted-contact guardians are excluded by `list_activity_safety_contacts` (SECURITY DEFINER) so the app role never SELECTs `guardianships.restricted_contact`. Access ends for assigned staff after the activity operational window (end time + 24 hours). Guardian telephone is not on the current guardianship row, so the summary uses name, relationship, and email.
 
 A stored snapshot was rejected for this phase: it would copy special-category data onto the activity, create a second retention surface, and go stale. A later residential-only snapshot can be added if schools require a frozen pack for an overnight trip.
 

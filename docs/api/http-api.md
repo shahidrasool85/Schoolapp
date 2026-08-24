@@ -483,7 +483,7 @@ GET    /api/v1/parent/children/{studentId}/timetable
 
 ## Activities, trips, clubs, and consents (Phase 14)
 
-Canonical activity records. Calendar list endpoints also return `activities` with `source: "activity"`; they are not copied into `school_events`. Clients cannot set `createdBy` / `publishedBy` / guardian identity. Consent requires `confirm: true`. Offline consent is stored as `staff_offline` with guardian columns forced null.
+Canonical activity records. Calendar list endpoints also return `activities` with `source: "activity"`; they are not copied into `school_events`. Parent and student calendars do not apply the timetable 14-day default to activities unless `from`/`to` are passed. Clients cannot set `createdBy` / `publishedBy` / guardian identity. Consent requires `confirm: true`. Offline consent is stored as `staff_offline` with guardian columns forced null. Safety summaries never return `restricted_contact` or `send_notes`.
 
 ```http
 GET    /api/v1/activities/types

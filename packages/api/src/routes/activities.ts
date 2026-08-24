@@ -952,6 +952,7 @@ export function registerActivityRoutes(app: SchoolappApi) {
           orgId,
           activityId,
           confirmed.rows.map((row) => row.student_profile_id),
+          { includeMedicalFields: false },
         );
         return c.json({
           liveMedical: true,
@@ -974,6 +975,7 @@ export function registerActivityRoutes(app: SchoolappApi) {
         orgId,
         activityId,
         confirmed.rows.map((row) => row.student_profile_id),
+        { includeMedicalFields: true },
       );
       return c.json({ liveMedical: true, snapshot: false, participants: summaries });
     }),

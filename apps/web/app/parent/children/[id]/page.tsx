@@ -3,13 +3,21 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api, ApiError } from "../../../../lib/api";
+import { api, ApiError, downloadAuthenticated } from "../../../../lib/api";
 import { ComingLaterCard } from "../../../../components/coming-later";
 import type { ComingLater, PortalChild } from "../../../../lib/portal";
 
 type Detail = {
   child: PortalChild;
   sections: Record<string, ComingLater>;
+};
+
+type DocumentRow = {
+  id: string;
+  filename: string;
+  title: string | null;
+  documentType: string | null;
+  downloadPath: string | null;
 };
 
 type Attendance = {
@@ -43,6 +51,7 @@ export default function ParentChildDetailPage() {
   const params = useParams<{ id: string }>();
   const [data, setData] = useState<Detail | null>(null);
   const [attendance, setAttendance] = useState<Attendance | null>(null);
+  const [documents, setDocuments] = useState<DocumentRow[]>([]);
   const [error, setError] = useState("");
   const [attendanceError, setAttendanceError] = useState("");
 
@@ -68,7 +77,16 @@ export default function ParentChildDetailPage() {
                 err instanceof ApiError && err.status === 404 ? "Attendance is not available." : err.message,
               );
             }
-          });
+          })
+          .then(() =>
+            api<{ documents: DocumentRow[] }>(`/api/v1/parent/children/${params.id}/documents`)
+              .then((body) => {
+                if (!cancelled) setDocuments(body.documents);
+              })
+              .catch(() => {
+                if (!cancelled) setDocuments([]);
+              }),
+          );
       })
       .catch((err: Error) => {
         if (!cancelled) {
@@ -171,6 +189,33 @@ export default function ParentChildDetailPage() {
       <p>
         <Link href={`/parent/children/${params.id}/learning`}>View assignments and homework</Link>
       </p>
+      <h2>Documents</h2>
+      {documents.length === 0 ? (
+        <p className="muted">No documents have been shared with you.</p>
+      ) : (
+        <ul>
+          {documents.map((doc) => (
+            <li key={doc.id}>
+              {doc.title ?? doc.filename}
+              {doc.documentType ? ` · ${doc.documentType.replaceAll("_", " ")}` : ""}
+              {doc.downloadPath ? (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() =>
+                      downloadAuthenticated(doc.downloadPath!, doc.filename).catch((err: Error) => setError(err.message))
+                    }
+                  >
+                    Download
+                  </button>
+                </>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
       <h2>Results and reports</h2>
       <p>
         <Link href={`/parent/children/${params.id}/results`}>Released assessment results</Link>

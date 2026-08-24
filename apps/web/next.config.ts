@@ -3,6 +3,10 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
   allowedDevOrigins: ["127.0.0.1", "localhost", "*.localhost"],
+  experimental: {
+    serverActions: { bodySizeLimit: "25mb" },
+    middlewareClientMaxBodySize: "25mb",
+  },
   async headers() {
     return [
       {
@@ -17,8 +21,9 @@ const nextConfig: NextConfig = {
     "@schoolapp/core",
     "@schoolapp/db",
     "@schoolapp/domain",
+    "@schoolapp/storage",
   ],
-  serverExternalPackages: ["pg", "argon2", "qrcode"],
+  serverExternalPackages: ["pg", "argon2", "qrcode", "@aws-sdk/client-s3", "@aws-sdk/s3-request-presigner"],
   webpack: (config, { isServer }) => {
     config.resolve.extensionAlias = {
       ...config.resolve.extensionAlias,
@@ -31,6 +36,8 @@ const nextConfig: NextConfig = {
         "argon2",
         "pg",
         "qrcode",
+        "@aws-sdk/client-s3",
+        "@aws-sdk/s3-request-presigner",
       ];
     }
     return config;

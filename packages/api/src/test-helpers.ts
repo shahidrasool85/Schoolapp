@@ -1,7 +1,11 @@
 import argon2 from "argon2";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import pg from "pg";
 import { migrate } from "@schoolapp/db";
 import { createPools, type DbPools } from "@schoolapp/db";
+import { FilesystemObjectStorage, NoopFileScanner } from "@schoolapp/storage";
 import { createApiApp } from "./app";
 import type { SchoolappApi } from "./types";
 
@@ -13,6 +17,10 @@ const appUrl =
   "postgres://schoolapp_app:schoolapp_app@127.0.0.1:5432/schoolapp_api_test";
 
 export const TEST_AUTH_SECRET = "phase1-test-secret-phase1-test-secret";
+
+const testStorageRoot = fs.mkdtempSync(path.join(os.tmpdir(), "schoolapp-api-storage-"));
+export const testObjectStorage = new FilesystemObjectStorage({ rootDir: testStorageRoot });
+export const testFileScanner = new NoopFileScanner();
 
 let migrated = false;
 
@@ -36,6 +44,8 @@ export function testApp(
     tokenTtlSeconds: 3600,
     platformDomain: options.platformDomain ?? "localhost",
     trustProxy: options.trustProxy ?? false,
+    storage: testObjectStorage,
+    fileScanner: testFileScanner,
   });
 }
 

@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { api } from "../../../../lib/api";
+import { api, downloadAuthenticated } from "../../../../lib/api";
 
 type Detail = {
   concern: {
@@ -21,6 +21,12 @@ type Detail = {
     actionOutcome: string | null;
     actorName: string | null;
     superseded: boolean;
+  }>;
+  attachments?: Array<{
+    id: string;
+    filename: string | null;
+    title: string | null;
+    downloadPath: string | null;
   }>;
 };
 
@@ -67,6 +73,49 @@ export default function SafeguardingDetailPage() {
       </p>
       <p>{data.concern.factualDescription}</p>
       {data.concern.immediateActionTaken ? <p>Immediate action: {data.concern.immediateActionTaken}</p> : null}
+      <h2>Attachments</h2>
+      {(data.attachments ?? []).length === 0 ? <p className="muted">No attachments.</p> : (
+        <ul>
+          {(data.attachments ?? []).map((file) => (
+            <li key={file.id}>
+              {file.title ?? file.filename ?? "Attachment"}
+              {file.downloadPath ? (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() =>
+                      downloadAuthenticated(file.downloadPath!, file.filename ?? file.title ?? "attachment").catch(
+                        (err: Error) => setError(err.message),
+                      )
+                    }
+                  >
+                    Download
+                  </button>
+                </>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+      <form
+        className="card form-grid"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          const form = event.currentTarget;
+          await api(`/api/v1/safeguarding/concerns/${params.id}/attachments`, {
+            method: "POST",
+            body: new FormData(form),
+          });
+          form.reset();
+          load();
+        }}
+      >
+        <label>Title<input name="title" /></label>
+        <label>File<input name="file" type="file" required accept=".pdf,.png,.jpg,.jpeg,.webp,.docx" /></label>
+        <div><button type="submit">Upload attachment</button></div>
+      </form>
       <h2>Chronology</h2>
       <ul>
         {data.chronology.map((entry) => (

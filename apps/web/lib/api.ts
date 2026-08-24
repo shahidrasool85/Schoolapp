@@ -38,7 +38,9 @@ export async function api<T>(
 ): Promise<T> {
   const headers = new Headers(options.headers);
   headers.set("Accept", "application/json");
-  if (options.body && !headers.has("Content-Type")) {
+  if (options.body instanceof FormData) {
+    headers.delete("Content-Type");
+  } else if (options.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   const token = getToken();
@@ -60,4 +62,28 @@ export async function api<T>(
     );
   }
   return body as T;
+}
+
+export async function downloadAuthenticated(path: string, filename: string): Promise<void> {
+  const headers = new Headers({ Accept: "*/*" });
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const orgId = getOrgId();
+  if (orgId) headers.set("X-Organisation-Id", orgId);
+  const response = await fetch(path, { headers, credentials: "include" });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as {
+      error?: { code?: string; message?: string };
+    };
+    throw new ApiError(response.status, body.error?.code ?? "error", body.error?.message ?? "Download failed");
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }

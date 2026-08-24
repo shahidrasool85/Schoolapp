@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ChangeEvent, type ReactNode } from "react";
 import { api, ApiError } from "./api";
 
 const PUBLIC_FORM_TYPES = [
@@ -60,6 +60,15 @@ type YearOption = { id: string; name: string };
 function fieldValue(type: string, form: FormData, key: string): unknown {
   if (type === "yes_no" || type === "declaration") return form.get(key) === "on" || form.get(key) === "true";
   if (type === "file") {
+    const documentId = String(form.get(`${key}.documentId`) ?? "").trim();
+    if (documentId) {
+      return {
+        documentId,
+        filename: String(form.get(`${key}.filename`) ?? "document"),
+        contentType: String(form.get(`${key}.contentType`) ?? "application/octet-stream"),
+        byteSize: Number(form.get(`${key}.byteSize`) ?? 0),
+      };
+    }
     const file = form.get(key);
     if (!(file instanceof File) || !file.name) return null;
     return { filename: file.name, contentType: file.type || "application/octet-stream", byteSize: file.size };
@@ -91,16 +100,167 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
+function FileUploadField({
+  field,
+  describedBy,
+  requiredMark,
+  initial,
+  mode,
+  formType,
+  slug,
+  continuation,
+  publicId,
+  ensureDraft,
+}: {
+  field: PublicField;
+  describedBy?: string;
+  requiredMark: ReactNode;
+  initial?: unknown;
+  mode: "public" | "staff";
+  formType: PublicFormType;
+  slug: string;
+  continuation: string | null;
+  publicId: string | null;
+  ensureDraft: () => Promise<{ continuationToken: string; publicId: string }>;
+}) {
+  const initialRec = asRecord(initial);
+  const [status, setStatus] = useState<"idle" | "uploading" | "complete" | "failed">(
+    initialRec?.documentId ? "complete" : "idle",
+  );
+  const [meta, setMeta] = useState({
+    documentId: String(initialRec?.documentId ?? ""),
+    filename: String(initialRec?.filename ?? ""),
+    contentType: String(initialRec?.contentType ?? ""),
+    byteSize: String(initialRec?.byteSize ?? ""),
+  });
+  const [message, setMessage] = useState(initialRec?.documentId ? "Uploaded" : "");
+  const [draftTokens, setDraftTokens] = useState({
+    continuationToken: continuation ?? "",
+    publicId: publicId ?? "",
+  });
+
+  async function onFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (mode !== "public") {
+      setMeta({
+        documentId: "",
+        filename: file.name,
+        contentType: file.type || "application/octet-stream",
+        byteSize: String(file.size),
+      });
+      setStatus("complete");
+      setMessage("Selected");
+      return;
+    }
+    setStatus("uploading");
+    setMessage("Uploading…");
+    try {
+      const draft = await ensureDraft();
+      setDraftTokens(draft);
+      const payload = new FormData();
+      payload.append("file", file);
+      payload.append("fieldKey", field.fieldKey);
+      payload.append("continuationToken", draft.continuationToken);
+      payload.append("publicId", draft.publicId);
+      const body = await api<{
+        document: { id: string; filename: string; contentType: string; byteSize: number };
+      }>(`/api/v1/public/admissions/forms/${formType}/${slug}/documents`, {
+        method: "POST",
+        orgId: null,
+        body: payload,
+      });
+      setMeta({
+        documentId: body.document.id,
+        filename: body.document.filename,
+        contentType: body.document.contentType,
+        byteSize: String(body.document.byteSize),
+      });
+      setStatus("complete");
+      setMessage("Uploaded");
+    } catch (err) {
+      setStatus("failed");
+      setMessage(err instanceof Error ? err.message : "Upload failed");
+      event.target.value = "";
+    }
+  }
+
+  async function onRemove() {
+    if (mode === "public" && meta.documentId) {
+      const token = draftTokens.continuationToken;
+      const publicId = draftTokens.publicId;
+      if (token && publicId) {
+        await api(
+          `/api/v1/public/admissions/forms/${formType}/${slug}/documents/${meta.documentId}?continuationToken=${encodeURIComponent(token)}&publicId=${encodeURIComponent(publicId)}`,
+          { method: "DELETE", orgId: null },
+        ).catch(() => undefined);
+      }
+    }
+    setMeta({ documentId: "", filename: "", contentType: "", byteSize: "" });
+    setStatus("idle");
+    setMessage("");
+  }
+
+  return (
+    <label className="span-2" data-upload-state={status}>
+      {field.label}
+      {requiredMark}
+      <input type="hidden" name={`${field.fieldKey}.documentId`} value={meta.documentId} />
+      <input type="hidden" name={`${field.fieldKey}.filename`} value={meta.filename} />
+      <input type="hidden" name={`${field.fieldKey}.contentType`} value={meta.contentType} />
+      <input type="hidden" name={`${field.fieldKey}.byteSize`} value={meta.byteSize} />
+      <input
+        id={field.fieldKey}
+        name={field.fieldKey}
+        type="file"
+        required={field.required && !meta.documentId}
+        aria-describedby={describedBy}
+        accept=".pdf,.png,.jpg,.jpeg,.webp,.docx,application/pdf,image/jpeg,image/png,image/webp,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        onChange={(event) => void onFile(event)}
+        disabled={status === "uploading"}
+      />
+      {status === "uploading" ? <small className="muted">Uploading…</small> : null}
+      {status === "complete" && meta.filename ? (
+        <small>
+          {meta.filename}
+          {meta.byteSize ? ` · ${Math.max(1, Math.round(Number(meta.byteSize) / 1024))} KB` : ""}
+          {" · "}
+          <button type="button" className="secondary" onClick={() => void onRemove()}>
+            Remove
+          </button>
+        </small>
+      ) : null}
+      {status === "failed" ? <small className="error">{message}</small> : null}
+      {status === "idle" ? (
+        <small className="muted">PDF, JPEG, PNG, WebP or DOCX, up to 8 MB.</small>
+      ) : null}
+      {field.helperText ? <small id={`${field.fieldKey}-help`} className="muted">{field.helperText}</small> : null}
+    </label>
+  );
+}
+
 function FieldInput({
   field,
   years,
   groups,
   initial,
+  mode,
+  formType,
+  slug,
+  continuation,
+  publicId,
+  ensureDraft,
 }: {
   field: PublicField;
   years: YearOption[];
   groups: YearOption[];
   initial?: unknown;
+  mode: "public" | "staff";
+  formType: PublicFormType;
+  slug: string;
+  continuation: string | null;
+  publicId: string | null;
+  ensureDraft: () => Promise<{ continuationToken: string; publicId: string }>;
 }) {
   const requiredMark = field.required ? <span aria-hidden="true"> *</span> : null;
   const describedBy = field.helperText ? `${field.fieldKey}-help` : undefined;
@@ -230,20 +390,18 @@ function FieldInput({
   }
   if (field.questionType === "file") {
     return (
-      <label className="span-2">
-        {field.label}
-        {requiredMark}
-        <input
-          id={field.fieldKey}
-          name={field.fieldKey}
-          type="file"
-          required={field.required}
-          aria-describedby={describedBy}
-          accept=".pdf,.png,.jpg,.jpeg,.webp,.docx,application/pdf,image/jpeg,image/png,image/webp,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        />
-        <small className="muted">PDF, JPEG, PNG, WebP or DOCX, up to 8 MB. Binary storage is registered after you save a draft.</small>
-        {field.helperText ? <small id={`${field.fieldKey}-help`} className="muted">{field.helperText}</small> : null}
-      </label>
+      <FileUploadField
+        field={field}
+        describedBy={describedBy}
+        requiredMark={requiredMark}
+        initial={initial}
+        mode={mode}
+        formType={formType}
+        slug={slug}
+        continuation={continuation}
+        publicId={publicId}
+        ensureDraft={ensureDraft}
+      />
     );
   }
   const inputType = field.questionType === "email" ? "email" : field.questionType === "date" ? "date" : field.questionType === "number" ? "number" : "text";
@@ -285,9 +443,13 @@ export function PublicAdmissionsForm({
   const [publicId, setPublicId] = useState<string | null>(null);
   const [draftAnswers, setDraftAnswers] = useState<Record<string, unknown>>({});
   const formRef = useRef<HTMLFormElement>(null);
+  const continuationRef = useRef<string | null>(null);
+  const publicIdRef = useRef<string | null>(null);
   const idempotencyKey = useRef(
     typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `form-${Date.now()}`,
   );
+  continuationRef.current = continuation;
+  publicIdRef.current = publicId;
 
   const sections = payload?.sections ?? [];
   const isMulti = formType !== "enquiry" && sections.length > 1;
@@ -354,9 +516,68 @@ export function PublicAdmissionsForm({
   const years = payload?.academicYears ?? [];
   const groups = payload?.yearGroups ?? [];
 
+  async function persistDraft(silent = false) {
+    const formEl = formRef.current;
+    if (!payload || !formEl) throw new Error("Form is not ready");
+    if (!silent) setError("");
+    const form = new FormData(formEl);
+    const answers: Record<string, unknown> = {};
+    for (const section of sections) {
+      for (const field of section.fields) {
+        answers[field.fieldKey] = fieldValue(field.questionType, form, field.fieldKey);
+      }
+    }
+    const source = new URLSearchParams(window.location.search).get("source") ?? undefined;
+    const requestBody: Record<string, unknown> = {
+      answers,
+      draft: true,
+      idempotencyKey: idempotencyKey.current,
+    };
+    if (source) requestBody.source = source;
+    const token = continuationRef.current;
+    const existingPublicId = publicIdRef.current;
+    if (token) requestBody.continuationToken = token;
+    if (existingPublicId) requestBody.publicId = existingPublicId;
+    const path = `/api/v1/public/admissions/forms/${formType}/${slug}/submissions`;
+    const body = await api<{
+      submission: {
+        publicId?: string;
+        continuationToken?: string;
+      };
+    }>(path, {
+      method: "POST",
+      orgId: null,
+      body: JSON.stringify(requestBody),
+    });
+    if (body.submission.publicId) {
+      setPublicId(body.submission.publicId);
+      publicIdRef.current = body.submission.publicId;
+    }
+    const nextToken = body.submission.continuationToken ?? token;
+    if (nextToken) {
+      setContinuation(nextToken);
+      continuationRef.current = nextToken;
+      const next = new URL(window.location.href);
+      next.searchParams.set("continue", nextToken);
+      window.history.replaceState({}, "", next.toString());
+    }
+    if (!silent) {
+      setError("");
+      alert("Draft saved. Keep this page or the continuation link to resume later.");
+    }
+    if (!publicIdRef.current || !continuationRef.current) {
+      throw new Error("A saved draft is required before uploading a file");
+    }
+    return { continuationToken: continuationRef.current, publicId: publicIdRef.current };
+  }
+
   async function submitFromForm(draft = false) {
     const formEl = formRef.current;
     if (!payload || !formEl) return;
+    if (formEl.querySelector('[data-upload-state="uploading"]')) {
+      setError("Please wait for the file upload to finish.");
+      return;
+    }
     setError("");
     const form = new FormData(formEl);
     const answers: Record<string, unknown> = {};
@@ -366,15 +587,33 @@ export function PublicAdmissionsForm({
       }
     }
     try {
+      if (draft) {
+        if (mode === "staff" && formId) {
+          const requestBody: Record<string, unknown> = {
+            answers,
+            draft: true,
+            idempotencyKey: idempotencyKey.current,
+            source: "staff",
+          };
+          await api(`/api/v1/admissions/forms/${formId}/staff-submissions`, {
+            method: "POST",
+            body: JSON.stringify(requestBody),
+          });
+          alert("Draft saved.");
+          return;
+        }
+        await persistDraft(false);
+        return;
+      }
       const source = new URLSearchParams(window.location.search).get("source") ?? undefined;
       const requestBody: Record<string, unknown> = {
         answers,
-        draft,
+        draft: false,
         idempotencyKey: idempotencyKey.current,
       };
       if (source) requestBody.source = source;
-      if (continuation) requestBody.continuationToken = continuation;
-      if (publicId) requestBody.publicId = publicId;
+      if (continuationRef.current) requestBody.continuationToken = continuationRef.current;
+      if (publicIdRef.current) requestBody.publicId = publicIdRef.current;
       if (mode === "staff") requestBody.source = "staff";
       const path =
         mode === "staff" && formId
@@ -395,18 +634,6 @@ export function PublicAdmissionsForm({
         body: JSON.stringify(requestBody),
       });
       if (body.submission.publicId) setPublicId(body.submission.publicId);
-      if (draft) {
-        const token = body.submission.continuationToken ?? continuation;
-        setContinuation(token);
-        setError("");
-        if (token && mode === "public") {
-          const next = new URL(window.location.href);
-          next.searchParams.set("continue", token);
-          window.history.replaceState({}, "", next.toString());
-        }
-        alert("Draft saved. Keep this page or the continuation link to resume later.");
-        return;
-      }
       onCreated?.({
         applicationId: body.submission.applicationId,
         applicationReference: body.submission.applicationReference,
@@ -496,7 +723,19 @@ export function PublicAdmissionsForm({
             {section.helperText ? <p className="muted">{section.helperText}</p> : null}
             <div className="form-grid">
               {section.fields.map((field) => (
-                <FieldInput key={field.fieldKey} field={field} years={years} groups={groups} initial={draftAnswers[field.fieldKey]} />
+                <FieldInput
+                  key={field.fieldKey}
+                  field={field}
+                  years={years}
+                  groups={groups}
+                  initial={draftAnswers[field.fieldKey]}
+                  mode={mode}
+                  formType={formType}
+                  slug={slug}
+                  continuation={continuation}
+                  publicId={publicId}
+                  ensureDraft={() => persistDraft(true)}
+                />
               ))}
             </div>
           </section>

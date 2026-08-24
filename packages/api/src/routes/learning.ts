@@ -32,6 +32,16 @@ import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
 import { uuidRouteParam, withSchoolActor } from "../school-context";
 import {
+  copyRevisionAttachments,
+  insertPendingObject,
+  putAndActivateObject,
+  readUploadedFile,
+  scannerOf,
+  storageErrorToAppError,
+  storageOf,
+  validateBytes,
+} from "../file-service";
+import {
   mapLearningAssignment,
   mapLearningMark,
   mapLearningResource,
@@ -182,14 +192,23 @@ async function loadTargets(client: pg.PoolClient, orgId: string, assignmentId: s
 
 async function loadResources(client: pg.PoolClient, orgId: string, assignmentId: string) {
   const result = await client.query(
-    `select r.id, r.title, r.resource_kind, r.url, r.content_type, r.byte_size, r.storage_backend
+    `select r.id, r.title, r.resource_kind, r.url, r.content_type, r.byte_size, r.storage_backend,
+            r.stored_object_id, r.original_filename, o.status as file_status
      from learning_assignment_resources ar
      join learning_resources r on r.id = ar.resource_id
+     left join stored_objects o on o.id = r.stored_object_id
      where ar.assignment_id = $1 and ar.organisation_id = $2
+       and r.deleted_at is null
      order by ar.sort_order, r.created_at`,
     [assignmentId, orgId],
   );
-  return result.rows.map((row) => mapLearningResource(row as Record<string, unknown>));
+  return result.rows.map((row) => ({
+    ...mapLearningResource(row as Record<string, unknown>),
+    originalFilename: row.original_filename ?? null,
+    downloadPath:
+      row.stored_object_id && row.file_status === "active" ? `/api/v1/files/${row.stored_object_id}` : null,
+    binaryUploadAvailable: true,
+  }));
 }
 
 async function loadProgress(client: pg.PoolClient, orgId: string, assignmentId: string) {
@@ -665,6 +684,73 @@ export function registerLearningRoutes(app: SchoolappApi) {
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       const id = uuidRouteParam(c, "id");
       await assertCanManageAssignment(client, actor, id);
+      const contentType = c.req.header("content-type") ?? "";
+      if (contentType.includes("multipart/form-data")) {
+        try {
+          const upload = await readUploadedFile(c);
+          const validated = validateBytes({
+            filename: upload.filename,
+            mime: upload.mime,
+            bytes: upload.bytes,
+            domain: "learning_resource",
+          });
+          const title = (upload.fields.title ?? validated.originalFilename).slice(0, 200);
+          const kind = ["pdf", "worksheet", "image", "document"].includes(upload.fields.resourceKind ?? "")
+            ? upload.fields.resourceKind
+            : validated.kind === "pdf"
+              ? "pdf"
+              : validated.kind === "jpeg" || validated.kind === "png" || validated.kind === "webp"
+                ? "image"
+                : "document";
+          const pending = await insertPendingObject(client, {
+            organisationId: orgId,
+            domain: "learning_resource",
+            ownerRecordId: id,
+            storage: storageOf(c),
+            validated,
+            uploadedBy: userId,
+          });
+          const resource = await client.query<{ id: string }>(
+            `insert into learning_resources (
+               organisation_id, title, resource_kind, url, storage_backend, storage_key,
+               content_type, byte_size, stored_object_id, original_filename, created_by
+             ) values ($1,$2,$3,null,$4,$5,$6,$7,$8,$9,$10)
+             returning id`,
+            [
+              orgId,
+              title,
+              kind,
+              storageOf(c).backend,
+              pending.storageKey,
+              validated.storedContentType,
+              validated.byteSize,
+              pending.id,
+              validated.originalFilename,
+              userId,
+            ],
+          );
+          await putAndActivateObject(client, storageOf(c), scannerOf(c), {
+            organisationId: orgId,
+            objectId: pending.id,
+            storageKey: pending.storageKey,
+            bytes: upload.bytes,
+            contentType: validated.storedContentType,
+            filename: validated.originalFilename,
+            actorUserId: userId,
+            domain: "learning_resource",
+          });
+          await client.query(
+            `insert into learning_assignment_resources (
+               organisation_id, assignment_id, resource_id
+             ) values ($1, $2, $3)
+             on conflict (assignment_id, resource_id) do nothing`,
+            [orgId, id, resource.rows[0]!.id],
+          );
+          return c.json({ resources: await loadResources(client, orgId, id) }, 201);
+        } catch (error) {
+          throw storageErrorToAppError(error);
+        }
+      }
       const parsed = resourceBodySchema.safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid resource");
       if (!parsed.data.url || !isAllowedLearningUrl(parsed.data.url)) {
@@ -846,6 +932,17 @@ export function registerLearningRoutes(app: SchoolappApi) {
          order by revision_number`,
         [id, orgId],
       );
+      const attachments = await client.query(
+        `select a.id, a.revision_id, a.filename, a.content_type, a.byte_size, a.stored_object_id,
+                o.status as file_status
+         from learning_submission_attachments a
+         left join stored_objects o on o.id = a.stored_object_id
+         where a.organisation_id = $2
+           and a.revision_id in (select id from learning_submission_revisions where submission_id = $1)
+           and a.deleted_at is null
+         order by a.created_at`,
+        [id, orgId],
+      );
       const mark = await client.query(
         `select m.id, m.score, m.maximum_marks, m.feedback, m.released_to_student, m.released_to_parent,
                 m.resubmission_requested, m.marked_by, u.full_name as marked_by_name, m.marked_at
@@ -864,7 +961,21 @@ export function registerLearningRoutes(app: SchoolappApi) {
           workTypeName: submission.work_type_name,
           subjectName: submission.subject_name,
           maximumMarks: submission.maximum_marks != null ? Number(submission.maximum_marks) : null,
-          revisions: revisions.rows.map((item) => mapLearningRevision(item as Record<string, unknown>)),
+          revisions: revisions.rows.map((item) => ({
+            ...mapLearningRevision(item as Record<string, unknown>),
+            attachments: attachments.rows
+              .filter((att) => att.revision_id === item.id)
+              .map((att) => ({
+                id: att.id,
+                filename: att.filename,
+                contentType: att.content_type,
+                byteSize: att.byte_size,
+                downloadPath:
+                  att.stored_object_id && att.file_status === "active"
+                    ? `/api/v1/files/${att.stored_object_id}`
+                    : null,
+              })),
+          })),
           mark: mapLearningMark(mark.rows[0] as Record<string, unknown> | undefined, { audience: "staff" }),
         },
       });

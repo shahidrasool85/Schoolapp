@@ -1,6 +1,6 @@
 # ADR 0006: PostgreSQL + Drizzle + S3-compatible file storage
 
-**Status:** Accepted (amended 2026-08-20)  
+**Status:** Accepted (amended 2026-08-20; amended 2026-08-24 by [ADR 0022](./0022-phase13-object-storage.md))  
 **Date:** 2026-08-20
 
 ## Context
@@ -32,4 +32,4 @@ The system of record must be portable to managed Postgres (including Supabase) a
 
 - Configuration is endpoint, region, bucket, and credentials — not a hard-coded vendor SDK in domain code.
 - Reference `docker-compose` may omit object storage entirely and point at a managed bucket.
-- Large files never live in Postgres; signed upload/download URLs are issued by the API.
+- Large files never live in Postgres. Phase 13 stores bytes in a filesystem or S3-compatible adapter and serves them through authorised API proxy downloads ([ADR 0022](./0022-phase13-object-storage.md)). The S3 adapter can issue short-lived signed URLs; Schoolapp does not treat public bucket URLs as the access mechanism.

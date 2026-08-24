@@ -18,6 +18,16 @@ import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
 import { uuidRouteParam, withSchoolActor } from "../school-context";
 import { mapCatalogueItem, mapPastoralConcern, mapPastoralIntervention } from "../serialize";
+import {
+  insertPendingObject,
+  putAndActivateObject,
+  readUploadedFile,
+  scannerOf,
+  storageErrorToAppError,
+  storageOf,
+  validateBytes,
+  writeFileAudit,
+} from "../file-service";
 
 const CONCERN_SELECT = `
   select
@@ -214,9 +224,29 @@ export function registerPastoralRoutes(app: SchoolappApi) {
         `${INTERVENTION_SELECT} where i.concern_id = $1 and i.organisation_id = $2 order by i.action_on`,
         [id, orgId],
       );
+      const attachments = await client.query(
+        `select a.id, a.parent_kind, a.parent_id, a.title, a.storage_backend, a.content_type, a.byte_size,
+                a.created_at, a.original_filename, a.stored_object_id, o.status as file_status
+         from pastoral_record_attachments a
+         left join stored_objects o on o.id = a.stored_object_id
+         where a.parent_kind = 'pastoral_concern' and a.parent_id = $1 and a.organisation_id = $2
+           and a.deleted_at is null
+         order by a.created_at`,
+        [id, orgId],
+      );
       return c.json({
         concern: mapPastoralConcern(row),
         interventions: interventions.rows.map((item) => mapPastoralIntervention(item as Record<string, unknown>)),
+        attachments: attachments.rows.map((item) => ({
+          id: item.id,
+          title: item.title,
+          filename: item.original_filename ?? item.title,
+          contentType: item.content_type,
+          byteSize: item.byte_size,
+          createdAt: item.created_at,
+          downloadPath:
+            item.stored_object_id && item.file_status === "active" ? `/api/v1/files/${item.stored_object_id}` : null,
+        })),
       });
     }),
   );
@@ -388,6 +418,83 @@ export function registerPastoralRoutes(app: SchoolappApi) {
       );
       const row = await client.query(`${INTERVENTION_SELECT} where i.id = $1 and i.organisation_id = $2`, [id, orgId]);
       return c.json({ intervention: mapPastoralIntervention(row.rows[0] as Record<string, unknown>) });
+    }),
+  );
+
+  app.post("/pastoral/concerns/:id/attachments", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManagePastoral(actor)) throw new AppError(404, "not_found", "Not found");
+      const concernId = uuidRouteParam(c, "id");
+      const existing = await loadConcern(client, orgId, concernId);
+      try {
+        const upload = await readUploadedFile(c);
+        const validated = validateBytes({
+          filename: upload.filename,
+          mime: upload.mime,
+          bytes: upload.bytes,
+          domain: "pastoral",
+        });
+        const title = (upload.fields.title ?? validated.originalFilename).slice(0, 200);
+        const pending = await insertPendingObject(client, {
+          organisationId: orgId,
+          domain: "pastoral",
+          ownerRecordId: concernId,
+          storage: storageOf(c),
+          validated,
+          uploadedBy: userId,
+        });
+        const inserted = await client.query<{ id: string }>(
+          `insert into pastoral_record_attachments (
+             organisation_id, parent_kind, parent_id, title, storage_backend, storage_key,
+             content_type, byte_size, created_by, stored_object_id, original_filename
+           ) values ($1,'pastoral_concern',$2,$3,$4,$5,$6,$7,$8,$9,$10)
+           returning id`,
+          [
+            orgId,
+            concernId,
+            title,
+            storageOf(c).backend,
+            pending.storageKey,
+            validated.storedContentType,
+            validated.byteSize,
+            userId,
+            pending.id,
+            validated.originalFilename,
+          ],
+        );
+        await putAndActivateObject(client, storageOf(c), scannerOf(c), {
+          organisationId: orgId,
+          objectId: pending.id,
+          storageKey: pending.storageKey,
+          bytes: upload.bytes,
+          contentType: validated.storedContentType,
+          filename: validated.originalFilename,
+          actorUserId: userId,
+          domain: "pastoral",
+        });
+        await writeFileAudit(client, {
+          organisationId: orgId,
+          actorUserId: userId,
+          action: "pastoral.attachment.upload",
+          objectId: pending.id,
+          domain: "pastoral",
+          filename: validated.originalFilename,
+        });
+        void existing;
+        return c.json(
+          {
+            attachment: {
+              id: inserted.rows[0]!.id,
+              title,
+              filename: validated.originalFilename,
+              downloadPath: `/api/v1/files/${pending.id}`,
+            },
+          },
+          201,
+        );
+      } catch (error) {
+        throw storageErrorToAppError(error);
+      }
     }),
   );
 

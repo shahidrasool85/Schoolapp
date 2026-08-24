@@ -1,6 +1,6 @@
 # Schoolapp documentation
 
-Architecture **accepted**. Phases 1–11 (foundation through behaviour, pastoral, and safeguarding) are implemented. Later product modules (AI, games, mobile) are not built yet.
+Architecture **accepted**. Phases 1–13 (foundation through production file storage) are implemented. Later product modules (AI, games, mobile) are not built yet.
 
 | Document | Contents |
 | --- | --- |
@@ -14,6 +14,7 @@ Architecture **accepted**. Phases 1–11 (foundation through behaviour, pastoral
 | [project-structure.md](./project-structure.md) | Intended monorepo |
 | [permissions-catalogue.md](./permissions-catalogue.md) | Seed RBAC matrix |
 | [demo.md](./demo.md) | Local browser demo: install, seed, start, URLs, and test logins |
+| [storage.md](./storage.md) | Object storage drivers, upload/download, limits, and security |
 | [embed-admissions-forms.md](./embed-admissions-forms.md) | Website iframe embed instructions |
 | [security/public-admissions-forms.md](./security/public-admissions-forms.md) | Public-form threat model and deployment notes |
 

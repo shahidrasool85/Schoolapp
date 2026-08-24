@@ -26,6 +26,7 @@ import { registerBehaviourRoutes } from "./routes/behaviour";
 import { registerPastoralRoutes } from "./routes/pastoral";
 import { registerSafeguardingRoutes } from "./routes/safeguarding";
 import { registerTimetableRoutes } from "./routes/timetable";
+import { registerFileRoutes } from "./routes/files";
 
 export type { ApiConfig, ApiEnv, SchoolappApi } from "./types";
 
@@ -59,6 +60,14 @@ export function createApiApp(config: ApiConfig) {
   );
 
   app.get("/health", (c) => c.json({ ok: true }));
+  app.get("/health/storage", async (c) => {
+    const health = await resolvedConfig.storage.health();
+    return c.json({
+      configured: health.configured,
+      driver: health.driver,
+      writable: health.writable,
+    });
+  });
 
   registerPublicRoutes(app);
   registerPublicFormRoutes(app);
@@ -76,6 +85,7 @@ export function createApiApp(config: ApiConfig) {
   registerAttendanceRoutes(app);
   registerStudentPortalRoutes(app);
   registerDocumentRoutes(app);
+  registerFileRoutes(app);
   registerLearningRoutes(app);
   registerAssessmentRoutes(app);
   registerCommunicationRoutes(app);

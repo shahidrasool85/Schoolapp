@@ -75,6 +75,7 @@ export type FileAnswerValue = {
   contentType?: string;
   byteSize?: number;
   purpose?: string;
+  documentId?: string;
 };
 
 export type CanonicalSnapshot = {
@@ -649,9 +650,22 @@ export function validateFieldAnswer(field: FormFieldDefinition, raw: unknown): u
       if (!rec) {
         fieldError(field, `${field.label} is invalid`);
       }
+      const documentId = typeof rec.documentId === "string" ? rec.documentId.trim() : "";
       const filename = sanitizePlainText(rec.filename ?? rec.originalFilename, 120);
       const contentType = sanitizePlainText(rec.contentType, 120);
       const byteSize = Number(rec.byteSize ?? rec.byte_size ?? 0);
+      if (documentId) {
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(documentId)) {
+          fieldError(field, `${field.label} is invalid`);
+        }
+        return {
+          documentId,
+          filename: filename || "document",
+          contentType: contentType || "application/octet-stream",
+          byteSize: Number.isFinite(byteSize) ? byteSize : 0,
+          purpose: field.documentPurpose ?? sanitizePlainText(rec.purpose, 40) ?? "other",
+        } satisfies FileAnswerValue;
+      }
       if (!filename) {
         fieldError(field, `${field.label} requires a filename`);
       }

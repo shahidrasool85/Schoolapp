@@ -34,3 +34,4 @@ pnpm-debug.log*
 playwright-report/
 test-results/
 .turbo/
+.data/

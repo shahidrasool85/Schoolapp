@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { api } from "../../../../lib/api";
+import { api, downloadAuthenticated } from "../../../../lib/api";
 
 type Detail = {
   student: {
@@ -121,6 +121,18 @@ export default function StudentDetailPage() {
     concerns: Array<{ id: string; concernOn: string; categoryName: string | null; priority: string; status: string; summary: string }>;
   } | null>(null);
   const [safeguardingLink, setSafeguardingLink] = useState(false);
+  const [documents, setDocuments] = useState<Array<{
+    id: string;
+    title: string;
+    documentType: string;
+    visibility: string;
+    originalFilename: string | null;
+    byteSize: number | null;
+    createdAt: string;
+    downloadPath: string | null;
+    fileStatus: string | null;
+  }>>([]);
+  const [uploadState, setUploadState] = useState("");
   const [years, setYears] = useState<Option[]>([]);
   const [groups, setGroups] = useState<Option[]>([]);
   const [classes, setClasses] = useState<Option[]>([]);
@@ -192,6 +204,14 @@ export default function StudentDetailPage() {
     } catch {
       if (seq !== loadSeq.current) return;
       setSafeguardingLink(false);
+    }
+    try {
+      const docs = await api<{ documents: typeof documents }>(`/api/v1/students/${studentId}/documents`);
+      if (seq !== loadSeq.current) return;
+      setDocuments(docs.documents);
+    } catch {
+      if (seq !== loadSeq.current) return;
+      setDocuments([]);
     }
     try {
       const academicHistory = await api<{
@@ -439,6 +459,76 @@ export default function StudentDetailPage() {
           <a href={`/school/safeguarding?studentId=${data.student.id}`}>Open safeguarding records</a>
         </p>
       ) : null}
+
+      <h2>Documents</h2>
+      {documents.length === 0 ? <p className="muted">No pupil documents yet.</p> : (
+        <table>
+          <thead>
+            <tr><th>Title</th><th>Type</th><th>Visibility</th><th>File</th><th></th></tr>
+          </thead>
+          <tbody>
+            {documents.map((doc) => (
+              <tr key={doc.id}>
+                <td>{doc.title}</td>
+                <td>{doc.documentType}</td>
+                <td>{doc.visibility.replaceAll("_", " ")}</td>
+                <td>{doc.originalFilename ?? "Metadata only"}{doc.byteSize ? ` · ${Math.round(doc.byteSize / 1024)} KB` : ""}</td>
+                <td>
+                  {doc.downloadPath ? (
+                    <button type="button" className="secondary" onClick={() => downloadAuthenticated(doc.downloadPath!, doc.originalFilename ?? "document").catch((err: Error) => setError(err.message))}>
+                      Download
+                    </button>
+                  ) : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <form
+        className="card form-grid"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          const form = event.currentTarget;
+          const payload = new FormData(form);
+          setUploadState("Uploading…");
+          setError("");
+          try {
+            await api(`/api/v1/students/${params.id}/documents`, { method: "POST", body: payload });
+            form.reset();
+            setUploadState("Uploaded");
+            const docs = await api<{ documents: typeof documents }>(`/api/v1/students/${params.id}/documents`);
+            setDocuments(docs.documents);
+          } catch (err) {
+            setUploadState("");
+            setError(err instanceof Error ? err.message : "Upload failed");
+          }
+        }}
+      >
+        <label>Title<input name="title" required /></label>
+        <label>
+          Type
+          <select name="documentType">
+            <option value="report">Report</option>
+            <option value="letter">Letter</option>
+            <option value="consent">Consent</option>
+            <option value="support">Support</option>
+            <option value="school_record">School record</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        <label>
+          Visibility
+          <select name="visibility">
+            <option value="staff">Staff only</option>
+            <option value="staff_and_parents">Staff and parents</option>
+            <option value="staff_parents_and_student">Staff, parents and pupil</option>
+          </select>
+        </label>
+        <label>File<input name="file" type="file" required accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt" /></label>
+        <div><button type="submit">Upload document</button></div>
+        {uploadState ? <p className="muted">{uploadState}</p> : null}
+      </form>
 
       {academic && academic.targets.length > 0 ? (
         <>

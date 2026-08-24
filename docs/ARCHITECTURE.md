@@ -1,6 +1,6 @@
 # Schoolapp — Platform Architecture
 
-**Status:** Phases 1–10 implemented (foundation through communications and school calendar). Later modules (AI, mobile) are not built.  
+**Status:** Phases 1–13 implemented (foundation through production file storage). Later modules (AI, mobile) are not built.  
 **Audience:** Product owner and engineering.  
 **Scope:** Multi-tenant UK school SaaS (SIS + LMS + AI learning), web first, mobile-ready.
 
@@ -593,7 +593,7 @@ If Next.js on Plesk becomes awkward, move `apps/web/app/api/v1` to `apps/api` (H
 | --- | --- | --- |
 | Database | PostgreSQL | Drizzle + SQL migrations; no Prisma Accelerate, no Neon-only features |
 | Auth | Supabase Auth / GoTrue | `packages/auth` port; JWT is a standard |
-| Files | S3-compatible API via `packages/storage` | Managed or self-hosted S3-compatible buckets; MinIO optional, **not required** |
+| Files | S3-compatible API via `packages/storage`, plus a local filesystem adapter | Managed or self-hosted S3-compatible buckets; filesystem for demo; MinIO optional, **not required** |
 | Realtime | Optional later | Prefer polling/SSE from our API before binding to Supabase Realtime |
 | Email | SMTP or provider API | Adapter |
 | AI | OpenAI or similar | `packages/ai` with `AiProvider` interface; store provider name + model on each generation record |

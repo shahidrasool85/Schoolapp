@@ -1,5 +1,6 @@
 import type { Hono } from "hono";
 import type { DbPools } from "@schoolapp/db";
+import type { FileScanner, ObjectStoragePort } from "@schoolapp/storage";
 
 export type ApiConfig = {
   pools: DbPools;
@@ -7,6 +8,8 @@ export type ApiConfig = {
   tokenTtlSeconds: number;
   platformDomain: string;
   trustProxy: boolean;
+  storage: ObjectStoragePort;
+  fileScanner: FileScanner;
 };
 
 export type ApiEnv = {

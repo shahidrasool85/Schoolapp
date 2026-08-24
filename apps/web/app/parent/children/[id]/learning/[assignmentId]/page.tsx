@@ -2,7 +2,7 @@
 
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api, ApiError } from "../../../../../../lib/api";
+import { api, ApiError, downloadAuthenticated } from "../../../../../../lib/api";
 
 type Detail = {
   assignment: {
@@ -14,7 +14,7 @@ type Detail = {
     createdByName: string | null;
     submission: { status: string; submittedAt: string | null };
     mark: { score: number | null; maximumMarks: number | null; feedback: string | null } | null;
-    resources: Array<{ id: string; title: string; url: string | null }>;
+    resources: Array<{ id: string; title: string; url: string | null; downloadPath?: string | null; originalFilename?: string | null }>;
   };
 };
 
@@ -62,7 +62,24 @@ export default function ParentChildAssignmentPage() {
           <ul>
             {a.resources.map((resource) => (
               <li key={resource.id}>
-                {resource.url ? <a href={resource.url}>{resource.title}</a> : resource.title}
+                {resource.downloadPath ? (
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() =>
+                      downloadAuthenticated(
+                        resource.downloadPath!,
+                        resource.originalFilename ?? resource.title,
+                      ).catch((err: Error) => setError(err.message))
+                    }
+                  >
+                    {resource.title}
+                  </button>
+                ) : resource.url ? (
+                  <a href={resource.url}>{resource.title}</a>
+                ) : (
+                  resource.title
+                )}
               </li>
             ))}
           </ul>

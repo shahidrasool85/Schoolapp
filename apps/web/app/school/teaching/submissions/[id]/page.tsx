@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { api } from "../../../../../lib/api";
+import { api, downloadAuthenticated } from "../../../../../lib/api";
 
 type Detail = {
   submission: {
@@ -16,7 +16,14 @@ type Detail = {
     assignmentDescription: string | null;
     teacherNotes: string | null;
     maximumMarks: number | null;
-    revisions: Array<{ id: string; revisionNumber: number; textResponse: string | null; comment: string | null; submittedAt: string }>;
+    revisions: Array<{
+      id: string;
+      revisionNumber: number;
+      textResponse: string | null;
+      comment: string | null;
+      submittedAt: string;
+      attachments?: Array<{ id: string; filename: string; downloadPath: string | null }>;
+    }>;
     mark: {
       score: number | null;
       maximumMarks: number | null;
@@ -96,7 +103,34 @@ export default function MarkSubmissionPage() {
       <h2>Revisions</h2>
       <ul>
         {s.revisions.map((rev) => (
-          <li key={rev.id}>#{rev.revisionNumber} · {new Date(rev.submittedAt).toLocaleString()}</li>
+          <li key={rev.id}>
+            #{rev.revisionNumber} · {new Date(rev.submittedAt).toLocaleString()}
+            {rev.attachments && rev.attachments.length > 0 ? (
+              <ul>
+                {rev.attachments.map((file) => (
+                  <li key={file.id}>
+                    {file.filename}
+                    {file.downloadPath ? (
+                      <>
+                        {" "}
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() =>
+                            downloadAuthenticated(file.downloadPath!, file.filename).catch((err: Error) =>
+                              setError(err.message),
+                            )
+                          }
+                        >
+                          Download
+                        </button>
+                      </>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </li>
         ))}
       </ul>
       <form className="card form-grid" onSubmit={onSubmit}>

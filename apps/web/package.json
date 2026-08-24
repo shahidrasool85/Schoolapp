@@ -13,6 +13,7 @@
   "dependencies": {
     "@schoolapp/api": "workspace:*",
     "@schoolapp/db": "workspace:*",
+    "@schoolapp/storage": "workspace:*",
     "hono": "^4.8.5",
     "next": "^15.4.6",
     "react": "^19.1.1",

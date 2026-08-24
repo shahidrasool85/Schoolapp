@@ -1,6 +1,7 @@
 import { handle } from "hono/vercel";
 import { createApiApp } from "@schoolapp/api";
 import { createPools } from "@schoolapp/db";
+import { createFileScannerFromEnv, createObjectStorageFromEnv } from "@schoolapp/storage";
 
 const appUrl = process.env.DATABASE_URL;
 const ownerUrl = process.env.DATABASE_OWNER_URL;
@@ -18,9 +19,12 @@ const app = createApiApp({
   tokenTtlSeconds: Number(process.env.AUTH_TOKEN_TTL_SECONDS ?? 900),
   platformDomain: (process.env.PLATFORM_DOMAIN ?? "localhost").trim().toLowerCase(),
   trustProxy: process.env.TRUST_PROXY === "true",
+  storage: createObjectStorageFromEnv(),
+  fileScanner: createFileScannerFromEnv(),
 });
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export const GET = handle(app);
 export const POST = handle(app);

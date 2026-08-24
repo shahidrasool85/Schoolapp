@@ -500,6 +500,18 @@ See [ADR 0019](./adr/0019-phase10-communications-calendar.md). Recipients are a 
 
 See [ADR 0020](./adr/0020-phase11-behaviour-pastoral-safeguarding.md). Safeguarding is a separate permission set and is not included on ordinary student-record payloads.
 
+### 6.2e School activities, consents, and parent responses (Phase 14)
+
+- Types: `school_activity_types`
+- Activities: `school_activities`, `school_activity_status_history`
+- Targeting / eligibility: `school_activity_targets`, `school_activity_eligible_pupils`
+- Staff: `school_activity_staff`
+- Consent: `school_activity_consent_clauses`, `school_activity_responses` (one effective row; wording snapshot)
+- Participants / waiting list: `school_activity_participants`
+- Documents / updates: `school_activity_documents` (Phase 13 `stored_objects`, domain `activity`), `school_activity_updates`
+
+See [ADR 0023](./adr/0023-phase14-activities-consents.md). Calendar list APIs include an `activities` array with `source: "activity"`. Medical/emergency data is read live and is not snapshotted onto the activity.
+
 ### 6.3 Later entities (do not implement now; reserved names)
 
 - Admissions: `admissions_enquiries`, `admissions_applications`, `admissions_application_contacts`, `admissions_application_status_history`, `admissions_assessments`, `admissions_waiting_list_entries`, `admissions_offers`, `admissions_documents` (metadata only)

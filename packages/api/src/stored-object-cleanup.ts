@@ -9,7 +9,8 @@ const REFERENCE_SQL = `
     (select count(*) from learning_resources where stored_object_id = $1 and deleted_at is null) +
     (select count(*) from learning_submission_attachments where stored_object_id = $1 and deleted_at is null) +
     (select count(*) from pastoral_record_attachments where stored_object_id = $1 and deleted_at is null) +
-    (select count(*) from safeguarding_attachments where stored_object_id = $1 and deleted_at is null)
+    (select count(*) from safeguarding_attachments where stored_object_id = $1 and deleted_at is null) +
+    (select count(*) from school_activity_documents where stored_object_id = $1 and deleted_at is null)
     as n
 `;
 

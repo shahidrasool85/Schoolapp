@@ -13,13 +13,26 @@ type Event = {
   related: Array<{ studentDisplayName: string | null; className: string | null; yearGroupName: string | null }>;
 };
 
+type Activity = {
+  id: string;
+  title: string;
+  startsAt: string;
+  location: string | null;
+  activityTypeName: string | null;
+  source: string;
+};
+
 export default function ParentCalendarPage() {
   const [items, setItems] = useState<Event[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    api<{ events: Event[] }>("/api/v1/parent/calendar/events")
-      .then((body) => setItems(body.events))
+    api<{ events: Event[]; activities?: Activity[] }>("/api/v1/parent/calendar/events")
+      .then((body) => {
+        setItems(body.events);
+        setActivities(body.activities ?? []);
+      })
       .catch((err: Error) => setError(err.message));
   }, []);
 
@@ -28,7 +41,7 @@ export default function ParentCalendarPage() {
   return (
     <>
       <h1>Family calendar</h1>
-      {items.length === 0 ? <p>No upcoming family events.</p> : null}
+      {items.length === 0 && activities.length === 0 ? <p>No upcoming family events.</p> : null}
       <div className="cards">
         {items.map((item) => (
           <div className="card" key={item.id}>
@@ -44,6 +57,15 @@ export default function ParentCalendarPage() {
                   .join("; ")}
               </span>
             ) : null}
+          </div>
+        ))}
+        {activities.map((item) => (
+          <div className="card" key={`activity-${item.id}-${item.startsAt}`}>
+            <strong>{item.title}</strong>
+            <span className="muted">
+              {item.activityTypeName} · activity · {new Date(item.startsAt).toLocaleString()}
+              {item.location ? ` · ${item.location}` : ""}
+            </span>
           </div>
         ))}
       </div>

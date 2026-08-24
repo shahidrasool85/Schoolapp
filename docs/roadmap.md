@@ -202,6 +202,20 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 **Not in Phase 13:** OCR, AI extraction, e-signatures, Drive clone, teacher annotation editor, professional UI redesign.
 
+## Phase 14 — Trips, clubs, consents, and parent responses (implemented)
+
+**Outcome:** a reusable school-activities workflow that connects existing portals, calendar, notifications, and Phase 13 files.
+
+- Canonical `school_activities` (not a second `school_events` table)
+- Targeting vs eligibility snapshot vs participants
+- Explicit parent consent with wording/version snapshot; staff-offline consent cannot spoof a guardian
+- Optional capacity, waiting list, and transaction-safe last-place allocation
+- Assigned activity staff; limited live medical/emergency summary (no stored snapshot, no safeguarding)
+- Parent and student Activities areas; calendar `source: activity`
+- Recurring clubs via weekday + until date; no payment processing
+
+**Not in Phase 14:** Stripe/fees, SMS/email delivery, timetable auto-exceptions, statutory attendance mapping, full risk-assessment product, professional UI redesign.
+
 ## Phase 12.5 — AI learning
 
 - `packages/ai` port + one provider
@@ -217,6 +231,8 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 - Leaderboards honouring school flags and Children’s Code defaults (off)
 
 ## Phase 14 — Mobile clients
+
+(Product numbering in this later-vision list is independent of the implemented Phase 14 activities/consent work above.)
 
 - Expo app: **parent** first (read-mostly)
 - Then **student** (attempts, homework submit if API already exists)

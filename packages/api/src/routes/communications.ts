@@ -32,6 +32,8 @@ import {
   notifyEventUpcoming,
   snapshotAnnouncementRecipients,
   snapshotEventAudience,
+  listCalendarActivities,
+  canReadSchoolActivities,
   type CommunicationTargetInput,
 } from "@schoolapp/core";
 import type { SchoolappApi } from "../types";
@@ -44,6 +46,7 @@ import {
   mapSchoolEvent,
   mapSchoolEventType,
 } from "../serialize";
+import { calendarItemsFromActivities } from "../activities-portal";
 
 const targetSchema = z.object({
   targetType: z.enum([
@@ -714,8 +717,16 @@ export function registerCommunicationRoutes(app: SchoolappApi) {
           mine,
         ],
       );
+      const activityRows = await listCalendarActivities(client, {
+        organisationId: orgId,
+        from,
+        to,
+        staffUserId: userId,
+        schoolWide: canReadSchoolCalendar(actor) || canReadSchoolActivities(actor),
+      });
       return c.json({
         events: rows.rows.map((row) => mapSchoolEvent(row as Record<string, unknown>)),
+        activities: calendarItemsFromActivities(activityRows, from, to),
       });
     }),
   );

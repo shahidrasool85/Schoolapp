@@ -17,6 +17,8 @@ import {
   studentDocumentVisibleToAudience,
   writeAudit,
   fileAnswerDocumentId,
+  activityDocumentVisibleToAudience,
+  canReadSchoolActivities,
   type FormFieldDefinition,
 } from "@schoolapp/core";
 import {
@@ -124,13 +126,15 @@ export function profileForDomain(domain: StoredObjectDomain) {
             ? "learning_submission"
             : domain === "pastoral"
               ? "pastoral"
-              : "safeguarding";
+              : domain === "activity"
+                ? "activity"
+                : "safeguarding";
   return fileProfile(name, limits);
 }
 
 export function sensitivityForDomain(domain: StoredObjectDomain): FileSensitivity {
   if (domain === "safeguarding") return "safeguarding";
-  if (domain === "pastoral" || domain === "student_document" || domain === "admissions_form" || domain === "admissions_application") {
+  if (domain === "pastoral" || domain === "student_document" || domain === "admissions_form" || domain === "admissions_application" || domain === "activity") {
     return "confidential";
   }
   return "standard";
@@ -440,6 +444,55 @@ export async function authorizeStoredObjectDownload(
       ) {
         notFound();
       }
+      return;
+    }
+    case "activity": {
+      const doc = await client.query<{
+        activity_id: string;
+        visibility: string;
+        deleted_at: Date | null;
+        parent_visible: boolean;
+        student_visible: boolean;
+        status: string;
+      }>(
+        `select d.activity_id, d.visibility, d.deleted_at, a.parent_visible, a.student_visible, a.status
+         from school_activity_documents d
+         join school_activities a on a.id = d.activity_id
+         where d.stored_object_id = $1 and d.organisation_id = $2`,
+        [object.id, object.organisation_id],
+      );
+      const row = doc.rows[0];
+      if (!row || row.deleted_at) notFound();
+      if (actor.userKind === "parent") {
+        if (!activityDocumentVisibleToAudience(row.visibility, "parent") || !row.parent_visible) notFound();
+        const children = await guardianChildIds(client, actor.userId, object.organisation_id);
+        const eligible = await client.query(
+          `select 1 from school_activity_eligible_pupils
+           where activity_id = $1 and organisation_id = $2 and student_profile_id = any($3::uuid[])`,
+          [row.activity_id, object.organisation_id, [...children]],
+        );
+        if (!eligible.rows[0]) notFound();
+        return;
+      }
+      if (actor.userKind === "student") {
+        if (!activityDocumentVisibleToAudience(row.visibility, "student") || !row.student_visible) notFound();
+        const studentId = await requireStudentPortalEnabled(client, object.organisation_id, actor.userId);
+        const eligible = await client.query(
+          `select 1 from school_activity_eligible_pupils
+           where activity_id = $1 and organisation_id = $2 and student_profile_id = $3`,
+          [row.activity_id, object.organisation_id, studentId],
+        );
+        if (!eligible.rows[0]) notFound();
+        return;
+      }
+      if (canReadSchoolActivities(actor)) return;
+      const assigned = await client.query(
+        `select 1 from school_activity_staff where activity_id = $1 and staff_user_id = $2
+         union all
+         select 1 from school_activities where id = $1 and created_by = $2`,
+        [row.activity_id, actor.userId],
+      );
+      if (!assigned.rows[0]) notFound();
       return;
     }
     default:

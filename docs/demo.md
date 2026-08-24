@@ -129,6 +129,7 @@ Sign in as **Greenwood School Admin** at http://greenwood.localhost:3000/login, 
 - Assessment & Progress (`/school/assessment`) — formal assessments, result entry, reports
 - Communications (`/school/communications`) — announcements and calendar
 - Timetable (`/school/timetable`) — school day, rooms, class/teacher views, cover/changes
+- Activities (`/school/activities`) — trips, clubs, consent responses, waiting list
 - Pastoral & Behaviour (`/school/pastoral`) — incidents, achievements, pastoral concerns
 - Safeguarding (`/school/safeguarding`) — restricted; Headteacher and School Admin only in the demo
 - Students (open Amelia Khan — attendance, Learning history, Academic / Results, and behaviour summary)
@@ -138,11 +139,11 @@ Sign in as **Greenwood School Admin** at http://greenwood.localhost:3000/login, 
 - Parents / Guardians
 - Admissions → Forms, Sources / Campaigns, Enquiries, Applications
 
-Sign in as the Greenwood **teacher** and open Teaching & Learning. You should see Year 3 work for 3A (and 3B subject work), with unsubmitted, submitted, marked, and resubmission-requested examples. Attendance → My registers should still show 3A, not the whole school. Communications should let the teacher create a class notice for 3A, not a whole-school broadcast. **My Timetable** should show Hannah Cole’s 3A lessons (week of 7 September 2026 if today is before term) with Take attendance.
+Sign in as the Greenwood **teacher** and open Teaching & Learning. You should see Year 3 work for 3A (and 3B subject work), with unsubmitted, submitted, marked, and resubmission-requested examples. Attendance → My registers should still show 3A, not the whole school. Communications should let the teacher create a class notice for 3A, not a whole-school broadcast. **My Timetable** should show Hannah Cole’s 3A lessons (week of 7 September 2026 if today is before term) with Take attendance. **Activities** should show trips/clubs Hannah is assigned to (museum visit, chess club, football fixture), not school-wide management of every activity.
 
-Sign in as the Greenwood **parent** and open the parent portal (`/parent`). You should see Amelia Khan and Yusuf Khan, attendance, Learning (assignments/due/status; marks only when released to parents), released formal results, published reports, Notices, Calendar, and notifications. Unreleased results, the draft spring report, and the staff-only briefing must not appear. Family calendar rows should name which child/class they relate to. Each child has a **Timetable** page; Amelia (3A) and Yusuf (5A Friday Maths) differ.
+Sign in as the Greenwood **parent** and open the parent portal (`/parent`). You should see Amelia Khan and Yusuf Khan, attendance, Learning (assignments/due/status; marks only when released to parents), released formal results, published reports, Notices, Calendar, **Activities** (Science Museum consent for Amelia, Chess Club waiting list for Amelia / confirmed for Yusuf, football fixture, cancelled pottery workshop), and notifications. Unreleased results, the draft spring report, and the staff-only briefing must not appear. Family calendar rows should name which child/class they relate to. Each child has a **Timetable** page; Amelia (3A) and Yusuf (5A Friday Maths) differ.
 
-Sign in as the Greenwood **student** (Student tab, username `amelia.khan`) and open My Learning (`/student/learning`) plus Results (`/student/results`) and Notices. You should see assigned work, student-released formal results, the whole-school welcome, and the Year 3 swimming notice. Parent-only English reading, unreleased science, parents' evening booking copy, and staff-only notices must not appear. **My Timetable** should show only Amelia’s 3A lessons.
+Sign in as the Greenwood **student** (Student tab, username `amelia.khan`) and open My Learning (`/student/learning`) plus Results (`/student/results`), Notices, and **Activities**. You should see assigned work, student-released formal results, the whole-school welcome, and the Year 3 swimming notice. Parent-only English reading, unreleased science, parents' evening booking copy, and staff-only notices must not appear. **My Timetable** should show only Amelia’s 3A lessons. Coding club taster allows student self-sign-up; the museum trip does not.
 
 Sign in as **Oak Academy School Admin** at http://oakacademy.localhost:3000/login. You should see Oak pupils such as Niamh Okonkwo and Oak comprehension work, **not** Greenwood’s Amelia Khan or Year 3 Fractions.
 

@@ -66,6 +66,7 @@ Diagnostic: `GET /api/v1/health/storage` returns `{ configured, driver, writable
 | Learning submissions | 20 MiB |
 | Pastoral | 10 MiB |
 | Safeguarding | 15 MiB |
+| Activity documents | 10 MiB |
 
 Override with `OBJECT_STORAGE_MAX_BYTES_*`. Oversized uploads return a user-facing “file too large” error, not a provider stack.
 
@@ -79,6 +80,7 @@ Validated from extension, declared MIME type, and magic bytes. Executables, HTML
 | Pupil documents | PDF, JPEG, PNG, WebP, DOC/DOCX, XLS/XLSX, text |
 | Learning | PDF, JPEG, PNG, WebP, DOCX, XLSX, text |
 | Pastoral / safeguarding | PDF, JPEG, PNG, WebP, DOCX |
+| Activity documents | PDF, JPEG, PNG, WebP, DOCX, XLSX, text |
 
 Original filenames are sanitised for display. They are never used as filesystem paths or object keys.
 
@@ -91,6 +93,7 @@ Re-checked on every download:
 - Teacher assigned-only student access where that is the existing rule
 - Parent: guardianship + `portal_access` + parent-visible flag
 - Student: current enrolment + Student Portal policy + self-visible flag
+- Activity files: staff assignment or school-wide activity read; parent/student visibility flags; eligible child/self only
 - Safeguarding: safeguarding capabilities only. Ordinary Teacher, Parent, Student, and unaffiliated Platform Admin get `404`. Object id or key is never enough.
 
 Sensitive responses use `Cache-Control: private, no-store`. HTML/JS/SVG are not served inline. Safeguarding downloads are attachments.

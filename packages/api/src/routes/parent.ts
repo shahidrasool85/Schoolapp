@@ -16,6 +16,7 @@ import {
   requireLinkedChild,
   summariseAttendanceMarks,
   isoDate,
+  listCalendarActivities,
 } from "@schoolapp/core";
 import { listPupilTimetable } from "./timetable";
 import { mapTimetableOccurrence } from "../serialize";
@@ -40,6 +41,12 @@ import {
   loadPortalEventSubjects,
   markPortalAnnouncementRead,
 } from "../communications-portal";
+import {
+  calendarItemsFromActivities,
+  listPortalActivities,
+  loadPortalActivityDetail,
+  parentRespondToActivity,
+} from "../activities-portal";
 
 export function registerParentRoutes(app: SchoolappApi) {
   app.get("/parent/dashboard", requireUser, async (c) =>
@@ -332,7 +339,14 @@ export function registerParentRoutes(app: SchoolappApi) {
           });
         }
       }
-      return c.json({ events: withRelated, lessons });
+      const activityRows = await listCalendarActivities(client, {
+        organisationId: orgId,
+        from,
+        to,
+        studentIds: childIds,
+        parentVisibleOnly: true,
+      });
+      return c.json({ events: withRelated, lessons, activities: calendarItemsFromActivities(activityRows, from, to) });
     }),
   );
 
@@ -371,6 +385,59 @@ export function registerParentRoutes(app: SchoolappApi) {
           related: await loadPortalEventSubjects(client, orgId, eventId, userId, childIds),
         },
       });
+    }),
+  );
+
+  app.get("/parent/activities", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACTIVITIES_READ_OWN_CHILDREN);
+      const childIds = [...(await guardianChildIds(client, userId, orgId))];
+      const activities = await listPortalActivities(client, {
+        orgId,
+        studentIds: childIds,
+        audience: "parent",
+      });
+      return c.json({ activities });
+    }),
+  );
+
+  app.get("/parent/children/:studentId/activities", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACTIVITIES_READ_OWN_CHILDREN);
+      const studentId = uuidRouteParam(c, "studentId");
+      await requireLinkedChild(client, userId, orgId, studentId);
+      const activities = await listPortalActivities(client, {
+        orgId,
+        studentIds: [studentId],
+        audience: "parent",
+      });
+      return c.json({ activities });
+    }),
+  );
+
+  app.get("/parent/children/:studentId/activities/:activityId", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACTIVITIES_READ_OWN_CHILDREN);
+      const studentId = uuidRouteParam(c, "studentId");
+      const activityId = uuidRouteParam(c, "activityId");
+      await requireLinkedChild(client, userId, orgId, studentId);
+      return c.json(await loadPortalActivityDetail(client, { orgId, activityId, studentId, audience: "parent" }));
+    }),
+  );
+
+  app.post("/parent/children/:studentId/activities/:activityId/respond", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACTIVITIES_READ_OWN_CHILDREN);
+      const studentId = uuidRouteParam(c, "studentId");
+      const activityId = uuidRouteParam(c, "activityId");
+      const result = await parentRespondToActivity(client, {
+        orgId,
+        userId,
+        studentId,
+        activityId,
+        body: await c.req.json(),
+      });
+      return c.json(result);
     }),
   );
 }

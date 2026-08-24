@@ -196,6 +196,22 @@ const LINKS: NavLink[] = [
       { href: "/school/communications/calendar", label: "Calendar", permissions: COMMUNICATION_NAV_PERMISSIONS },
     ],
   },
+  {
+    href: "/school/activities",
+    label: "Activities",
+    exact: true,
+    permissions: [
+      "activities.read",
+      "activities.read_assigned",
+      "activities.manage",
+      "activities.manage_assigned",
+    ],
+    children: [
+      { href: "/school/activities", label: "All activities", exact: true, permissions: ["activities.read", "activities.read_assigned", "activities.manage", "activities.manage_assigned"] },
+      { href: "/school/activities?type=trips", label: "Trips & visits", permissions: ["activities.read", "activities.read_assigned", "activities.manage", "activities.manage_assigned"] },
+      { href: "/school/activities?type=club", label: "Clubs", permissions: ["activities.read", "activities.read_assigned", "activities.manage", "activities.manage_assigned"] },
+    ],
+  },
   { href: "/school/staff", label: "Staff / Teachers" },
   { href: "/school/parents", label: "Parents / Guardians" },
   { href: "/school/academic-years", label: "Academic Years" },

@@ -134,6 +134,18 @@ export const PERMISSIONS = {
   TIMETABLE_COVER_MANAGE: "timetable.cover.manage",
   TIMETABLE_READ_OWN_CHILDREN: "timetable.read_own_children",
   TIMETABLE_READ_SELF: "timetable.read_self",
+  ACTIVITIES_READ: "activities.read",
+  ACTIVITIES_READ_ASSIGNED: "activities.read_assigned",
+  ACTIVITIES_MANAGE: "activities.manage",
+  ACTIVITIES_MANAGE_ASSIGNED: "activities.manage_assigned",
+  ACTIVITIES_PUBLISH: "activities.publish",
+  ACTIVITIES_PARTICIPANTS_READ: "activities.participants.read",
+  ACTIVITIES_PARTICIPANTS_MANAGE: "activities.participants.manage",
+  ACTIVITIES_RESPONSES_READ: "activities.responses.read",
+  ACTIVITIES_RESPONSES_MANAGE: "activities.responses.manage",
+  ACTIVITIES_MEDICAL_SUMMARY_READ: "activities.medical_summary.read",
+  ACTIVITIES_READ_OWN_CHILDREN: "activities.read_own_children",
+  ACTIVITIES_READ_SELF: "activities.read_self",
   AUDIT_READ: "audit.read",
 } as const;
 
@@ -642,6 +654,7 @@ export const COMMUNICATION_RELATED_KINDS = [
   "assessment",
   "assignment",
   "admissions_open_day",
+  "school_activity",
 ] as const;
 export type CommunicationRelatedKind = (typeof COMMUNICATION_RELATED_KINDS)[number];
 
@@ -817,3 +830,97 @@ export type TimetableOccurrenceStatus = (typeof TIMETABLE_OCCURRENCE_STATUSES)[n
 
 export const ISO_WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as const;
 export type IsoWeekday = (typeof ISO_WEEKDAYS)[number];
+
+export const SCHOOL_ACTIVITY_STATUSES = [
+  "draft",
+  "published",
+  "closed",
+  "completed",
+  "cancelled",
+  "archived",
+] as const;
+export type SchoolActivityStatus = (typeof SCHOOL_ACTIVITY_STATUSES)[number];
+
+export const SCHOOL_ACTIVITY_TYPE_KEYS = [
+  "trip",
+  "residential",
+  "visit",
+  "club",
+  "after_school",
+  "breakfast_club",
+  "sports_fixture",
+  "workshop",
+  "performance",
+  "extracurricular",
+  "other",
+] as const;
+export type SchoolActivityTypeKey = (typeof SCHOOL_ACTIVITY_TYPE_KEYS)[number];
+
+export const SCHOOL_ACTIVITY_TARGET_TYPES = [
+  "whole_school",
+  "year_group",
+  "class",
+  "student",
+  "staff_member",
+] as const;
+export type SchoolActivityTargetType = (typeof SCHOOL_ACTIVITY_TARGET_TYPES)[number];
+
+export const SCHOOL_ACTIVITY_STAFF_ROLES = [
+  "lead",
+  "trip_leader",
+  "accompanying",
+  "support",
+] as const;
+export type SchoolActivityStaffRole = (typeof SCHOOL_ACTIVITY_STAFF_ROLES)[number];
+
+export const SCHOOL_ACTIVITY_OCCURRENCE_KINDS = ["one_off", "recurring"] as const;
+export type SchoolActivityOccurrenceKind = (typeof SCHOOL_ACTIVITY_OCCURRENCE_KINDS)[number];
+
+export const SCHOOL_ACTIVITY_REGISTRATION_STATUSES = [
+  "expected",
+  "interested",
+  "confirmed",
+  "waitlisted",
+  "withdrawn",
+  "declined",
+] as const;
+export type SchoolActivityRegistrationStatus = (typeof SCHOOL_ACTIVITY_REGISTRATION_STATUSES)[number];
+
+export const SCHOOL_ACTIVITY_ATTENDANCE_STATUSES = [
+  "expected",
+  "attended",
+  "absent",
+  "withdrawn",
+] as const;
+export type SchoolActivityAttendanceStatus = (typeof SCHOOL_ACTIVITY_ATTENDANCE_STATUSES)[number];
+
+export const SCHOOL_ACTIVITY_RESPONSE_VALUES = [
+  "pending",
+  "consented",
+  "declined",
+  "withdrawn",
+] as const;
+export type SchoolActivityResponseValue = (typeof SCHOOL_ACTIVITY_RESPONSE_VALUES)[number];
+
+export const SCHOOL_ACTIVITY_RESPONSE_CHANNELS = [
+  "parent_portal",
+  "student_portal",
+  "staff_offline",
+] as const;
+export type SchoolActivityResponseChannel = (typeof SCHOOL_ACTIVITY_RESPONSE_CHANNELS)[number];
+
+export const SCHOOL_ACTIVITY_REGISTRATION_SOURCES = [
+  "parent_consent",
+  "student_signup",
+  "staff_assigned",
+  "school_assigned",
+  "staff_offline",
+] as const;
+export type SchoolActivityRegistrationSource = (typeof SCHOOL_ACTIVITY_REGISTRATION_SOURCES)[number];
+
+export const SCHOOL_ACTIVITY_DOCUMENT_VISIBILITIES = [
+  "staff",
+  "staff_and_parents",
+  "staff_parents_and_student",
+] as const;
+export type SchoolActivityDocumentVisibility = (typeof SCHOOL_ACTIVITY_DOCUMENT_VISIBILITIES)[number];

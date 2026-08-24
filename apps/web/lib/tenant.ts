@@ -1,4 +1,5 @@
 import { ApiError, api } from "./api";
+import type { PublicLoginBranding } from "./login-branding";
 import type { Membership } from "./portal";
 
 export type PublicTenant =
@@ -13,7 +14,12 @@ export type PublicTenant =
       platformDomain: string;
       hostname: string;
       source: "subdomain" | "custom_domain";
-      organisation: { id: string; slug: string; name: string };
+      organisation: {
+        id: string;
+        slug: string;
+        name: string;
+        branding?: PublicLoginBranding | null;
+      };
     };
 
 export async function loadPublicTenant(): Promise<PublicTenant | { kind: "unknown" }> {

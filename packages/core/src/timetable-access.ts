@@ -599,6 +599,9 @@ export async function resolveTimetableOccurrences(
             : dayCovers.length > 0
               ? "covered"
               : "scheduled";
+        if (status === "teacher_changed" && dayCovers.length === 0) {
+          teachersForDay = [];
+        }
 
         out.push({
           entryId: entry.id,

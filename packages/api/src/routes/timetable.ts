@@ -7,6 +7,7 @@ import {
   assertCanReadClassTimetable,
   assertPermission,
   authorisedTimetableClassIds,
+  eachDateInclusive,
   canManageCover,
   canManageRooms,
   canManageSchoolDay,
@@ -662,19 +663,27 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       const staffProfileId = c.req.query("staffProfileId");
       const roomId = c.req.query("roomId");
       const mine = c.req.query("mine") === "true";
-      if (classId) {
-        await requireOrgRow(client, "classes", classId, orgId);
-        await assertCanReadClassTimetable(client, actor, classId, from);
-      }
+      if (classId) await requireOrgRow(client, "classes", classId, orgId);
       if (roomId) await requireOrgRow(client, "rooms", roomId, orgId);
-      const classIds = classId ? [classId] : await authorisedTimetableClassIds(client, actor, from);
+      const authorisedByDate = canReadSchoolTimetable(actor)
+        ? null
+        : await authorisedClassIdsByDate(client, actor, from, to);
+      if (classId && authorisedByDate) {
+        const allowedOnRange = [...authorisedByDate.values()].some((ids) => ids.has(classId));
+        if (!allowedOnRange) throw new AppError(404, "not_found", "Not found");
+      }
+      const classIds = classId
+        ? [classId]
+        : authorisedByDate
+          ? [...new Set([...authorisedByDate.values()].flatMap((ids) => [...ids]))]
+          : null;
       const occurrences = await resolveTimetableOccurrences(client, {
         organisationId: orgId,
         from,
         to,
         academicYearId: c.req.query("academicYearId"),
         termId: c.req.query("termId"),
-        classIds: classIds ? [...classIds] : null,
+        classIds,
         staffProfileId: staffProfileId ?? null,
         coveringUserId: mine && !canReadSchoolTimetable(actor) ? userId : null,
         roomId: roomId ?? null,
@@ -682,10 +691,13 @@ export function registerTimetableRoutes(app: SchoolappApi) {
         yearGroupId: c.req.query("yearGroupId") ?? null,
         includeCancelled: c.req.query("includeCancelled") === "true",
       });
+      const visible = authorisedByDate
+        ? occurrences.filter((item) => authorisedByDate.get(item.date)?.has(item.classId))
+        : occurrences;
       return c.json({
         from,
         to,
-        occurrences: occurrences.map((item) => mapTimetableOccurrence(item)),
+        occurrences: visible.map((item) => mapTimetableOccurrence(item)),
       });
     }),
   );
@@ -1037,6 +1049,20 @@ async function insertTeachers(
       ],
     );
   }
+}
+
+async function authorisedClassIdsByDate(
+  client: Parameters<typeof requireOrgRow>[0],
+  actor: Parameters<typeof authorisedTimetableClassIds>[1],
+  from: string,
+  to: string,
+) {
+  const map = new Map<string, Set<string>>();
+  for (const date of eachDateInclusive(from, to)) {
+    const ids = await authorisedTimetableClassIds(client, actor, date);
+    map.set(date, ids ?? new Set());
+  }
+  return map;
 }
 
 function addDaysSafe(iso: string, days: number): string {

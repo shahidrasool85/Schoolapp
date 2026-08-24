@@ -79,7 +79,7 @@ export default function TimetableOverviewPage() {
                   {lesson.startsAt.slice(0, 5)}–{lesson.endsAt.slice(0, 5)}
                 </td>
                 <td>{lesson.className}</td>
-                <td>{lesson.subjectName ?? lesson.status}</td>
+                <td>{lesson.subjectName ?? "—"}</td>
                 <td>{lesson.roomName ?? "—"}</td>
                 <td>{lesson.teachers.map((teacher) => teacher.fullName).join(", ") || "—"}</td>
                 <td>{lesson.covered ? "Cover" : lesson.status}</td>

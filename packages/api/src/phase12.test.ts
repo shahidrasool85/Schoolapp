@@ -435,6 +435,27 @@ describe("Phase 12 timetable", () => {
     expect(movedBody.occurrences[0]?.status).toBe("room_changed");
     expect(movedBody.occurrences[0]?.roomName).toBe("Hall");
 
+    const teacherChange = await app.request("/api/v1/timetable/exceptions", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        timetableEntryId: created.entry.id,
+        date: "2026-09-28",
+        exceptionType: "teacher_changed",
+        parentVisibleNote: "Specialist cover",
+      }),
+    });
+    expect(teacherChange.status).toBe(201);
+    const changedTeacher = await app.request(
+      `/api/v1/timetable/occurrences?from=2026-09-28&to=2026-09-28&classId=${structure.classAId}`,
+      { headers: hdrs },
+    );
+    const changedTeacherBody = (await changedTeacher.json()) as {
+      occurrences: Array<{ status: string; teachers: unknown[] }>;
+    };
+    expect(changedTeacherBody.occurrences[0]?.status).toBe("teacher_changed");
+    expect(changedTeacherBody.occurrences[0]?.teachers).toEqual([]);
+
     const cover = await app.request("/api/v1/timetable/covers", {
       method: "POST",
       headers: hdrs,
@@ -674,6 +695,14 @@ describe("Phase 12 timetable", () => {
     expect(((await coverDay.json()) as { occurrences: unknown[] }).occurrences.length).toBeGreaterThan(0);
     const later = await app.request(`/api/v1/timetable/entries?classId=${gwS.classAId}`, { headers: coverH });
     expect(later.status).toBe(404);
+    const coverWeek = await app.request(
+      `/api/v1/timetable/occurrences?from=2026-09-07&to=2026-09-11&classId=${gwS.classAId}`,
+      { headers: coverH },
+    );
+    expect(coverWeek.status).toBe(200);
+    const coverWeekBody = (await coverWeek.json()) as { occurrences: Array<{ date: string }> };
+    expect(coverWeekBody.occurrences.length).toBeGreaterThan(0);
+    expect(coverWeekBody.occurrences.every((item) => item.date === "2026-09-09")).toBe(true);
     const teacherCovers = await app.request("/api/v1/timetable/covers", { headers: teacherH });
     expect(teacherCovers.status).toBe(200);
     const teacherCoverBody = (await teacherCovers.json()) as {

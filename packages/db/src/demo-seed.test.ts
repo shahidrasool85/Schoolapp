@@ -272,8 +272,22 @@ describe("demo seed", () => {
       `select string_agg(title, ',') as titles from school_events where organisation_id = $1`,
       [greenwoodId],
     );
-    expect(events.rows[0]?.titles).toContain("Year 3 science museum trip");
+    expect(events.rows[0]?.titles).not.toContain("Year 3 science museum trip");
     expect(events.rows[0]?.titles).toContain("Staff meeting");
+
+    const activities = await pools.owner.query<{ titles: string }>(
+      `select string_agg(title, ',') as titles from school_activities where organisation_id = $1`,
+      [greenwoodId],
+    );
+    expect(activities.rows[0]?.titles).toContain("Year 3 Science Museum visit");
+    expect(activities.rows[0]?.titles).toContain("Chess Club");
+    expect(activities.rows[0]?.titles).toContain("Year 3 pottery workshop");
+    const oakActivities = await pools.owner.query<{ titles: string }>(
+      `select string_agg(title, ',') as titles from school_activities where organisation_id = $1`,
+      [oakId],
+    );
+    expect(oakActivities.rows[0]?.titles).toContain("Oak harbour visit");
+    expect(oakActivities.rows[0]?.titles).not.toContain("Year 3 Science Museum visit");
 
     const admin = await pools.owner.query<{ id: string }>(
       "select id from users where email = $1",
@@ -285,6 +299,11 @@ describe("demo seed", () => {
         [oakId],
       );
       expect(leaked.rows[0]?.n).toBe("0");
+      const leakedActivities = await client.query<{ n: string }>(
+        "select count(*)::text as n from school_activities where organisation_id = $1",
+        [oakId],
+      );
+      expect(leakedActivities.rows[0]?.n).toBe("0");
     });
   });
 

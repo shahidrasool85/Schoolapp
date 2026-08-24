@@ -10,6 +10,7 @@ import {
   auditActivity,
   guardianMayRespond,
   lockActivityCapacity,
+  maybePromoteNextWaitlisted,
   nextWaitingListPosition,
   pupilIsEligible,
   requireLinkedChild,
@@ -290,7 +291,29 @@ export async function studentSignupForActivity(
         where activity_id = $1 and student_profile_id = $2 and organisation_id = $3`,
       [input.activityId, studentId, input.orgId],
     );
+    await maybePromoteNextWaitlisted(client, {
+      organisationId: input.orgId,
+      activityId: input.activityId,
+      actorUserId: input.userId,
+      title: String(row.title),
+    });
+    await auditActivity(client, {
+      organisationId: input.orgId,
+      actorUserId: input.userId,
+      action: "activity.student_withdrawn",
+      activityId: input.activityId,
+      after: { studentProfileId: studentId },
+    });
     return { registrationStatus: "withdrawn", waitingListPosition: null };
+  }
+  if (
+    !activityResponseWindowOpen({
+      status: row.status,
+      responseDeadlineAt: row.response_deadline_at,
+      allowAfterDeadline: row.allow_responses_after_deadline,
+    })
+  ) {
+    throw new AppError(409, "response_deadline_passed", "Sign-up is no longer open for this activity");
   }
   if (!row.student_signup_enabled) {
     throw new AppError(403, "forbidden", "Student sign-up is not enabled for this activity");

@@ -812,6 +812,59 @@ describe("Phase 14 activities, consents, and parent responses", () => {
     expect(detail.child.registrationStatus).toBeNull();
     expect(detail.consentClauses).toEqual([]);
 
+    const capped = await createTrip(app, hdrs, {
+      title: "Capped coding club",
+      activityTypeKey: "workshop",
+      consentRequired: false,
+      studentSignupEnabled: true,
+      studentVisible: true,
+      capacity: 1,
+      targets: [{ targetType: "class", classId: seeded.classAId }],
+    });
+    await app.request(`/api/v1/activities/${capped.activity.id}/publish`, { method: "POST", headers: hdrs, body: "{}" });
+    expect(
+      (await app.request(`/api/v1/student/activities/${capped.activity.id}/signup`, {
+        method: "POST",
+        headers: studentHdrs,
+        body: "{}",
+      })).status,
+    ).toBe(201);
+    const waitlisted = await app.request(`/api/v1/student/activities/${capped.activity.id}/signup`, {
+      method: "POST",
+      headers: otherHdrs,
+      body: "{}",
+    });
+    expect(waitlisted.status).toBe(201);
+    expect(((await waitlisted.json()) as { registrationStatus: string }).registrationStatus).toBe("waitlisted");
+    expect(
+      (await app.request(`/api/v1/student/activities/${capped.activity.id}/withdraw`, {
+        method: "POST",
+        headers: studentHdrs,
+        body: "{}",
+      })).status,
+    ).toBe(200);
+    const promoted = (await (
+      await app.request(`/api/v1/student/activities/${capped.activity.id}`, { headers: otherHdrs })
+    ).json()) as { child: { registrationStatus: string | null } };
+    expect(promoted.child.registrationStatus).toBe("confirmed");
+
+    const closed = await createTrip(app, hdrs, {
+      title: "Closed coding club",
+      activityTypeKey: "workshop",
+      consentRequired: false,
+      studentSignupEnabled: true,
+      studentVisible: true,
+      targets: [{ targetType: "class", classId: seeded.classAId }],
+    });
+    await app.request(`/api/v1/activities/${closed.activity.id}/publish`, { method: "POST", headers: hdrs, body: "{}" });
+    await app.request(`/api/v1/activities/${closed.activity.id}/complete`, { method: "POST", headers: hdrs, body: "{}" });
+    const afterComplete = await app.request(`/api/v1/student/activities/${closed.activity.id}/signup`, {
+      method: "POST",
+      headers: studentHdrs,
+      body: "{}",
+    });
+    expect(afterComplete.status).toBe(409);
+
     await pools.owner.query(
       `update student_enrolments
           set ended_on = started_on, status = 'withdrawn'

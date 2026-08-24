@@ -699,3 +699,26 @@ export async function loadStudentClassIdsAsOf(
   );
   return result.rows.map((row) => row.class_id);
 }
+
+export async function loadStudentClassMembershipsOverlapping(
+  client: pg.PoolClient,
+  organisationId: string,
+  studentProfileId: string,
+  from: string,
+  to: string,
+): Promise<Array<{ classId: string; startedOn: string; endedOn: string | null }>> {
+  const result = await client.query<{ class_id: string; started_on: string; ended_on: string | null }>(
+    `select cm.class_id, cm.started_on::text, cm.ended_on::text
+     from class_memberships cm
+     where cm.organisation_id = $1
+       and cm.student_profile_id = $2
+       and cm.started_on <= $4::date
+       and (cm.ended_on is null or cm.ended_on >= $3::date)`,
+    [organisationId, studentProfileId, from, to],
+  );
+  return result.rows.map((row) => ({
+    classId: row.class_id,
+    startedOn: row.started_on,
+    endedOn: row.ended_on,
+  }));
+}

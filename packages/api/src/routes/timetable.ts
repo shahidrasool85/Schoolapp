@@ -15,7 +15,7 @@ import {
   canReadSchoolTimetable,
   isoDate,
   isoWeekdayFromDate,
-  loadStudentClassIdsAsOf,
+  loadStudentClassMembershipsOverlapping,
   requireOrgRow,
   resolveAttendanceRegisterTarget,
   resolveTimetableOccurrences,
@@ -756,6 +756,10 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       }
       const from = c.req.query("from");
       const to = c.req.query("to");
+      const authorised = canReadSchoolTimetable(actor)
+        ? null
+        : await authorisedTimetableClassIds(client, actor);
+      const includeInternal = canManageCover(actor);
       const rows = await client.query(
         `select
            id, timetable_entry_id, exception_date::text, exception_type,
@@ -766,10 +770,21 @@ export function registerTimetableRoutes(app: SchoolappApi) {
          where organisation_id = $1
            and ($2::date is null or exception_date >= $2::date)
            and ($3::date is null or exception_date <= $3::date)
+           and (
+             $4::uuid[] is null
+             or exception_type = 'school_closure'
+             or exists (
+               select 1 from timetable_entries te
+               where te.id = timetable_exceptions.timetable_entry_id
+                 and te.class_id = any($4::uuid[])
+             )
+           )
          order by exception_date desc, created_at desc`,
-        [orgId, from ?? null, to ?? null],
+        [orgId, from ?? null, to ?? null, authorised ? [...authorised] : null],
       );
-      return c.json({ exceptions: rows.rows.map((row) => mapTimetableException(row)) });
+      return c.json({
+        exceptions: rows.rows.map((row) => mapTimetableException(row, { includeInternal })),
+      });
     }),
   );
 
@@ -826,10 +841,14 @@ export function registerTimetableRoutes(app: SchoolappApi) {
   );
 
   app.get("/timetable/covers", requireUser, async (c) =>
-    withSchoolActor(c, async ({ client, actor, orgId }) => {
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       if (!canReadCover(actor)) throw new AppError(403, "forbidden", "Missing permission");
       const from = c.req.query("from");
       const to = c.req.query("to");
+      const authorised = canReadSchoolTimetable(actor)
+        ? null
+        : await authorisedTimetableClassIds(client, actor);
+      const includeInternal = canManageCover(actor);
       const rows = await client.query(
         `select
            tc.id, tc.timetable_entry_id, tc.cover_date::text,
@@ -844,10 +863,20 @@ export function registerTimetableRoutes(app: SchoolappApi) {
          where tc.organisation_id = $1
            and ($2::date is null or tc.cover_date >= $2::date)
            and ($3::date is null or tc.cover_date <= $3::date)
+           and (
+             $4::uuid[] is null
+             or exists (
+               select 1 from timetable_entries te
+               where te.id = tc.timetable_entry_id
+                 and te.class_id = any($4::uuid[])
+             )
+             or osp.user_id = $5
+             or csp.user_id = $5
+           )
          order by tc.cover_date desc, tc.assigned_at desc`,
-        [orgId, from ?? null, to ?? null],
+        [orgId, from ?? null, to ?? null, authorised ? [...authorised] : null, userId],
       );
-      return c.json({ covers: rows.rows.map(mapTimetableCover) });
+      return c.json({ covers: rows.rows.map((row) => mapTimetableCover(row, { includeInternal })) });
     }),
   );
 
@@ -1023,13 +1052,27 @@ export async function listPupilTimetable(
   from: string,
   to: string,
 ) {
-  const classIds = await loadStudentClassIdsAsOf(client, organisationId, studentProfileId, from);
-  if (classIds.length === 0) return [];
-  return resolveTimetableOccurrences(client, {
+  const memberships = await loadStudentClassMembershipsOverlapping(
+    client,
+    organisationId,
+    studentProfileId,
+    from,
+    to,
+  );
+  if (memberships.length === 0) return [];
+  const occurrences = await resolveTimetableOccurrences(client, {
     organisationId,
     from,
     to,
-    classIds,
+    classIds: [...new Set(memberships.map((row) => row.classId))],
     includeCancelled: true,
   });
+  return occurrences.filter((item) =>
+    memberships.some(
+      (membership) =>
+        membership.classId === item.classId &&
+        membership.startedOn <= item.date &&
+        (membership.endedOn === null || membership.endedOn >= item.date),
+    ),
+  );
 }

@@ -460,6 +460,7 @@ export {
   resolveTimetableOccurrences,
   resolveAttendanceRegisterTarget,
   loadStudentClassIdsAsOf,
+  loadStudentClassMembershipsOverlapping,
   type ResolvedOccurrence,
   type OccurrenceTeacher,
 } from "./timetable-access.js";

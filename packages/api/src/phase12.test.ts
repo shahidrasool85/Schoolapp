@@ -674,6 +674,12 @@ describe("Phase 12 timetable", () => {
     expect(((await coverDay.json()) as { occurrences: unknown[] }).occurrences.length).toBeGreaterThan(0);
     const later = await app.request(`/api/v1/timetable/entries?classId=${gwS.classAId}`, { headers: coverH });
     expect(later.status).toBe(404);
+    const teacherCovers = await app.request("/api/v1/timetable/covers", { headers: teacherH });
+    expect(teacherCovers.status).toBe(200);
+    const teacherCoverBody = (await teacherCovers.json()) as {
+      covers: Array<{ staffNotes?: string | null }>;
+    };
+    expect(teacherCoverBody.covers.every((row) => !("staffNotes" in row))).toBe(true);
 
     const register = await app.request("/api/v1/timetable/occurrences/attendance-register", {
       method: "POST",

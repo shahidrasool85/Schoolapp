@@ -90,13 +90,30 @@ export async function assignedStudentIds(
      join timetable_entries te on te.id = tc.timetable_entry_id
      join staff_profiles sp on sp.id = tc.covering_staff_profile_id
      join class_memberships cm on cm.class_id = te.class_id
+     join academic_years ay
+       on ay.id = cm.academic_year_id
+      and ay.organisation_id = $2
      where sp.user_id = $1
        and sp.organisation_id = $2
        and tc.organisation_id = $2
        and cm.organisation_id = $2
-       and tc.cover_date = coalesce($3::date, current_date)
-       and cm.started_on <= coalesce($3::date, current_date)
-       and (cm.ended_on is null or cm.ended_on >= coalesce($3::date, current_date))`,
+       and (
+         (
+           $3::date is null
+           and tc.cover_date = current_date
+           and (cm.ended_on is null or cm.ended_on >= current_date)
+           and cm.started_on <= current_date
+           and ay.is_current
+         )
+         or (
+           $3::date is not null
+           and tc.cover_date = $3::date
+           and cm.started_on <= $3::date
+           and (cm.ended_on is null or cm.ended_on >= $3::date)
+           and ay.starts_on <= $3::date
+           and ay.ends_on >= $3::date
+         )
+       )`,
     [actorUserId, organisationId, asOfDate ?? null],
   );
   return new Set(result.rows.map((row) => row.student_profile_id));

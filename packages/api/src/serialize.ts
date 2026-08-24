@@ -1312,8 +1312,9 @@ export function mapTimetableException(row: Record<string, unknown>, options?: { 
   };
 }
 
-export function mapTimetableCover(row: Record<string, unknown>) {
-  return {
+export function mapTimetableCover(row: Record<string, unknown>, options?: { includeInternal?: boolean }) {
+  const includeInternal = options?.includeInternal !== false;
+  const base = {
     id: row.id,
     timetableEntryId: row.timetable_entry_id,
     date: row.cover_date,
@@ -1322,6 +1323,10 @@ export function mapTimetableCover(row: Record<string, unknown>) {
     coveringStaffProfileId: row.covering_staff_profile_id,
     coveringStaffName: row.covering_staff_name ?? null,
     reason: row.reason ?? null,
+  };
+  if (!includeInternal) return base;
+  return {
+    ...base,
     staffNotes: row.staff_notes ?? null,
     assignedBy: row.assigned_by ?? null,
     assignedAt: row.assigned_at,

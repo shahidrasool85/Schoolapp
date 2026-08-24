@@ -4,6 +4,18 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "../../../../lib/api";
 
+function defaultActivityDate(): string {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + 14);
+  return date.toISOString().slice(0, 10);
+}
+
+function localDateAndTimeToIso(date: string, time: string): string | null {
+  if (!date) return null;
+  const parsed = new Date(`${date}T${time || "00:00"}`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
 type Context = {
   types: Array<{ id: string; key: string; name: string }>;
   academicYears: Array<{ id: string; name: string; is_current: boolean }>;
@@ -16,16 +28,18 @@ type Context = {
 export default function NewActivityPage() {
   const router = useRouter();
   const [ctx, setCtx] = useState<Context | null>(null);
+  const [loadError, setLoadError] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
     api<Context>("/api/v1/activities/context")
       .then(setCtx)
-      .catch((err: Error) => setError(err.message));
+      .catch((err: Error) => setLoadError(err.message));
   }, []);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setError("");
     const form = new FormData(event.currentTarget);
     const classIds = form.getAll("classIds").map(String).filter(Boolean);
     const yearGroupId = String(form.get("yearGroupId") || "");
@@ -33,9 +47,12 @@ export default function NewActivityPage() {
       .split(/[\s,]+/)
       .map((value) => value.trim())
       .filter(Boolean);
-    const startsLocal = String(form.get("startsAt") || "");
-    const endsLocal = String(form.get("endsAt") || "");
-    const deadlineLocal = String(form.get("responseDeadlineAt") || "");
+    const startsAt = localDateAndTimeToIso(String(form.get("startDate") || ""), String(form.get("startTime") || ""));
+    const endsAt = localDateAndTimeToIso(String(form.get("endDate") || ""), String(form.get("endTime") || ""));
+    const responseDeadlineAt = localDateAndTimeToIso(
+      String(form.get("deadlineDate") || ""),
+      String(form.get("deadlineTime") || "") || "23:59",
+    );
     const occurrenceKind = String(form.get("occurrenceKind") || "one_off");
     const wholeSchool = form.get("wholeSchool") === "on";
     const targets = wholeSchool
@@ -46,19 +63,31 @@ export default function NewActivityPage() {
           ...studentIds.map((studentProfileId) => ({ targetType: "student", studentProfileId })),
         ];
     const staffUserId = String(form.get("staffUserId") || "");
+    if (!startsAt || !endsAt) {
+      setError("Enter a start and end date and time.");
+      return;
+    }
+    if (endsAt < startsAt) {
+      setError("The end must be on or after the start.");
+      return;
+    }
+    if (targets.length === 0) {
+      setError("Select at least one class, year group, pupil, or whole school.");
+      return;
+    }
     const body = {
       title: form.get("title"),
       description: form.get("description") || null,
       activityTypeId: form.get("activityTypeId"),
       academicYearId: form.get("academicYearId") || null,
-      startsAt: startsLocal ? new Date(startsLocal).toISOString() : undefined,
-      endsAt: endsLocal ? new Date(endsLocal).toISOString() : undefined,
+      startsAt,
+      endsAt,
       location: form.get("location") || null,
       externalAddress: form.get("externalAddress") || null,
       meetingPoint: form.get("meetingPoint") || null,
       returnPoint: form.get("returnPoint") || null,
       capacity: form.get("capacity") ? Number(form.get("capacity")) : null,
-      responseDeadlineAt: deadlineLocal ? new Date(deadlineLocal).toISOString() : null,
+      responseDeadlineAt,
       consentRequired: form.get("consentRequired") === "on",
       parentResponseRequired: form.get("consentRequired") === "on",
       studentSignupEnabled: form.get("studentSignupEnabled") === "on",
@@ -81,12 +110,13 @@ export default function NewActivityPage() {
     }
   }
 
-  if (error) return <p className="error">{error}</p>;
+  if (loadError) return <p className="error">{loadError}</p>;
   if (!ctx) return <p>Loading…</p>;
 
   return (
     <>
       <h1>Create activity</h1>
+      {error ? <p role="alert" className="error">{error}</p> : null}
       <form className="card form-grid" onSubmit={onSubmit}>
         <label>Title<input name="title" required /></label>
         <label>
@@ -106,14 +136,17 @@ export default function NewActivityPage() {
             ))}
           </select>
         </label>
-        <label>Start<input name="startsAt" type="datetime-local" required /></label>
-        <label>End<input name="endsAt" type="datetime-local" required /></label>
+        <label>Start date<input name="startDate" type="date" required defaultValue={defaultActivityDate()} /></label>
+        <label>Start time<input name="startTime" type="time" required defaultValue="09:00" /></label>
+        <label>End date<input name="endDate" type="date" required defaultValue={defaultActivityDate()} /></label>
+        <label>End time<input name="endTime" type="time" required defaultValue="15:30" /></label>
         <label>Location<input name="location" /></label>
         <label>External address<input name="externalAddress" /></label>
         <label>Meeting point<input name="meetingPoint" /></label>
         <label>Return point<input name="returnPoint" /></label>
         <label>Capacity<input name="capacity" type="number" min={0} /></label>
-        <label>Response deadline<input name="responseDeadlineAt" type="datetime-local" /></label>
+        <label>Response deadline date<input name="deadlineDate" type="date" /></label>
+        <label>Response deadline time<input name="deadlineTime" type="time" /></label>
         <label>
           Occurrence
           <select name="occurrenceKind" defaultValue="one_off">

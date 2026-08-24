@@ -93,7 +93,11 @@ export default function ParentActivityDetailPage() {
       </p>
       <p>
         Status: <strong>{statusLabel}</strong>
-        {data.child.consentResponse === "pending" && data.activity.consentRequired ? " · response needed" : ""}
+        {data.child.consentResponse === "pending" &&
+        data.activity.consentRequired &&
+        ["published", "closed"].includes(data.activity.status)
+          ? " · response needed"
+          : ""}
       </p>
       {data.activity.parentNotes ? <p>{data.activity.parentNotes}</p> : null}
       {data.activity.description ? <p>{data.activity.description}</p> : null}

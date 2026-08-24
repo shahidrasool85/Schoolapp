@@ -72,13 +72,14 @@ export default function StudentAssignmentPage() {
     await load();
   }
 
-  if (error) return <p className="error">{error}</p>;
+  if (error && !data) return <p className="error">{error}</p>;
   if (!data) return <p>Loading…</p>;
   const a = data.assignment;
   const canSubmit = ["not_started", "in_progress", "resubmission_requested"].includes(a.submission.status);
 
   return (
     <>
+      {error ? <p className="error">{error}</p> : null}
       <h1>{a.title}</h1>
       <p className="muted">
         {a.subjectName ?? a.workTypeName}

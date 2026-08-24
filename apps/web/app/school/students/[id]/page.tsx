@@ -304,11 +304,12 @@ export default function StudentDetailPage() {
     await load();
   }
 
-  if (error) return <p className="error">{error}</p>;
+  if (error && !data) return <p className="error">{error}</p>;
   if (!data) return <p>Loading…</p>;
 
   return (
     <>
+      {error ? <p className="error">{error}</p> : null}
       <h1>{data.student.legalName}</h1>
       <p className="muted">
         {data.student.currentYearGroupName ?? "No current year group"} ·{" "}

@@ -88,12 +88,13 @@ export default function MarkSubmissionPage() {
     await load();
   }
 
-  if (error) return <p className="error">{error}</p>;
+  if (error && !data) return <p className="error">{error}</p>;
   if (!data) return <p>Loading…</p>;
   const s = data.submission;
 
   return (
     <>
+      {error ? <p className="error">{error}</p> : null}
       <h1>Mark: {s.studentLegalName}</h1>
       <p className="muted">{s.assignmentTitle} · {s.status}</p>
       <h2>Work</h2>

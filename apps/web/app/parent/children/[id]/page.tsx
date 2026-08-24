@@ -98,13 +98,14 @@ export default function ParentChildDetailPage() {
     };
   }, [params.id]);
 
-  if (error) return <p className="error">{error}</p>;
+  if (error && !data) return <p className="error">{error}</p>;
   if (!data) return <p>Loading…</p>;
 
   const child = data.child;
 
   return (
     <>
+      {error ? <p className="error">{error}</p> : null}
       <h1>{child.displayName}</h1>
       <p className="muted">{child.school.name}</p>
       <div className="card">

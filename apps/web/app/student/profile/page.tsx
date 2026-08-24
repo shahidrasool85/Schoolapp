@@ -22,11 +22,12 @@ export default function StudentProfilePage() {
       .catch(() => setDocuments([]));
   }, []);
 
-  if (error) return <p className="error">{error}</p>;
+  if (error && !student) return <p className="error">{error}</p>;
   if (!student) return <p>Loading…</p>;
 
   return (
     <>
+      {error ? <p className="error">{error}</p> : null}
       <h1>My profile</h1>
       <div className="card">
         <dl className="profile-list">

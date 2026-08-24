@@ -3,7 +3,12 @@ import type pg from "pg";
 import { AppError } from "./errors.js";
 import { notFound } from "./permissions.js";
 import { assignedClassIds, isAssignedToClass } from "./students-access.js";
-import { dateInRange, inferAttendanceSessionKey, isoWeekdayFromDate } from "./timetable.js";
+import {
+  dateInRange,
+  inferAttendanceSessionKey,
+  isoWeekdayFromDate,
+  type ResolvedOccurrenceStatus,
+} from "./timetable.js";
 
 export const TIMETABLE_SCHOOL_READ_PERMISSIONS = [
   PERMISSIONS.TIMETABLE_READ,

@@ -811,6 +811,7 @@ export const TIMETABLE_OCCURRENCE_STATUSES = [
   "covered",
   "replacement",
   "school_closure",
+  "special_activity",
 ] as const;
 export type TimetableOccurrenceStatus = (typeof TIMETABLE_OCCURRENCE_STATUSES)[number];
 

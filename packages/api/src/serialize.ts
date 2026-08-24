@@ -1265,7 +1265,7 @@ export function mapTimetableOccurrence(
 
 export function mapTimetableEntry(row: Record<string, unknown>) {
   return {
-    id: row.id,
+    id: String(row.id),
     academicYearId: row.academic_year_id,
     termId: row.term_id ?? null,
     schoolDayPeriodId: row.school_day_period_id ?? null,

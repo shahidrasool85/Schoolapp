@@ -35,6 +35,10 @@ export function isTimetableExceptionType(value: string): value is TimetableExcep
   return (TIMETABLE_EXCEPTION_TYPES as readonly string[]).includes(value);
 }
 
+export function isTimetableOccurrenceStatus(value: string): value is TimetableOccurrenceStatus {
+  return (TIMETABLE_OCCURRENCE_STATUSES as readonly string[]).includes(value);
+}
+
 export function isIsoWeekday(value: number): value is IsoWeekday {
   return (ISO_WEEKDAYS as readonly number[]).includes(value);
 }
@@ -99,7 +103,7 @@ export function occurrenceStatusFromException(
   if (exceptionType === "cancelled" || exceptionType === "school_closure") {
     return exceptionType;
   }
-  if (exceptionType && (TIMETABLE_OCCURRENCE_STATUSES as readonly string[]).includes(exceptionType)) {
+  if (exceptionType && isTimetableOccurrenceStatus(exceptionType)) {
     return exceptionType;
   }
   if (hasCover) return "covered";

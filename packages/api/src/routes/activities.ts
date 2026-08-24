@@ -10,6 +10,8 @@ import {
   activityStaffSeesMedicalWindow,
   allocateRegistrationStatus,
   applyConsentDecision,
+  assignedClassIds,
+  assignedStudentIds,
   assertAnyPermission,
   assertCanManageStaffActivity,
   assertCanPublishActivity,
@@ -17,6 +19,7 @@ import {
   assertCanTargetActivity,
   auditActivity,
   availableSpaces,
+  canManageAssignedActivities,
   canManageParticipants,
   canManageResponses,
   canManageSchoolActivities,
@@ -343,6 +346,8 @@ export function registerActivityRoutes(app: SchoolappApi) {
       const schoolWide = canReadSchoolActivities(actor);
       const typeKeys =
         typeKey === "trips" ? ["trip", "visit", "residential"] : typeKey ? [typeKey] : null;
+      const classIds = schoolWide ? [] : [...(await assignedClassIds(client, userId, orgId))];
+      const studentIds = schoolWide ? [] : [...(await assignedStudentIds(client, userId, orgId))];
       const rows = await client.query(
         `${ACTIVITY_SELECT}
          where a.organisation_id = $1
@@ -352,10 +357,22 @@ export function registerActivityRoutes(app: SchoolappApi) {
              $4::boolean = true
              or a.created_by = $5
              or exists (select 1 from school_activity_staff s where s.activity_id = a.id and s.staff_user_id = $5)
+             or (
+               a.status in ('published', 'closed', 'completed', 'cancelled')
+               and exists (
+                 select 1 from school_activity_targets t
+                 where t.activity_id = a.id
+                   and (
+                     t.target_type = 'whole_school'
+                     or t.class_id = any($6::uuid[])
+                     or t.student_profile_id = any($7::uuid[])
+                   )
+               )
+             )
            )
            and a.status <> 'archived'
          order by a.starts_at desc, a.title`,
-        [orgId, status && isSchoolActivityStatus(status) ? status : null, typeKeys, schoolWide, userId],
+        [orgId, status && isSchoolActivityStatus(status) ? status : null, typeKeys, schoolWide, userId, classIds, studentIds],
       );
       return c.json({
         activities: rows.rows.map((row) => mapSchoolActivity(row as Record<string, unknown>)),
@@ -464,7 +481,12 @@ export function registerActivityRoutes(app: SchoolappApi) {
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       const activityId = uuidRouteParam(c, "activityId");
       await assertCanReadStaffActivity(client, actor, activityId);
-      return c.json(await loadActivityBundle(client, orgId, activityId));
+      return c.json({
+        ...(await loadActivityBundle(client, orgId, activityId)),
+        canPublish: canPublishActivities(actor),
+        canManageParticipants: canManageParticipants(actor) || canManageAssignedActivities(actor),
+        canManageResponses: canManageResponses(actor),
+      });
     }),
   );
 

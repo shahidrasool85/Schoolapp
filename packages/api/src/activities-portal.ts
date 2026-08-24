@@ -167,7 +167,7 @@ export async function loadPortalActivityDetail(
       registrationStatus: (participant.rows[0] as { registration_status?: string } | undefined)?.registration_status ?? null,
       waitingListPosition:
         (participant.rows[0] as { waiting_list_position?: number | null } | undefined)?.waiting_list_position ?? null,
-      lastResponse: response.rows[0] ?? null,
+      lastResponse: input.audience === "parent" ? (response.rows[0] ?? null) : null,
     },
   };
 }

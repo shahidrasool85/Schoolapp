@@ -62,7 +62,7 @@ export default function ParentActivityDetailPage() {
           response: form.get("response"),
           comment: form.get("comment") || null,
           emergencyMedicalAcknowledged: form.get("emergency") === "on",
-          confirm: true,
+          confirm: form.get("confirm") === "on",
         }),
       },
     );
@@ -135,6 +135,9 @@ export default function ParentActivityDetailPage() {
               ) : null}
             </fieldset>
             <label><input type="checkbox" name="emergency" /> I confirm emergency/medical information held by the school is up to date for this activity</label>
+            <label>
+              <input type="checkbox" name="confirm" required /> I have read the wording above and confirm this response
+            </label>
             <label>Comment (optional)<textarea name="comment" rows={2} /></label>
             <button type="submit">Confirm response</button>
           </form>

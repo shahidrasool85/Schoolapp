@@ -31,6 +31,9 @@ type Bundle = {
   staff: Array<{ staffUserId: string; fullName: string | null; staffRole: string }>;
   documents: Array<{ id: string; title: string; visibility: string; downloadPath: string | null; originalFilename: string | null }>;
   consentClauses: Array<{ title: string; wording: string }>;
+  canPublish?: boolean;
+  canManageParticipants?: boolean;
+  canManageResponses?: boolean;
 };
 
 type Eligible = {
@@ -148,9 +151,9 @@ export default function StaffActivityDetailPage() {
         <div className="card"><span>Spaces</span><strong>{data.summary.availableSpaces ?? "—"}</strong></div>
       </div>
       <div className="toolbar">
-        {activity.status === "draft" ? <button type="button" onClick={() => action(`/api/v1/activities/${activity.id}/publish`)}>Publish</button> : null}
-        {activity.status === "published" ? <button type="button" className="secondary" onClick={() => action(`/api/v1/activities/${activity.id}/close`)}>Close</button> : null}
-        {activity.status === "published" || activity.status === "closed" ? (
+        {data.canPublish && activity.status === "draft" ? <button type="button" onClick={() => action(`/api/v1/activities/${activity.id}/publish`)}>Publish</button> : null}
+        {data.canPublish && activity.status === "published" ? <button type="button" className="secondary" onClick={() => action(`/api/v1/activities/${activity.id}/close`)}>Close</button> : null}
+        {data.canPublish && (activity.status === "published" || activity.status === "closed") ? (
           <button type="button" className="secondary" onClick={() => action(`/api/v1/activities/${activity.id}/cancel`, { reason: "Cancelled from staff UI" })}>Cancel activity</button>
         ) : null}
         <a
@@ -224,11 +227,15 @@ export default function StaffActivityDetailPage() {
             .map((row) => (
               <li key={row.studentProfileId}>
                 {row.waitingListPosition}. {row.legalName}{" "}
-                <button type="button" className="secondary" onClick={() => action(`/api/v1/activities/${activity.id}/participants/${row.studentProfileId}/promote`)}>Promote</button>
+                {data.canManageParticipants ? (
+                  <button type="button" className="secondary" onClick={() => action(`/api/v1/activities/${activity.id}/participants/${row.studentProfileId}/promote`)}>Promote</button>
+                ) : null}
               </li>
             ))}
         </ul>
       )}
+      {data.canManageResponses ? (
+        <>
       <h2>Record offline consent</h2>
       <p className="muted">Use this only for paper, phone, or in-person responses. It is stored as staff-entered, not as a parent portal consent.</p>
       <form className="card form-grid" onSubmit={offline}>
@@ -251,6 +258,8 @@ export default function StaffActivityDetailPage() {
         <label>Staff note<input name="staffNote" defaultValue="Paper / phone consent recorded by staff." /></label>
         <button type="submit">Save offline response</button>
       </form>
+        </>
+      ) : null}
       <h2>Parent-safe update</h2>
       <form
         className="card form-grid"

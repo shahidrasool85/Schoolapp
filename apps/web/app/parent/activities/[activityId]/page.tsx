@@ -116,7 +116,7 @@ export default function ParentActivityDetailPage() {
           ))}
         </ul>
       )}
-      {data.activity.consentRequired && data.activity.status !== "cancelled" ? (
+      {data.activity.consentRequired && ["published", "closed"].includes(data.activity.status) ? (
         <>
           <h2>Consent</h2>
           {data.consentClauses.map((clause) => (

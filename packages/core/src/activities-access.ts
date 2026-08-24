@@ -119,6 +119,7 @@ export async function assertCanReadStaffActivity(
   if (await isActivityStaff(client, actor.organisationId!, activityId, actor.userId)) return row;
   const classIds = [...(await assignedClassIds(client, actor.userId, actor.organisationId!))];
   const studentIds = [...(await assignedStudentIds(client, actor.userId, actor.organisationId!))];
+  if (!["published", "closed", "completed", "cancelled"].includes(String(row.status))) notFound();
   const targeted = await client.query(
     `select 1 from school_activity_targets
      where activity_id = $1 and organisation_id = $2
@@ -899,6 +900,11 @@ export async function maybePromoteNextWaitlisted(
   },
 ): Promise<string | null> {
   const locked = await lockActivityCapacity(client, input.organisationId, input.activityId);
+  const status = await client.query<{ status: string }>(
+    `select status from school_activities where id = $1 and organisation_id = $2`,
+    [input.activityId, input.organisationId],
+  );
+  if (!["published", "closed"].includes(String(status.rows[0]?.status))) return null;
   const nextStatus = allocateRegistrationStatus({
     capacity: locked.capacity,
     confirmedCount: locked.confirmedCount,

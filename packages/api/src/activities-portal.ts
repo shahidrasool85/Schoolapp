@@ -214,6 +214,9 @@ export async function parentRespondToActivity(
   if (row.status === "cancelled") {
     throw new AppError(409, "activity_cancelled", "This activity has been cancelled");
   }
+  if (row.status === "completed" || row.status === "archived") {
+    throw new AppError(409, "activity_closed", "This activity is no longer open to change");
+  }
   if (!(await pupilIsEligible(client, input.orgId, input.activityId, input.studentId))) {
     throw new AppError(400, "no_longer_eligible", "This pupil is not eligible for the activity");
   }
@@ -284,6 +287,9 @@ export async function studentSignupForActivity(
     throw new AppError(404, "not_found", "Not found");
   }
   if (input.withdraw) {
+    if (row.status === "completed" || row.status === "archived") {
+      throw new AppError(409, "activity_closed", "This activity is no longer open to change");
+    }
     await lockActivityCapacity(client, input.orgId, input.activityId);
     await client.query(
       `update school_activity_participants

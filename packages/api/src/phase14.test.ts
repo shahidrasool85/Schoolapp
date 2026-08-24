@@ -556,6 +556,13 @@ describe("Phase 14 activities, consents, and parent responses", () => {
 
     const teacherUnrelated = await app.request(`/api/v1/activities/${unrelated.activity.id}`, { headers: teacherHdrs });
     expect(teacherUnrelated.status).toBe(404);
+    const draftSchool = await createTrip(app, hdrs, {
+      title: "Draft whole-school notes",
+      staffNotes: "Internal coach plan",
+      targets: [{ targetType: "whole_school" }],
+    });
+    const teacherDraft = await app.request(`/api/v1/activities/${draftSchool.activity.id}`, { headers: teacherHdrs });
+    expect(teacherDraft.status).toBe(404);
     const teacherPublish = await app.request(`/api/v1/activities/${assigned.activity.id}/publish`, {
       method: "POST",
       headers: teacherHdrs,
@@ -864,6 +871,13 @@ describe("Phase 14 activities, consents, and parent responses", () => {
       body: "{}",
     });
     expect(afterComplete.status).toBe(409);
+    await app.request(`/api/v1/activities/${capped.activity.id}/complete`, { method: "POST", headers: hdrs, body: "{}" });
+    const withdrawAfterComplete = await app.request(`/api/v1/student/activities/${capped.activity.id}/withdraw`, {
+      method: "POST",
+      headers: otherHdrs,
+      body: "{}",
+    });
+    expect(withdrawAfterComplete.status).toBe(409);
 
     await pools.owner.query(
       `update student_enrolments

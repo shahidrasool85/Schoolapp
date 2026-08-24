@@ -142,17 +142,6 @@ function FileUploadField({
   async function onFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
-    if (mode !== "public") {
-      setMeta({
-        documentId: "",
-        filename: file.name,
-        contentType: file.type || "application/octet-stream",
-        byteSize: String(file.size),
-      });
-      setStatus("complete");
-      setMessage("Selected");
-      return;
-    }
     setStatus("uploading");
     setMessage("Uploading…");
     try {
@@ -167,7 +156,7 @@ function FileUploadField({
         document: { id: string; filename: string; contentType: string; byteSize: number };
       }>(`/api/v1/public/admissions/forms/${formType}/${slug}/documents`, {
         method: "POST",
-        orgId: null,
+        orgId: mode === "staff" ? undefined : null,
         body: payload,
       });
       setMeta({
@@ -186,13 +175,13 @@ function FileUploadField({
   }
 
   async function onRemove() {
-    if (mode === "public" && meta.documentId) {
+    if (meta.documentId) {
       const token = draftTokens.continuationToken;
       const publicId = draftTokens.publicId;
       if (token && publicId) {
         await api(
           `/api/v1/public/admissions/forms/${formType}/${slug}/documents/${meta.documentId}?continuationToken=${encodeURIComponent(token)}&publicId=${encodeURIComponent(publicId)}`,
-          { method: "DELETE", orgId: null },
+          { method: "DELETE", orgId: mode === "staff" ? undefined : null },
         ).catch(() => undefined);
       }
     }
@@ -534,11 +523,15 @@ export function PublicAdmissionsForm({
       idempotencyKey: idempotencyKey.current,
     };
     if (source) requestBody.source = source;
+    if (mode === "staff") requestBody.source = "staff";
     const token = continuationRef.current;
     const existingPublicId = publicIdRef.current;
     if (token) requestBody.continuationToken = token;
     if (existingPublicId) requestBody.publicId = existingPublicId;
-    const path = `/api/v1/public/admissions/forms/${formType}/${slug}/submissions`;
+    const path =
+      mode === "staff" && formId
+        ? `/api/v1/admissions/forms/${formId}/staff-submissions`
+        : `/api/v1/public/admissions/forms/${formType}/${slug}/submissions`;
     const body = await api<{
       submission: {
         publicId?: string;
@@ -546,7 +539,7 @@ export function PublicAdmissionsForm({
       };
     }>(path, {
       method: "POST",
-      orgId: null,
+      orgId: mode === "staff" ? undefined : null,
       body: JSON.stringify(requestBody),
     });
     if (body.submission.publicId) {
@@ -557,13 +550,15 @@ export function PublicAdmissionsForm({
     if (nextToken) {
       setContinuation(nextToken);
       continuationRef.current = nextToken;
-      const next = new URL(window.location.href);
-      next.searchParams.set("continue", nextToken);
-      window.history.replaceState({}, "", next.toString());
+      if (mode === "public") {
+        const next = new URL(window.location.href);
+        next.searchParams.set("continue", nextToken);
+        window.history.replaceState({}, "", next.toString());
+      }
     }
     if (!silent) {
       setError("");
-      alert("Draft saved. Keep this page or the continuation link to resume later.");
+      alert(mode === "staff" ? "Draft saved." : "Draft saved. Keep this page or the continuation link to resume later.");
     }
     if (!publicIdRef.current || !continuationRef.current) {
       throw new Error("A saved draft is required before uploading a file");
@@ -588,20 +583,6 @@ export function PublicAdmissionsForm({
     }
     try {
       if (draft) {
-        if (mode === "staff" && formId) {
-          const requestBody: Record<string, unknown> = {
-            answers,
-            draft: true,
-            idempotencyKey: idempotencyKey.current,
-            source: "staff",
-          };
-          await api(`/api/v1/admissions/forms/${formId}/staff-submissions`, {
-            method: "POST",
-            body: JSON.stringify(requestBody),
-          });
-          alert("Draft saved.");
-          return;
-        }
         await persistDraft(false);
         return;
       }

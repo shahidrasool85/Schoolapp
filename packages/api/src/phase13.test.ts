@@ -440,6 +440,117 @@ describe("Phase 13 object storage and documents", () => {
     );
   });
 
+  it("lets staff record an application with a real uploaded document", async () => {
+    const school = await createSchool(pools.owner, suffix(), "staffdoc");
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = jsonHeaders(token, school.orgId);
+    const structure = await seedYear(app, hdrs);
+    const created = await app.request("/api/v1/admissions/forms", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ formType: "application", name: "Staff apply", slug: "staff-apply" }),
+    });
+    const form = (await created.json()) as { form: { id: string } };
+    await app.request(`/api/v1/admissions/forms/${form.form.id}/definition`, {
+      method: "PUT",
+      headers: hdrs,
+      body: JSON.stringify({
+        sections: [
+          {
+            sectionKey: "child",
+            title: "Child",
+            fields: [
+              { fieldKind: "canonical", canonicalKey: "child.legal_name", questionType: "short_text", label: "Name", required: true },
+              { fieldKind: "canonical", canonicalKey: "child.date_of_birth", questionType: "date", label: "DOB", required: true },
+              { fieldKind: "canonical", canonicalKey: "child.intended_academic_year_id", questionType: "single_choice", label: "Year", required: true },
+              { fieldKind: "canonical", canonicalKey: "child.intended_year_group_id", questionType: "single_choice", label: "Group", required: true },
+            ],
+          },
+          {
+            sectionKey: "guardians",
+            title: "Guardians",
+            fields: [{ fieldKind: "canonical", canonicalKey: "guardians", questionType: "guardian_group", label: "Guardians", required: true }],
+          },
+          {
+            sectionKey: "evidence",
+            title: "Evidence",
+            fields: [
+              {
+                fieldKind: "custom",
+                fieldKey: "supporting_evidence",
+                questionType: "file",
+                label: "Supporting document",
+                required: true,
+              },
+            ],
+          },
+        ],
+      }),
+    });
+    await app.request(`/api/v1/admissions/forms/${form.form.id}/publish`, { method: "POST", headers: hdrs });
+
+    const answers = {
+      "child.legal_name": "Staff Recorded Child",
+      "child.date_of_birth": "2017-02-02",
+      "child.intended_academic_year_id": structure.yearId,
+      "child.intended_year_group_id": structure.year3Id,
+      guardians: [{ fullName: "Staff Parent", email: "staff.parent@example.com", primaryContact: true }],
+    };
+    const draft = await app.request(`/api/v1/admissions/forms/${form.form.id}/staff-submissions`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ draft: true, answers, source: "staff" }),
+    });
+    expect(draft.status).toBe(200);
+    const draftBody = (await draft.json()) as { submission: { continuationToken: string; publicId: string } };
+
+    const metadataOnly = await app.request(`/api/v1/admissions/forms/${form.form.id}/staff-submissions`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        continuationToken: draftBody.submission.continuationToken,
+        publicId: draftBody.submission.publicId,
+        answers: {
+          ...answers,
+          supporting_evidence: { filename: "report.pdf", contentType: "application/pdf", byteSize: PDF.byteLength },
+        },
+      }),
+    });
+    expect(metadataOnly.status).toBe(400);
+
+    const uploaded = await app.request("/api/v1/public/admissions/forms/application/staff-apply/documents", {
+      method: "POST",
+      headers: { ...schoolHeaders(school.slug), ...headers(token, school.orgId) },
+      body: pdfForm({
+        fieldKey: "supporting_evidence",
+        continuationToken: draftBody.submission.continuationToken,
+        publicId: draftBody.submission.publicId,
+      }),
+    });
+    expect(uploaded.status).toBe(201);
+    const uploadedBody = (await uploaded.json()) as { document: { id: string } };
+
+    const finalise = await app.request(`/api/v1/admissions/forms/${form.form.id}/staff-submissions`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        continuationToken: draftBody.submission.continuationToken,
+        publicId: draftBody.submission.publicId,
+        source: "staff",
+        answers: {
+          ...answers,
+          supporting_evidence: {
+            documentId: uploadedBody.document.id,
+            filename: "report.pdf",
+            contentType: "application/pdf",
+            byteSize: PDF.byteLength,
+          },
+        },
+      }),
+    });
+    expect(finalise.status).toBe(201);
+  });
+
   it("rejects uploads for expired public drafts", async () => {
     const school = await createSchool(pools.owner, suffix());
     const token = await login(app, school.adminEmail, "password-12x");

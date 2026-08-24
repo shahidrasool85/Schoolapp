@@ -992,7 +992,7 @@ export function registerActivityRoutes(app: SchoolappApi) {
       const validated = validateBytes({
         bytes: upload.bytes,
         filename: upload.filename,
-        declaredMime: upload.mime,
+        mime: upload.mime,
         domain: "activity",
       });
       return runUpload(storageOf(c), async (track) => {

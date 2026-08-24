@@ -260,5 +260,6 @@ function fileLimitsStub() {
     learning_submission: 20 * 1024 * 1024,
     pastoral: 10 * 1024 * 1024,
     safeguarding: 15 * 1024 * 1024,
+    activity: 10 * 1024 * 1024,
   };
 }

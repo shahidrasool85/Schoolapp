@@ -419,6 +419,7 @@ export {
   isTimetableLessonType,
   isTimetableTeacherRole,
   isTimetableExceptionType,
+  isTimetableOccurrenceStatus,
   isIsoWeekday,
   isoWeekdayFromDate,
   addDays,

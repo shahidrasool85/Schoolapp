@@ -242,40 +242,74 @@ export type ActivityCalendarOccurrence = {
   date: string;
 };
 
+export function parseActivityWeekdays(value: unknown): number[] | null {
+  if (value == null) return null;
+  const raw = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.replace(/[{}]/g, "").split(",").filter(Boolean)
+      : typeof value === "object" && typeof (value as { length?: unknown }).length === "number"
+        ? Array.from(value as ArrayLike<unknown>)
+        : [];
+  const days = raw.map(Number).filter((day) => Number.isInteger(day) && day >= 1 && day <= 7);
+  return days.length ? days : null;
+}
+
+export function parseActivityIsoDate(value: unknown): string | null {
+  if (value == null || value === "") return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  return null;
+}
+
+function toIsoDateTime(value: unknown): string {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString();
+  const text = String(value);
+  if (/^\d{4}-\d{2}-\d{2}T/.test(text)) return new Date(text).toISOString();
+  const parsed = new Date(text);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+  return text;
+}
+
 export function expandActivityOccurrences(input: {
-  startsAt: string;
-  endsAt: string;
+  startsAt: string | Date;
+  endsAt: string | Date;
   occurrenceKind: string;
-  recurrenceWeekdays: number[] | null;
-  recurrenceUntil: string | null;
+  recurrenceWeekdays: unknown;
+  recurrenceUntil: unknown;
   from?: string | null;
   to?: string | null;
 }): ActivityCalendarOccurrence[] {
-  const start = new Date(input.startsAt);
-  const end = new Date(input.endsAt);
+  const startsAt = toIsoDateTime(input.startsAt);
+  const endsAt = toIsoDateTime(input.endsAt);
+  const start = new Date(startsAt);
+  const end = new Date(endsAt);
   const durationMs = Math.max(0, end.getTime() - start.getTime());
-  const firstDate = input.startsAt.slice(0, 10);
-  if (input.occurrenceKind !== "recurring" || !input.recurrenceWeekdays?.length || !input.recurrenceUntil) {
+  const firstDate = startsAt.slice(0, 10);
+  const weekdays = parseActivityWeekdays(input.recurrenceWeekdays);
+  const recurrenceUntil = parseActivityIsoDate(input.recurrenceUntil);
+  if (input.occurrenceKind !== "recurring" || !weekdays?.length || !recurrenceUntil) {
     const fromDate = input.from?.slice(0, 10) ?? null;
     const toDate = input.to?.slice(0, 10) ?? null;
     const endDate = end.toISOString().slice(0, 10);
     const startDate = start.toISOString().slice(0, 10);
     if (fromDate && endDate < fromDate) return [];
     if (toDate && startDate > toDate) return [];
-    return [{ startsAt: input.startsAt, endsAt: input.endsAt, date: firstDate }];
+    return [{ startsAt, endsAt, date: firstDate }];
   }
   const rangeFrom = input.from?.slice(0, 10) ?? firstDate;
-  const rangeTo = input.to?.slice(0, 10) ?? input.recurrenceUntil;
+  const rangeTo = input.to?.slice(0, 10) ?? recurrenceUntil;
   const windowFrom = rangeFrom > firstDate ? rangeFrom : firstDate;
-  const windowTo = rangeTo < input.recurrenceUntil ? rangeTo : input.recurrenceUntil;
-  const weekdays = new Set(input.recurrenceWeekdays);
-  const timePart = input.startsAt.slice(10);
+  const windowTo = rangeTo < recurrenceUntil ? rangeTo : recurrenceUntil;
+  const weekdaySet = new Set(weekdays);
+  const timePart = startsAt.slice(10);
   return eachDateInclusive(windowFrom, windowTo)
-    .filter((date) => weekdays.has(isoWeekdayFromDate(date)))
+    .filter((date) => weekdaySet.has(isoWeekdayFromDate(date)))
     .map((date) => {
-      const startsAt = `${date}${timePart}`;
-      const endsAt = new Date(new Date(startsAt).getTime() + durationMs).toISOString();
-      return { startsAt, endsAt, date };
+      const occurrenceStart = `${date}${timePart}`;
+      const occurrenceEnd = new Date(new Date(occurrenceStart).getTime() + durationMs).toISOString();
+      return { startsAt: occurrenceStart, endsAt: occurrenceEnd, date };
     });
 }
 

@@ -137,5 +137,34 @@ describe("activities domain", () => {
       to: "2026-11-12",
     });
     expect(sameDayWindow).toHaveLength(1);
+    const pgArrayClub = expandActivityOccurrences({
+      startsAt: "2026-09-08T15:30:00.000Z",
+      endsAt: "2026-09-08T16:30:00.000Z",
+      occurrenceKind: "recurring",
+      recurrenceWeekdays: "{2}",
+      recurrenceUntil: "2026-09-22",
+      from: "2026-09-01",
+      to: "2026-09-30",
+    });
+    expect(pgArrayClub.map((row) => row.date)).toEqual(["2026-09-08", "2026-09-15", "2026-09-22"]);
+    const pgDateClub = expandActivityOccurrences({
+      startsAt: new Date("2026-09-08T15:30:00.000Z"),
+      endsAt: new Date("2026-09-08T16:30:00.000Z"),
+      occurrenceKind: "recurring",
+      recurrenceWeekdays: [2],
+      recurrenceUntil: new Date("2026-09-22T00:00:00.000Z"),
+    });
+    expect(pgDateClub.map((row) => row.date)).toEqual(["2026-09-08", "2026-09-15", "2026-09-22"]);
+    const slicedDateString = String(new Date("2026-09-22T00:00:00.000Z")).slice(0, 10);
+    expect(slicedDateString).toMatch(/^Tue /);
+    const rejectedSlice = expandActivityOccurrences({
+      startsAt: new Date("2026-09-08T15:30:00.000Z"),
+      endsAt: new Date("2026-09-08T16:30:00.000Z"),
+      occurrenceKind: "recurring",
+      recurrenceWeekdays: [2],
+      recurrenceUntil: slicedDateString,
+    });
+    expect(rejectedSlice).toHaveLength(1);
+    expect(rejectedSlice[0]?.date).toBe("2026-09-08");
   });
 });

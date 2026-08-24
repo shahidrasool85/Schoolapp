@@ -493,6 +493,8 @@ export {
   allocateRegistrationStatus,
   activityNotificationBody,
   expandActivityOccurrences,
+  parseActivityWeekdays,
+  parseActivityIsoDate,
   summariseActivityResponses,
   availableSpaces,
   type ConsentClauseSnapshot,

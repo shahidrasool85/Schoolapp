@@ -333,11 +333,11 @@ export function calendarItemsFromActivities(
   const items = [];
   for (const row of rows) {
     const occurrences = expandActivityOccurrences({
-      startsAt: String(row.starts_at),
-      endsAt: String(row.ends_at),
+      startsAt: row.starts_at as string | Date,
+      endsAt: row.ends_at as string | Date,
       occurrenceKind: String(row.occurrence_kind ?? "one_off"),
-      recurrenceWeekdays: (row.recurrence_weekdays as number[] | null) ?? null,
-      recurrenceUntil: row.recurrence_until ? String(row.recurrence_until).slice(0, 10) : null,
+      recurrenceWeekdays: row.recurrence_weekdays,
+      recurrenceUntil: row.recurrence_until ?? null,
       from: from ?? null,
       to: to ?? null,
     });

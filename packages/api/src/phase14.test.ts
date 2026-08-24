@@ -709,10 +709,40 @@ describe("Phase 14 activities, consents, and parent responses", () => {
     expect(calendar.activities.find((row) => row.id === created.activity.id)?.source).toBe("activity");
     expect(calendar.events.filter((row) => row.id === created.activity.id)).toHaveLength(0);
 
+    const club = await createTrip(app, hdrs, {
+      title: "Recurring calendar club",
+      activityTypeKey: "club",
+      occurrenceKind: "recurring",
+      recurrenceWeekdays: [2],
+      recurrenceUntil: "2026-12-15",
+      startsAt: "2026-09-08T15:30:00.000Z",
+      endsAt: "2026-09-08T16:30:00.000Z",
+      targets: [{ targetType: "class", classId: seeded.classAId }],
+    });
+    const clubPublish = await app.request(`/api/v1/activities/${club.activity.id}/publish`, {
+      method: "POST",
+      headers: hdrs,
+      body: "{}",
+    });
+    expect(clubPublish.status).toBe(200);
+
     const parentCal = (await (await app.request("/api/v1/parent/calendar/events", { headers: parentHdrs })).json()) as {
-      activities: Array<{ id: string }>;
+      activities: Array<{ id: string; title?: string }>;
     };
     expect(parentCal.activities.map((row) => row.id)).toContain(created.activity.id);
+    expect(parentCal.activities.map((row) => row.id)).toContain(club.activity.id);
+
+    const parentClubWindow = (await (
+      await app.request("/api/v1/parent/calendar/events?from=2026-09-01&to=2026-09-30", { headers: parentHdrs })
+    ).json()) as { activities: Array<{ id: string; startsAt: string }> };
+    expect(
+      parentClubWindow.activities.filter((row) => row.id === club.activity.id).map((row) => row.startsAt.slice(0, 10)),
+    ).toEqual(["2026-09-08", "2026-09-15", "2026-09-22", "2026-09-29"]);
+
+    const staffCal = (await (await app.request("/api/v1/calendar/events", { headers: hdrs })).json()) as {
+      activities: Array<{ id: string }>;
+    };
+    expect(staffCal.activities.map((row) => row.id)).toContain(club.activity.id);
 
     const studentList = await app.request("/api/v1/student/activities", { headers: studentHdrs });
     expect(studentList.status).toBe(200);

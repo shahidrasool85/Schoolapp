@@ -568,12 +568,13 @@ describe("Phase 12 timetable", () => {
     });
     expect(visibleOak).toBe(0);
 
+    const ameliaAlias = `amelia-${suffix()}`;
     const amelia = await createStudent(app, gwH, {
       legalName: "Amelia Test",
       academicYearId: gwS.yearId,
       yearGroupId: gwS.year3Id,
       classId: gwS.classAId,
-      loginAlias: `amelia-${suffix()}`,
+      loginAlias: ameliaAlias,
       password: "student-pass-1",
     });
     const otherPupil = await createStudent(app, gwH, {
@@ -637,13 +638,7 @@ describe("Phase 12 timetable", () => {
     );
     expect(revoked.status).toBe(404);
 
-    const alias = (
-      await pools.owner.query<{ username: string }>(
-        "select username from user_login_aliases where user_id = (select user_id from student_profiles where id = $1)",
-        [amelia.student.id],
-      )
-    ).rows[0];
-    const studentTok = await loginAlias(app, gw.slug, alias!.username, "student-pass-1");
+    const studentTok = await loginAlias(app, gw.slug, ameliaAlias, "student-pass-1");
     const studentH = headers(studentTok, gw.orgId);
     const selfOk = await app.request("/api/v1/student/timetable?from=2026-09-07&to=2026-09-11", { headers: studentH });
     expect(selfOk.status).toBe(200);

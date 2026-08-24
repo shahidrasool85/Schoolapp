@@ -95,7 +95,13 @@ export class FilesystemObjectStorage implements ObjectStoragePort {
     }
   }
 
-  async createSignedDownloadUrl(): Promise<SignedDownloadUrl | null> {
+  async createSignedDownloadUrl(_input?: {
+    key: string;
+    expiresInSeconds: number;
+    filename?: string;
+    contentType?: string;
+    disposition?: "inline" | "attachment";
+  }): Promise<SignedDownloadUrl | null> {
     return null;
   }
 

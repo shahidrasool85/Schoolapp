@@ -155,7 +155,7 @@ describe("filesystem adapter", () => {
     expect(put.checksumSha256).toBe(sha256Hex(PDF));
     expect(await storage.objectExists(key)).toBe(true);
     const got = await storage.getObject(key);
-    expect(got?.body.equals(PDF)).toBe(true);
+    expect(Buffer.from(got!.body).equals(PDF)).toBe(true);
     await storage.deleteObject(key);
     expect(await storage.getObject(key)).toBeNull();
   });

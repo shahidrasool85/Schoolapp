@@ -4,7 +4,7 @@ import type { FileScanner } from "./types.js";
 export class NoopFileScanner implements FileScanner {
   readonly name = "noop";
 
-  async scan(): Promise<ScanVerdict> {
+  async scan(_input?: { bytes: Uint8Array; filename: string; contentType: string }): Promise<ScanVerdict> {
     return { status: "unscanned", scanner: this.name };
   }
 }

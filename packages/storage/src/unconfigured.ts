@@ -38,7 +38,13 @@ export class UnconfiguredObjectStorage implements ObjectStoragePort {
     return null;
   }
 
-  async createSignedDownloadUrl(): Promise<SignedDownloadUrl | null> {
+  async createSignedDownloadUrl(_input?: {
+    key: string;
+    expiresInSeconds: number;
+    filename?: string;
+    contentType?: string;
+    disposition?: "inline" | "attachment";
+  }): Promise<SignedDownloadUrl | null> {
     return null;
   }
 

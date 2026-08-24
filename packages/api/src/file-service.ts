@@ -504,40 +504,21 @@ export function downloadHeaders(object: StoredObjectRow): Record<string, string>
   };
 }
 
-export function publicFileDto(row: {
-  id: string;
-  original_filename?: string | null;
-  originalFilename?: string | null;
-  content_type?: string | null;
-  contentType?: string | null;
-  byte_size?: number | null;
-  byteSize?: number | null;
-  created_at?: unknown;
-  createdAt?: unknown;
-  stored_object_id?: string | null;
-  storedObjectId?: string | null;
-  field_key?: string | null;
-  purpose?: string | null;
-  title?: string | null;
-  document_type?: string | null;
-  visibility?: string | null;
-  status?: string | null;
-  scan_status?: string | null;
-}) {
-  const storedObjectId = row.stored_object_id ?? row.storedObjectId ?? null;
+export function publicFileDto(row: Record<string, unknown>) {
+  const storedObjectId = (row.stored_object_id ?? row.storedObjectId ?? null) as string | null;
   return {
-    id: row.id,
-    filename: row.original_filename ?? row.originalFilename ?? row.title ?? "document",
-    title: row.title ?? null,
-    contentType: row.content_type ?? row.contentType ?? null,
-    byteSize: row.byte_size ?? row.byteSize ?? null,
+    id: String(row.id),
+    filename: String(row.original_filename ?? row.originalFilename ?? row.title ?? "document"),
+    title: (row.title as string | null) ?? null,
+    contentType: (row.content_type ?? row.contentType ?? null) as string | null,
+    byteSize: (row.byte_size ?? row.byteSize ?? null) as number | null,
     createdAt: row.created_at ?? row.createdAt ?? null,
-    fieldKey: row.field_key ?? null,
-    purpose: row.purpose ?? null,
-    documentType: row.document_type ?? null,
-    visibility: row.visibility ?? null,
-    status: row.status ?? null,
-    scanStatus: row.scan_status ?? null,
+    fieldKey: (row.field_key ?? null) as string | null,
+    purpose: (row.purpose ?? null) as string | null,
+    documentType: (row.document_type ?? null) as string | null,
+    visibility: (row.visibility ?? null) as string | null,
+    status: (row.status ?? null) as string | null,
+    scanStatus: (row.scan_status ?? null) as string | null,
     downloadPath: storedObjectId ? `/api/v1/files/${storedObjectId}` : null,
   };
 }

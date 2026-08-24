@@ -144,6 +144,49 @@ describe("admissions forms", () => {
     expect(computeCompleteness({ draft: true, fields, answers })).toBe("draft");
   });
 
+  it("treats required file answers as incomplete until a bound documentId is present", () => {
+    const fields = [
+      {
+        fieldKey: "supporting_evidence",
+        fieldKind: "custom" as const,
+        canonicalKey: null,
+        questionType: "file" as const,
+        label: "Evidence",
+        helperText: null,
+        required: true,
+        enabled: true,
+        sortOrder: 1,
+        sectionKey: "evidence",
+        options: [],
+        documentPurpose: null,
+      },
+    ];
+    expect(
+      computeCompleteness({
+        draft: false,
+        fields,
+        answers: { supporting_evidence: { filename: "report.pdf", contentType: "application/pdf", byteSize: 12 } },
+      }),
+    ).toBe("missing_documents");
+    expect(
+      computeCompleteness({
+        draft: false,
+        fields,
+        answers: {
+          supporting_evidence: {
+            documentId: "11111111-1111-4111-8111-111111111111",
+            filename: "report.pdf",
+          },
+        },
+      }),
+    ).toBe("complete");
+    expect(() =>
+      validatePublicAnswers(fields, {
+        supporting_evidence: { filename: "report.pdf", contentType: "application/pdf", byteSize: 12 },
+      }),
+    ).toThrow(/uploaded/i);
+  });
+
   it("builds public URLs, embed code, and hashed continuation tokens", () => {
     const url = buildPublicFormUrl({
       slug: "year-3-enquiry",

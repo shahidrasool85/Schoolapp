@@ -20,7 +20,7 @@ Internet-facing data capture. Fail closed. Do not treat client-supplied organisa
 - Server-side Zod + controlled field types.
 - Helper/success/privacy text is sanitised (no stored HTML/JS).
 - JSON bodies over 64 KiB are rejected (`413 payload_too_large`).
-- File metadata: PDF/JPEG/PNG/WebP/DOCX, 8 MiB max. Bytes are not stored in PostgreSQL.
+- File metadata: PDF/JPEG/PNG/WebP/DOCX, 8 MiB max. Bytes are stored in private object storage and downloaded only through authorised Schoolapp routes.
 
 ## Abuse controls
 
@@ -42,5 +42,5 @@ Internet-facing data capture. Fail closed. Do not treat client-supplied organisa
 1. `PLATFORM_DOMAIN` is the real apex; school forms are served on school hosts only.
 2. Reverse proxies overwrite `X-Forwarded-Host` and client IP headers; do not pass client values through.
 3. Enable a captcha provider before exposing forms on a public marketing site if bot traffic is expected.
-4. Configure object storage before accepting production document binaries.
+4. Production must set `OBJECT_STORAGE_DRIVER=s3` (or another configured private adapter). Demo/local defaults to filesystem. Public admissions files must not be public bucket objects.
 5. Review privacy notice text/URL on each published form; submissions snapshot the wording at submit time.

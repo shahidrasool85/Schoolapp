@@ -41,6 +41,7 @@ import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
 import { uuidRouteParam, withSchoolActor } from "../school-context";
 import { mapAdmissionsCampaign, mapAdmissionsForm, mapFormSubmission } from "../serialize";
+import { assertPublicFormFileAnswers } from "../file-service";
 
 const formSchema = z.object({
   formType: z.enum(ADMISSIONS_FORM_TYPES),
@@ -706,6 +707,14 @@ export function registerAdmissionsFormRoutes(app: SchoolappApi) {
         tokenHash = created.hash;
         issuedToken = created.token;
       }
+      await assertPublicFormFileAnswers(client, {
+        organisationId: orgId,
+        tokenHash,
+        publicId: parsed.data.publicId,
+        answers,
+        fields,
+        draft: Boolean(parsed.data.draft),
+      });
       const submitted = await client.query<{ submit_public_admissions_form: Record<string, unknown> }>(
         `select submit_public_admissions_form(
            $1,$2,$3,$4::jsonb,$5::jsonb,$6::jsonb,$7,$8,$9,$10,$11,$12,$13,$14

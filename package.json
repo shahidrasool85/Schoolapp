@@ -13,7 +13,8 @@
     "db:seed-platform": "pnpm --filter @schoolapp/db seed-platform",
     "demo:setup": "node scripts/run-bash.mjs scripts/demo-setup.sh",
     "demo:reset": "node scripts/run-bash.mjs scripts/demo-reset.sh",
-    "demo:start": "pnpm --filter @schoolapp/web dev"
+    "demo:start": "pnpm --filter @schoolapp/web dev",
+    "storage:cleanup": "pnpm --filter @schoolapp/api cleanup-stored-objects"
   },
   "devDependencies": {
     "@types/node": "^22.17.0",

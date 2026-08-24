@@ -24,6 +24,8 @@ The demo scripts are Bash. In **Git Bash**, `pnpm demo:setup` runs them directly
 
 You do not need to install PostgreSQL itself on Windows. Setup checks `pg_isready` on the host when it exists, and otherwise runs `pg_isready` / `psql` with `docker exec` inside the Compose container (not `docker compose exec ... psql -d`, which Compose treats as `--detach`).
 
+You do not need a cloud object-storage account. Demo storage defaults to a local filesystem directory (`.data/object-storage`).
+
 ## 1. Install
 
 In a terminal, from the Schoolapp folder:

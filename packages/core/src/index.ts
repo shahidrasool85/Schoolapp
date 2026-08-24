@@ -257,6 +257,7 @@ export {
   publicFormIsAccepting,
   validateFieldAnswer,
   validatePublicAnswers,
+  fileAnswerDocumentId,
   mapAnswersToCanonical,
   computeCompleteness,
   declarationSnapshot,

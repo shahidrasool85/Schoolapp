@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { api } from "../../../../../lib/api";
+import { api, downloadAuthenticated } from "../../../../../lib/api";
 
 type Canonical = {
   child?: {
@@ -117,6 +117,17 @@ type Detail = {
   }>;
   assessments: Array<{ id: string; assessmentType: string; status: string; scheduledAt: string | null }>;
   offers: Array<{ id: string; status: string; offerMadeOn: string; responseDeadline: string | null }>;
+  documents?: Array<{
+    id: string;
+    fieldKey: string;
+    purpose: string;
+    filename: string;
+    contentType: string | null;
+    byteSize: number | null;
+    createdAt: string;
+    status: string | null;
+    downloadPath: string | null;
+  }>;
 };
 
 type Option = { id: string; name: string };
@@ -351,6 +362,41 @@ export default function ApplicationDetailPage() {
                 <td>{contact.hasParentalResponsibility ? "Yes" : "No"}</td>
                 <td>{formatAddress([contact.addressLine1, contact.addressLine2, contact.addressTown, contact.addressPostcode])}</td>
                 <td>{contact.userId ? "Existing identity" : "No portal user yet"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <h2>Documents</h2>
+      {(data.documents ?? []).length === 0 ? (
+        <p className="muted">No uploaded documents.</p>
+      ) : (
+        <table>
+          <thead>
+            <tr><th>File</th><th>Type / question</th><th>Uploaded</th><th>Size</th><th>Status</th><th></th></tr>
+          </thead>
+          <tbody>
+            {(data.documents ?? []).map((doc) => (
+              <tr key={doc.id}>
+                <td>{doc.filename}</td>
+                <td>{doc.fieldKey} · {doc.purpose}</td>
+                <td>{doc.createdAt ? new Date(doc.createdAt).toLocaleString() : "—"}</td>
+                <td>{doc.byteSize ? `${Math.round(doc.byteSize / 1024)} KB` : "—"}</td>
+                <td>{doc.status ?? "—"}</td>
+                <td>
+                  {doc.downloadPath ? (
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() =>
+                        downloadAuthenticated(doc.downloadPath!, doc.filename).catch((err: Error) => setError(err.message))
+                      }
+                    >
+                      Download
+                    </button>
+                  ) : "—"}
+                </td>
               </tr>
             ))}
           </tbody>

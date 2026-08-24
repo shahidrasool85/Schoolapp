@@ -48,7 +48,7 @@ Work is not hardcoded as “Homework”. Each organisation has a catalogue (`hom
 
 ### Resources and files
 
-Resources are metadata + http(s) URL, with object-storage key builders on the existing port. Binary upload remains deferred (`UnconfiguredObjectStorage`). File bytes are not stored in PostgreSQL.
+Resources may be an http(s) URL or a stored file. Phase 13 ([ADR 0022](./0022-phase13-object-storage.md)) stores resource and submission attachment bytes in object storage. File bytes are not stored in PostgreSQL. Teacher feedback attachments are deferred.
 
 ### Notifications
 

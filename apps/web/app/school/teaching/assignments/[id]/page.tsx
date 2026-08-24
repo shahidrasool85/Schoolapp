@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { api } from "../../../../../lib/api";
+import { api, downloadAuthenticated } from "../../../../../lib/api";
 
 type Detail = {
   assignment: {
@@ -19,7 +19,7 @@ type Detail = {
     maximumMarks: number | null;
     submissionRequired: boolean;
     targets: Array<{ id: string; targetType: string; className: string | null; yearGroupName: string | null; studentLegalName: string | null }>;
-    resources: Array<{ id: string; title: string; resourceKind: string; url: string | null }>;
+    resources: Array<{ id: string; title: string; resourceKind: string; url: string | null; downloadPath?: string | null; originalFilename?: string | null }>;
     progress: { assigned: number; submitted: number; notSubmitted: number; marked: number; awaitingMarking: number };
     statusHistory: Array<{ previousStatus: string | null; newStatus: string; createdAt: string }>;
   };
@@ -86,12 +86,30 @@ export default function AssignmentDetailPage() {
     await load();
   }
 
-  if (error) return <p className="error">{error}</p>;
+  async function addFileResource(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const payload = new FormData(form);
+    setError("");
+    try {
+      await api(`/api/v1/learning/assignments/${params.id}/resources`, {
+        method: "POST",
+        body: payload,
+      });
+      form.reset();
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    }
+  }
+
+  if (error && !data) return <p className="error">{error}</p>;
   if (!data) return <p>Loading…</p>;
   const a = data.assignment;
 
   return (
     <>
+      {error ? <p className="error">{error}</p> : null}
       <div className="toolbar">
         <h1>{a.title}</h1>
         <button className="secondary" type="button" onClick={() => router.push("/school/teaching/assignments")}>Back</button>
@@ -128,6 +146,22 @@ export default function AssignmentDetailPage() {
           <li key={resource.id}>
             {resource.title} ({resource.resourceKind})
             {resource.url ? <> — <a href={resource.url}>{resource.url}</a></> : null}
+            {resource.downloadPath ? (
+              <>
+                {" — "}
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() =>
+                    downloadAuthenticated(resource.downloadPath!, resource.originalFilename ?? resource.title).catch(
+                      (err: Error) => setError(err.message),
+                    )
+                  }
+                >
+                  Download
+                </button>
+              </>
+            ) : null}
           </li>
         ))}
       </ul>
@@ -146,6 +180,20 @@ export default function AssignmentDetailPage() {
         </label>
         <label>URL<input name="url" required placeholder="https://" /></label>
         <div><button type="submit">Attach link</button></div>
+      </form>
+      <form className="card form-grid" onSubmit={addFileResource}>
+        <label>File title<input name="title" /></label>
+        <label>
+          Kind
+          <select name="resourceKind">
+            <option value="pdf">PDF</option>
+            <option value="worksheet">Worksheet</option>
+            <option value="image">Image</option>
+            <option value="document">Document</option>
+          </select>
+        </label>
+        <label>File<input name="file" type="file" required accept=".pdf,.png,.jpg,.jpeg,.webp,.docx,.xlsx,.txt" /></label>
+        <div><button type="submit">Upload file</button></div>
       </form>
       <h2>Pupil submissions</h2>
       <table>

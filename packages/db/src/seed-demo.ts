@@ -1613,7 +1613,13 @@ async function seedAdmissionsPublicForms(
     { value: "friend", label: "Friend or family" },
     { value: "online", label: "Online" },
   ] }, 2);
-  await addField(applyId, applyDecl.rows[0]!.id, { key: "declaration_privacy", kind: "custom", type: "declaration", label: "I confirm the information is accurate and I have read the privacy notice", required: true }, 0);
+  await addField(applyId, applyDecl.rows[0]!.id, {
+    key: "supporting_evidence",
+    kind: "custom",
+    type: "file",
+    label: "Supporting document (optional)",
+  }, 0);
+  await addField(applyId, applyDecl.rows[0]!.id, { key: "declaration_privacy", kind: "custom", type: "declaration", label: "I confirm the information is accurate and I have read the privacy notice", required: true }, 1);
 
   await insertForm({
     slug: input.schoolKey === "greenwood" ? "sixth-form-draft" : "oak-scholarship-draft",

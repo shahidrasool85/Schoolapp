@@ -836,8 +836,8 @@ describe("Phase 6 attendance and student record", () => {
       document: { storageBackend: string; storageKey: string | null };
       binaryUploadAvailable: boolean;
     };
-    expect(createdBody.binaryUploadAvailable).toBe(false);
-    expect(createdBody.document.storageBackend).toBe("unconfigured");
+    expect(createdBody.binaryUploadAvailable).toBe(true);
+    expect(["unconfigured", "filesystem", "s3"]).toContain(createdBody.document.storageBackend);
 
     const shared = await app.request(`/api/v1/students/${pupil.student.id}/documents`, {
       method: "POST",

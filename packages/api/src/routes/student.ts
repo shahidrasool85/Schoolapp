@@ -21,6 +21,17 @@ import { requireUser } from "../auth-middleware";
 import { uuidRouteParam, withSchoolActor } from "../school-context";
 import { ensurePupilSubmission, listPupilAssignments, loadPupilAssignment } from "../learning-pupil";
 import {
+  copyRevisionAttachments,
+  insertPendingObject,
+  putAndActivateObject,
+  readUploadedFile,
+  scannerOf,
+  storageErrorToAppError,
+  storageOf,
+  validateBytes,
+  runUpload,
+} from "../file-service";
+import {
   listPupilFormalResults,
   listPupilPublishedReports,
   listPupilSubjectProgress,
@@ -176,8 +187,8 @@ export function registerStudentRoutes(app: SchoolappApi) {
       if (assignmentStatus !== "published" && assignmentStatus !== "closed") {
         throw new AppError(409, "conflict", "This assignment is not open for submissions");
       }
-      const existing = await client.query<{ id: string; status: string }>(
-        `select id, status from learning_submissions
+      const existing = await client.query<{ id: string; status: string; current_revision_id: string | null }>(
+        `select id, status, current_revision_id from learning_submissions
          where organisation_id = $1 and assignment_id = $2 and student_profile_id = $3`,
         [orgId, assignmentId, studentProfileId],
       );
@@ -195,6 +206,12 @@ export function registerStudentRoutes(app: SchoolappApi) {
           submit ? "This assignment cannot be submitted now" : "This assignment cannot be edited now",
         );
       }
+      const previousRevisionId = (
+        await client.query<{ current_revision_id: string | null }>(
+          `select current_revision_id from learning_submissions where id = $1`,
+          [current.id],
+        )
+      ).rows[0]?.current_revision_id ?? null;
       if (submit) {
         const nextNumber = await client.query<{ n: number }>(
           `select coalesce(max(revision_number), 0)::int + 1 as n
@@ -222,6 +239,7 @@ export function registerStudentRoutes(app: SchoolappApi) {
            where id = $1 and organisation_id = $2`,
           [current.id, orgId, revision.rows[0]!.id, userId],
         );
+        await copyRevisionAttachments(client, orgId, previousRevisionId, revision.rows[0]!.id);
       } else {
         const nextNumber = await client.query<{ n: number }>(
           `select coalesce(max(revision_number), 0)::int + 1 as n
@@ -249,9 +267,114 @@ export function registerStudentRoutes(app: SchoolappApi) {
            where id = $1 and organisation_id = $2`,
           [current.id, orgId, revision.rows[0]!.id],
         );
+        await copyRevisionAttachments(client, orgId, previousRevisionId, revision.rows[0]!.id);
       }
       const body = await loadPupilAssignment(client, orgId, studentProfileId, assignmentId, "student");
       return c.json({ assignment: body }, submit ? 201 : 200);
+    }),
+  );
+
+  app.post("/student/assignments/:id/attachments", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.LMS_SUBMISSIONS_SUBMIT);
+      const studentProfileId = await requireStudentPortalEnabled(client, orgId, userId);
+      const assignmentId = uuidRouteParam(c, "id");
+      await loadPupilAssignment(client, orgId, studentProfileId, assignmentId, "student");
+      const assignment = await client.query<{ status: string }>(
+        "select status from learning_assignments where id = $1 and organisation_id = $2",
+        [assignmentId, orgId],
+      );
+      const assignmentStatus = assignment.rows[0]?.status ?? "";
+      const current = await ensurePupilSubmission(client, orgId, assignmentId, studentProfileId);
+      if (
+        !isLearningSubmissionStatus(current.status) ||
+        !pupilCanWriteOnAssignment(assignmentStatus, current.status, "save")
+      ) {
+        throw new AppError(409, "conflict", "This assignment cannot be edited now");
+      }
+      let revisionId = (
+        await client.query<{ current_revision_id: string | null }>(
+          `select current_revision_id from learning_submissions where id = $1`,
+          [current.id],
+        )
+      ).rows[0]?.current_revision_id;
+      if (!revisionId) {
+        const created = await client.query<{ id: string }>(
+          `insert into learning_submission_revisions (
+             organisation_id, submission_id, revision_number, text_response, comment, submitted_by
+           ) values ($1, $2, 1, null, null, $3)
+           returning id`,
+          [orgId, current.id, userId],
+        );
+        revisionId = created.rows[0]!.id;
+        await client.query(
+          `update learning_submissions
+           set status = 'in_progress', current_revision_id = $3
+           where id = $1 and organisation_id = $2`,
+          [current.id, orgId, revisionId],
+        );
+      }
+      try {
+        const upload = await readUploadedFile(c);
+        const validated = validateBytes({
+          filename: upload.filename,
+          mime: upload.mime,
+          bytes: upload.bytes,
+          domain: "learning_submission",
+        });
+        const pending = await insertPendingObject(client, {
+          organisationId: orgId,
+          domain: "learning_submission",
+          ownerRecordId: current.id,
+          storage: storageOf(c),
+          validated,
+          uploadedBy: userId,
+        });
+        return await runUpload(storageOf(c), async (track) => {
+        track(pending.storageKey);
+        const attachment = await client.query<{ id: string }>(
+          `insert into learning_submission_attachments (
+             organisation_id, revision_id, filename, content_type, byte_size,
+             storage_backend, storage_key, stored_object_id
+           ) values ($1,$2,$3,$4,$5,$6,$7,$8)
+           returning id`,
+          [
+            orgId,
+            revisionId,
+            validated.originalFilename,
+            validated.storedContentType,
+            validated.byteSize,
+            storageOf(c).backend,
+            pending.storageKey,
+            pending.id,
+          ],
+        );
+        await putAndActivateObject(client, storageOf(c), scannerOf(c), {
+          organisationId: orgId,
+          objectId: pending.id,
+          storageKey: pending.storageKey,
+          bytes: upload.bytes,
+          contentType: validated.storedContentType,
+          filename: validated.originalFilename,
+          actorUserId: userId,
+          domain: "learning_submission",
+        });
+        const assignmentBody = await loadPupilAssignment(client, orgId, studentProfileId, assignmentId, "student");
+        return c.json(
+          {
+            attachment: {
+              id: attachment.rows[0]!.id,
+              filename: validated.originalFilename,
+              downloadPath: `/api/v1/files/${pending.id}`,
+            },
+            assignment: assignmentBody,
+          },
+          201,
+        );
+        });
+      } catch (error) {
+        throw storageErrorToAppError(error);
+      }
     }),
   );
 

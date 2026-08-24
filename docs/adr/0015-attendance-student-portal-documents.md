@@ -33,7 +33,7 @@ Phase 6 School Admin UI covers school default and year-group overrides. Class an
 
 ### Documents
 
-`student_documents` stores metadata and an object-storage key only. `@schoolapp/storage` is an unconfigured port (`UnconfiguredObjectStorage`). Binary upload is deferred until an S3-compatible adapter is chosen. Parent/student visibility is explicit (`staff`, `staff_and_parents`, `staff_parents_and_student`).
+`student_documents` stores metadata plus an optional `stored_object_id`. Phase 13 ([ADR 0022](./0022-phase13-object-storage.md)) stores real bytes behind `@schoolapp/storage`. Parent/student visibility is explicit (`staff`, `staff_and_parents`, `staff_parents_and_student`) and is re-checked on download.
 
 ## Alternatives considered
 

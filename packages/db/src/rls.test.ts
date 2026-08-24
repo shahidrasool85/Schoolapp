@@ -65,10 +65,11 @@ describe("RLS catalog", () => {
            'pastoral_interventions', 'pastoral_record_attachments',            'safeguarding_concerns',
            'safeguarding_concern_revisions', 'safeguarding_chronology_entries', 'safeguarding_attachments',
            'school_day_profiles', 'school_day_periods', 'rooms',
-           'timetable_entries', 'timetable_entry_teachers', 'timetable_exceptions', 'timetable_covers'
+           'timetable_entries', 'timetable_entry_teachers', 'timetable_exceptions', 'timetable_covers',
+           'stored_objects'
          )`,
     );
-    expect(result.rows.length).toBe(112);
+    expect(result.rows.length).toBe(113);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
     }

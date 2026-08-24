@@ -13,7 +13,6 @@ import {
   hashContinuationToken,
   trustedClientIp,
   isAdmissionsFormType,
-  isAllowedAdmissionsUpload,
   mapAnswersToCanonical,
   pgErrorToAppError,
   publicFormRateLimitKey,
@@ -21,9 +20,16 @@ import {
   validatePublicAnswers,
   type FormFieldDefinition,
 } from "@schoolapp/core";
-import { defaultObjectStorage } from "@schoolapp/storage";
 import type { ApiEnv, SchoolappApi } from "../types";
 import { requestedOrganisationId } from "../auth-middleware";
+import {
+  readUploadedFile,
+  scannerOf,
+  storageErrorToAppError,
+  storageOf,
+  validateBytes,
+  assertPublicFormFileAnswers,
+} from "../file-service";
 
 const captcha = createCaptchaFromEnv();
 
@@ -227,6 +233,15 @@ export function registerPublicFormRoutes(app: SchoolappApi) {
         issuedToken = created.token;
       }
 
+      await assertPublicFormFileAnswers(c.get("config").pools.app, {
+        organisationId: school.organisationId,
+        tokenHash,
+        publicId: parsed.data.publicId,
+        answers,
+        fields,
+        draft: Boolean(parsed.data.draft),
+      });
+
       const submitted = await c.get("config").pools.app.query<{ submit_public_admissions_form: Record<string, unknown> }>(
         `select submit_public_admissions_form(
            $1,$2,$3,$4::jsonb,$5::jsonb,$6::jsonb,$7,$8,$9,$10,$11,$12,$13,$14
@@ -273,27 +288,10 @@ export function registerPublicFormRoutes(app: SchoolappApi) {
     const formType = c.req.param("formType") ?? "";
     const slug = c.req.param("slug") ?? "";
     if (!isAdmissionsFormType(formType)) throw new AppError(404, "not_found", "Not found");
-    const raw = await c.req.text();
-    assertPublicFormPayloadSize({ contentLength: c.req.header("content-length"), bodyText: raw, maxBytes: 16 * 1024 });
-    let json: unknown;
-    try {
-      json = JSON.parse(raw);
-    } catch {
-      throw new AppError(400, "validation_failed", "Invalid JSON");
-    }
-    const parsed = z
-      .object({
-        continuationToken: z.string().min(16).max(200),
-        publicId: z.string().uuid(),
-        fieldKey: z.string().min(1).max(80),
-        filename: z.string().min(1).max(120),
-        contentType: z.string().min(1).max(120),
-        byteSize: z.number().int().positive(),
-      })
-      .safeParse(json);
-    if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid document payload");
-    if (!isAllowedAdmissionsUpload(parsed.data)) {
-      throw new AppError(400, "validation_failed", "File type or size is not allowed");
+
+    const contentType = c.req.header("content-type") ?? "";
+    if (!contentType.includes("multipart/form-data")) {
+      throw new AppError(400, "validation_failed", "A file upload is required");
     }
 
     const ipHash = hashClientIp(clientIp(c));
@@ -311,30 +309,119 @@ export function registerPublicFormRoutes(app: SchoolappApi) {
     );
 
     try {
-      const inserted = await c.get("config").pools.app.query<{ register_public_form_document: { id: string; submissionId: string; storageKey: string } }>(
-        `select register_public_form_document($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-        [
-          school.organisationId,
-          formType,
-          slug,
-          hashContinuationToken(parsed.data.continuationToken),
-          parsed.data.publicId,
-          parsed.data.fieldKey,
-          parsed.data.filename,
-          parsed.data.contentType,
-          parsed.data.byteSize,
-          "",
-          defaultObjectStorage.backend,
-        ],
-      );
+      const upload = await readUploadedFile(c);
+      const continuationToken = upload.fields.continuationToken ?? "";
+      const publicId = upload.fields.publicId ?? "";
+      const fieldKey = upload.fields.fieldKey ?? "";
+      if (!continuationToken || !publicId || !fieldKey) {
+        throw new AppError(400, "validation_failed", "Invalid document payload");
+      }
+      const validated = validateBytes({
+        filename: upload.filename,
+        mime: upload.mime,
+        bytes: upload.bytes,
+        domain: "admissions_form",
+      });
+      const storage = storageOf(c);
+      if (!storage.isConfigured()) {
+        throw new AppError(503, "storage_unconfigured", "File storage is not configured");
+      }
+      const inserted = await c.get("config").pools.app.query<{
+        register_public_form_document: { id: string; submissionId: string; storedObjectId: string; storageKey: string };
+      }>(`select register_public_form_document($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [
+        school.organisationId,
+        formType,
+        slug,
+        hashContinuationToken(continuationToken),
+        publicId,
+        fieldKey,
+        validated.originalFilename,
+        validated.storedContentType,
+        validated.byteSize,
+        "",
+        storage.backend,
+      ]);
       const registered = inserted.rows[0]!.register_public_form_document;
-      return c.json({
-        document: {
-          id: registered.id,
-          storageKey: registered.storageKey,
-          binaryUploadAvailable: defaultObjectStorage.isConfigured(),
+      try {
+        const put = await storage.putObject({
+          key: registered.storageKey,
+          body: upload.bytes,
+          contentType: validated.storedContentType,
+        });
+        const scan = await scannerOf(c).scan({
+          bytes: upload.bytes,
+          filename: validated.originalFilename,
+          contentType: validated.storedContentType,
+        });
+        if (scan.status === "rejected") {
+          throw new AppError(400, "unsupported_file_type", "This file type is not allowed");
+        }
+        await c.get("config").pools.app.query(
+          `select complete_public_form_document($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [
+            school.organisationId,
+            hashContinuationToken(continuationToken),
+            publicId,
+            registered.id,
+            put.checksumSha256,
+            put.byteSize,
+            validated.storedContentType,
+            scan.status,
+          ],
+        );
+      } catch (error) {
+        const rejected = await c.get("config").pools.app.query<{
+          reject_public_form_document: { id?: string; storageKey?: string };
+        }>(`select reject_public_form_document($1,$2)`, [school.organisationId, registered.id]);
+        const storageKey = rejected.rows[0]?.reject_public_form_document?.storageKey;
+        if (storageKey) {
+          await storage.deleteObject(storageKey).catch(() => undefined);
+        }
+        if (error instanceof AppError) throw error;
+        throw pgErrorToAppError(error) ?? storageErrorToAppError(error);
+      }
+      return c.json(
+        {
+          document: {
+            id: registered.id,
+            filename: validated.originalFilename,
+            contentType: validated.storedContentType,
+            byteSize: validated.byteSize,
+            fieldKey,
+            binaryUploadAvailable: true,
+          },
         },
-      }, 201);
+        201,
+      );
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      throw pgErrorToAppError(error) ?? storageErrorToAppError(error);
+    }
+  });
+
+  app.delete("/public/admissions/forms/:formType/:slug/documents/:documentId", async (c) => {
+    const school = requireSchoolHostOrg(c);
+    const formType = c.req.param("formType") ?? "";
+    const slug = c.req.param("slug") ?? "";
+    if (!isAdmissionsFormType(formType)) throw new AppError(404, "not_found", "Not found");
+    const documentId = c.req.param("documentId") ?? "";
+    const continuationToken = c.req.query("continuationToken") ?? "";
+    const publicId = c.req.query("publicId") ?? "";
+    if (!continuationToken || !publicId) throw new AppError(404, "not_found", "Not found");
+    try {
+      const deleted = await c.get("config").pools.app.query<{
+        delete_public_form_document: { id: string; storageKey: string; storedObjectId: string };
+      }>(`select delete_public_form_document($1,$2,$3,$4)`, [
+        school.organisationId,
+        hashContinuationToken(continuationToken),
+        publicId,
+        documentId,
+      ]);
+      const row = deleted.rows[0]?.delete_public_form_document;
+      if (row?.storageKey) {
+        await storageOf(c).deleteObject(row.storageKey).catch(() => undefined);
+      }
+      return c.json({ ok: true });
     } catch (error) {
       if (error instanceof AppError) throw error;
       throw pgErrorToAppError(error) ?? error;

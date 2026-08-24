@@ -17,6 +17,9 @@ const values = {
   PLATFORM_ADMIN_EMAIL: "demo.platform@schoolapp.test",
   PLATFORM_ADMIN_PASSWORD: "DemoPass-Platform-1",
   PLATFORM_ADMIN_NAME: "Demo Platform Admin",
+  OBJECT_STORAGE_DRIVER: "filesystem",
+  OBJECT_STORAGE_FS_ROOT: ".data/object-storage",
+  FILE_SCANNER_DRIVER: "noop",
 };
 
 function parseEnv(text) {

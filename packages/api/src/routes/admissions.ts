@@ -680,6 +680,16 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
             [id, orgId],
           )
         : { rows: [] as Record<string, unknown>[] };
+      const documents = await client.query(
+        `select d.id, d.field_key, d.purpose, d.original_filename, d.content_type, d.byte_size,
+                d.created_at, d.stored_object_id, o.status as file_status
+         from admissions_form_documents d
+         join admissions_form_submissions s on s.id = d.submission_id
+         left join stored_objects o on o.id = d.stored_object_id
+         where s.application_id = $1 and d.organisation_id = $2 and d.deleted_at is null
+         order by d.created_at`,
+        [id, orgId],
+      );
       return c.json({
         application: mapApplication(application),
         contacts: contacts.rows.map(mapApplicationContact),
@@ -690,6 +700,18 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
         formSubmission: submission.rows[0]
           ? mapFormSubmission(submission.rows[0], { includeAnswers: true })
           : null,
+        documents: documents.rows.map((row) => ({
+          id: row.id,
+          fieldKey: row.field_key,
+          purpose: row.purpose,
+          filename: row.original_filename,
+          contentType: row.content_type,
+          byteSize: row.byte_size,
+          createdAt: row.created_at,
+          status: row.file_status ?? null,
+          downloadPath:
+            row.stored_object_id && row.file_status === "active" ? `/api/v1/files/${row.stored_object_id}` : null,
+        })),
       });
     }),
   );

@@ -184,16 +184,49 @@ export async function loadPupilAssignment(
     throw new AppError(404, "not_found", "Not found");
   }
   const resources = await client.query(
-    `select r.id, r.title, r.resource_kind, r.url, r.content_type, r.byte_size, r.storage_backend
+    `select r.id, r.title, r.resource_kind, r.url, r.content_type, r.byte_size, r.storage_backend,
+            r.stored_object_id, r.original_filename, o.status as file_status
      from learning_assignment_resources ar
      join learning_resources r on r.id = ar.resource_id
+     left join stored_objects o on o.id = r.stored_object_id
      where ar.assignment_id = $1 and ar.organisation_id = $2
+       and r.deleted_at is null
      order by ar.sort_order, r.created_at`,
     [assignmentId, organisationId],
   );
+  const attachments = row.current_revision_id
+    ? await client.query(
+        `select a.id, a.filename, a.content_type, a.byte_size, a.stored_object_id, o.status as file_status
+         from learning_submission_attachments a
+         left join stored_objects o on o.id = a.stored_object_id
+         where a.revision_id = $1 and a.organisation_id = $2 and a.deleted_at is null
+         order by a.created_at`,
+        [row.current_revision_id, organisationId],
+      )
+    : { rows: [] as Array<Record<string, unknown>> };
   return {
     ...serializePupilAssignment(row, audience),
-    resources: resources.rows.map((item) => mapLearningResource(item as Record<string, unknown>)),
+    resources: resources.rows.map((item) => ({
+      ...mapLearningResource(item as Record<string, unknown>),
+      originalFilename: item.original_filename ?? null,
+      downloadPath:
+        item.stored_object_id && item.file_status === "active" ? `/api/v1/files/${item.stored_object_id}` : null,
+    })),
+    submission: {
+      ...serializePupilAssignment(row, audience).submission,
+      attachments: attachments.rows.map((item) => ({
+        id: item.id,
+        filename: item.filename,
+        contentType: item.content_type,
+        byteSize: item.byte_size,
+        downloadPath:
+          audience === "parent"
+            ? null
+            : item.stored_object_id && item.file_status === "active"
+              ? `/api/v1/files/${item.stored_object_id}`
+              : null,
+      })),
+    },
   };
 }
 

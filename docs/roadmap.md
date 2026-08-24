@@ -190,6 +190,18 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 **Not in Phase 12:** AI timetable generation, drag-and-drop optimiser, government holiday engine, payroll, professional UI redesign.
 
+## Phase 13 — Production file storage, documents, and uploads (implemented)
+
+**Outcome:** existing Schoolapp document workflows store and retrieve real file bytes through one private object-storage layer.
+
+- Filesystem adapter for local/demo; S3-compatible adapter for production
+- Authorised server upload + application-authorised proxy download
+- Admissions, pupil documents, LMS resources, submission attachments, pastoral and safeguarding files
+- Size/type validation, filename sanitisation, checksums, scanning port (`unscanned` unless a scanner is configured)
+- Orphan cleanup command; no legal retention engine in this phase
+
+**Not in Phase 13:** OCR, AI extraction, e-signatures, Drive clone, teacher annotation editor, professional UI redesign.
+
 ## Phase 12.5 — AI learning
 
 - `packages/ai` port + one provider

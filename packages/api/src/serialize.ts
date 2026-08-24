@@ -1116,6 +1116,223 @@ export function mapPastoralAttachment(row: Record<string, unknown>) {
   };
 }
 
+export function mapSchoolDayProfile(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    academicYearId: row.academic_year_id,
+    name: row.name,
+    weekdays: row.weekdays,
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    isActive: row.is_active,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function mapSchoolDayPeriod(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    schoolDayProfileId: row.school_day_profile_id,
+    name: row.name,
+    shortCode: row.short_code ?? null,
+    periodType: row.period_type,
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    sortOrder: row.sort_order,
+    attendanceSessionTypeId: row.attendance_session_type_id ?? null,
+  };
+}
+
+export function mapRoom(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    name: row.name,
+    shortCode: row.short_code,
+    building: row.building ?? null,
+    locationDetail: row.location_detail ?? null,
+    capacity: row.capacity ?? null,
+    locationType: row.location_type,
+    isActive: row.is_active,
+  };
+}
+
+export function mapTimetableTeacher(
+  row: {
+    staffProfileId: string;
+    userId: string | null;
+    fullName: string;
+    participationRole: string;
+    isPrimary: boolean;
+    isCover: boolean;
+    originalStaffProfileId: string | null;
+  },
+  options?: { includeInternal?: boolean },
+) {
+  const base = {
+    staffProfileId: row.staffProfileId,
+    fullName: row.fullName,
+    participationRole: row.participationRole,
+    isPrimary: row.isPrimary,
+    isCover: row.isCover,
+  };
+  if (options?.includeInternal === false) {
+    return base;
+  }
+  return {
+    ...base,
+    userId: row.userId,
+    originalStaffProfileId: row.originalStaffProfileId,
+  };
+}
+
+export function mapTimetableOccurrence(
+  row: {
+    entryId: string;
+    date: string;
+    weekday: number;
+    startsAt: string;
+    endsAt: string;
+    academicYearId: string;
+    termId: string | null;
+    periodId: string | null;
+    periodName: string | null;
+    periodType: string | null;
+    classId: string;
+    className: string;
+    yearGroupId: string | null;
+    yearGroupName: string | null;
+    subjectId: string | null;
+    subjectName: string | null;
+    roomId: string | null;
+    roomName: string | null;
+    roomCode: string | null;
+    lessonType: string;
+    status: string;
+    teachers: Array<{
+      staffProfileId: string;
+      userId: string | null;
+      fullName: string;
+      participationRole: string;
+      isPrimary: boolean;
+      isCover: boolean;
+      originalStaffProfileId: string | null;
+    }>;
+    parentVisibleNote: string | null;
+    staffNotes: string | null;
+    attendanceSessionTypeId: string | null;
+    covered: boolean;
+  },
+  options?: { includeInternal?: boolean },
+) {
+  const includeInternal = options?.includeInternal !== false;
+  const base = {
+    source: "timetable" as const,
+    entryId: row.entryId,
+    date: row.date,
+    weekday: row.weekday,
+    startsAt: row.startsAt,
+    endsAt: row.endsAt,
+    periodName: row.periodName,
+    periodType: row.periodType,
+    classId: includeInternal ? row.classId : undefined,
+    className: row.className,
+    yearGroupName: row.yearGroupName,
+    subjectName: row.subjectName,
+    roomName: row.roomName,
+    roomCode: row.roomCode,
+    lessonType: row.lessonType,
+    status: row.status,
+    covered: row.covered,
+    teachers: row.teachers.map((teacher) => mapTimetableTeacher(teacher, { includeInternal })),
+    note: row.parentVisibleNote,
+  };
+  if (!includeInternal) {
+    return base;
+  }
+  return {
+    ...base,
+    academicYearId: row.academicYearId,
+    termId: row.termId,
+    periodId: row.periodId,
+    yearGroupId: row.yearGroupId,
+    subjectId: row.subjectId,
+    roomId: row.roomId,
+    staffNotes: row.staffNotes,
+    attendanceSessionTypeId: row.attendanceSessionTypeId,
+  };
+}
+
+export function mapTimetableEntry(row: Record<string, unknown>) {
+  return {
+    id: String(row.id),
+    academicYearId: row.academic_year_id,
+    termId: row.term_id ?? null,
+    schoolDayPeriodId: row.school_day_period_id ?? null,
+    weekday: row.weekday,
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    classId: row.class_id,
+    className: row.class_name ?? null,
+    yearGroupId: row.year_group_id ?? null,
+    yearGroupName: row.year_group_name ?? null,
+    subjectId: row.subject_id ?? null,
+    subjectName: row.subject_name ?? null,
+    roomId: row.room_id ?? null,
+    roomName: row.room_name ?? null,
+    lessonType: row.lesson_type,
+    isActive: row.is_active,
+    effectiveFrom: row.effective_from,
+    effectiveUntil: row.effective_until ?? null,
+    staffNotes: row.staff_notes ?? null,
+    teachers: Array.isArray(row.teachers) ? row.teachers : [],
+  };
+}
+
+export function mapTimetableException(row: Record<string, unknown>, options?: { includeInternal?: boolean }) {
+  const includeInternal = options?.includeInternal !== false;
+  const base = {
+    id: row.id,
+    timetableEntryId: row.timetable_entry_id ?? null,
+    date: row.exception_date,
+    exceptionType: row.exception_type,
+    note: row.parent_visible_note ?? null,
+  };
+  if (!includeInternal) return base;
+  return {
+    ...base,
+    replacementRoomId: row.replacement_room_id ?? null,
+    replacementSubjectId: row.replacement_subject_id ?? null,
+    replacementStartsAt: row.replacement_starts_at ?? null,
+    replacementEndsAt: row.replacement_ends_at ?? null,
+    replacementLessonType: row.replacement_lesson_type ?? null,
+    staffNotes: row.staff_notes ?? null,
+    createdBy: row.created_by ?? null,
+    createdAt: row.created_at,
+  };
+}
+
+export function mapTimetableCover(row: Record<string, unknown>, options?: { includeInternal?: boolean }) {
+  const includeInternal = options?.includeInternal !== false;
+  const base = {
+    id: row.id,
+    timetableEntryId: row.timetable_entry_id,
+    date: row.cover_date,
+    originalStaffProfileId: row.original_staff_profile_id,
+    originalStaffName: row.original_staff_name ?? null,
+    coveringStaffProfileId: row.covering_staff_profile_id,
+    coveringStaffName: row.covering_staff_name ?? null,
+    reason: row.reason ?? null,
+  };
+  if (!includeInternal) return base;
+  return {
+    ...base,
+    staffNotes: row.staff_notes ?? null,
+    assignedBy: row.assigned_by ?? null,
+    assignedAt: row.assigned_at,
+  };
+}
+
 export function mapPublishedReportSection(section: Record<string, unknown>) {
   return {
     id: section.id ?? null,

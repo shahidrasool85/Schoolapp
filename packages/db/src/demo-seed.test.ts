@@ -338,4 +338,40 @@ describe("demo seed", () => {
       expect(visible.rows[0]?.n).toBe("0");
     });
   });
+
+  it("seeds isolated Greenwood and Oak timetables", async () => {
+    const orgs = await pools.owner.query<{ id: string; slug: string }>(
+      "select id, slug::text as slug from organisations where slug = any($1::citext[])",
+      [["greenwood", "oakacademy"]],
+    );
+    const greenwoodId = orgs.rows.find((row) => row.slug === "greenwood")!.id;
+    const oakId = orgs.rows.find((row) => row.slug === "oakacademy")!.id;
+    const gw = await pools.owner.query<{ n: string }>(
+      "select count(*)::text as n from timetable_entries where organisation_id = $1",
+      [greenwoodId],
+    );
+    const oak = await pools.owner.query<{ n: string }>(
+      "select count(*)::text as n from timetable_entries where organisation_id = $1",
+      [oakId],
+    );
+    expect(Number(gw.rows[0]?.n)).toBeGreaterThan(20);
+    expect(Number(oak.rows[0]?.n)).toBeGreaterThan(5);
+    const covers = await pools.owner.query<{ n: string }>(
+      "select count(*)::text as n from timetable_covers where organisation_id = $1",
+      [greenwoodId],
+    );
+    expect(Number(covers.rows[0]?.n)).toBeGreaterThanOrEqual(1);
+
+    const admin = await pools.owner.query<{ id: string }>(
+      "select id from users where email = $1",
+      [DEMO_ACCOUNTS.greenwoodAdmin.email],
+    );
+    await withTenantContext(pools.app, admin.rows[0]!.id, greenwoodId, async (client) => {
+      const leaked = await client.query<{ n: string }>(
+        "select count(*)::text as n from timetable_entries where organisation_id = $1",
+        [oakId],
+      );
+      expect(leaked.rows[0]?.n).toBe("0");
+    });
+  });
 });

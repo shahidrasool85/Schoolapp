@@ -1,0 +1,59 @@
+import { describe, expect, it } from "vitest";
+import {
+  addDays,
+  dateInRange,
+  dateWindowsOverlap,
+  eachDateInclusive,
+  inferAttendanceSessionKey,
+  isoWeekdayFromDate,
+  occurrenceStatusFromException,
+  startOfIsoWeek,
+  timesOverlap,
+  weekdayLabel,
+} from "./timetable.js";
+import { dateIsSchoolDate } from "./timetable-access.js";
+
+describe("timetable date helpers", () => {
+  it("uses ISO weekdays (Monday = 1)", () => {
+    expect(isoWeekdayFromDate("2026-09-07")).toBe(1);
+    expect(isoWeekdayFromDate("2026-09-11")).toBe(5);
+    expect(isoWeekdayFromDate("2026-09-13")).toBe(7);
+    expect(startOfIsoWeek("2026-09-09")).toBe("2026-09-07");
+    expect(weekdayLabel(1)).toBe("Monday");
+  });
+
+  it("expands inclusive date ranges", () => {
+    expect(eachDateInclusive("2026-09-07", "2026-09-09")).toEqual([
+      "2026-09-07",
+      "2026-09-08",
+      "2026-09-09",
+    ]);
+    expect(addDays("2026-09-30", 1)).toBe("2026-10-01");
+  });
+
+  it("detects overlapping times and effective windows", () => {
+    expect(timesOverlap("09:00", "10:00", "09:45", "10:45")).toBe(true);
+    expect(timesOverlap("09:00", "10:00", "10:00", "11:00")).toBe(false);
+    expect(dateWindowsOverlap("2026-09-01", "2026-01-31", "2026-02-01", null)).toBe(false);
+    expect(dateWindowsOverlap("2026-09-01", null, "2026-10-01", "2026-10-31")).toBe(true);
+    expect(dateInRange("2026-09-07", "2026-09-01", "2026-12-18")).toBe(true);
+    expect(dateInRange("2026-12-19", "2026-09-01", "2026-12-18")).toBe(false);
+  });
+
+  it("keeps lessons inside terms and outside closures", () => {
+    const terms = [{ id: "autumn", startsOn: "2026-09-01", endsOn: "2026-12-18" }];
+    expect(dateIsSchoolDate("2026-09-07", terms, null, new Set())).toBe(true);
+    expect(dateIsSchoolDate("2026-12-20", terms, null, new Set())).toBe(false);
+    expect(dateIsSchoolDate("2026-09-07", terms, null, new Set(["2026-09-07"]))).toBe(false);
+    expect(dateIsSchoolDate("2026-09-07", terms, "spring", new Set())).toBe(false);
+  });
+
+  it("maps exceptions and attendance session inference", () => {
+    expect(occurrenceStatusFromException("cancelled", false)).toBe("cancelled");
+    expect(occurrenceStatusFromException(null, true)).toBe("covered");
+    expect(occurrenceStatusFromException(null, false)).toBe("scheduled");
+    expect(inferAttendanceSessionKey("08:40", "registration")).toBe("am");
+    expect(inferAttendanceSessionKey("13:10", "registration")).toBe("pm");
+    expect(inferAttendanceSessionKey("14:00", "teaching")).toBe("pm");
+  });
+});

@@ -4,6 +4,17 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
 
+type Lesson = {
+  entryId: string;
+  startsAt: string;
+  endsAt: string;
+  className: string;
+  subjectName: string | null;
+  roomName: string | null;
+  covered: boolean;
+  status: string;
+};
+
 type Dashboard = {
   currentAcademicYear: { id: string; name: string; startsOn: string; endsOn: string } | null;
   counts: {
@@ -23,16 +34,25 @@ const LINKS = [
   { href: "/school/teaching", title: "Teaching & Learning", text: "Assignments, homework and marking." },
   { href: "/school/assessment", title: "Assessment & Progress", text: "Formal results and published reports." },
   { href: "/school/communications", title: "Communications", text: "Notices and the school calendar." },
+  { href: "/school/timetable", title: "Timetable", text: "School day, rooms, class and teacher schedules." },
 ];
 
 export default function SchoolDashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
+  const [lessons, setLessons] = useState<Lesson[] | null>(null);
+  const [coversToday, setCoversToday] = useState(0);
   const [error, setError] = useState("");
 
   useEffect(() => {
     api<Dashboard>("/api/v1/dashboard")
       .then(setData)
       .catch((err: Error) => setError(err.message));
+    api<{ lessons: Lesson[]; coversToday: number }>("/api/v1/dashboard/timetable")
+      .then((body) => {
+        setLessons(body.lessons);
+        setCoversToday(body.coversToday);
+      })
+      .catch(() => setLessons([]));
   }, []);
 
   if (error) return <p className="error">{error}</p>;
@@ -52,6 +72,41 @@ export default function SchoolDashboardPage() {
         <Link className="card" href="/school/classes"><span>Classes</span><strong>{data.counts.classes}</strong></Link>
         <Link className="card" href="/school/subjects"><span>Subjects</span><strong>{data.counts.subjects}</strong></Link>
       </div>
+      <h2>Today's lessons</h2>
+      {lessons === null ? (
+        <p>Loading…</p>
+      ) : lessons.length === 0 ? (
+        <p>No lessons scheduled for today. Open the timetable to view a school week.</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Class</th>
+              <th>Subject</th>
+              <th>Room</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {lessons.map((lesson) => (
+              <tr key={`${lesson.entryId}-${lesson.startsAt}`}>
+                <td>
+                  {lesson.startsAt.slice(0, 5)}–{lesson.endsAt.slice(0, 5)}
+                </td>
+                <td>{lesson.className}</td>
+                <td>{lesson.subjectName ?? "—"}</td>
+                <td>{lesson.roomName ?? "—"}</td>
+                <td>
+                  {lesson.covered ? "Cover · " : ""}
+                  <Link href="/school/timetable/mine">Open</Link>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {coversToday > 0 ? <p className="muted">{coversToday} cover assignment(s) today.</p> : null}
       <h2>Start here</h2>
       <div className="cards">
         {LINKS.map((link) => (

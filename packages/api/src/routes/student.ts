@@ -12,7 +12,10 @@ import {
   requireStudentPortalEnabled,
   STUDENT_DASHBOARD_SECTIONS,
   summariseAttendanceMarks,
+  isoDate,
 } from "@schoolapp/core";
+import { listPupilTimetable } from "./timetable";
+import { mapTimetableOccurrence } from "../serialize";
 import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
 import { uuidRouteParam, withSchoolActor } from "../school-context";
@@ -58,6 +61,10 @@ export function registerStudentRoutes(app: SchoolappApi) {
         throw new AppError(404, "not_found", "Not found");
       }
       const unreadCount = await countUnreadNotifications(client, orgId, userId);
+      const today = isoDate();
+      const lessons = await listPupilTimetable(client, orgId, student.id, today, addDaysSafe(today, 7));
+      const todayLessons = lessons.filter((item) => item.date === today && item.status !== "cancelled");
+      const nextLesson = lessons.find((item) => item.status !== "cancelled" && item.status !== "school_closure") ?? null;
       return c.json({
         student,
         school: student.school,
@@ -71,6 +78,11 @@ export function registerStudentRoutes(app: SchoolappApi) {
           myLearning: { available: true },
           homework: { available: true },
           results: { available: true },
+          timetable: { available: true },
+        },
+        timetable: {
+          today: todayLessons.map((item) => mapTimetableOccurrence(item, { includeInternal: false })),
+          nextLesson: nextLesson ? mapTimetableOccurrence(nextLesson, { includeInternal: false }) : null,
         },
         notifications: { unreadCount, preview: comingLater },
       });
@@ -360,7 +372,32 @@ export function registerStudentRoutes(app: SchoolappApi) {
           related: await loadPortalEventSubjects(client, orgId, String(event.id), userId, [studentProfileId]),
         });
       }
-      return c.json({ events: withRelated });
+      const from = c.req.query("from") ?? isoDate();
+      const to = c.req.query("to") ?? addDaysSafe(from, 14);
+      const lessons = await listPupilTimetable(client, orgId, studentProfileId, from, to);
+      return c.json({
+        events: withRelated,
+        lessons: lessons.map((item) => mapTimetableOccurrence(item, { includeInternal: false })),
+      });
+    }),
+  );
+
+  app.get("/student/timetable", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.TIMETABLE_READ_SELF);
+      const studentProfileId = await requireStudentPortalEnabled(client, orgId, userId);
+      const requestedStudentId = c.req.query("studentId");
+      if (requestedStudentId && requestedStudentId !== studentProfileId) {
+        throw new AppError(404, "not_found", "Not found");
+      }
+      const from = c.req.query("from") ?? isoDate();
+      const to = c.req.query("to") ?? addDaysSafe(from, 6);
+      const lessons = await listPupilTimetable(client, orgId, studentProfileId, from, to);
+      return c.json({
+        from,
+        to,
+        occurrences: lessons.map((item) => mapTimetableOccurrence(item, { includeInternal: false })),
+      });
     }),
   );
 
@@ -379,4 +416,10 @@ export function registerStudentRoutes(app: SchoolappApi) {
       });
     }),
   );
+}
+
+function addDaysSafe(iso: string, days: number): string {
+  const date = new Date(`${iso}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }

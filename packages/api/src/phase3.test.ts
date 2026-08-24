@@ -195,7 +195,7 @@ describe("Phase 3 parent and student portals", () => {
     assertPortalSafe(dashA);
     expect(dashA.school.name).toBe(schoolA.name);
     expect(dashA.children.map((c) => c.legalName).sort()).toEqual(["Alex Apple", "Blair Banana"]);
-    expect(dashA.upcoming.available).toBe(false);
+    expect(dashA.upcoming.available).toBe(true);
     expect(dashA.children.every((c) => c.school.name === schoolA.name)).toBe(true);
 
     const listB = await app.request("/api/v1/parent/children", { headers: parentB });

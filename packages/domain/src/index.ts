@@ -124,6 +124,16 @@ export const PERMISSIONS = {
   SAFEGUARDING_RECORD: "safeguarding.record",
   SAFEGUARDING_MANAGE: "safeguarding.manage",
   SAFEGUARDING_ASSIGN: "safeguarding.assign",
+  TIMETABLE_READ: "timetable.read",
+  TIMETABLE_READ_ASSIGNED: "timetable.read_assigned",
+  TIMETABLE_MANAGE: "timetable.manage",
+  TIMETABLE_MANAGE_SCHOOL: "timetable.manage_school",
+  TIMETABLE_ROOMS_READ: "timetable.rooms.read",
+  TIMETABLE_ROOMS_MANAGE: "timetable.rooms.manage",
+  TIMETABLE_COVER_READ: "timetable.cover.read",
+  TIMETABLE_COVER_MANAGE: "timetable.cover.manage",
+  TIMETABLE_READ_OWN_CHILDREN: "timetable.read_own_children",
+  TIMETABLE_READ_SELF: "timetable.read_self",
   AUDIT_READ: "audit.read",
 } as const;
 
@@ -758,3 +768,52 @@ export const PASTORAL_RECORD_ATTACHMENT_PARENT_KINDS = [
   "pastoral_intervention",
 ] as const;
 export type PastoralRecordAttachmentParentKind = (typeof PASTORAL_RECORD_ATTACHMENT_PARENT_KINDS)[number];
+
+export const SCHOOL_DAY_PERIOD_TYPES = [
+  "teaching",
+  "registration",
+  "break",
+  "lunch",
+  "assembly",
+  "other",
+] as const;
+export type SchoolDayPeriodType = (typeof SCHOOL_DAY_PERIOD_TYPES)[number];
+
+export const ROOM_LOCATION_TYPES = ["teaching", "non_teaching"] as const;
+export type RoomLocationType = (typeof ROOM_LOCATION_TYPES)[number];
+
+export const TIMETABLE_LESSON_TYPES = ["lesson", "registration", "assembly", "other"] as const;
+export type TimetableLessonType = (typeof TIMETABLE_LESSON_TYPES)[number];
+
+export const TIMETABLE_TEACHER_ROLES = [
+  "teacher",
+  "co_teacher",
+  "teaching_assistant",
+  "support",
+] as const;
+export type TimetableTeacherRole = (typeof TIMETABLE_TEACHER_ROLES)[number];
+
+export const TIMETABLE_EXCEPTION_TYPES = [
+  "cancelled",
+  "room_changed",
+  "teacher_changed",
+  "replacement",
+  "school_closure",
+  "special_activity",
+] as const;
+export type TimetableExceptionType = (typeof TIMETABLE_EXCEPTION_TYPES)[number];
+
+export const TIMETABLE_OCCURRENCE_STATUSES = [
+  "scheduled",
+  "cancelled",
+  "room_changed",
+  "teacher_changed",
+  "covered",
+  "replacement",
+  "school_closure",
+  "special_activity",
+] as const;
+export type TimetableOccurrenceStatus = (typeof TIMETABLE_OCCURRENCE_STATUSES)[number];
+
+export const ISO_WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as const;
+export type IsoWeekday = (typeof ISO_WEEKDAYS)[number];

@@ -6,11 +6,21 @@ import { api } from "../../lib/api";
 import { ComingLaterCard } from "../../components/coming-later";
 import type { ComingLater, PortalChild, PortalSchool } from "../../lib/portal";
 
+type Lesson = {
+  startsAt: string;
+  endsAt: string;
+  subjectName: string | null;
+  className: string;
+  roomName: string | null;
+  status: string;
+};
+
 type Dashboard = {
   student: PortalChild;
   school: PortalSchool;
   welcome: { title: string; message: string };
   sections: Record<string, ComingLater>;
+  timetable?: { today: Lesson[]; nextLesson: Lesson | null };
   notifications: { unreadCount: number };
 };
 
@@ -42,6 +52,16 @@ export default function StudentHomePage() {
         </p>
       </div>
       <div className="cards student-tiles">
+        <Link className="card" href="/student/timetable">
+          <strong>My Timetable</strong>
+          <p>
+            {data.timetable?.nextLesson
+              ? `Next: ${data.timetable.nextLesson.subjectName ?? data.timetable.nextLesson.className} ${data.timetable.nextLesson.startsAt.slice(0, 5)}`
+              : data.timetable?.today.length
+                ? `${data.timetable.today.length} lessons today`
+                : "See this week's lessons."}
+          </p>
+        </Link>
         <Link className="card" href="/student/attendance">
           <strong>Attendance</strong>
           <p>See your AM and PM marks.</p>

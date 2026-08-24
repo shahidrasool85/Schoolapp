@@ -15,7 +15,10 @@ import {
   portalChildSummary,
   requireLinkedChild,
   summariseAttendanceMarks,
+  isoDate,
 } from "@schoolapp/core";
+import { listPupilTimetable } from "./timetable";
+import { mapTimetableOccurrence } from "../serialize";
 import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
 import { withSchoolActor, uuidRouteParam } from "../school-context";
@@ -46,10 +49,21 @@ export function registerParentRoutes(app: SchoolappApi) {
       const childIds = await guardianChildIds(client, userId, orgId);
       const children = await loadPortalStudentsByIds(client, orgId, [...childIds]);
       const unreadCount = await countUnreadNotifications(client, orgId, userId);
+      const today = isoDate();
+      const upcoming = [];
+      for (const child of children) {
+        const lessons = await listPupilTimetable(client, orgId, child.id, today, addDaysSafe(today, 7));
+        const next = lessons.find((item) => item.status !== "cancelled" && item.status !== "school_closure");
+        upcoming.push({
+          studentId: child.id,
+          displayName: child.displayName,
+          nextLesson: next ? mapTimetableOccurrence(next, { includeInternal: false }) : null,
+        });
+      }
       return c.json({
         school,
         children: children.map(portalChildSummary),
-        upcoming: comingLater,
+        upcoming: { available: true, items: upcoming },
         recentActivity: comingLater,
         notifications: { unreadCount, preview: comingLater },
       });
@@ -90,6 +104,7 @@ export function registerParentRoutes(app: SchoolappApi) {
           results: { available: true },
           reports: { available: true },
           teacherFeedback: { available: true },
+          timetable: { available: true },
         },
       });
     }),
@@ -305,7 +320,35 @@ export function registerParentRoutes(app: SchoolappApi) {
           related: await loadPortalEventSubjects(client, orgId, String(event.id), userId, childIds),
         });
       }
-      return c.json({ events: withRelated });
+      const from = c.req.query("from") ?? isoDate();
+      const to = c.req.query("to") ?? addDaysSafe(from, 14);
+      const lessons = [];
+      for (const childId of childIds) {
+        const items = await listPupilTimetable(client, orgId, childId, from, to);
+        for (const item of items) {
+          lessons.push({
+            studentId: childId,
+            ...mapTimetableOccurrence(item, { includeInternal: false }),
+          });
+        }
+      }
+      return c.json({ events: withRelated, lessons });
+    }),
+  );
+
+  app.get("/parent/children/:studentId/timetable", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.TIMETABLE_READ_OWN_CHILDREN);
+      const studentId = uuidRouteParam(c, "studentId");
+      await requireLinkedChild(client, userId, orgId, studentId);
+      const from = c.req.query("from") ?? isoDate();
+      const to = c.req.query("to") ?? addDaysSafe(from, 6);
+      const lessons = await listPupilTimetable(client, orgId, studentId, from, to);
+      return c.json({
+        from,
+        to,
+        occurrences: lessons.map((item) => mapTimetableOccurrence(item, { includeInternal: false })),
+      });
     }),
   );
 
@@ -330,4 +373,10 @@ export function registerParentRoutes(app: SchoolappApi) {
       });
     }),
   );
+}
+
+function addDaysSafe(iso: string, days: number): string {
+  const date = new Date(`${iso}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }

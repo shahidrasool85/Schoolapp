@@ -134,6 +134,10 @@ export default function ParentChildDetailPage() {
           ) : null}
         </dl>
       </div>
+      <h2>Timetable</h2>
+      <p>
+        <Link href={`/parent/children/${params.id}/timetable`}>View this week's lessons</Link>
+      </p>
       <h2 id="attendance">Attendance</h2>
       {attendanceError ? (
         <p className="error">{attendanceError}</p>

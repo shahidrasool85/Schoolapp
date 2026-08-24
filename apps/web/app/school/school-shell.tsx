@@ -51,6 +51,15 @@ const SAFEGUARDING_NAV_PERMISSIONS = [
   "safeguarding.assign",
 ];
 
+const TIMETABLE_NAV_PERMISSIONS = [
+  "timetable.read",
+  "timetable.read_assigned",
+  "timetable.manage",
+  "timetable.manage_school",
+  "timetable.rooms.read",
+  "timetable.cover.read",
+];
+
 const COMMUNICATION_NAV_PERMISSIONS = [
   "announcements.read",
   "announcements.read_assigned",
@@ -112,6 +121,28 @@ const LINKS: NavLink[] = [
         href: "/school/attendance/school",
         label: "School attendance",
         permissions: ["attendance.record.read", "attendance.record.manage", "attendance.record.correct"],
+      },
+    ],
+  },
+  {
+    href: "/school/timetable",
+    label: "Timetable",
+    exact: true,
+    permissions: TIMETABLE_NAV_PERMISSIONS,
+    children: [
+      { href: "/school/timetable", label: "Overview", exact: true, permissions: TIMETABLE_NAV_PERMISSIONS },
+      {
+        href: "/school/timetable/school-day",
+        label: "School day / Periods",
+        permissions: ["timetable.read", "timetable.manage_school", "timetable.read_assigned"],
+      },
+      { href: "/school/timetable/schedule", label: "Timetable", permissions: TIMETABLE_NAV_PERMISSIONS },
+      { href: "/school/timetable/mine", label: "My Timetable", permissions: TIMETABLE_NAV_PERMISSIONS },
+      { href: "/school/timetable/rooms", label: "Rooms", permissions: ["timetable.rooms.read", "timetable.rooms.manage"] },
+      {
+        href: "/school/timetable/cover",
+        label: "Cover / Changes",
+        permissions: ["timetable.cover.read", "timetable.cover.manage"],
       },
     ],
   },

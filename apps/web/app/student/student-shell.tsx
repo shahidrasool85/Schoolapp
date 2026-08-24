@@ -16,6 +16,7 @@ type NavLink = {
 
 const LINKS: NavLink[] = [
   { href: "/student", label: "Home", exact: true },
+  { href: "/student/timetable", label: "My Timetable" },
   { href: "/student/attendance", label: "Attendance" },
   {
     href: "/student/learning",

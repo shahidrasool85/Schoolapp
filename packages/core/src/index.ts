@@ -450,6 +450,8 @@ export {
   coveringClassIds,
   isCoveringClass,
   participatingClassIds,
+  permanentlyAssignedClassIds,
+  coveredEntryIds,
   authorisedTimetableClassIds,
   assertCanReadClassTimetable,
   assertCanManageTimetable,

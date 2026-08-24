@@ -137,6 +137,54 @@ export async function participatingClassIds(
   return new Set(result.rows.map((row) => row.class_id));
 }
 
+export async function permanentlyAssignedClassIds(
+  client: pg.PoolClient,
+  actorUserId: string,
+  organisationId: string,
+  asOfDate?: string,
+): Promise<Set<string>> {
+  const result = await client.query<{ class_id: string }>(
+    `select distinct csa.class_id
+     from class_staff_assignments csa
+     join staff_profiles sp on sp.id = csa.staff_profile_id
+     where sp.user_id = $1
+       and sp.organisation_id = $2
+       and csa.organisation_id = $2
+       and (
+         (
+           $3::date is null
+           and (csa.ended_on is null or csa.ended_on >= current_date)
+         )
+         or (
+           $3::date is not null
+           and csa.started_on <= $3::date
+           and (csa.ended_on is null or csa.ended_on >= $3::date)
+         )
+       )`,
+    [actorUserId, organisationId, asOfDate ?? null],
+  );
+  return new Set(result.rows.map((row) => row.class_id));
+}
+
+export async function coveredEntryIds(
+  client: pg.PoolClient,
+  actorUserId: string,
+  organisationId: string,
+  asOfDate: string,
+): Promise<Set<string>> {
+  const result = await client.query<{ timetable_entry_id: string }>(
+    `select tc.timetable_entry_id
+     from timetable_covers tc
+     join staff_profiles sp on sp.id = tc.covering_staff_profile_id
+     where sp.user_id = $1
+       and sp.organisation_id = $2
+       and tc.organisation_id = $2
+       and tc.cover_date = $3::date`,
+    [actorUserId, organisationId, asOfDate],
+  );
+  return new Set(result.rows.map((row) => row.timetable_entry_id));
+}
+
 export async function authorisedTimetableClassIds(
   client: pg.PoolClient,
   actor: Actor,

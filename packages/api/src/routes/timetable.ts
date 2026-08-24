@@ -7,7 +7,10 @@ import {
   assertCanReadClassTimetable,
   assertPermission,
   authorisedTimetableClassIds,
+  coveredEntryIds,
   eachDateInclusive,
+  permanentlyAssignedClassIds,
+  participatingClassIds,
   canManageCover,
   canManageRooms,
   canManageSchoolDay,
@@ -187,19 +190,38 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       const weekStart = startOfIsoWeek(today);
       const from = weekStart;
       const to = addDaysSafe(weekStart, 6);
-      const classIds = await authorisedTimetableClassIds(client, actor, today);
-      const occurrences = await resolveTimetableOccurrences(client, {
-        organisationId: orgId,
-        from,
-        to,
-        classIds: classIds ? [...classIds] : null,
-      });
+      const authorisedByDate = canReadSchoolTimetable(actor)
+        ? null
+        : await authorisedClassIdsByDate(client, actor, from, to);
+      const classIds = authorisedByDate
+        ? [...new Set([...authorisedByDate.values()].flatMap((ids) => [...ids]))]
+        : null;
+      const occurrences = (
+        await resolveTimetableOccurrences(client, {
+          organisationId: orgId,
+          from,
+          to,
+          classIds,
+          coveringUserId: canReadSchoolTimetable(actor) ? null : actor.userId,
+        })
+      ).filter((item) => !authorisedByDate || authorisedByDate.get(item.date)?.has(item.classId));
       const covers = canReadCover(actor)
         ? await client.query<{ n: number }>(
             `select count(*)::int as n
-             from timetable_covers
-             where organisation_id = $1 and cover_date >= $2::date and cover_date <= $3::date`,
-            [orgId, from, to],
+             from timetable_covers tc
+             join timetable_entries te on te.id = tc.timetable_entry_id
+             join staff_profiles osp on osp.id = tc.original_staff_profile_id
+             join staff_profiles csp on csp.id = tc.covering_staff_profile_id
+             where tc.organisation_id = $1
+               and tc.cover_date >= $2::date
+               and tc.cover_date <= $3::date
+               and (
+                 $4::uuid[] is null
+                 or te.class_id = any($4::uuid[])
+                 or osp.user_id = $5
+                 or csp.user_id = $5
+               )`,
+            [orgId, from, to, classIds, actor.userId],
           )
         : { rows: [{ n: 0 }] };
       const rooms = canReadRooms(actor)
@@ -492,8 +514,17 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       const roomId = c.req.query("roomId");
       const academicYearId = c.req.query("academicYearId");
       if (classId) await requireOrgRow(client, "classes", classId, orgId);
-      if (classId) await assertCanReadClassTimetable(client, actor, classId);
-      const authorised = classId ? null : await authorisedTimetableClassIds(client, actor);
+      const definitionScope = canReadSchoolTimetable(actor)
+        ? null
+        : await timetableDefinitionScope(client, actor, isoDate());
+      if (
+        classId &&
+        definitionScope &&
+        !definitionScope.classIds.has(classId) &&
+        definitionScope.entryIds.size === 0
+      ) {
+        throw new AppError(404, "not_found", "Not found");
+      }
       const rows = await client.query(
         `select
            te.*,
@@ -514,16 +545,28 @@ export function registerTimetableRoutes(app: SchoolappApi) {
            and ($2::uuid is null or te.academic_year_id = $2::uuid)
            and ($3::uuid is null or te.class_id = $3::uuid)
            and ($4::uuid is null or te.room_id = $4::uuid)
-           and ($5::uuid[] is null or te.class_id = any($5::uuid[]))
            and (
-             $6::uuid is null
+             $5::uuid[] is null
+             or te.class_id = any($5::uuid[])
+             or te.id = any($6::uuid[])
+           )
+           and (
+             $7::uuid is null
              or exists (
                select 1 from timetable_entry_teachers tet
-               where tet.timetable_entry_id = te.id and tet.staff_profile_id = $6::uuid
+               where tet.timetable_entry_id = te.id and tet.staff_profile_id = $7::uuid
              )
            )
          order by te.weekday, te.starts_at, c.name`,
-        [orgId, academicYearId ?? null, classId ?? null, roomId ?? null, authorised ? [...authorised] : null, staffProfileId ?? null],
+        [
+          orgId,
+          academicYearId ?? null,
+          classId ?? null,
+          roomId ?? null,
+          definitionScope ? [...definitionScope.classIds] : null,
+          definitionScope ? [...definitionScope.entryIds] : null,
+          staffProfileId ?? null,
+        ],
       );
       const mapped = [];
       for (const row of rows.rows) {
@@ -547,7 +590,12 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       ]);
       const id = uuidRouteParam(c, "id");
       const entry = await loadEntryRow(client, orgId, id);
-      await assertCanReadClassTimetable(client, actor, String(entry.class_id));
+      if (!canReadSchoolTimetable(actor)) {
+        const definitionScope = await timetableDefinitionScope(client, actor, isoDate());
+        if (!definitionScope.classIds.has(String(entry.class_id)) && !definitionScope.entryIds.has(id)) {
+          throw new AppError(404, "not_found", "Not found");
+        }
+      }
       return c.json({ entry: mapTimetableEntry(entry) });
     }),
   );
@@ -768,9 +816,9 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       }
       const from = c.req.query("from");
       const to = c.req.query("to");
-      const authorised = canReadSchoolTimetable(actor)
+      const scope = canReadSchoolTimetable(actor)
         ? null
-        : await authorisedTimetableClassIds(client, actor);
+        : await timetableDefinitionScope(client, actor, isoDate());
       const includeInternal = canManageCover(actor);
       const rows = await client.query(
         `select
@@ -785,6 +833,7 @@ export function registerTimetableRoutes(app: SchoolappApi) {
            and (
              $4::uuid[] is null
              or exception_type = 'school_closure'
+             or timetable_entry_id = any($5::uuid[])
              or exists (
                select 1 from timetable_entries te
                where te.id = timetable_exceptions.timetable_entry_id
@@ -792,7 +841,7 @@ export function registerTimetableRoutes(app: SchoolappApi) {
              )
            )
          order by exception_date desc, created_at desc`,
-        [orgId, from ?? null, to ?? null, authorised ? [...authorised] : null],
+        [orgId, from ?? null, to ?? null, scope ? [...scope.classIds] : null, scope ? [...scope.entryIds] : null],
       );
       return c.json({
         exceptions: rows.rows.map((row) => mapTimetableException(row, { includeInternal })),
@@ -857,9 +906,9 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       if (!canReadCover(actor)) throw new AppError(403, "forbidden", "Missing permission");
       const from = c.req.query("from");
       const to = c.req.query("to");
-      const authorised = canReadSchoolTimetable(actor)
+      const scope = canReadSchoolTimetable(actor)
         ? null
-        : await authorisedTimetableClassIds(client, actor);
+        : await timetableDefinitionScope(client, actor, isoDate());
       const includeInternal = canManageCover(actor);
       const rows = await client.query(
         `select
@@ -886,7 +935,7 @@ export function registerTimetableRoutes(app: SchoolappApi) {
              or csp.user_id = $5
            )
          order by tc.cover_date desc, tc.assigned_at desc`,
-        [orgId, from ?? null, to ?? null, authorised ? [...authorised] : null, userId],
+        [orgId, from ?? null, to ?? null, scope ? [...scope.classIds] : null, userId],
       );
       return c.json({ covers: rows.rows.map((row) => mapTimetableCover(row, { includeInternal })) });
     }),
@@ -1049,6 +1098,22 @@ async function insertTeachers(
       ],
     );
   }
+}
+
+async function timetableDefinitionScope(
+  client: Parameters<typeof requireOrgRow>[0],
+  actor: Parameters<typeof authorisedTimetableClassIds>[1],
+  asOfDate: string,
+) {
+  const [classIds, participating, entryIds] = await Promise.all([
+    permanentlyAssignedClassIds(client, actor.userId, actor.organisationId!, asOfDate),
+    participatingClassIds(client, actor.userId, actor.organisationId!),
+    coveredEntryIds(client, actor.userId, actor.organisationId!, asOfDate),
+  ]);
+  return {
+    classIds: new Set([...classIds, ...participating]),
+    entryIds,
+  };
 }
 
 async function authorisedClassIdsByDate(

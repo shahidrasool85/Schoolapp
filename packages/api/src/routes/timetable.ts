@@ -196,15 +196,16 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       const classIds = authorisedByDate
         ? [...new Set([...authorisedByDate.values()].flatMap((ids) => [...ids]))]
         : null;
-      const occurrences = (
-        await resolveTimetableOccurrences(client, {
-          organisationId: orgId,
-          from,
-          to,
-          classIds,
-          coveringUserId: canReadSchoolTimetable(actor) ? null : actor.userId,
-        })
-      ).filter((item) => !authorisedByDate || authorisedByDate.get(item.date)?.has(item.classId));
+      const resolved = await resolveTimetableOccurrences(client, {
+        organisationId: orgId,
+        from,
+        to,
+        classIds,
+        coveringUserId: canReadSchoolTimetable(actor) ? null : actor.userId,
+      });
+      const occurrences = canReadSchoolTimetable(actor)
+        ? resolved
+        : await filterAssignedOccurrences(client, actor, from, to, resolved);
       const covers = canReadCover(actor)
         ? await client.query<{ n: number }>(
             `select count(*)::int as n
@@ -743,9 +744,9 @@ export function registerTimetableRoutes(app: SchoolappApi) {
         yearGroupId: c.req.query("yearGroupId") ?? null,
         includeCancelled: c.req.query("includeCancelled") === "true",
       });
-      const visible = authorisedByDate
-        ? occurrences.filter((item) => authorisedByDate.get(item.date)?.has(item.classId))
-        : occurrences;
+      const visible = canReadSchoolTimetable(actor)
+        ? occurrences
+        : await filterAssignedOccurrences(client, actor, from, to, occurrences);
       return c.json({
         from,
         to,
@@ -1014,8 +1015,20 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       const coversToday = canReadCover(actor)
         ? (
             await client.query<{ n: number }>(
-              "select count(*)::int as n from timetable_covers where organisation_id = $1 and cover_date = $2::date",
-              [orgId, date],
+              `select count(*)::int as n
+               from timetable_covers tc
+               join timetable_entries te on te.id = tc.timetable_entry_id
+               join staff_profiles osp on osp.id = tc.original_staff_profile_id
+               join staff_profiles csp on csp.id = tc.covering_staff_profile_id
+               where tc.organisation_id = $1
+                 and tc.cover_date = $2::date
+                 and (
+                   $3::uuid[] is null
+                   or te.class_id = any($3::uuid[])
+                   or osp.user_id = $4
+                   or csp.user_id = $4
+                 )`,
+              [orgId, date, classIds ? [...classIds] : null, userId],
             )
           ).rows[0]?.n ?? 0
         : 0;
@@ -1116,6 +1129,26 @@ async function timetableDefinitionScope(
     classIds,
     entryIds: new Set([...participating, ...covered]),
   };
+}
+
+async function filterAssignedOccurrences(
+  client: Parameters<typeof requireOrgRow>[0],
+  actor: Parameters<typeof authorisedTimetableClassIds>[1],
+  from: string,
+  to: string,
+  occurrences: Awaited<ReturnType<typeof resolveTimetableOccurrences>>,
+) {
+  const permanentByDate = new Map<string, Set<string>>();
+  for (const date of eachDateInclusive(from, to)) {
+    permanentByDate.set(
+      date,
+      await permanentlyAssignedClassIds(client, actor.userId, actor.organisationId!, date),
+    );
+  }
+  return occurrences.filter((item) => {
+    if (permanentByDate.get(item.date)?.has(item.classId)) return true;
+    return item.teachers.some((teacher) => teacher.userId === actor.userId);
+  });
 }
 
 async function authorisedClassIdsByDate(

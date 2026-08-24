@@ -5,9 +5,22 @@ import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
 import type { PortalChild, PortalSchool } from "../../lib/portal";
 
+type NextLesson = {
+  studentId: string;
+  displayName: string;
+  nextLesson: {
+    date: string;
+    startsAt: string;
+    subjectName: string | null;
+    className: string;
+    status: string;
+  } | null;
+};
+
 type Dashboard = {
   school: PortalSchool;
   children: PortalChild[];
+  upcoming?: { available: boolean; items?: NextLesson[] };
   notifications: { unreadCount: number };
 };
 
@@ -44,6 +57,8 @@ export default function ParentDashboardPage() {
               <p>
                 <Link href={`/parent/children/${child.id}`}>Profile</Link>
                 {" · "}
+                <Link href={`/parent/children/${child.id}/timetable`}>Timetable</Link>
+                {" · "}
                 <Link href={`/parent/children/${child.id}#attendance`}>Attendance</Link>
                 {" · "}
                 <Link href={`/parent/children/${child.id}/learning`}>Learning</Link>
@@ -56,6 +71,21 @@ export default function ParentDashboardPage() {
           ))}
         </div>
       )}
+      {data.upcoming?.items?.some((item) => item.nextLesson) ? (
+        <>
+          <h2>Next lessons</h2>
+          <ul>
+            {data.upcoming.items.map((item) =>
+              item.nextLesson ? (
+                <li key={item.studentId}>
+                  {item.displayName}: {item.nextLesson.subjectName ?? item.nextLesson.className}{" "}
+                  {item.nextLesson.date} {item.nextLesson.startsAt.slice(0, 5)}
+                </li>
+              ) : null,
+            )}
+          </ul>
+        </>
+      ) : null}
       <h2>This week</h2>
       <div className="cards">
         <Link className="card" href="/parent/notices">

@@ -125,6 +125,16 @@ Platform Super Admin does **not** silently receive pupil read. Tenant data requi
 | `safeguarding.record` | — | F | F | — | — | — | — | — |
 | `safeguarding.manage` | — | F | F | — | — | — | — | — |
 | `safeguarding.assign` | — | F | F | — | — | — | — | — |
+| `timetable.read` | — | F | F | — | — | — | — | — |
+| `timetable.read_assigned` | — | — | — | F | — | — | — | — |
+| `timetable.manage` | — | F | F | — | — | — | — | — |
+| `timetable.manage_school` | — | F | F | — | — | — | — | — |
+| `timetable.rooms.read` | — | F | F | F | — | — | — | — |
+| `timetable.rooms.manage` | — | F | F | — | — | — | — | — |
+| `timetable.cover.read` | — | F | F | F | — | — | — | — |
+| `timetable.cover.manage` | — | F | F | — | — | — | — | — |
+| `timetable.read_own_children` | — | — | — | — | — | — | F | — |
+| `timetable.read_self` | — | — | — | — | — | — | — | F |
 | `external_identifiers.upn.read` | — | F | F | — | R | — | — | — |
 
 `students.documents.read_self` is seeded on the Student role for a later pupil-visible documents API. No current route checks that permission, so it does not grant access by itself.
@@ -160,5 +170,7 @@ Behaviour access is broader than pastoral or safeguarding. Teachers receive `beh
 Safeguarding tables also require a safeguarding capability at RLS, in addition to tenant isolation. Formal audit for safeguarding stores IDs and status metadata, not concern narrative.
 
 `pastoral.read_assigned` is seeded for later form-tutor / head-of-year grants and is not on the default Teacher role.
+
+Timetable keys follow the calendar pattern. School Admin and Headteacher manage the school day, rooms, recurring entries, and cover. Teachers receive `timetable.read_assigned` plus room/cover read. Cover grants class access only on the cover date; a timetable row never itself grants RBAC. Parents and students see only authorised child/self occurrences and never staff notes or cover reasons.
 
 Unused module keys are seeded so later phases do not hardcode role names; those modules are not implemented in Phase 1.

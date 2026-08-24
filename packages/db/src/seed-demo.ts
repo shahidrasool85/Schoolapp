@@ -151,6 +151,13 @@ async function wipeDemoData(client: pg.Client): Promise<void> {
     );
 
     const tenantDeletes = [
+      "timetable_covers",
+      "timetable_exceptions",
+      "timetable_entry_teachers",
+      "timetable_entries",
+      "school_day_periods",
+      "school_day_profiles",
+      "rooms",
       "safeguarding_attachments",
       "safeguarding_chronology_entries",
       "safeguarding_concern_revisions",
@@ -1716,6 +1723,366 @@ async function insertApplication(
   return id;
 }
 
+async function seedTimetable(
+  client: pg.Client,
+  input: {
+    organisationId: string;
+    academicYearId: string;
+    createdBy: string;
+    classIds: Map<string, string>;
+    subjects: Map<string, string>;
+    teachers: {
+      hannah?: string;
+      daniel?: string;
+      elena?: string;
+      mark?: string;
+      head?: string;
+    };
+    variant: "greenwood" | "oak";
+  },
+): Promise<void> {
+  const { organisationId: orgId, academicYearId, createdBy } = input;
+
+  async function room(name: string, shortCode: string, extra: { building?: string; type?: string } = {}) {
+    const inserted = await client.query<IdRow>(
+      `insert into rooms (
+         organisation_id, name, short_code, building, location_type, is_active, created_by
+       ) values ($1,$2,$3,$4,$5,true,$6) returning id`,
+      [orgId, name, shortCode, extra.building ?? null, extra.type ?? "teaching", createdBy],
+    );
+    return inserted.rows[0]!.id;
+  }
+
+  async function profile(name: string, weekdays: number[], startsAt: string, endsAt: string) {
+    const inserted = await client.query<IdRow>(
+      `insert into school_day_profiles (
+         organisation_id, academic_year_id, name, weekdays, starts_at, ends_at, created_by
+       ) values ($1,$2,$3,$4,$5,$6,$7) returning id`,
+      [orgId, academicYearId, name, weekdays, startsAt, endsAt, createdBy],
+    );
+    return inserted.rows[0]!.id;
+  }
+
+  async function period(
+    profileId: string,
+    name: string,
+    type: string,
+    startsAt: string,
+    endsAt: string,
+    sortOrder: number,
+    sessionKey?: string,
+  ) {
+    let sessionId: string | null = null;
+    if (sessionKey) {
+      const session = await client.query<IdRow>(
+        "select id from attendance_session_types where organisation_id = $1 and key = $2",
+        [orgId, sessionKey],
+      );
+      sessionId = session.rows[0]?.id ?? null;
+    }
+    const inserted = await client.query<IdRow>(
+      `insert into school_day_periods (
+         organisation_id, school_day_profile_id, name, period_type, starts_at, ends_at,
+         sort_order, attendance_session_type_id, created_by
+       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`,
+      [orgId, profileId, name, type, startsAt, endsAt, sortOrder, sessionId, createdBy],
+    );
+    return inserted.rows[0]!.id;
+  }
+
+  async function lesson(row: {
+    weekday: number;
+    periodId?: string;
+    startsAt: string;
+    endsAt: string;
+    className: string;
+    subjectKey?: string;
+    roomId?: string | null;
+    teacherId: string;
+    lessonType?: string;
+  }) {
+    const inserted = await client.query<IdRow>(
+      `insert into timetable_entries (
+         organisation_id, academic_year_id, school_day_period_id, weekday, starts_at, ends_at,
+         class_id, subject_id, room_id, lesson_type, effective_from, created_by
+       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'2026-09-01',$11) returning id`,
+      [
+        orgId,
+        academicYearId,
+        row.periodId ?? null,
+        row.weekday,
+        row.startsAt,
+        row.endsAt,
+        input.classIds.get(row.className),
+        row.subjectKey ? input.subjects.get(row.subjectKey) : null,
+        row.roomId ?? null,
+        row.lessonType ?? "lesson",
+        createdBy,
+      ],
+    );
+    await client.query(
+      `insert into timetable_entry_teachers (
+         organisation_id, timetable_entry_id, staff_profile_id, participation_role, is_primary
+       ) values ($1,$2,$3,'teacher',true)`,
+      [orgId, inserted.rows[0]!.id, row.teacherId],
+    );
+    return inserted.rows[0]!.id;
+  }
+
+  if (input.variant === "greenwood") {
+    const receptionRoom = await room("Reception Classroom", "REC", { building: "Infant wing" });
+    const year3a = await room("Year 3A", "3A", { building: "Main building" });
+    const year4a = await room("Year 4A", "4A", { building: "Main building" });
+    const year5a = await room("Year 5A", "5A", { building: "Main building" });
+    const lab = await room("Science Lab", "SCI", { building: "STEM block" });
+    const ict = await room("ICT Suite", "ICT", { building: "STEM block" });
+    const hall = await room("Sports Hall", "HALL", { building: "Sports", type: "teaching" });
+    const library = await room("Library", "LIB", { building: "Main building", type: "non_teaching" });
+    await room("Art Room", "ART", { building: "Creative block" });
+    await room("Music Room", "MUS", { building: "Creative block" });
+
+    const midweek = await profile("Standard day", [1, 2, 3, 4], "08:30", "15:15");
+    const friday = await profile("Friday early finish", [5], "08:30", "14:00");
+    const mid = {
+      reg: await period(midweek, "Registration", "registration", "08:30", "08:45", 1, "am"),
+      p1: await period(midweek, "Period 1", "teaching", "08:45", "09:35", 2),
+      p2: await period(midweek, "Period 2", "teaching", "09:35", "10:25", 3),
+      brk: await period(midweek, "Break", "break", "10:25", "10:45", 4),
+      p3: await period(midweek, "Period 3", "teaching", "10:45", "11:35", 5),
+      p4: await period(midweek, "Period 4", "teaching", "11:35", "12:25", 6),
+      lunch: await period(midweek, "Lunch", "lunch", "12:25", "13:15", 7),
+      p5: await period(midweek, "Period 5", "teaching", "13:15", "14:05", 8),
+      p6: await period(midweek, "Period 6", "teaching", "14:05", "14:55", 9),
+    };
+    const fri = {
+      reg: await period(friday, "Registration", "registration", "08:30", "08:45", 1, "am"),
+      p1: await period(friday, "Period 1", "teaching", "08:45", "09:35", 2),
+      p2: await period(friday, "Period 2", "teaching", "09:35", "10:25", 3),
+      brk: await period(friday, "Break", "break", "10:25", "10:45", 4),
+      p3: await period(friday, "Period 3", "teaching", "10:45", "11:35", 5),
+      p4: await period(friday, "Period 4", "teaching", "11:35", "12:25", 6),
+      lunch: await period(friday, "Lunch", "lunch", "12:25", "13:10", 7),
+      p5: await period(friday, "Period 5", "teaching", "13:10", "14:00", 8),
+    };
+
+    const hannah = input.teachers.hannah!;
+    const daniel = input.teachers.daniel!;
+    const elena = input.teachers.elena!;
+    const classDays = [1, 2, 3, 4] as const;
+    const primaryBlocks: Array<{
+      className: string;
+      teacherId: string;
+      roomId: string;
+      slots: Array<{ period: string; subject?: string; lessonType?: string; roomId?: string }>;
+    }> = [
+      {
+        className: "Reception",
+        teacherId: elena,
+        roomId: receptionRoom,
+        slots: [
+          { period: "reg", lessonType: "registration" },
+          { period: "p1", subject: "phonics" },
+          { period: "p2", subject: "reading" },
+          { period: "p3", subject: "mathematics" },
+          { period: "p4", subject: "english" },
+          { period: "p5", subject: "art" },
+          { period: "p6", subject: "pe", roomId: hall },
+        ],
+      },
+      {
+        className: "3A",
+        teacherId: hannah,
+        roomId: year3a,
+        slots: [
+          { period: "reg", lessonType: "registration" },
+          { period: "p1", subject: "mathematics" },
+          { period: "p2", subject: "english" },
+          { period: "p3", subject: "science", roomId: lab },
+          { period: "p4", subject: "computing", roomId: ict },
+          { period: "p5", subject: "history" },
+          { period: "p6", lessonType: "assembly" },
+        ],
+      },
+      {
+        className: "4A",
+        teacherId: daniel,
+        roomId: year4a,
+        slots: [
+          { period: "reg", lessonType: "registration" },
+          { period: "p1", subject: "english" },
+          { period: "p2", subject: "mathematics" },
+          { period: "p3", subject: "geography" },
+          { period: "p4", subject: "science", roomId: lab },
+          { period: "p5", subject: "pe", roomId: hall },
+          { period: "p6", subject: "music" },
+        ],
+      },
+    ];
+
+    for (const weekday of classDays) {
+      for (const block of primaryBlocks) {
+        for (const slot of block.slots) {
+          const periodId = mid[slot.period as keyof typeof mid];
+          const periodRow = await client.query<{ starts_at: string; ends_at: string }>(
+            "select starts_at::text, ends_at::text from school_day_periods where id = $1",
+            [periodId],
+          );
+          await lesson({
+            weekday,
+            periodId,
+            startsAt: periodRow.rows[0]!.starts_at.slice(0, 5),
+            endsAt: periodRow.rows[0]!.ends_at.slice(0, 5),
+            className: block.className,
+            subjectKey: slot.subject,
+            roomId: slot.roomId ?? block.roomId,
+            teacherId: block.teacherId,
+            lessonType: slot.lessonType,
+          });
+        }
+      }
+    }
+
+    for (const slot of [
+      { className: "Reception", teacherId: elena, roomId: receptionRoom, period: "reg", lessonType: "registration" },
+      { className: "Reception", teacherId: elena, roomId: receptionRoom, period: "p1", subject: "phonics" },
+      { className: "Reception", teacherId: elena, roomId: receptionRoom, period: "p2", subject: "reading" },
+      { className: "Reception", teacherId: elena, roomId: receptionRoom, period: "p3", subject: "mathematics" },
+      { className: "Reception", teacherId: elena, roomId: receptionRoom, period: "p4", subject: "english" },
+      { className: "Reception", teacherId: elena, roomId: hall, period: "p5", subject: "pe" },
+      { className: "3A", teacherId: hannah, roomId: year3a, period: "reg", lessonType: "registration" },
+      { className: "3A", teacherId: hannah, roomId: year3a, period: "p1", subject: "mathematics" },
+      { className: "3A", teacherId: hannah, roomId: year3a, period: "p2", subject: "english" },
+      { className: "3A", teacherId: hannah, roomId: year3a, period: "p3", subject: "pe" },
+      { className: "3A", teacherId: hannah, roomId: year3a, period: "p4", subject: "art" },
+      { className: "4A", teacherId: daniel, roomId: year4a, period: "reg", lessonType: "registration" },
+      { className: "4A", teacherId: daniel, roomId: year4a, period: "p1", subject: "english" },
+      { className: "4A", teacherId: daniel, roomId: year4a, period: "p2", subject: "mathematics" },
+      { className: "4A", teacherId: daniel, roomId: year4a, period: "p3", subject: "computing", extraRoom: ict },
+      { className: "4A", teacherId: daniel, roomId: year4a, period: "p4", subject: "history" },
+    ] as Array<{
+      className: string;
+      teacherId: string;
+      roomId: string;
+      period: keyof typeof fri;
+      subject?: string;
+      lessonType?: string;
+      extraRoom?: string;
+    }>) {
+      const periodId = fri[slot.period];
+      const periodRow = await client.query<{ starts_at: string; ends_at: string }>(
+        "select starts_at::text, ends_at::text from school_day_periods where id = $1",
+        [periodId],
+      );
+      await lesson({
+        weekday: 5,
+        periodId,
+        startsAt: periodRow.rows[0]!.starts_at.slice(0, 5),
+        endsAt: periodRow.rows[0]!.ends_at.slice(0, 5),
+        className: slot.className,
+        subjectKey: slot.subject,
+        roomId: slot.extraRoom ?? slot.roomId,
+        teacherId: slot.teacherId,
+        lessonType: slot.lessonType,
+      });
+    }
+
+    const p5 = await client.query<{ starts_at: string; ends_at: string }>(
+      "select starts_at::text, ends_at::text from school_day_periods where id = $1",
+      [fri.p5],
+    );
+    const english3b = await lesson({
+      weekday: 5,
+      periodId: fri.p5,
+      startsAt: p5.rows[0]!.starts_at.slice(0, 5),
+      endsAt: p5.rows[0]!.ends_at.slice(0, 5),
+      className: "3B",
+      subjectKey: "english",
+      roomId: year3a,
+      teacherId: hannah,
+    });
+    await lesson({
+      weekday: 5,
+      periodId: fri.p5,
+      startsAt: p5.rows[0]!.starts_at.slice(0, 5),
+      endsAt: p5.rows[0]!.ends_at.slice(0, 5),
+      className: "5A",
+      subjectKey: "mathematics",
+      roomId: year5a,
+      teacherId: daniel,
+    });
+
+    const mondayP1 = await client.query<IdRow>(
+      `select te.id
+       from timetable_entries te
+       join timetable_entry_teachers tet on tet.timetable_entry_id = te.id
+       where te.organisation_id = $1
+         and te.class_id = $2
+         and te.weekday = 1
+         and tet.staff_profile_id = $3
+         and te.starts_at = '08:45'
+       limit 1`,
+      [orgId, input.classIds.get("3A"), hannah],
+    );
+    if (input.teachers.head && mondayP1.rows[0]) {
+      await client.query(
+        `insert into timetable_covers (
+           organisation_id, timetable_entry_id, cover_date, original_staff_profile_id,
+           covering_staff_profile_id, reason, assigned_by
+         ) values ($1,$2,'2026-09-07',$3,$4,'INSET cover example',$5)`,
+        [orgId, mondayP1.rows[0].id, hannah, input.teachers.head, createdBy],
+      );
+    }
+    const fridayPe = await client.query<IdRow>(
+      `select id from timetable_entries
+       where organisation_id = $1 and class_id = $2 and weekday = 5 and starts_at = '10:45'
+       limit 1`,
+      [orgId, input.classIds.get("3A")],
+    );
+    if (fridayPe.rows[0]) {
+      await client.query(
+        `insert into timetable_exceptions (
+           organisation_id, timetable_entry_id, exception_date, exception_type,
+           replacement_room_id, parent_visible_note, created_by
+         ) values ($1,$2,'2026-09-11','room_changed',$3,'PE is in the sports hall this Friday.',$4)`,
+        [orgId, fridayPe.rows[0].id, hall, createdBy],
+      );
+    }
+    void english3b;
+    void library;
+  } else {
+    const classroom = await room("Oak Classroom 3A", "O3A", { building: "Oak House" });
+    const oakHall = await room("Oak Hall", "OHALL", { building: "Oak House" });
+    const midweek = await profile("Oak weekday", [1, 2, 3, 4, 5], "09:00", "15:00");
+    const reg = await period(midweek, "Morning registration", "registration", "09:00", "09:15", 1, "am");
+    const p1 = await period(midweek, "Lesson 1", "teaching", "09:15", "10:15", 2);
+    const p2 = await period(midweek, "Lesson 2", "teaching", "10:15", "11:15", 3);
+    const brk = await period(midweek, "Break", "break", "11:15", "11:30", 4);
+    const p3 = await period(midweek, "Lesson 3", "teaching", "11:30", "12:30", 5);
+    void brk;
+    const mark = input.teachers.mark!;
+    for (const weekday of [1, 2, 3, 4, 5]) {
+      for (const slot of [
+        { periodId: reg, startsAt: "09:00", endsAt: "09:15", lessonType: "registration" },
+        { periodId: p1, startsAt: "09:15", endsAt: "10:15", subject: "english" },
+        { periodId: p2, startsAt: "10:15", endsAt: "11:15", subject: "mathematics" },
+        { periodId: p3, startsAt: "11:30", endsAt: "12:30", subject: "science", roomId: oakHall },
+      ]) {
+        await lesson({
+          weekday,
+          periodId: slot.periodId,
+          startsAt: slot.startsAt,
+          endsAt: slot.endsAt,
+          className: "3A",
+          subjectKey: slot.subject,
+          roomId: slot.roomId ?? classroom,
+          teacherId: mark,
+          lessonType: slot.lessonType,
+        });
+      }
+    }
+  }
+}
+
 async function seedGreenwood(
   client: pg.Client,
   hashes: Record<string, string>,
@@ -1731,6 +2098,16 @@ async function seedGreenwood(
   await seedTerms(client, orgId, academicYearId);
   const yearGroups = await seedYearGroups(client, orgId);
   const subjects = await seedSubjects(client, orgId);
+  for (const [key, name] of [
+    ["phonics", "Phonics"],
+    ["reading", "Reading"],
+  ] as const) {
+    const inserted = await client.query<IdRow>(
+      "insert into subjects (organisation_id, key, name) values ($1, $2, $3) returning id",
+      [orgId, key, name],
+    );
+    subjects.set(key, inserted.rows[0]!.id);
+  }
   const oakHouse = await client.query<IdRow>(
     "insert into houses (organisation_id, name) values ($1, 'Oak') returning id",
     [orgId],
@@ -1740,6 +2117,7 @@ async function seedGreenwood(
 
   const classIds = new Map<string, string>();
   for (const row of [
+    { name: "Reception", year: "R" },
     { name: "3A", year: "3" },
     { name: "3B", year: "3" },
     { name: "4A", year: "4" },
@@ -1789,7 +2167,7 @@ async function seedGreenwood(
     passwordHash: hashes[DEMO_ACCOUNTS.greenwoodHeadteacher.password],
   });
   await addMembership(client, orgId, headId, "school.headteacher");
-  await seedStaff(client, {
+  const headStaffId = await seedStaff(client, {
     organisationId: orgId,
     userId: headId,
     jobTitle: "Headteacher",
@@ -1840,6 +2218,32 @@ async function seedGreenwood(
        organisation_id, class_id, staff_profile_id, assignment_role, started_on
      ) values ($1, $2, $3, 'form_tutor', '2026-09-01')`,
     [orgId, classIds.get("4A"), extraStaffId],
+  );
+  await client.query(
+    `insert into class_staff_assignments (
+       organisation_id, class_id, staff_profile_id, assignment_role, started_on
+     ) values ($1, $2, $3, 'subject_teacher', '2026-09-01')`,
+    [orgId, classIds.get("5A"), extraStaffId],
+  );
+
+  const receptionTeacher = await insertUser(client, {
+    email: "demo.teacher3@greenwood.test",
+    fullName: "Elena Rossi",
+    kind: "staff",
+    passwordHash: hashes[DEMO_ACCOUNTS.greenwoodTeacher.password],
+  });
+  await addMembership(client, orgId, receptionTeacher, "school.teacher");
+  const receptionStaffId = await seedStaff(client, {
+    organisationId: orgId,
+    userId: receptionTeacher,
+    jobTitle: "Reception class teacher",
+    employeeNumber: "GW-005",
+  });
+  await client.query(
+    `insert into class_staff_assignments (
+       organisation_id, class_id, staff_profile_id, assignment_role, started_on
+     ) values ($1, $2, $3, 'form_tutor', '2026-09-01')`,
+    [orgId, classIds.get("Reception"), receptionStaffId],
   );
 
   const parentId = await insertUser(client, {
@@ -2920,6 +3324,21 @@ async function seedGreenwood(
     body: "A pastoral item has been assigned to you.",
   });
 
+  await seedTimetable(client, {
+    organisationId: orgId,
+    academicYearId,
+    createdBy: adminId,
+    classIds,
+    subjects,
+    teachers: {
+      hannah: teacherStaffId,
+      daniel: extraStaffId,
+      elena: receptionStaffId,
+      head: headStaffId,
+    },
+    variant: "greenwood",
+  });
+
   await seedAdmissionsPublicForms(client, {
     organisationId: orgId,
     createdBy: adminId,
@@ -3284,6 +3703,19 @@ async function seedOakAcademy(
     immediateActionTaken: "Recorded for the Oak DSL.",
     assignedUserId: adminId,
     recordedBy: adminId,
+  });
+
+  await seedTimetable(client, {
+    organisationId: orgId,
+    academicYearId,
+    createdBy: adminId,
+    classIds: new Map([
+      ["3A", class3.rows[0]!.id],
+      ["5A", class5.rows[0]!.id],
+    ]),
+    subjects,
+    teachers: { mark: teacherStaffId },
+    variant: "oak",
   });
 
   await seedAdmissionsPublicForms(client, {

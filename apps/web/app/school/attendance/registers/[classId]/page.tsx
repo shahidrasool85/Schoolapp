@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { api } from "../../../../../lib/api";
 
 type SessionType = { id: string; key: string; name: string };
@@ -15,6 +15,7 @@ type Draft = Record<string, { codeId: string; lateMinutes: string; reason: strin
 
 export default function ClassRegisterPage() {
   const params = useParams<{ classId: string }>();
+  const searchParams = useSearchParams();
   const [date, setDate] = useState("");
   const [sessions, setSessions] = useState<SessionType[]>([]);
   const [sessionTypeId, setSessionTypeId] = useState("");
@@ -78,7 +79,9 @@ export default function ClassRegisterPage() {
     setClassName("Register");
     setMessage("");
     setError("");
-    load().catch((err: Error) => setError(err.message));
+    const initialDate = searchParams.get("date") ?? "";
+    const initialSession = searchParams.get("sessionTypeId") ?? "";
+    load(initialDate, initialSession).catch((err: Error) => setError(err.message));
     return () => {
       loadSeq.current += 1;
     };

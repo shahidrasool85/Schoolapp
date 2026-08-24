@@ -1,6 +1,16 @@
+export type TimetableConflictDetail = {
+  kind: string;
+  message: string;
+  entryId?: string;
+  classId?: string;
+  roomId?: string;
+  staffProfileId?: string;
+};
+
 export type AppErrorDetails = {
   fieldKey?: string;
   sectionKey?: string;
+  conflicts?: TimetableConflictDetail[];
 };
 
 export class AppError extends Error {
@@ -71,7 +81,8 @@ export function pgErrorToAppError(error: unknown): AppError | null {
     message.includes("communication_actor_required") ||
     message.includes("behaviour_actor_required") ||
     message.includes("pastoral_actor_required") ||
-    message.includes("safeguarding_actor_required")
+    message.includes("safeguarding_actor_required") ||
+    message.includes("timetable_actor_required")
   ) {
     return new AppError(400, "validation_failed", "The request violates a data constraint");
   }
@@ -105,6 +116,34 @@ export function pgErrorToAppError(error: unknown): AppError | null {
   }
   if (message.includes("organisation_mismatch") || message.includes("class_year_mismatch")) {
     return new AppError(400, "validation_failed", "Referenced records must belong to this organisation");
+  }
+  if (message.includes("timetable_conflict")) {
+    const detailText =
+      "detail" in error && typeof (error as { detail?: unknown }).detail === "string"
+        ? String((error as { detail: string }).detail)
+        : "";
+    let conflicts: AppErrorDetails["conflicts"];
+    try {
+      const parsed = detailText ? (JSON.parse(detailText) as { conflicts?: AppErrorDetails["conflicts"] }) : null;
+      conflicts = parsed?.conflicts;
+    } catch {
+      conflicts = undefined;
+    }
+    return new AppError(409, "conflict", "This timetable change conflicts with an existing lesson", {
+      conflicts,
+    });
+  }
+  if (message.includes("school_day_weekday_overlap")) {
+    return new AppError(409, "conflict", "Another active school-day profile already covers one of these weekdays");
+  }
+  if (message.includes("timetable_dates_outside_year")) {
+    return new AppError(400, "validation_failed", "Timetable dates must fall inside the academic year");
+  }
+  if (message.includes("timetable_cover_weekday_mismatch")) {
+    return new AppError(400, "validation_failed", "Cover date must fall on the lesson weekday");
+  }
+  if (message.includes("timetable_cover_outside_entry")) {
+    return new AppError(400, "validation_failed", "Cover date must fall inside the timetable entry effective range");
   }
   if (message.includes("student_already_in_form_class")) {
     return new AppError(409, "conflict", "Student already has an active form class in this academic year");

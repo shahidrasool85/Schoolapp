@@ -237,6 +237,7 @@ export const PARENT_CHILD_SECTIONS = Object.freeze({
   results: { available: true as const },
   teacherFeedback: { available: true as const },
   reports: { available: true as const },
+  timetable: { available: true as const },
   achievements: comingLater,
   activities: comingLater,
   competitions: comingLater,
@@ -246,6 +247,7 @@ export const STUDENT_DASHBOARD_SECTIONS = Object.freeze({
   myLearning: { available: true as const },
   homework: { available: true as const },
   results: { available: true as const },
+  timetable: { available: true as const },
   challenges: comingLater,
   achievements: comingLater,
 });

@@ -175,7 +175,22 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 **Not in Phase 11:** AI risk scoring, external safeguarding-agency integrations, statutory exclusion workflow, behaviour gamification, parent-teacher chat, email/SMS/push.
 
-## Phase 12 — AI learning
+## Phase 12 — Timetable, lessons, rooms, and school-day scheduling (implemented)
+
+**Outcome:** a school can configure its school day and rooms, schedule recurring class/subject lessons, resolve occurrences from definitions plus exceptions, and show authorised staff, pupils, and parents the right timetable. Attendance and calendar are integrated without being duplicated.
+
+- School-day profiles and configurable periods (teaching, registration, break, lunch, assembly, other), including different weekday structures
+- Organisation room/location catalogue (room optional on a slot)
+- Recurring `timetable_entries` with effective dates, optional term, multiple participating teachers
+- Date-specific exceptions and teacher cover that do not rewrite permanent history
+- Conflict detection (teacher / class / room) using actual times, enforced in the database
+- Teacher My Timetable + dashboard lessons; Take attendance identifies the existing Phase 6 register
+- Student and parent timetable views scoped to enrolment / guardianship + `portal_access`
+- Calendar views may list lessons separately (`source: timetable`); lessons are not copied into `school_events`
+
+**Not in Phase 12:** AI timetable generation, drag-and-drop optimiser, government holiday engine, payroll, professional UI redesign.
+
+## Phase 12.5 — AI learning
 
 - `packages/ai` port + one provider
 - Activity drafts, moderation hook, teacher approval workflow

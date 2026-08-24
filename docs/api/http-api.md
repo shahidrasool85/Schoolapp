@@ -443,6 +443,38 @@ GET    /api/v1/students/{studentId}/safeguarding
 
 `GET /students/{id}` may include `behaviourSummary` / `pastoralSummary` when the actor has those permissions. It never includes safeguarding narrative or keys.
 
+## Timetable (Phase 12)
+
+Recurring definitions plus date-specific exceptions. Occurrences are resolved at query time. Lessons are **not** inserted into `school_events`. Parent/student payloads omit staff notes and cover reasons.
+
+```http
+GET    /api/v1/timetable/overview
+GET    /api/v1/timetable/school-day-profiles
+POST   /api/v1/timetable/school-day-profiles
+PATCH  /api/v1/timetable/school-day-profiles/{id}
+POST   /api/v1/timetable/school-day-profiles/{id}/periods
+PATCH  /api/v1/timetable/periods/{id}
+GET    /api/v1/timetable/rooms
+POST   /api/v1/timetable/rooms
+PATCH  /api/v1/timetable/rooms/{id}
+GET    /api/v1/timetable/entries
+POST   /api/v1/timetable/entries
+GET    /api/v1/timetable/entries/{id}
+PATCH  /api/v1/timetable/entries/{id}
+GET    /api/v1/timetable/occurrences
+GET    /api/v1/timetable/my-day
+POST   /api/v1/timetable/occurrences/attendance-register
+GET    /api/v1/timetable/exceptions
+POST   /api/v1/timetable/exceptions
+GET    /api/v1/timetable/covers
+POST   /api/v1/timetable/covers
+GET    /api/v1/dashboard/timetable
+GET    /api/v1/student/timetable
+GET    /api/v1/parent/children/{studentId}/timetable
+```
+
+`POST /timetable/occurrences/attendance-register` identifies the existing Phase 6 register for that class/date/session and does not create marks. Conflicts return `409` with `details.conflicts`.
+
 ## Files
 
 ```http

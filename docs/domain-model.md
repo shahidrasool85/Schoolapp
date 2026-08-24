@@ -144,7 +144,7 @@ UK-oriented, not US “grades”. See [ADR 0009](./adr/0009-academic-year-scoped
 
 Registers, homework, and reports must use membership **as of a date** (or year/term), not “the student’s class column”.
 
-Timetable entries belong to a later LMS/operations phase.
+Timetable (Phase 12): recurring `timetable_entries` plus date-specific `timetable_exceptions` and `timetable_covers`. School-day profiles/periods and rooms are organisation catalogues. Occurrences are resolved at query time; see [ADR 0021](./adr/0021-phase12-timetable-scheduling.md).
 
 ## Admissions (Phase 4)
 

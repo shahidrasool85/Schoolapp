@@ -83,7 +83,20 @@ export async function assignedStudentIds(
            and ay.starts_on <= $3::date
            and ay.ends_on >= $3::date
          )
-       )`,
+       )
+     union
+     select distinct cm.student_profile_id
+     from timetable_covers tc
+     join timetable_entries te on te.id = tc.timetable_entry_id
+     join staff_profiles sp on sp.id = tc.covering_staff_profile_id
+     join class_memberships cm on cm.class_id = te.class_id
+     where sp.user_id = $1
+       and sp.organisation_id = $2
+       and tc.organisation_id = $2
+       and cm.organisation_id = $2
+       and tc.cover_date = coalesce($3::date, current_date)
+       and cm.started_on <= coalesce($3::date, current_date)
+       and (cm.ended_on is null or cm.ended_on >= coalesce($3::date, current_date))`,
     [actorUserId, organisationId, asOfDate ?? null],
   );
   return new Set(result.rows.map((row) => row.student_profile_id));
@@ -115,6 +128,16 @@ export async function isAssignedToClass(
            and (csa.ended_on is null or csa.ended_on >= $4::date)
          )
        )
+     union
+     select 1
+     from timetable_covers tc
+     join timetable_entries te on te.id = tc.timetable_entry_id
+     join staff_profiles sp on sp.id = tc.covering_staff_profile_id
+     where sp.user_id = $1
+       and sp.organisation_id = $2
+       and tc.organisation_id = $2
+       and te.class_id = $3
+       and tc.cover_date = coalesce($4::date, current_date)
      limit 1`,
     [actorUserId, organisationId, classId, asOfDate ?? null],
   );
@@ -144,7 +167,16 @@ export async function assignedClassIds(
            and csa.started_on <= $3::date
            and (csa.ended_on is null or csa.ended_on >= $3::date)
          )
-       )`,
+       )
+     union
+     select distinct te.class_id
+     from timetable_covers tc
+     join timetable_entries te on te.id = tc.timetable_entry_id
+     join staff_profiles sp on sp.id = tc.covering_staff_profile_id
+     where sp.user_id = $1
+       and sp.organisation_id = $2
+       and tc.organisation_id = $2
+       and tc.cover_date = coalesce($3::date, current_date)`,
     [actorUserId, organisationId, asOfDate ?? null],
   );
   return new Set(result.rows.map((row) => row.class_id));

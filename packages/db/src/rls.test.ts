@@ -62,11 +62,13 @@ describe("RLS catalog", () => {
            'behaviour_incidents', 'behaviour_incident_related_pupils', 'behaviour_incident_witnesses',
            'behaviour_incident_revisions', 'behaviour_actions', 'behaviour_action_revisions',
            'positive_behaviour_records', 'pastoral_concerns', 'pastoral_concern_revisions',
-           'pastoral_interventions', 'pastoral_record_attachments', 'safeguarding_concerns',
-           'safeguarding_concern_revisions', 'safeguarding_chronology_entries', 'safeguarding_attachments'
+           'pastoral_interventions', 'pastoral_record_attachments',            'safeguarding_concerns',
+           'safeguarding_concern_revisions', 'safeguarding_chronology_entries', 'safeguarding_attachments',
+           'school_day_profiles', 'school_day_periods', 'rooms',
+           'timetable_entries', 'timetable_entry_teachers', 'timetable_exceptions', 'timetable_covers'
          )`,
     );
-    expect(result.rows.length).toBe(105);
+    expect(result.rows.length).toBe(112);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
     }

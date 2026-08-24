@@ -24,5 +24,6 @@ ADRs capture *why* we chose an approach. The narrative proposal is in [ARCHITECT
 | [0018](./0018-phase9-public-admissions-forms.md) | Public admissions forms, embeds, and draft tokens | Accepted |
 | [0019](./0019-phase10-communications-calendar.md) | Announcements, targeting, and school calendar | Accepted |
 | [0020](./0020-phase11-behaviour-pastoral-safeguarding.md) | Behaviour, pastoral, and safeguarding foundation | Accepted |
+| [0021](./0021-phase12-timetable-scheduling.md) | Recurring timetable definitions and date-specific exceptions | Accepted |
 
 Convention: one decision per file. If a decision is reversed, mark it **Superseded** and add a new ADR — do not silently edit history.

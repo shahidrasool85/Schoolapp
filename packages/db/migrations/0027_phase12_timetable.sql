@@ -248,6 +248,14 @@ select install_tenant_isolation('timetable_entry_teachers');
 select install_tenant_isolation('timetable_exceptions');
 select install_tenant_isolation('timetable_covers');
 
+grant select, insert, update, delete on school_day_profiles to schoolapp_app;
+grant select, insert, update, delete on school_day_periods to schoolapp_app;
+grant select, insert, update, delete on rooms to schoolapp_app;
+grant select, insert, update, delete on timetable_entries to schoolapp_app;
+grant select, insert, update, delete on timetable_entry_teachers to schoolapp_app;
+grant select, insert, update, delete on timetable_exceptions to schoolapp_app;
+grant select, insert, update, delete on timetable_covers to schoolapp_app;
+
 -- ---------------------------------------------------------------------------
 -- Same-organisation integrity
 -- ---------------------------------------------------------------------------

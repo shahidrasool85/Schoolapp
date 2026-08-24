@@ -74,6 +74,20 @@ describe("RLS catalog", () => {
     }
   });
 
+  it("grants the app role DML on timetable tables", async () => {
+    const result = await pools.owner.query<{ table_name: string; can_select: boolean }>(
+      `select t.table_name, has_table_privilege('schoolapp_app', t.table_name, 'SELECT') as can_select
+       from unnest(array[
+         'school_day_profiles', 'school_day_periods', 'rooms',
+         'timetable_entries', 'timetable_entry_teachers', 'timetable_exceptions', 'timetable_covers'
+       ]) as t(table_name)`,
+    );
+    expect(result.rows).toHaveLength(7);
+    for (const row of result.rows) {
+      expect(row.can_select, row.table_name).toBe(true);
+    }
+  });
+
   it("does not give the app role BYPASSRLS", async () => {
     const result = await pools.owner.query<{ rolbypassrls: boolean }>(
       "select rolbypassrls from pg_roles where rolname = 'schoolapp_app'",

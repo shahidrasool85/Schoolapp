@@ -450,6 +450,7 @@ export {
   coveringClassIds,
   isCoveringClass,
   participatingClassIds,
+  participatingEntryIds,
   permanentlyAssignedClassIds,
   coveredEntryIds,
   authorisedTimetableClassIds,

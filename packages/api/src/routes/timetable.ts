@@ -10,7 +10,7 @@ import {
   coveredEntryIds,
   eachDateInclusive,
   permanentlyAssignedClassIds,
-  participatingClassIds,
+  participatingEntryIds,
   canManageCover,
   canManageRooms,
   canManageSchoolDay,
@@ -517,13 +517,17 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       const definitionScope = canReadSchoolTimetable(actor)
         ? null
         : await timetableDefinitionScope(client, actor, isoDate());
-      if (
-        classId &&
-        definitionScope &&
-        !definitionScope.classIds.has(classId) &&
-        definitionScope.entryIds.size === 0
-      ) {
-        throw new AppError(404, "not_found", "Not found");
+      if (classId && definitionScope && !definitionScope.classIds.has(classId)) {
+        const coveredInClass =
+          definitionScope.entryIds.size === 0
+            ? { rows: [] }
+            : await client.query(
+                `select 1 from timetable_entries
+                 where organisation_id = $1 and class_id = $2 and id = any($3::uuid[])
+                 limit 1`,
+                [orgId, classId, [...definitionScope.entryIds]],
+              );
+        if (coveredInClass.rows.length === 0) throw new AppError(404, "not_found", "Not found");
       }
       const rows = await client.query(
         `select
@@ -1106,11 +1110,11 @@ async function timetableDefinitionScope(
   asOfDate: string,
 ) {
   const classIds = await permanentlyAssignedClassIds(client, actor.userId, actor.organisationId!, asOfDate);
-  const participating = await participatingClassIds(client, actor.userId, actor.organisationId!);
-  const entryIds = await coveredEntryIds(client, actor.userId, actor.organisationId!, asOfDate);
+  const participating = await participatingEntryIds(client, actor.userId, actor.organisationId!);
+  const covered = await coveredEntryIds(client, actor.userId, actor.organisationId!, asOfDate);
   return {
-    classIds: new Set([...classIds, ...participating]),
-    entryIds,
+    classIds,
+    entryIds: new Set([...participating, ...covered]),
   };
 }
 

@@ -137,6 +137,25 @@ export async function participatingClassIds(
   return new Set(result.rows.map((row) => row.class_id));
 }
 
+export async function participatingEntryIds(
+  client: pg.PoolClient,
+  actorUserId: string,
+  organisationId: string,
+): Promise<Set<string>> {
+  const result = await client.query<{ timetable_entry_id: string }>(
+    `select tet.timetable_entry_id
+     from timetable_entry_teachers tet
+     join timetable_entries te on te.id = tet.timetable_entry_id
+     join staff_profiles sp on sp.id = tet.staff_profile_id
+     where sp.user_id = $1
+       and sp.organisation_id = $2
+       and tet.organisation_id = $2
+       and te.is_active`,
+    [actorUserId, organisationId],
+  );
+  return new Set(result.rows.map((row) => row.timetable_entry_id));
+}
+
 export async function permanentlyAssignedClassIds(
   client: pg.PoolClient,
   actorUserId: string,
@@ -192,10 +211,11 @@ export async function authorisedTimetableClassIds(
 ): Promise<Set<string> | null> {
   if (canReadSchoolTimetable(actor)) return null;
   const assigned = await assignedClassIds(client, actor.userId, actor.organisationId!, asOfDate);
+  const participating = await participatingClassIds(client, actor.userId, actor.organisationId!);
   const covering = asOfDate
     ? await coveringClassIds(client, actor.userId, actor.organisationId!, asOfDate)
     : new Set<string>();
-  return new Set([...assigned, ...covering]);
+  return new Set([...assigned, ...participating, ...covering]);
 }
 
 export async function assertCanReadClassTimetable(

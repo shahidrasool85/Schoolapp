@@ -598,6 +598,22 @@ describe("Phase 14 activities, consents, and parent responses", () => {
       body: JSON.stringify({ studentProfileId: pupil.student.id }),
     });
     expect(((await pendingAdd.json()) as { registrationStatus: string }).registrationStatus).toBe("expected");
+    const pendingSafety = await app.request(`/api/v1/activities/${consentTrip.activity.id}/safety-summary`, {
+      headers: hdrs,
+    });
+    expect(
+      ((await pendingSafety.json()) as { participants: unknown[] }).participants,
+    ).toEqual([]);
+    const yearTrip = await createTrip(app, hdrs, {
+      title: "Year group visit",
+      targets: [{ targetType: "year_group", yearGroupId: seeded.year3Id }],
+    });
+    await app.request(`/api/v1/activities/${yearTrip.activity.id}/publish`, { method: "POST", headers: hdrs, body: "{}" });
+    expect((await app.request(`/api/v1/activities/${yearTrip.activity.id}`, { headers: teacherHdrs })).status).toBe(200);
+    const teacherYearCal = (await (await app.request("/api/v1/calendar/events", { headers: teacherHdrs })).json()) as {
+      activities: Array<{ id: string }>;
+    };
+    expect(teacherYearCal.activities.map((row) => row.id)).toContain(yearTrip.activity.id);
     const offline = await app.request(
       `/api/v1/activities/${assigned.activity.id}/participants/${pupil.student.id}/offline-response`,
       {

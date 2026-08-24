@@ -360,14 +360,21 @@ export function registerActivityRoutes(app: SchoolappApi) {
              or exists (select 1 from school_activity_staff s where s.activity_id = a.id and s.staff_user_id = $5)
              or (
                a.status in ('published', 'closed', 'completed', 'cancelled')
-               and exists (
-                 select 1 from school_activity_targets t
-                 where t.activity_id = a.id
-                   and (
-                     t.target_type = 'whole_school'
-                     or t.class_id = any($6::uuid[])
-                     or t.student_profile_id = any($7::uuid[])
-                   )
+               and (
+                 exists (
+                   select 1 from school_activity_targets t
+                   where t.activity_id = a.id
+                     and (
+                       t.target_type = 'whole_school'
+                       or t.class_id = any($6::uuid[])
+                       or t.student_profile_id = any($7::uuid[])
+                       or t.year_group_id in (select c.year_group_id from classes c where c.id = any($6::uuid[]))
+                     )
+                 )
+                 or exists (
+                   select 1 from school_activity_eligible_pupils e
+                   where e.activity_id = a.id and e.student_profile_id = any($7::uuid[])
+                 )
                )
              )
            )

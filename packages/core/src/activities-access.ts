@@ -121,13 +121,18 @@ export async function assertCanReadStaffActivity(
   const studentIds = [...(await assignedStudentIds(client, actor.userId, actor.organisationId!))];
   if (!["published", "closed", "completed", "cancelled"].includes(String(row.status))) notFound();
   const targeted = await client.query(
-    `select 1 from school_activity_targets
-     where activity_id = $1 and organisation_id = $2
+    `select 1 from school_activity_targets t
+     where t.activity_id = $1 and t.organisation_id = $2
        and (
-         target_type = 'whole_school'
-         or class_id = any($3::uuid[])
-         or student_profile_id = any($4::uuid[])
+         t.target_type = 'whole_school'
+         or t.class_id = any($3::uuid[])
+         or t.student_profile_id = any($4::uuid[])
+         or t.year_group_id in (select c.year_group_id from classes c where c.id = any($3::uuid[]))
        )
+     union all
+     select 1 from school_activity_eligible_pupils e
+     where e.activity_id = $1 and e.organisation_id = $2
+       and e.student_profile_id = any($4::uuid[])
      limit 1`,
     [activityId, actor.organisationId, classIds, studentIds],
   );
@@ -987,7 +992,6 @@ export async function listCalendarActivities(
     studentIds?: string[] | null;
     staffUserId?: string | null;
     classIds?: string[] | null;
-    studentIds?: string[] | null;
     schoolWide?: boolean;
     parentVisibleOnly?: boolean;
     studentVisibleOnly?: boolean;
@@ -1089,7 +1093,7 @@ export async function loadActivitySafetySummaries(
              select 1 from school_activity_participants p
              where p.activity_id = $3
                and p.student_profile_id = sp.id
-               and p.registration_status in ('confirmed', 'expected')
+               and p.registration_status = 'confirmed'
            )`,
         [organisationId, studentIds, activityId],
       )
@@ -1111,7 +1115,7 @@ export async function loadActivitySafetySummaries(
              select 1 from school_activity_participants p
              where p.activity_id = $3
                and p.student_profile_id = sp.id
-               and p.registration_status in ('confirmed', 'expected')
+               and p.registration_status = 'confirmed'
            )`,
         [organisationId, studentIds, activityId],
       );

@@ -12,7 +12,7 @@ See [ADR 0022](./adr/0022-phase13-object-storage.md) for the decision record.
 - Download: `GET /api/v1/files/:storedObjectId` after live permission checks, then proxy stream
 - Objects are private. Do not store public bucket URLs on business records.
 
-Postgres and the object store are not one transaction. Failed writes delete the blob when possible and mark the row `rejected` (public admissions also soft-delete the document metadata). `pnpm storage:cleanup` removes expired pending objects and old rejected/deleted bytes. It never auto-deletes safeguarding objects.
+Postgres and the object store are not one transaction. Failed writes delete the blob when possible and mark the row `rejected` (public admissions also soft-delete the document metadata). Authenticated uploads also delete the blob if the surrounding database transaction is about to roll back. `pnpm storage:cleanup` removes expired pending objects and old rejected/deleted bytes. It never auto-deletes safeguarding objects. A process crash after the bytes are written but before the database commit can leave an unreferenced object; that remains a known compensation gap.
 
 Public admissions file fields must reference a document id issued for that draft. A guessed UUID or filename-only metadata cannot mark an application complete.
 

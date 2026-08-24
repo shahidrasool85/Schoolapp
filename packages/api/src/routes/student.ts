@@ -29,6 +29,7 @@ import {
   storageErrorToAppError,
   storageOf,
   validateBytes,
+  runUpload,
 } from "../file-service";
 import {
   listPupilFormalResults,
@@ -329,6 +330,8 @@ export function registerStudentRoutes(app: SchoolappApi) {
           validated,
           uploadedBy: userId,
         });
+        return await runUpload(storageOf(c), async (track) => {
+        track(pending.storageKey);
         const attachment = await client.query<{ id: string }>(
           `insert into learning_submission_attachments (
              organisation_id, revision_id, filename, content_type, byte_size,
@@ -368,6 +371,7 @@ export function registerStudentRoutes(app: SchoolappApi) {
           },
           201,
         );
+        });
       } catch (error) {
         throw storageErrorToAppError(error);
       }

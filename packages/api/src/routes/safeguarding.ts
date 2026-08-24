@@ -32,6 +32,7 @@ import {
   storageOf,
   validateBytes,
   writeFileAudit,
+  runUpload,
 } from "../file-service";
 
 const CONCERN_SELECT = `
@@ -424,6 +425,8 @@ export function registerSafeguardingRoutes(app: SchoolappApi) {
           validated,
           uploadedBy: userId,
         });
+        return runUpload(storageOf(c), async (track) => {
+        track(pending.storageKey);
         const inserted = await client.query<{ id: string }>(
           `insert into safeguarding_attachments (
              organisation_id, concern_id, title, storage_backend, storage_key, content_type, byte_size,
@@ -480,6 +483,7 @@ export function registerSafeguardingRoutes(app: SchoolappApi) {
           },
           201,
         );
+        });
       } catch (error) {
         throw storageErrorToAppError(error);
       }

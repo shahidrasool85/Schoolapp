@@ -22,6 +22,7 @@ import {
   storageOf,
   storageErrorToAppError,
   validateBytes,
+  runUpload,
 } from "../file-service";
 
 const createSchema = z.object({
@@ -106,6 +107,7 @@ export function registerDocumentRoutes(app: SchoolappApi) {
             ? upload.fields.documentType
             : "other";
           const title = (upload.fields.title ?? validated.originalFilename).slice(0, 200);
+          return runUpload(storageOf(c), async (track) => {
           const pending = await insertPendingObject(client, {
             organisationId: orgId,
             domain: "student_document",
@@ -114,6 +116,7 @@ export function registerDocumentRoutes(app: SchoolappApi) {
             validated,
             uploadedBy: userId,
           });
+          track(pending.storageKey);
           const inserted = await client.query(
             `insert into student_documents (
                organisation_id, student_profile_id, title, document_type, visibility,
@@ -170,6 +173,7 @@ export function registerDocumentRoutes(app: SchoolappApi) {
             },
             201,
           );
+          });
         } catch (error) {
           throw storageErrorToAppError(error);
         }

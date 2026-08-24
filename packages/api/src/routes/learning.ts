@@ -40,6 +40,7 @@ import {
   storageErrorToAppError,
   storageOf,
   validateBytes,
+  runUpload,
 } from "../file-service";
 import {
   mapLearningAssignment,
@@ -710,6 +711,8 @@ export function registerLearningRoutes(app: SchoolappApi) {
             validated,
             uploadedBy: userId,
           });
+          return runUpload(storageOf(c), async (track) => {
+          track(pending.storageKey);
           const resource = await client.query<{ id: string }>(
             `insert into learning_resources (
                organisation_id, title, resource_kind, url, storage_backend, storage_key,
@@ -747,6 +750,7 @@ export function registerLearningRoutes(app: SchoolappApi) {
             [orgId, id, resource.rows[0]!.id],
           );
           return c.json({ resources: await loadResources(client, orgId, id) }, 201);
+          });
         } catch (error) {
           throw storageErrorToAppError(error);
         }

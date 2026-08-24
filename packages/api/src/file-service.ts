@@ -248,6 +248,21 @@ export async function putAndActivateObject(
   }
 }
 
+export async function runUpload<T>(
+  storage: ObjectStoragePort,
+  fn: (track: (storageKey: string) => void) => Promise<T>,
+): Promise<T> {
+  let storageKey: string | undefined;
+  try {
+    return await fn((key) => {
+      storageKey = key;
+    });
+  } catch (error) {
+    if (storageKey) await storage.deleteObject(storageKey).catch(() => undefined);
+    throw storageErrorToAppError(error);
+  }
+}
+
 export async function assertPublicFormFileAnswers(
   queryable: { query: pg.Pool["query"] },
   input: {

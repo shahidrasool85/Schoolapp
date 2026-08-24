@@ -27,6 +27,7 @@ import {
   storageOf,
   validateBytes,
   writeFileAudit,
+  runUpload,
 } from "../file-service";
 
 const CONCERN_SELECT = `
@@ -443,6 +444,8 @@ export function registerPastoralRoutes(app: SchoolappApi) {
           validated,
           uploadedBy: userId,
         });
+        return runUpload(storageOf(c), async (track) => {
+        track(pending.storageKey);
         const inserted = await client.query<{ id: string }>(
           `insert into pastoral_record_attachments (
              organisation_id, parent_kind, parent_id, title, storage_backend, storage_key,
@@ -492,6 +495,7 @@ export function registerPastoralRoutes(app: SchoolappApi) {
           },
           201,
         );
+        });
       } catch (error) {
         throw storageErrorToAppError(error);
       }

@@ -90,20 +90,26 @@ export default function AssignmentDetailPage() {
     event.preventDefault();
     const form = event.currentTarget;
     const payload = new FormData(form);
-    await api(`/api/v1/learning/assignments/${params.id}/resources`, {
-      method: "POST",
-      body: payload,
-    });
-    form.reset();
-    await load();
+    setError("");
+    try {
+      await api(`/api/v1/learning/assignments/${params.id}/resources`, {
+        method: "POST",
+        body: payload,
+      });
+      form.reset();
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    }
   }
 
-  if (error) return <p className="error">{error}</p>;
+  if (error && !data) return <p className="error">{error}</p>;
   if (!data) return <p>Loading…</p>;
   const a = data.assignment;
 
   return (
     <>
+      {error ? <p className="error">{error}</p> : null}
       <div className="toolbar">
         <h1>{a.title}</h1>
         <button className="secondary" type="button" onClick={() => router.push("/school/teaching/assignments")}>Back</button>

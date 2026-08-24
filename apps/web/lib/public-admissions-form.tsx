@@ -465,6 +465,22 @@ export function PublicAdmissionsForm({
           api<{ academicYears: YearOption[] }>("/api/v1/academic-years"),
           api<{ yearGroups: YearOption[] }>("/api/v1/year-groups"),
         ]);
+        const token = params.get("continue");
+        if (token) {
+          try {
+            const draft = await api<{ publicId?: string; answers?: Record<string, unknown> }>(
+              `/api/v1/public/admissions/forms/${formType}/${slug}/draft?token=${encodeURIComponent(token)}`,
+              { orgId: null },
+            );
+            setDraftAnswers(draft.answers ?? {});
+            setPublicId(draft.publicId ?? null);
+            setContinuation(token);
+            continuationRef.current = token;
+            publicIdRef.current = draft.publicId ?? null;
+          } catch {
+            setError("This saved draft could not be opened. You can start the form again.");
+          }
+        }
         setPayload({
           form: {
             ...formBody.form,
@@ -476,20 +492,6 @@ export function PublicAdmissionsForm({
           yearGroups: groupsBody.yearGroups,
           sections: formBody.sections.filter((section) => section.fields?.length),
         });
-        const token = params.get("continue");
-        if (token) {
-          try {
-            const draft = await api<{ publicId?: string; answers?: Record<string, unknown> }>(
-              `/api/v1/public/admissions/forms/${formType}/${slug}/draft?token=${encodeURIComponent(token)}`,
-              { orgId: null },
-            );
-            setDraftAnswers(draft.answers ?? {});
-            setPublicId(draft.publicId ?? null);
-            setContinuation(token);
-          } catch {
-            setError("This saved draft could not be opened. You can start the form again.");
-          }
-        }
         return;
       }
       const body = await api<PublicFormPayload>(`/api/v1/public/admissions/forms/${formType}/${slug}`, {

@@ -61,11 +61,12 @@ export default function SafeguardingDetailPage() {
     load();
   }
 
-  if (error) return <p className="error">{error}</p>;
+  if (error && !data) return <p className="error">{error}</p>;
   if (!data) return <p>Loading…</p>;
 
   return (
     <>
+      {error ? <p className="error">{error}</p> : null}
       <h1>Safeguarding · {data.concern.studentLegalName}</h1>
       <p className="muted">
         {data.concern.categoryName} · {data.concern.status}
@@ -104,12 +105,17 @@ export default function SafeguardingDetailPage() {
         onSubmit={async (event) => {
           event.preventDefault();
           const form = event.currentTarget;
-          await api(`/api/v1/safeguarding/concerns/${params.id}/attachments`, {
-            method: "POST",
-            body: new FormData(form),
-          });
-          form.reset();
-          load();
+          setError("");
+          try {
+            await api(`/api/v1/safeguarding/concerns/${params.id}/attachments`, {
+              method: "POST",
+              body: new FormData(form),
+            });
+            form.reset();
+            load();
+          } catch (err) {
+            setError(err instanceof Error ? err.message : "Upload failed");
+          }
         }}
       >
         <label>Title<input name="title" /></label>

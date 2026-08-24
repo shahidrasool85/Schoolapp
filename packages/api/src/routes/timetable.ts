@@ -1105,11 +1105,9 @@ async function timetableDefinitionScope(
   actor: Parameters<typeof authorisedTimetableClassIds>[1],
   asOfDate: string,
 ) {
-  const [classIds, participating, entryIds] = await Promise.all([
-    permanentlyAssignedClassIds(client, actor.userId, actor.organisationId!, asOfDate),
-    participatingClassIds(client, actor.userId, actor.organisationId!),
-    coveredEntryIds(client, actor.userId, actor.organisationId!, asOfDate),
-  ]);
+  const classIds = await permanentlyAssignedClassIds(client, actor.userId, actor.organisationId!, asOfDate);
+  const participating = await participatingClassIds(client, actor.userId, actor.organisationId!);
+  const entryIds = await coveredEntryIds(client, actor.userId, actor.organisationId!, asOfDate);
   return {
     classIds: new Set([...classIds, ...participating]),
     entryIds,

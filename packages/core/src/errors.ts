@@ -204,6 +204,12 @@ export function pgErrorToAppError(error: unknown): AppError | null {
   if (message.includes("public_form_draft_invalid")) {
     return new AppError(404, "not_found", "Not found");
   }
+  if (message.includes("public_form_document_missing")) {
+    return new AppError(400, "validation_failed", "A required document has not been uploaded");
+  }
+  if (message.includes("public_form_document_invalid")) {
+    return new AppError(400, "validation_failed", "The uploaded document could not be verified");
+  }
   if (message.includes("payload_too_large")) {
     return new AppError(413, "payload_too_large", "Request is too large");
   }

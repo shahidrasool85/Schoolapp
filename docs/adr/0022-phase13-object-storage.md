@@ -47,7 +47,9 @@ Original filenames are metadata only. Keys must not contain pupil names, medical
 
 ### Lifecycle
 
-`pending` → `active` | `rejected`. Soft-delete sets `deleted`. Postgres and object storage are not one transaction: a failed provider write leaves the row `rejected` for cleanup. `pnpm storage:cleanup` removes expired pending objects and old rejected/deleted bytes. It **never** auto-hard-deletes safeguarding objects.
+`pending` → `active` | `rejected`. Soft-delete sets `deleted`. Postgres and object storage are not one transaction: a failed provider write deletes the blob when possible and leaves the row `rejected` (public admissions also soft-deletes the document row) so `pnpm storage:cleanup` can finish later. It **never** auto-hard-deletes safeguarding objects.
+
+Public application file answers are bound at submit time: a client-supplied `documentId` must belong to the current draft, match the file field, and point at an active stored object. Filename-only metadata does not count as an uploaded document.
 
 Retention policy engines, legal holds, and billing quotas are out of scope. `organisation_storage_usage` exists for future school-level totals.
 

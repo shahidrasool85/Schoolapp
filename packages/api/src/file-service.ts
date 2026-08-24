@@ -16,6 +16,8 @@ import {
   requireStudentPortalEnabled,
   studentDocumentVisibleToAudience,
   writeAudit,
+  fileAnswerDocumentId,
+  type FormFieldDefinition,
 } from "@schoolapp/core";
 import {
   StorageError,
@@ -78,6 +80,14 @@ export async function readUploadedFile(
   c: Context<ApiEnv>,
   fieldName = "file",
 ): Promise<{ bytes: Uint8Array; filename: string; mime: string; fields: Record<string, string> }> {
+  const maxBytes = Math.max(...Object.values(fileLimitsFromEnv()));
+  const rawLength = c.req.header("content-length");
+  if (rawLength) {
+    const declared = Number(rawLength);
+    if (Number.isFinite(declared) && declared > maxBytes + 1024 * 1024) {
+      throw new AppError(400, "file_too_large", "This file is too large");
+    }
+  }
   let form: FormData;
   try {
     form = await c.req.formData();
@@ -228,6 +238,7 @@ export async function putAndActivateObject(
     }
     return { checksumSha256: put.checksumSha256, scanStatus: scan.status };
   } catch (error) {
+    await storage.deleteObject(input.storageKey).catch(() => undefined);
     await client.query(
       `update stored_objects set status = 'rejected', deleted_at = now()
        where id = $1 and organisation_id = $2 and status = 'pending'`,
@@ -235,6 +246,36 @@ export async function putAndActivateObject(
     );
     throw storageErrorToAppError(error);
   }
+}
+
+export async function assertPublicFormFileAnswers(
+  queryable: { query: pg.Pool["query"] },
+  input: {
+    organisationId: string;
+    tokenHash: string | null | undefined;
+    publicId: string | null | undefined;
+    answers: Record<string, unknown>;
+    fields: FormFieldDefinition[];
+    draft: boolean;
+  },
+): Promise<void> {
+  const hasBoundDocument = input.fields.some(
+    (field) => field.enabled && field.questionType === "file" && fileAnswerDocumentId(input.answers[field.fieldKey]),
+  );
+  const requiresUpload =
+    !input.draft &&
+    input.fields.some((field) => field.enabled && field.required && field.questionType === "file");
+  if (!hasBoundDocument && !requiresUpload) return;
+  if (!input.tokenHash || !input.publicId) {
+    throw new AppError(400, "validation_failed", "A required document has not been uploaded");
+  }
+  await queryable.query(`select assert_public_form_file_answers($1,$2,$3,$4::jsonb,$5)`, [
+    input.organisationId,
+    input.tokenHash,
+    input.publicId,
+    JSON.stringify(input.answers),
+    !input.draft,
+  ]);
 }
 
 export async function loadStoredObject(

@@ -28,6 +28,7 @@ import {
   storageErrorToAppError,
   storageOf,
   validateBytes,
+  assertPublicFormFileAnswers,
 } from "../file-service";
 
 const captcha = createCaptchaFromEnv();
@@ -232,6 +233,15 @@ export function registerPublicFormRoutes(app: SchoolappApi) {
         issuedToken = created.token;
       }
 
+      await assertPublicFormFileAnswers(c.get("config").pools.app, {
+        organisationId: school.organisationId,
+        tokenHash,
+        publicId: parsed.data.publicId,
+        answers,
+        fields,
+        draft: Boolean(parsed.data.draft),
+      });
+
       const submitted = await c.get("config").pools.app.query<{ submit_public_admissions_form: Record<string, unknown> }>(
         `select submit_public_admissions_form(
            $1,$2,$3,$4::jsonb,$5::jsonb,$6::jsonb,$7,$8,$9,$10,$11,$12,$13,$14
@@ -344,11 +354,6 @@ export function registerPublicFormRoutes(app: SchoolappApi) {
           contentType: validated.storedContentType,
         });
         if (scan.status === "rejected") {
-          await storage.deleteObject(registered.storageKey).catch(() => undefined);
-          await c.get("config").pools.app.query(`select reject_public_form_document($1,$2)`, [
-            school.organisationId,
-            registered.id,
-          ]);
           throw new AppError(400, "unsupported_file_type", "This file type is not allowed");
         }
         await c.get("config").pools.app.query(
@@ -365,10 +370,13 @@ export function registerPublicFormRoutes(app: SchoolappApi) {
           ],
         );
       } catch (error) {
-        await c.get("config").pools.app.query(`select reject_public_form_document($1,$2)`, [
-          school.organisationId,
-          registered.id,
-        ]);
+        const rejected = await c.get("config").pools.app.query<{
+          reject_public_form_document: { id?: string; storageKey?: string };
+        }>(`select reject_public_form_document($1,$2)`, [school.organisationId, registered.id]);
+        const storageKey = rejected.rows[0]?.reject_public_form_document?.storageKey;
+        if (storageKey) {
+          await storage.deleteObject(storageKey).catch(() => undefined);
+        }
         if (error instanceof AppError) throw error;
         throw pgErrorToAppError(error) ?? storageErrorToAppError(error);
       }

@@ -302,6 +302,77 @@ describe("Phase 13 object storage and documents", () => {
     });
     expect(oversized.status).toBe(400);
 
+    const spoof = await app.request("/api/v1/public/admissions/forms/application/year-3-application/submissions", {
+      method: "POST",
+      headers: { ...schoolHeaders(gw.slug), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        continuationToken: draftBody.submission.continuationToken,
+        publicId: draftBody.submission.publicId,
+        answers: {
+          ...answers,
+          supporting_evidence: {
+            documentId: randomUUID(),
+            filename: "report.pdf",
+            contentType: "application/pdf",
+            byteSize: PDF.byteLength,
+          },
+        },
+      }),
+    });
+    expect(spoof.status).toBe(400);
+
+    const metadataOnly = await app.request(
+      "/api/v1/public/admissions/forms/application/year-3-application/submissions",
+      {
+        method: "POST",
+        headers: { ...schoolHeaders(gw.slug), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          continuationToken: draftBody.submission.continuationToken,
+          publicId: draftBody.submission.publicId,
+          answers: {
+            ...answers,
+            supporting_evidence: {
+              filename: "report.pdf",
+              contentType: "application/pdf",
+              byteSize: PDF.byteLength,
+            },
+          },
+        }),
+      },
+    );
+    expect(metadataOnly.status).toBe(400);
+
+    const originalPut = testObjectStorage.putObject.bind(testObjectStorage);
+    const mutableStorage = testObjectStorage as unknown as {
+      putObject: typeof testObjectStorage.putObject;
+    };
+    mutableStorage.putObject = async () => {
+      throw new Error("provider exploded");
+    };
+    try {
+      const failedPut = await app.request("/api/v1/public/admissions/forms/application/year-3-application/documents", {
+        method: "POST",
+        headers: schoolHeaders(gw.slug),
+        body: pdfForm({
+          fieldKey: "supporting_evidence",
+          continuationToken: draftBody.submission.continuationToken,
+          publicId: draftBody.submission.publicId,
+        }),
+      });
+      expect(failedPut.status).toBeGreaterThanOrEqual(400);
+      expect(JSON.stringify(await failedPut.json()).toLowerCase()).not.toContain("provider exploded");
+    } finally {
+      mutableStorage.putObject = originalPut;
+    }
+    const leftover = await pools.owner.query<{ n: string }>(
+      `select count(*)::text as n
+         from admissions_form_documents d
+         join admissions_form_submissions s on s.id = d.submission_id
+        where s.public_id = $1 and d.deleted_at is null`,
+      [draftBody.submission.publicId],
+    );
+    expect(Number(leftover.rows[0]?.n ?? 1)).toBe(0);
+
     const uploaded = await app.request("/api/v1/public/admissions/forms/application/year-3-application/documents", {
       method: "POST",
       headers: schoolHeaders(gw.slug),

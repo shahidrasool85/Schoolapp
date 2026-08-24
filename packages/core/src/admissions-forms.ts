@@ -487,6 +487,13 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+export function fileAnswerDocumentId(value: unknown): string | null {
+  const rec = asRecord(value);
+  if (!rec) return null;
+  const documentId = typeof rec.documentId === "string" ? rec.documentId.trim() : "";
+  return documentId || null;
+}
+
 function parseAddress(value: unknown): AddressValue | undefined {
   const rec = asRecord(value);
   if (!rec) return undefined;
@@ -650,7 +657,7 @@ export function validateFieldAnswer(field: FormFieldDefinition, raw: unknown): u
       if (!rec) {
         fieldError(field, `${field.label} is invalid`);
       }
-      const documentId = typeof rec.documentId === "string" ? rec.documentId.trim() : "";
+      const documentId = fileAnswerDocumentId(rec);
       const filename = sanitizePlainText(rec.filename ?? rec.originalFilename, 120);
       const contentType = sanitizePlainText(rec.contentType, 120);
       const byteSize = Number(rec.byteSize ?? rec.byte_size ?? 0);
@@ -666,18 +673,10 @@ export function validateFieldAnswer(field: FormFieldDefinition, raw: unknown): u
           purpose: field.documentPurpose ?? sanitizePlainText(rec.purpose, 40) ?? "other",
         } satisfies FileAnswerValue;
       }
-      if (!filename) {
-        fieldError(field, `${field.label} requires a filename`);
+      if (field.required) {
+        fieldError(field, `${field.label} must be uploaded`);
       }
-      if (!isAllowedAdmissionsUpload({ filename, contentType, byteSize })) {
-        fieldError(field, `${field.label} file type or size is not allowed`);
-      }
-      return {
-        filename,
-        contentType,
-        byteSize,
-        purpose: field.documentPurpose ?? sanitizePlainText(rec.purpose, 40) ?? "other",
-      } satisfies FileAnswerValue;
+      return undefined;
     }
     default:
       fieldError(field, `${field.label} has an unsupported type`);
@@ -863,7 +862,7 @@ export function computeCompleteness(input: {
   const requiredFiles = input.fields.filter(
     (field) => field.enabled && field.required && field.questionType === "file",
   );
-  const missingFiles = requiredFiles.filter((field) => isBlank(input.answers[field.fieldKey]));
+  const missingFiles = requiredFiles.filter((field) => !fileAnswerDocumentId(input.answers[field.fieldKey]));
   if (missingFiles.length) return "missing_documents";
   return "complete";
 }

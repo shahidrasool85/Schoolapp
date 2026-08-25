@@ -241,7 +241,8 @@ export async function evaluateConversationAccess(
       conversation.conversation_type !== "staff_internal"
     ) {
       if (!conversation.related_pupil_id) {
-        canRead = true;
+        const children = await guardianChildIds(client, actor.userId, conversation.organisation_id);
+        canRead = conversation.conversation_type === "admissions" || children.size > 0;
       } else {
         const children = await guardianChildIds(client, actor.userId, conversation.organisation_id);
         canRead = children.has(conversation.related_pupil_id);
@@ -545,8 +546,17 @@ function visibilitySql(actor: Actor): string {
       )
       and c.conversation_type <> 'staff_internal'
       and (
-        c.related_pupil_id is null
-        or c.related_pupil_id = any($3::uuid[])
+        (
+          c.related_pupil_id is not null
+          and c.related_pupil_id = any($3::uuid[])
+        )
+        or (
+          c.related_pupil_id is null
+          and (
+            c.conversation_type = 'admissions'
+            or cardinality($3::uuid[]) > 0
+          )
+        )
       )
     `;
   }
@@ -988,6 +998,10 @@ export async function createStaffConversation(
     } else {
       const membership = await activeMembershipKind(client, actor.organisationId!, parentId);
       if (membership !== "parent") throwMessaging("recipient_unavailable", "Recipient is not available");
+      if (input.conversationType !== "admissions") {
+        const children = await guardianChildIds(client, parentId, actor.organisationId!);
+        if (children.size === 0) throwMessaging("recipient_unavailable", "Recipient is not available");
+      }
     }
   }
   for (const staffId of staffIds) {

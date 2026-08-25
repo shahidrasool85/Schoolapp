@@ -508,6 +508,19 @@ describe("Phase 16 messaging foundation", () => {
     });
     expect(started.status).toBe(201);
 
+    const office = await app.request("/api/v1/messages/conversations", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        conversationType: "parent_school",
+        subject: "Office without pupil",
+        parentUserIds: [parentA.rows[0]!.id],
+        body: "Holiday club forms are ready.",
+      }),
+    });
+    expect(office.status).toBe(201);
+    const officeThread = (await office.json()) as { conversation: { id: string } };
+
     await pools.owner.query("update guardianships set portal_access = false where student_profile_id = $1", [
       childA.student.id,
     ]);
@@ -518,6 +531,28 @@ describe("Phase 16 messaging foundation", () => {
       headers: parentAHdrs,
     });
     expect(revokedDetail.status).toBe(404);
+    const revokedOffice = await app.request(`/api/v1/parent/messages/${officeThread.conversation.id}`, {
+      headers: parentAHdrs,
+    });
+    expect(revokedOffice.status).toBe(404);
+
+    const parentB = await pools.owner.query<{ id: string }>("select id from users where email = $1", [
+      `gb-${id}@example.com`,
+    ]);
+    await pools.owner.query("update guardianships set portal_access = false where guardian_user_id = $1", [
+      parentB.rows[0]!.id,
+    ]);
+    const noPortal = await app.request("/api/v1/messages/conversations", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        conversationType: "parent_school",
+        subject: "Should not add",
+        parentUserIds: [parentB.rows[0]!.id],
+        body: "No",
+      }),
+    });
+    expect(noPortal.status).toBe(400);
   });
 
   it("isolates tenants, attachments, rate limits, length, notifications, and inactive membership", async () => {

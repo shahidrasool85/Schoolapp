@@ -110,7 +110,7 @@ const fsmSchema = z.object({
 });
 
 function csvFile(filename: string, body: string) {
-  return new Response(body, {
+  return new Response(new TextEncoder().encode(body), {
     status: 200,
     headers: {
       "Content-Type": "text/csv; charset=utf-8",

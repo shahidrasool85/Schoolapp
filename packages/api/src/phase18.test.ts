@@ -333,8 +333,9 @@ describe("Phase 18 statutory data and census readiness", () => {
       headers: hdrs,
     });
     expect(csv.status).toBe(200);
-    const csvBody = await csv.text();
-    expect(csvBody.startsWith("\uFEFF")).toBe(true);
+    const csvBytes = Buffer.from(await csv.arrayBuffer());
+    expect(csvBytes.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf]))).toBe(true);
+    const csvBody = csvBytes.toString("utf8");
     expect(csvBody.split("\r\n")[0]?.replace("\uFEFF", "")).toContain("admissionNumber,upn,legalSurname");
     expect(csvBody).toContain(upnA);
     expect(csvBody).not.toContain(changed);

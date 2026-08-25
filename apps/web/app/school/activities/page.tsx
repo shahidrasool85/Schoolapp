@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
+import { EmptyState, FilterBar, PageError, PageHeader, StatusBadge } from "../../../components/ui";
 import { api } from "../../../lib/api";
+import { userFacingError } from "../../../lib/errors";
 
 type Activity = {
   id: string;
@@ -16,7 +18,7 @@ type Activity = {
 };
 
 export default function StaffActivitiesPage() {
-  const [items, setItems] = useState<Activity[]>([]);
+  const [items, setItems] = useState<Activity[] | null>(null);
   const [error, setError] = useState("");
 
   async function load(query = "") {
@@ -27,7 +29,9 @@ export default function StaffActivitiesPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const type = params.get("type");
-    load(type ? `?type=${encodeURIComponent(type)}` : "").catch((err: Error) => setError(err.message));
+    load(type ? `?type=${encodeURIComponent(type)}` : "").catch((err: Error) =>
+      setError(userFacingError(err, "Could not load activities.")),
+    );
   }, []);
 
   async function filter(event: FormEvent<HTMLFormElement>) {
@@ -42,18 +46,23 @@ export default function StaffActivitiesPage() {
     await load(qs ? `?${qs}` : "");
   }
 
-  if (error) return <p className="error">{error}</p>;
+  if (error) return <PageError title="Activities unavailable" description={error} />;
 
   return (
     <>
-      <div className="toolbar">
-        <h1>Activities</h1>
-        <Link href="/school/activities/new">Create activity</Link>
-      </div>
-      <form className="toolbar" onSubmit={filter}>
-        <label>
+      <PageHeader
+        title="Activities"
+        description="Trips, clubs, and other school activities. Consent and capacity are managed on each activity."
+        actions={
+          <Link className="button" href="/school/activities/new">
+            Create activity
+          </Link>
+        }
+      />
+      <FilterBar onSubmit={(event) => filter(event).catch((err: Error) => setError(userFacingError(err)))} actions={<button type="submit">Filter</button>}>
+        <label htmlFor="activity-status">
           Status
-          <select name="status" defaultValue="">
+          <select id="activity-status" name="status" defaultValue="">
             <option value="">Active</option>
             <option value="draft">Draft</option>
             <option value="published">Published</option>
@@ -62,9 +71,9 @@ export default function StaffActivitiesPage() {
             <option value="cancelled">Cancelled</option>
           </select>
         </label>
-        <label>
+        <label htmlFor="activity-type">
           Type
-          <select name="type" defaultValue="">
+          <select id="activity-type" name="type" defaultValue="">
             <option value="">All types</option>
             <option value="trips">Trips & visits</option>
             <option value="trip">Trip</option>
@@ -76,15 +85,17 @@ export default function StaffActivitiesPage() {
             <option value="workshop">Workshop</option>
           </select>
         </label>
-        <button type="submit">Filter</button>
-      </form>
-      {items.length === 0 ? <p>No activities in this view.</p> : null}
+      </FilterBar>
+      {items && items.length === 0 ? (
+        <EmptyState title="No activities in this view" description="Try another filter, or create a trip or club." />
+      ) : null}
       <div className="cards">
-        {items.map((item) => (
+        {(items ?? []).map((item) => (
           <Link className="card" href={`/school/activities/${item.id}`} key={item.id}>
             <strong>{item.title}</strong>
             <span className="muted">
-              {item.activityTypeName ?? "Activity"} · {item.status} · {new Date(item.startsAt).toLocaleString()}
+              {item.activityTypeName ?? "Activity"} · <StatusBadge status={item.status} /> ·{" "}
+              {new Date(item.startsAt).toLocaleString()}
               {item.location ? ` · ${item.location}` : ""}
               {item.capacity != null ? ` · capacity ${item.capacity}` : ""}
             </span>

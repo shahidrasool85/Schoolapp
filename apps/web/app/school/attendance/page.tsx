@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { DataTable, EmptyState, LoadingState, PageError, PageHeader, StatCard } from "../../../components/ui";
 import { api } from "../../../lib/api";
+import { userFacingError } from "../../../lib/errors";
 
 type ClassRow = {
   id: string;
@@ -11,7 +13,7 @@ type ClassRow = {
 };
 
 export default function AttendanceHomePage() {
-  const [classes, setClasses] = useState<ClassRow[]>([]);
+  const [classes, setClasses] = useState<ClassRow[] | null>(null);
   const [error, setError] = useState("");
   const [canSchool, setCanSchool] = useState(false);
 
@@ -28,43 +30,45 @@ export default function AttendanceHomePage() {
         );
         setClasses(body.classes);
       })
-      .catch((err: Error) => setError(err.message));
+      .catch((err: Error) => setError(userFacingError(err, "Could not load attendance.")));
   }, []);
 
-  if (error) return <p className="error">{error}</p>;
+  if (error) return <PageError title="Attendance unavailable" description={error} />;
+  if (!classes) return <LoadingState label="Loading registers…" />;
 
   return (
     <>
-      <h1>Attendance</h1>
-      <p className="muted">Take today’s register for assigned classes, or review school-wide marks.</p>
-      <div className="cards">
-        <Link href="/school/attendance/registers" className="card">
-          <span>My registers</span>
-          <strong>{classes.length}</strong>
-        </Link>
-        {canSchool ? (
-          <Link href="/school/attendance/school" className="card">
-            <span>School attendance</span>
-            <strong>View</strong>
-          </Link>
-        ) : null}
+      <PageHeader
+        title="Attendance"
+        description="Take today’s register for assigned classes, or review school-wide marks."
+      />
+      <div className="stat-grid">
+        <StatCard label="My registers" value={classes.length} href="/school/attendance/registers" />
+        {canSchool ? <StatCard label="School attendance" value="Open" href="/school/attendance/school" /> : null}
       </div>
       <h2>My classes</h2>
-      {classes.length === 0 ? <p className="muted">No assigned classes for this date.</p> : (
-        <table>
-          <thead>
-            <tr><th>Class</th><th>Year group</th><th></th></tr>
-          </thead>
-          <tbody>
-            {classes.map((row) => (
-              <tr key={row.id}>
-                <td>{row.name}</td>
-                <td>{row.yearGroupName ?? "—"}</td>
-                <td><Link href={`/school/attendance/registers/${row.id}`}>Open register</Link></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {classes.length === 0 ? (
+        <EmptyState title="No assigned classes" description="Classes assigned to you for this date will appear here." />
+      ) : (
+        <DataTable
+          headers={
+            <>
+              <th>Class</th>
+              <th>Year group</th>
+              <th></th>
+            </>
+          }
+        >
+          {classes.map((row) => (
+            <tr key={row.id}>
+              <td>{row.name}</td>
+              <td>{row.yearGroupName ?? "—"}</td>
+              <td>
+                <Link href={`/school/attendance/registers/${row.id}`}>Open register</Link>
+              </td>
+            </tr>
+          ))}
+        </DataTable>
       )}
     </>
   );

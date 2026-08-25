@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import { PersonSummary, StatusBadge } from "../../../../components/ui";
 import { api, downloadAuthenticated } from "../../../../lib/api";
 
 type Detail = {
@@ -310,17 +311,32 @@ export default function StudentDetailPage() {
   return (
     <>
       {error ? <p className="error">{error}</p> : null}
-      <h1>{data.student.legalName}</h1>
+      <PersonSummary
+        name={data.student.legalName}
+        meta={
+          <>
+            {data.student.currentYearGroupName ?? "No current year group"}
+            {data.student.currentFormClassName ? ` · ${data.student.currentFormClassName}` : ""}
+            {data.student.admissionNumber ? ` · ${data.student.admissionNumber}` : ""}
+          </>
+        }
+        actions={<StatusBadge status={data.student.enrolmentStatus} />}
+      />
       <p className="muted">
-        {data.student.currentYearGroupName ?? "No current year group"} ·{" "}
-        {data.student.currentFormClassName ?? "No form class"} · {data.student.enrolmentStatus}
-      </p>
-      <p>
         Student portal: {data.portalAccess.enabled ? "enabled" : "disabled"}
         {data.portalAccess.hasLoginAlias ? ` · login alias ${data.portalAccess.alias}` : " · no student login yet"}
         {" · "}
         <a href="/school/student-portal">Student Portal policy</a>
       </p>
+      <nav className="tabs" aria-label="Pupil record">
+        <a href="#overview">Overview</a>
+        <a href="#attendance">Attendance</a>
+        <a href="#learning">Learning</a>
+        <a href="#academic">Academic</a>
+        <a href="#documents">Documents</a>
+        {data.behaviourSummary || data.pastoralSummary ? <a href="#pastoral">Pastoral</a> : null}
+      </nav>
+      <div id="overview" />
       {data.attendanceSummary ? (
         <div className="cards">
           <div className="card"><span>Attendance</span><strong>{data.attendanceSummary.attendancePercentage ?? "—"}{data.attendanceSummary.attendancePercentage != null ? "%" : ""}</strong></div>
@@ -331,7 +347,7 @@ export default function StudentDetailPage() {
       ) : null}
       {attendance && attendance.marks.length > 0 ? (
         <>
-          <h2>Attendance history</h2>
+          <h2 id="attendance">Attendance history</h2>
           <table>
             <thead>
               <tr><th>Date</th><th>Session</th><th>Mark</th><th>Class</th></tr>
@@ -350,7 +366,7 @@ export default function StudentDetailPage() {
         </>
       ) : null}
 
-      <h2>Learning</h2>
+      <h2 id="learning">Learning</h2>
       {learningStatus === "loading" ? (
         <p className="muted">Loading learning history…</p>
       ) : learningStatus === "error" ? (
@@ -378,7 +394,7 @@ export default function StudentDetailPage() {
         <p className="muted">No assigned learning work recorded for this pupil.</p>
       )}
 
-      <h2>Academic / Results</h2>
+      <h2 id="academic">Academic / Results</h2>
       {academicStatus === "loading" ? (
         <p className="muted">Loading formal assessment history…</p>
       ) : academicStatus === "error" ? (
@@ -439,7 +455,7 @@ export default function StudentDetailPage() {
       ) : null}
       {data.pastoralSummary ? (
         <>
-          <h2>Pastoral</h2>
+          <h2 id="pastoral">Pastoral</h2>
           <p className="muted">
             Open concerns: {data.pastoralSummary.openCount}
             {data.pastoralSummary.latestPriority ? ` · latest priority ${data.pastoralSummary.latestPriority}` : ""}
@@ -461,7 +477,7 @@ export default function StudentDetailPage() {
         </p>
       ) : null}
 
-      <h2>Documents</h2>
+      <h2 id="documents">Documents</h2>
       {documents.length === 0 ? <p className="muted">No pupil documents yet.</p> : (
         <table>
           <thead>

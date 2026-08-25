@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { DataTable, EmptyState, LoadingState, PageError, PageHeader } from "../../../components/ui";
 import { api } from "../../../lib/api";
+import { userFacingError } from "../../../lib/errors";
 import type { PortalChild } from "../../../lib/portal";
 
 export default function ParentChildrenPage() {
@@ -12,42 +14,39 @@ export default function ParentChildrenPage() {
   useEffect(() => {
     api<{ children: PortalChild[] }>("/api/v1/parent/children")
       .then((body) => setChildren(body.children))
-      .catch((err: Error) => setError(err.message));
+      .catch((err: Error) => setError(userFacingError(err, "Could not load your children.")));
   }, []);
 
-  if (error) return <p className="error">{error}</p>;
-  if (!children) return <p>Loading…</p>;
+  if (error) return <PageError title="Children unavailable" description={error} />;
+  if (!children) return <LoadingState label="Loading your children…" />;
 
   return (
     <>
-      <h1>My Children</h1>
+      <PageHeader title="My Children" description="Open a child to see attendance, learning, results, and school information." />
       {children.length === 0 ? (
-        <div className="card">
-          <p>No children are linked for this school.</p>
-        </div>
+        <EmptyState title="No children linked" description="No children are linked for this school." />
       ) : (
-        <table>
-          <thead>
-            <tr>
+        <DataTable
+          headers={
+            <>
               <th>Name</th>
               <th>Year group</th>
               <th>Class / form</th>
               <th>School</th>
+            </>
+          }
+        >
+          {children.map((child) => (
+            <tr key={child.id}>
+              <td>
+                <Link href={`/parent/children/${child.id}`}>{child.displayName}</Link>
+              </td>
+              <td>{child.currentYearGroupName ?? "—"}</td>
+              <td>{child.currentFormClassName ?? "—"}</td>
+              <td>{child.school.name}</td>
             </tr>
-          </thead>
-          <tbody>
-            {children.map((child) => (
-              <tr key={child.id}>
-                <td>
-                  <Link href={`/parent/children/${child.id}`}>{child.displayName}</Link>
-                </td>
-                <td>{child.currentYearGroupName ?? "—"}</td>
-                <td>{child.currentFormClassName ?? "—"}</td>
-                <td>{child.school.name}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+          ))}
+        </DataTable>
       )}
     </>
   );

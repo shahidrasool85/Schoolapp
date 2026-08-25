@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { DataTable, EmptyState, LoadingState, PageError, PageHeader, StatCard, StatusBadge } from "../../../components/ui";
 import { api } from "../../../lib/api";
+import { userFacingError } from "../../../lib/errors";
 
 type Occurrence = {
   entryId: string;
@@ -31,70 +33,69 @@ export default function TimetableOverviewPage() {
   useEffect(() => {
     api<Overview>("/api/v1/timetable/overview")
       .then(setData)
-      .catch((err: Error) => setError(err.message));
+      .catch((err: Error) => setError(userFacingError(err, "Could not load the timetable overview.")));
   }, []);
 
-  if (error) return <p className="error">{error}</p>;
-  if (!data) return <p>Loading…</p>;
+  if (error) return <PageError title="Timetable unavailable" description={error} />;
+  if (!data) return <LoadingState label="Loading timetable…" />;
 
   return (
     <>
-      <h1>Timetable</h1>
-      <p className="muted">
-        Week {data.week.from} to {data.week.to}
-      </p>
-      <div className="cards">
-        <Link className="card" href="/school/timetable/schedule">
-          <span>Lessons this week</span>
-          <strong>{data.counts.lessonsThisWeek}</strong>
-        </Link>
-        <Link className="card" href="/school/timetable/cover">
-          <span>Cover this week</span>
-          <strong>{data.counts.coversThisWeek}</strong>
-        </Link>
-        <Link className="card" href="/school/timetable/rooms">
-          <span>Rooms</span>
-          <strong>{data.counts.rooms}</strong>
-        </Link>
+      <PageHeader
+        title="Timetable"
+        description={`Week ${data.week.from} to ${data.week.to}`}
+        actions={
+          <>
+            <Link className="button secondary" href="/school/timetable/mine">
+              My Timetable
+            </Link>
+            <Link className="button" href="/school/timetable/schedule">
+              Full timetable
+            </Link>
+          </>
+        }
+      />
+      <div className="stat-grid">
+        <StatCard label="Lessons this week" value={data.counts.lessonsThisWeek} href="/school/timetable/schedule" />
+        <StatCard label="Cover this week" value={data.counts.coversThisWeek} href="/school/timetable/cover" />
+        <StatCard label="Rooms" value={data.counts.rooms} href="/school/timetable/rooms" />
       </div>
       <h2>Today</h2>
       {data.todayLessons.length === 0 ? (
-        <p>No lessons are scheduled for today. Open the timetable to view a school week.</p>
+        <EmptyState
+          title="No lessons scheduled today"
+          description="Open the timetable to view a school week."
+          action={<Link href="/school/timetable/schedule">View timetable</Link>}
+        />
       ) : (
-        <table>
-          <thead>
-            <tr>
+        <DataTable
+          headers={
+            <>
               <th>Time</th>
               <th>Class</th>
               <th>Subject</th>
               <th>Room</th>
               <th>Teacher</th>
               <th>Status</th>
+            </>
+          }
+        >
+          {data.todayLessons.map((lesson) => (
+            <tr key={`${lesson.entryId}-${lesson.date}`}>
+              <td>
+                {lesson.startsAt.slice(0, 5)}–{lesson.endsAt.slice(0, 5)}
+              </td>
+              <td>{lesson.className}</td>
+              <td>{lesson.subjectName ?? "—"}</td>
+              <td>{lesson.roomName ?? "—"}</td>
+              <td>{lesson.teachers.map((teacher) => teacher.fullName).join(", ") || "—"}</td>
+              <td>
+                <StatusBadge status={lesson.covered ? "Cover" : lesson.status} />
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {data.todayLessons.map((lesson) => (
-              <tr key={`${lesson.entryId}-${lesson.date}`}>
-                <td>
-                  {lesson.startsAt.slice(0, 5)}–{lesson.endsAt.slice(0, 5)}
-                </td>
-                <td>{lesson.className}</td>
-                <td>{lesson.subjectName ?? "—"}</td>
-                <td>{lesson.roomName ?? "—"}</td>
-                <td>{lesson.teachers.map((teacher) => teacher.fullName).join(", ") || "—"}</td>
-                <td>{lesson.covered ? "Cover" : lesson.status}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+          ))}
+        </DataTable>
       )}
-      <p>
-        <Link href="/school/timetable/school-day">School day / periods</Link>
-        {" · "}
-        <Link href="/school/timetable/schedule">Class / teacher / room views</Link>
-        {" · "}
-        <Link href="/school/timetable/mine">My Timetable</Link>
-      </p>
     </>
   );
 }

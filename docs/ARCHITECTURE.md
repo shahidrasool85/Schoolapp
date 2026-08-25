@@ -1,6 +1,6 @@
 # Schoolapp — Platform Architecture
 
-**Status:** Phases 1–16 implemented (foundation through parent–teacher messaging). Later modules (AI, mobile) are not built.  
+**Status:** Phases 1–17 implemented (foundation through professional UI). Later modules (AI, mobile) are not built.  
 **Audience:** Product owner and engineering.  
 **Scope:** Multi-tenant UK school SaaS (SIS + LMS + AI learning), web first, mobile-ready.
 

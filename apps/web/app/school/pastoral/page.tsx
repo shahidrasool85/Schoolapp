@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { PageHeader, StatCard } from "../../../components/ui";
 import { api } from "../../../lib/api";
 
 type BehaviourSummary = {
@@ -30,27 +31,24 @@ export default function PastoralHubPage() {
 
   return (
     <>
-      <h1>Pastoral &amp; Behaviour</h1>
-      <p className="muted">Incidents, achievements, and pastoral concerns. Safeguarding is a separate area.</p>
-      <div className="cards">
-        <div className="card">
-          <span>Open incidents</span>
-          <strong>{(behaviour?.incidentsByStatus.open ?? 0) + (behaviour?.incidentsByStatus.in_progress ?? 0)}</strong>
-        </div>
-        <div className="card">
-          <span>Achievements</span>
-          <strong>{behaviour?.positiveCount ?? 0}</strong>
-        </div>
-        <div className="card">
-          <span>Open pastoral</span>
-          <strong>{pastoral?.openConcerns ?? 0}</strong>
-        </div>
-        <div className="card">
-          <span>Follow-ups</span>
-          <strong>{(behaviour?.outstandingFollowUps ?? 0) + (pastoral?.outstandingFollowUps ?? 0)}</strong>
-        </div>
+      <PageHeader
+        title="Pastoral & Behaviour"
+        description="Incidents, achievements, and pastoral concerns. Safeguarding is a separate, restricted area."
+      />
+      <div className="stat-grid">
+        <StatCard
+          label="Open incidents"
+          value={(behaviour?.incidentsByStatus.open ?? 0) + (behaviour?.incidentsByStatus.in_progress ?? 0)}
+          href="/school/pastoral/behaviour"
+        />
+        <StatCard label="Achievements" value={behaviour?.positiveCount ?? 0} href="/school/pastoral/achievements" />
+        <StatCard label="Open pastoral" value={pastoral?.openConcerns ?? 0} href="/school/pastoral/concerns" />
+        <StatCard
+          label="Follow-ups"
+          value={(behaviour?.outstandingFollowUps ?? 0) + (pastoral?.outstandingFollowUps ?? 0)}
+        />
       </div>
-      <div className="cards" style={{ marginTop: 16 }}>
+      <div className="cards" style={{ marginTop: "1rem" }}>
         <Link className="card" href="/school/pastoral/behaviour">
           <strong>Behaviour</strong>
           <p>Incidents, actions, and follow-up.</p>
@@ -61,7 +59,7 @@ export default function PastoralHubPage() {
         </Link>
         <Link className="card" href="/school/pastoral/concerns">
           <strong>Pastoral</strong>
-          <p>Concerns, interventions, and reviews.</p>
+          <p>Concerns, interventions, and reviews. Confidential notes remain restricted.</p>
         </Link>
       </div>
     </>

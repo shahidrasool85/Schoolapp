@@ -5,6 +5,8 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, ApiError, downloadAuthenticated } from "../../../../lib/api";
 import { ComingLaterCard } from "../../../../components/coming-later";
+import { Alert, DataTable, EmptyState, LoadingState, PageError, PersonSummary, StatCard, StatusBadge, Tabs } from "../../../../components/ui";
+import { userFacingError } from "../../../../lib/errors";
 import type { ComingLater, PortalChild } from "../../../../lib/portal";
 
 type Detail = {
@@ -72,9 +74,7 @@ export default function ParentChildDetailPage() {
           })
           .catch((err: Error) => {
             if (!cancelled) {
-              setAttendanceError(
-                err instanceof ApiError && err.status === 404 ? "Attendance is not available." : err.message,
-              );
+              setAttendanceError("Attendance is not available.");
             }
           })
           .then(() =>
@@ -89,7 +89,7 @@ export default function ParentChildDetailPage() {
       })
       .catch((err: Error) => {
         if (!cancelled) {
-          setError(err instanceof ApiError && err.status === 404 ? "Child not found." : err.message);
+          setError(err instanceof ApiError && err.status === 404 ? "Child not found." : userFacingError(err));
         }
       });
     return () => {
@@ -97,16 +97,33 @@ export default function ParentChildDetailPage() {
     };
   }, [params.id]);
 
-  if (error && !data) return <p className="error">{error}</p>;
-  if (!data) return <p>Loading…</p>;
+  if (error && !data) return <PageError title="Child unavailable" description={error} />;
+  if (!data) return <LoadingState label="Loading child…" />;
 
   const child = data.child;
+  const id = params.id;
 
   return (
     <>
-      {error ? <p className="error">{error}</p> : null}
-      <h1>{child.displayName}</h1>
-      <p className="muted">{child.school.name}</p>
+      {error ? <Alert tone="danger">{error}</Alert> : null}
+      <PersonSummary
+        name={child.displayName}
+        meta={`${child.school.name}${child.currentYearGroupName ? ` · ${child.currentYearGroupName}` : ""}${
+          child.currentFormClassName ? ` · ${child.currentFormClassName}` : ""
+        }`}
+      />
+      <Tabs>
+        <Link href={`/parent/children/${id}`} aria-current="page">
+          Overview
+        </Link>
+        <Link href={`/parent/children/${id}/timetable`}>Timetable</Link>
+        <Link href={`/parent/children/${id}/learning`}>Learning</Link>
+        <Link href={`/parent/children/${id}/results`}>Results</Link>
+        <Link href={`/parent/children/${id}/reports`}>Reports</Link>
+        <Link href="/parent/activities">Activities</Link>
+        <Link href="/parent/payments">Payments</Link>
+        <Link href="/parent/messages">Messages</Link>
+      </Tabs>
       <div className="card">
         <dl className="profile-list">
           <div>
@@ -139,7 +156,9 @@ export default function ParentChildDetailPage() {
           </div>
           <div>
             <dt>Enrolment</dt>
-            <dd>{child.enrolmentStatus}</dd>
+            <dd>
+              <StatusBadge status={child.enrolmentStatus} />
+            </dd>
           </div>
           {child.guardianship ? (
             <div>
@@ -154,40 +173,53 @@ export default function ParentChildDetailPage() {
       </div>
       <h2>Timetable</h2>
       <p>
-        <Link href={`/parent/children/${params.id}/timetable`}>View this week's lessons</Link>
+        <Link href={`/parent/children/${id}/timetable`}>View this week's lessons</Link>
       </p>
       <h2 id="attendance">Attendance</h2>
       {attendanceError ? (
-        <p className="error">{attendanceError}</p>
+        <Alert tone="info">{attendanceError}</Alert>
       ) : attendance ? (
         <>
-          <div className="cards">
-            <div className="card"><span>Attendance</span><strong>{attendance.summary.attendancePercentage ?? "—"}{attendance.summary.attendancePercentage != null ? "%" : ""}</strong></div>
-            <div className="card"><span>Present</span><strong>{attendance.summary.sessionsPresent}</strong></div>
-            <div className="card"><span>Possible</span><strong>{attendance.summary.sessionsPossible}</strong></div>
+          <div className="stat-grid">
+            <StatCard
+              label="Attendance"
+              value={`${attendance.summary.attendancePercentage ?? "—"}${attendance.summary.attendancePercentage != null ? "%" : ""}`}
+            />
+            <StatCard label="Present" value={attendance.summary.sessionsPresent} />
+            <StatCard label="Possible" value={attendance.summary.sessionsPossible} />
           </div>
-          <table>
-            <thead>
-              <tr><th>Date</th><th>Session</th><th>Mark</th><th>Note</th></tr>
-            </thead>
-            <tbody>
+          {attendance.marks.length === 0 ? (
+            <EmptyState title="No attendance marks yet" description="When the school records attendance, it will appear here." />
+          ) : (
+            <DataTable
+              headers={
+                <>
+                  <th>Date</th>
+                  <th>Session</th>
+                  <th>Mark</th>
+                  <th>Note</th>
+                </>
+              }
+            >
               {attendance.marks.map((row) => (
                 <tr key={row.id}>
                   <td>{row.date}</td>
                   <td>{row.sessionName}</td>
-                  <td>{row.codeName}</td>
+                  <td>
+                    <StatusBadge status={row.codeName} />
+                  </td>
                   <td>{row.parentNote ?? "—"}</td>
                 </tr>
               ))}
-            </tbody>
-          </table>
+            </DataTable>
+          )}
         </>
       ) : (
-        <p className="muted">Loading attendance…</p>
+        <LoadingState label="Loading attendance…" />
       )}
       <h2>Learning</h2>
       <p>
-        <Link href={`/parent/children/${params.id}/learning`}>View assignments and homework</Link>
+        <Link href={`/parent/children/${id}/learning`}>View assignments and homework</Link>
       </p>
       <h2>Activities</h2>
       <p>
@@ -209,7 +241,9 @@ export default function ParentChildDetailPage() {
                     type="button"
                     className="secondary"
                     onClick={() =>
-                      downloadAuthenticated(doc.downloadPath!, doc.filename).catch((err: Error) => setError(err.message))
+                      downloadAuthenticated(doc.downloadPath!, doc.filename).catch((err: Error) =>
+                        setError(userFacingError(err)),
+                      )
                     }
                   >
                     Download
@@ -222,9 +256,9 @@ export default function ParentChildDetailPage() {
       )}
       <h2>Results and reports</h2>
       <p>
-        <Link href={`/parent/children/${params.id}/results`}>Released assessment results</Link>
+        <Link href={`/parent/children/${id}/results`}>Released assessment results</Link>
         {" · "}
-        <Link href={`/parent/children/${params.id}/reports`}>Published reports</Link>
+        <Link href={`/parent/children/${id}/reports`}>Published reports</Link>
       </p>
       <h2>Coming later</h2>
       <div className="cards">

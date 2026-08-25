@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { EmptyState, LoadingState, PageError, PageHeader, StatusBadge } from "../../../components/ui";
 import { api } from "../../../lib/api";
+import { userFacingError } from "../../../lib/errors";
 
 export type PupilAssignment = {
   id: string;
@@ -40,7 +42,7 @@ export function StudentLearningList({
         setError("");
       })
       .catch((err: Error) => {
-        if (!cancelled) setError(err.message);
+        if (!cancelled) setError(userFacingError(err, "Could not load your learning."));
       })
       .finally(() => {
         if (!cancelled) setLoaded(true);
@@ -50,13 +52,15 @@ export function StudentLearningList({
     };
   }, [bucket]);
 
-  if (error) return <p className="error">{error}</p>;
-  if (!loaded) return <p>Loading…</p>;
+  if (error) return <PageError title="Learning unavailable" description={error} />;
+  if (!loaded) return <LoadingState label="Loading learning…" />;
 
   return (
     <>
-      <h1>{title}</h1>
-      {items.length === 0 ? <p className="muted">Nothing here yet.</p> : (
+      <PageHeader title={title} description="Assigned work, due dates, and feedback from your teachers." />
+      {items.length === 0 ? (
+        <EmptyState title="Nothing here yet" description="When your teacher assigns work, it will appear in this list." />
+      ) : (
         <div className="stack">
           {items.map((row) => (
             <Link key={row.id} className="card" href={`/student/learning/assignments/${row.id}`}>
@@ -65,7 +69,9 @@ export function StudentLearningList({
                 {row.subjectName ?? row.workTypeName}
                 {row.dueAt ? ` · due ${new Date(row.dueAt).toLocaleString()}` : ""}
               </p>
-              <p className="muted">{row.submission.status.replaceAll("_", " ")}</p>
+              <p className="muted">
+                <StatusBadge status={row.submission.status} />
+              </p>
             </Link>
           ))}
         </div>

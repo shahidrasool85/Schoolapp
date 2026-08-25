@@ -1,7 +1,9 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { Alert, EmptyState, FilterBar, PageHeader, StatusBadge } from "../../../components/ui";
 import { api } from "../../../lib/api";
+import { userFacingError } from "../../../lib/errors";
 
 type Occurrence = {
   date: string;
@@ -30,56 +32,56 @@ export default function StudentTimetablePage() {
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    load().catch((err: Error) => setError(userFacingError(err, "Could not load your timetable.")));
   }, []);
 
   return (
     <>
-      <h1>My Timetable</h1>
-      <form
-        className="toolbar"
+      <PageHeader title="My Timetable" description="Your lessons for the selected week." />
+      <FilterBar
         onSubmit={(event: FormEvent) => {
           event.preventDefault();
-          load().catch((err: Error) => setError(err.message));
+          load().catch((err: Error) => setError(userFacingError(err)));
         }}
+        actions={<button type="submit">Show week</button>}
       >
-        <label>
+        <label htmlFor="student-week">
           Week starting
-          <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+          <input id="student-week" type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
         </label>
-        <button type="submit">Show week</button>
-      </form>
-      {error ? <p className="error">{error}</p> : null}
+      </FilterBar>
+      {error ? <Alert tone="danger">{error}</Alert> : null}
       {items.length === 0 ? (
-        <p>No lessons in this week.</p>
+        <EmptyState title="No lessons this week" description="When the school publishes your timetable, lessons will appear here." />
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>When</th>
-              <th>Subject</th>
-              <th>Teacher</th>
-              <th>Room</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((lesson) => (
-              <tr key={`${lesson.date}-${lesson.startsAt}-${lesson.className}`}>
-                <td>
-                  {DAYS[lesson.weekday - 1]} {lesson.date} {lesson.startsAt.slice(0, 5)}–{lesson.endsAt.slice(0, 5)}
-                </td>
-                <td>{lesson.subjectName ?? lesson.className}</td>
-                <td>{lesson.teachers.map((teacher) => teacher.fullName).join(", ") || "—"}</td>
-                <td>{lesson.roomName ?? "—"}</td>
-                <td>
-                  {lesson.status}
-                  {lesson.note ? ` — ${lesson.note}` : ""}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="stack">
+          {DAYS.map((day, index) => {
+            const dayItems = items.filter((lesson) => lesson.weekday === index + 1);
+            if (dayItems.length === 0) return null;
+            return (
+              <section key={day} className="section-card">
+                <h2>{day}</h2>
+                <div className="lesson-cards">
+                  {dayItems.map((lesson) => (
+                    <article key={`${lesson.date}-${lesson.startsAt}-${lesson.className}`} className="lesson-card">
+                      <div className="lesson-time">
+                        {lesson.startsAt.slice(0, 5)}–{lesson.endsAt.slice(0, 5)}
+                      </div>
+                      <div>
+                        <strong>{lesson.subjectName ?? lesson.className}</strong>
+                        <p className="muted">
+                          {lesson.teachers.map((teacher) => teacher.fullName).join(", ") || "Teacher TBC"}
+                          {lesson.roomName ? ` · ${lesson.roomName}` : ""}
+                        </p>
+                      </div>
+                      <StatusBadge status={lesson.status} />
+                    </article>
+                  ))}
+                </div>
+              </section>
+            );
+          })}
+        </div>
       )}
     </>
   );

@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
+import { EmptyState, FilterBar, PageError, PageHeader, StatusBadge } from "../../../../components/ui";
 import { api } from "../../../../lib/api";
+import { userFacingError } from "../../../../lib/errors";
 
 type Incident = {
   id: string;
@@ -14,7 +16,7 @@ type Incident = {
 };
 
 export default function BehaviourListPage() {
-  const [items, setItems] = useState<Incident[]>([]);
+  const [items, setItems] = useState<Incident[] | null>(null);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [severity, setSeverity] = useState("");
@@ -25,7 +27,7 @@ export default function BehaviourListPage() {
     if (nextSeverity) query.set("severity", nextSeverity);
     api<{ incidents: Incident[] }>(`/api/v1/behaviour/incidents${query.size ? `?${query}` : ""}`)
       .then((body) => setItems(body.incidents))
-      .catch((err: Error) => setError(err.message));
+      .catch((err: Error) => setError(userFacingError(err, "Could not load behaviour records.")));
   }
 
   useEffect(() => {
@@ -42,37 +44,49 @@ export default function BehaviourListPage() {
     load(nextStatus, nextSeverity);
   }
 
-  if (error) return <p className="error">{error}</p>;
+  if (error) return <PageError title="Behaviour unavailable" description={error} />;
 
   return (
     <>
-      <div className="toolbar">
-        <h1>Behaviour</h1>
-        <Link href="/school/pastoral/behaviour/new">Record incident</Link>
-      </div>
-      <form className="toolbar" onSubmit={onFilter}>
-        <select name="status" defaultValue={status}>
-          <option value="">All statuses</option>
-          <option value="open">Open</option>
-          <option value="in_progress">In progress</option>
-          <option value="resolved">Resolved</option>
-          <option value="closed">Closed</option>
-        </select>
-        <select name="severity" defaultValue={severity}>
-          <option value="">All severities</option>
-          <option value="low">Low</option>
-          <option value="medium">Medium</option>
-          <option value="high">High</option>
-        </select>
-        <button type="submit">Filter</button>
-      </form>
-      {items.length === 0 ? <p>No incidents yet.</p> : null}
+      <PageHeader
+        title="Behaviour"
+        description="Incidents, actions, and follow-up. Safeguarding concerns stay in the restricted safeguarding area."
+        actions={
+          <Link className="button" href="/school/pastoral/behaviour/new">
+            Record incident
+          </Link>
+        }
+      />
+      <FilterBar onSubmit={onFilter} actions={<button type="submit">Filter</button>}>
+        <label htmlFor="behaviour-status">
+          Status
+          <select id="behaviour-status" name="status" defaultValue={status}>
+            <option value="">All statuses</option>
+            <option value="open">Open</option>
+            <option value="in_progress">In progress</option>
+            <option value="resolved">Resolved</option>
+            <option value="closed">Closed</option>
+          </select>
+        </label>
+        <label htmlFor="behaviour-severity">
+          Severity
+          <select id="behaviour-severity" name="severity" defaultValue={severity}>
+            <option value="">All severities</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
+        </label>
+      </FilterBar>
+      {items && items.length === 0 ? (
+        <EmptyState title="No incidents yet" description="Recorded incidents for pupils you can access will appear here." />
+      ) : null}
       <div className="cards">
-        {items.map((item) => (
+        {(items ?? []).map((item) => (
           <Link className="card" href={`/school/pastoral/behaviour/${item.id}`} key={item.id}>
             <strong>{item.studentLegalName ?? "Pupil"}</strong>
             <span className="muted">
-              {item.categoryName} · {item.severity} · {item.status}
+              {item.categoryName} · <StatusBadge status={item.severity} /> · <StatusBadge status={item.status} />
             </span>
           </Link>
         ))}

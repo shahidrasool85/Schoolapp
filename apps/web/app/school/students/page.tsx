@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
+import { Alert, DataTable, EmptyState, PageHeader, StatusBadge } from "../../../components/ui";
 import { api } from "../../../lib/api";
+import { userFacingError } from "../../../lib/errors";
 
 type Student = {
   id: string;
@@ -37,7 +39,7 @@ export default function StudentsPage() {
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    load().catch((err: Error) => setError(userFacingError(err, "Could not load pupils.")));
   }, []);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -60,19 +62,16 @@ export default function StudentsPage() {
       setMessage("Pupil created.");
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create student");
+      setError(userFacingError(err, "Could not create student"));
     }
   }
 
   return (
     <>
-      <div className="toolbar">
-        <h1>Pupils</h1>
-      </div>
-      <p className="muted">
-        Current year group and form class are derived from enrolments and dated class
-        memberships. Moving a pupil keeps the previous records.
-      </p>
+      <PageHeader
+        title="Pupils"
+        description="Current year group and form class are derived from enrolments and dated class memberships. Moving a pupil keeps the previous records."
+      />
       <form className="card form-grid" onSubmit={onSubmit}>
         <label>Legal name<input name="legalName" required /></label>
         <label>Admission number<input name="admissionNumber" /></label>
@@ -99,30 +98,41 @@ export default function StudentsPage() {
         </label>
         <div><button type="submit">Add student</button></div>
       </form>
-      {message ? <p>{message}</p> : null}
-      {error ? <p className="error">{error}</p> : null}
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Admission no.</th>
-            <th>Year group</th>
-            <th>Form class</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
+      {message ? (
+        <p className="alert alert-success" role="status">
+          {message}
+        </p>
+      ) : null}
+      {error ? <Alert tone="danger">{error}</Alert> : null}
+      {students.length === 0 ? (
+        <EmptyState title="No pupils yet" description="Add a pupil above, or wait for an admitted application to enrol." />
+      ) : (
+        <DataTable
+          headers={
+            <>
+              <th>Name</th>
+              <th>Admission no.</th>
+              <th>Year group</th>
+              <th>Form class</th>
+              <th>Status</th>
+            </>
+          }
+        >
           {students.map((s) => (
             <tr key={s.id}>
-              <td><Link href={`/school/students/${s.id}`}>{s.legalName}</Link></td>
+              <td>
+                <Link href={`/school/students/${s.id}`}>{s.legalName}</Link>
+              </td>
               <td>{s.admissionNumber ?? "—"}</td>
               <td>{s.currentYearGroupName ?? "—"}</td>
               <td>{s.currentFormClassName ?? "—"}</td>
-              <td>{s.enrolmentStatus}</td>
+              <td>
+                <StatusBadge status={s.enrolmentStatus} />
+              </td>
             </tr>
           ))}
-        </tbody>
-      </table>
+        </DataTable>
+      )}
     </>
   );
 }

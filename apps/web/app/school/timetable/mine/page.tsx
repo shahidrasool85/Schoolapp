@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
+import { Alert, EmptyState, FilterBar, PageHeader, StatusBadge } from "../../../../components/ui";
 import { api } from "../../../../lib/api";
+import { userFacingError } from "../../../../lib/errors";
 
 type Occurrence = {
   entryId: string;
@@ -36,7 +38,7 @@ export default function MyTimetablePage() {
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    load().catch((err: Error) => setError(userFacingError(err, "Could not load your timetable.")));
   }, []);
 
   async function takeAttendance(entryId: string, date: string) {
@@ -50,68 +52,76 @@ export default function MyTimetablePage() {
 
   return (
     <>
-      <h1>My Timetable</h1>
-      <form
-        className="toolbar"
+      <PageHeader title="My Timetable" description="Your assigned lessons for the selected week, with quick attendance and learning links." />
+      <FilterBar
         onSubmit={(event: FormEvent) => {
           event.preventDefault();
-          load().catch((err: Error) => setError(err.message));
+          load().catch((err: Error) => setError(userFacingError(err)));
         }}
+        actions={<button type="submit">Show week</button>}
       >
-        <label>
+        <label htmlFor="timetable-week">
           Week starting
-          <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+          <input id="timetable-week" type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
         </label>
-        <button type="submit">Show week</button>
-      </form>
-      {error ? <p className="error">{error}</p> : null}
-      {registerError ? <p className="error">{registerError}</p> : null}
+      </FilterBar>
+      {error ? <Alert tone="danger">{error}</Alert> : null}
+      {registerError ? <Alert tone="danger">{registerError}</Alert> : null}
       {items.length === 0 ? (
-        <p>No lessons assigned to you in this week.</p>
+        <EmptyState
+          title="No lessons this week"
+          description="Nothing is assigned to you for this week. Try another week or open the school timetable."
+          action={<Link href="/school/timetable/schedule">School timetable</Link>}
+        />
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>When</th>
-              <th>Class</th>
-              <th>Subject</th>
-              <th>Room</th>
-              <th>Status</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((lesson) => (
-              <tr key={`${lesson.entryId}-${lesson.date}`}>
-                <td>
-                  {DAYS[lesson.weekday - 1]} {lesson.startsAt.slice(0, 5)}–{lesson.endsAt.slice(0, 5)}
-                </td>
-                <td>{lesson.className}</td>
-                <td>{lesson.subjectName ?? "—"}</td>
-                <td>{lesson.roomName ?? "—"}</td>
-                <td>{lesson.covered ? "Cover" : lesson.status}</td>
-                <td>
-                  {lesson.status === "cancelled" ? null : (
-                    <>
-                      <Link href={`/school/classes?classId=${lesson.classId}`}>View class</Link>
-                      {" · "}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          takeAttendance(lesson.entryId, lesson.date).catch((err: Error) => setRegisterError(err.message))
-                        }
-                      >
-                        Take attendance
-                      </button>
-                      {" · "}
-                      <Link href={`/school/teaching/assignments?classId=${lesson.classId}`}>Learning</Link>
-                    </>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="stack">
+          {DAYS.map((day, index) => {
+            const dayItems = items.filter((lesson) => lesson.weekday === index + 1);
+            if (dayItems.length === 0) return null;
+            return (
+              <section key={day} className="section-card">
+                <h2>{day}</h2>
+                <div className="lesson-cards">
+                  {dayItems.map((lesson) => (
+                    <article key={`${lesson.entryId}-${lesson.date}`} className="lesson-card">
+                      <div className="lesson-time">
+                        {lesson.startsAt.slice(0, 5)}–{lesson.endsAt.slice(0, 5)}
+                      </div>
+                      <div>
+                        <strong>
+                          {lesson.subjectName ?? "Lesson"} · {lesson.className}
+                        </strong>
+                        <p className="muted">
+                          {lesson.roomName ?? "No room"}
+                          {lesson.covered ? " · Cover" : ""}
+                        </p>
+                      </div>
+                      {lesson.status === "cancelled" ? (
+                        <StatusBadge status="cancelled" />
+                      ) : (
+                        <div className="page-header-actions">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              takeAttendance(lesson.entryId, lesson.date).catch((err: Error) =>
+                                setRegisterError(userFacingError(err)),
+                              )
+                            }
+                          >
+                            Take attendance
+                          </button>
+                          <Link className="button secondary" href={`/school/teaching/assignments?classId=${lesson.classId}`}>
+                            Learning
+                          </Link>
+                        </div>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              </section>
+            );
+          })}
+        </div>
       )}
     </>
   );

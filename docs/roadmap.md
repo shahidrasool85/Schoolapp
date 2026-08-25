@@ -242,6 +242,18 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 **Not in Phase 16:** WhatsApp/SMS/email delivery, live chat, typing indicators, student–teacher chat, AI moderation, bulk export, professional UI redesign.
 
+## Phase 17 — Professional UI design system and role-based dashboards (implemented)
+
+**Outcome:** Schoolapp looks and behaves like a professional school MIS/LMS while preserving Phase 1–16 business logic, RBAC, routing, and tenant isolation.
+
+- Design tokens and shared primitives (AppShell, PageHeader, cards, tables, filters, badges, empty/loading/error states, confirmation dialogs)
+- Staff, parent, and student shells with grouped, permission-filtered navigation and a responsive drawer
+- Role-aware dashboards composed from existing APIs (operational vs assigned-only teacher)
+- Visual polish for high-traffic admissions, attendance, timetable, LMS, finance, messaging, and portal pages
+- No database migration (`0032_phase16_messaging.sql` remains latest)
+
+**Not in Phase 17:** dark mode, drag-and-drop timetable, new business workflows, AI, gamification, SMS/email/push, native apps.
+
 ## Phase 12.5 — AI learning
 
 - `packages/ai` port + one provider
@@ -268,6 +280,8 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 No second backend.
 
 ## Phase 17 — Integrations and hardening
+
+(Product numbering in this later-vision list is independent of the implemented Phase 17 UI design-system work above.)
 
 - MIS identifiers, CTF/census experiments
 - SSO (Microsoft 365 / Google Workspace) if schools demand it

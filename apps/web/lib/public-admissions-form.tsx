@@ -433,6 +433,7 @@ export function PublicAdmissionsForm({
   const [payload, setPayload] = useState<PublicFormPayload | null>(null);
   const [step, setStep] = useState(0);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [done, setDone] = useState<{ title: string; text: string; reference?: string } | null>(null);
   const [continuation, setContinuation] = useState<string | null>(null);
   const [publicId, setPublicId] = useState<string | null>(null);
@@ -578,7 +579,7 @@ export function PublicAdmissionsForm({
     }
     if (!silent) {
       setError("");
-      alert(mode === "staff" ? "Draft saved." : "Draft saved. Keep this page or the continuation link to resume later.");
+      setNotice(mode === "staff" ? "Draft saved." : "Draft saved. Keep this page or the continuation link to resume later.");
     }
     if (!publicIdRef.current || !continuationRef.current) {
       throw new Error("A saved draft is required before uploading a file");
@@ -594,6 +595,7 @@ export function PublicAdmissionsForm({
       return;
     }
     setError("");
+    setNotice("");
     const form = new FormData(formEl);
     const answers: Record<string, unknown> = {};
     for (const section of sections) {
@@ -694,11 +696,20 @@ export function PublicAdmissionsForm({
       {isMulti ? (
         <ol className="form-steps" aria-label="Application steps">
           {sections.map((section, index) => (
-            <li key={section.sectionKey} aria-current={index === step ? "step" : undefined}>
+            <li
+              key={section.sectionKey}
+              aria-current={index === step ? "step" : undefined}
+              className={index < step ? "is-complete" : undefined}
+            >
               {section.title}
             </li>
           ))}
         </ol>
+      ) : null}
+      {notice ? (
+        <div className="alert alert-success" role="status">
+          {notice}
+        </div>
       ) : null}
       {error ? (
         <div className="error" role="alert">
@@ -749,7 +760,7 @@ export function PublicAdmissionsForm({
         ) : null}
         <div className="toolbar">
           {isMulti && step > 0 ? (
-            <button type="button" className="secondary" onClick={() => setStep((value) => value - 1)}>
+            <button type="button" className="secondary" onClick={() => { setError(""); setNotice(""); setStep((value) => value - 1); }}>
               Back
             </button>
           ) : (
@@ -771,6 +782,8 @@ export function PublicAdmissionsForm({
                     firstInvalid.reportValidity();
                     return;
                   }
+                  setError("");
+                  setNotice("");
                   setStep((value) => value + 1);
                 }}
               >

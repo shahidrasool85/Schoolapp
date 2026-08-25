@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
+import { Alert, DataTable, EmptyState, FilterBar, PageHeader, StatusBadge } from "../../../../components/ui";
 import { api } from "../../../../lib/api";
+import { userFacingError } from "../../../../lib/errors";
 
 type Mark = {
   id: string;
@@ -47,7 +49,7 @@ export default function SchoolAttendancePage() {
         setClasses(cl.classes);
         setCodes(cd.codes);
       })
-      .catch((err: Error) => setError(err.message));
+      .catch((err: Error) => setError(userFacingError(err, "Could not load attendance filters.")));
   }, []);
 
   async function search(event?: FormEvent) {
@@ -63,66 +65,98 @@ export default function SchoolAttendancePage() {
   }
 
   useEffect(() => {
-    search().catch((err: Error) => setError(err.message));
+    search().catch((err: Error) => setError(userFacingError(err, "Could not load attendance marks.")));
   }, []);
-
-  if (error) return <p className="error">{error}</p>;
 
   return (
     <>
-      <h1>School attendance</h1>
-      <form className="card form-grid" onSubmit={search}>
-        <label>Date<input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
-        <label>
+      <PageHeader title="School attendance" description="Review and correct marks across classes you are authorised to see." />
+      {error ? <Alert tone="danger">{error}</Alert> : null}
+      <FilterBar onSubmit={(event) => search(event).catch((err: Error) => setError(userFacingError(err)))} actions={<button type="submit">Filter</button>}>
+        <label htmlFor="attendance-date">
+          Date
+          <input id="attendance-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </label>
+        <label htmlFor="attendance-session">
           Session
-          <select value={sessionTypeId} onChange={(e) => setSessionTypeId(e.target.value)}>
+          <select id="attendance-session" value={sessionTypeId} onChange={(e) => setSessionTypeId(e.target.value)}>
             <option value="">All</option>
-            {sessions.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
+            {sessions.map((row) => (
+              <option key={row.id} value={row.id}>
+                {row.name}
+              </option>
+            ))}
           </select>
         </label>
-        <label>
+        <label htmlFor="attendance-year-group">
           Year group
-          <select value={yearGroupId} onChange={(e) => setYearGroupId(e.target.value)}>
+          <select id="attendance-year-group" value={yearGroupId} onChange={(e) => setYearGroupId(e.target.value)}>
             <option value="">All</option>
-            {groups.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
+            {groups.map((row) => (
+              <option key={row.id} value={row.id}>
+                {row.name}
+              </option>
+            ))}
           </select>
         </label>
-        <label>
+        <label htmlFor="attendance-class">
           Class
-          <select value={classId} onChange={(e) => setClassId(e.target.value)}>
+          <select id="attendance-class" value={classId} onChange={(e) => setClassId(e.target.value)}>
             <option value="">All</option>
-            {classes.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
+            {classes.map((row) => (
+              <option key={row.id} value={row.id}>
+                {row.name}
+              </option>
+            ))}
           </select>
         </label>
-        <label>
+        <label htmlFor="attendance-code">
           Code
-          <select value={codeId} onChange={(e) => setCodeId(e.target.value)}>
+          <select id="attendance-code" value={codeId} onChange={(e) => setCodeId(e.target.value)}>
             <option value="">All</option>
-            {codes.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
+            {codes.map((row) => (
+              <option key={row.id} value={row.id}>
+                {row.name}
+              </option>
+            ))}
           </select>
         </label>
-        <div><button type="submit">Filter</button></div>
-      </form>
-      <table>
-        <thead>
-          <tr>
-            <th>Date</th><th>Pupil</th><th>Session</th><th>Mark</th><th>Recorded by</th><th>Corrected by</th><th></th>
-          </tr>
-        </thead>
-        <tbody>
+      </FilterBar>
+      {marks.length === 0 ? (
+        <EmptyState title="No marks in this view" description="Try another date, class, or attendance code." />
+      ) : (
+        <DataTable
+          headers={
+            <>
+              <th>Date</th>
+              <th>Pupil</th>
+              <th>Session</th>
+              <th>Mark</th>
+              <th>Recorded by</th>
+              <th>Corrected by</th>
+              <th></th>
+            </>
+          }
+        >
           {marks.map((row) => (
             <tr key={row.id}>
               <td>{row.date}</td>
-              <td><Link href={`/school/students/${row.studentProfileId}`}>{row.studentLegalName}</Link></td>
+              <td>
+                <Link href={`/school/students/${row.studentProfileId}`}>{row.studentLegalName}</Link>
+              </td>
               <td>{row.sessionName}</td>
-              <td>{row.codeName}</td>
+              <td>
+                <StatusBadge status={row.codeName} />
+              </td>
               <td>{row.recordedByName ?? "—"}</td>
               <td>{row.lastCorrectedByName ?? "—"}</td>
-              <td><Link href={`/school/attendance/marks/${row.id}`}>Correct</Link></td>
+              <td>
+                <Link href={`/school/attendance/marks/${row.id}`}>Correct</Link>
+              </td>
             </tr>
           ))}
-        </tbody>
-      </table>
+        </DataTable>
+      )}
     </>
   );
 }

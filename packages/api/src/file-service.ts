@@ -19,6 +19,7 @@ import {
   fileAnswerDocumentId,
   activityDocumentVisibleToAudience,
   canReadSchoolActivities,
+  assertCanAccessMessageAttachment,
   type FormFieldDefinition,
 } from "@schoolapp/core";
 import {
@@ -126,15 +127,17 @@ export function profileForDomain(domain: StoredObjectDomain) {
             ? "learning_submission"
             : domain === "pastoral"
               ? "pastoral"
-              : domain === "activity"
-                ? "activity"
-                : "safeguarding";
+        : domain === "activity"
+          ? "activity"
+          : domain === "message"
+            ? "message"
+            : "safeguarding";
   return fileProfile(name, limits);
 }
 
 export function sensitivityForDomain(domain: StoredObjectDomain): FileSensitivity {
   if (domain === "safeguarding") return "safeguarding";
-  if (domain === "pastoral" || domain === "student_document" || domain === "admissions_form" || domain === "admissions_application" || domain === "activity") {
+  if (domain === "pastoral" || domain === "student_document" || domain === "admissions_form" || domain === "admissions_application" || domain === "activity" || domain === "message") {
     return "confidential";
   }
   return "standard";
@@ -493,6 +496,10 @@ export async function authorizeStoredObjectDownload(
         [row.activity_id, actor.userId],
       );
       if (!assigned.rows[0]) notFound();
+      return;
+    }
+    case "message": {
+      await assertCanAccessMessageAttachment(client, actor, object.organisation_id, object.id);
       return;
     }
     default:

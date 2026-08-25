@@ -230,6 +230,18 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 **Not in Phase 15:** accounting ledger, VAT, payroll, Stripe Connect, instalment plans, meal ordering, admissions fees, SMS/email delivery, professional UI redesign.
 
+## Phase 16 — Messaging and parent–teacher communication (implemented)
+
+**Outcome:** staff and parents can hold authorised, pupil-scoped conversations in-app without duplicating announcements or opening a social graph.
+
+- Conversation + explicit participant model (`parent_teacher`, `parent_school`, `admissions`, `staff_internal`)
+- Teacher assigned-only initiation; parent contact points (class teacher, school office, admissions)
+- Read/unread pointers, close/archive, moderation redaction, Phase 13 attachments
+- Parent Portal and staff Messages inboxes (functional UI)
+- In-app notifications only; no email/SMS/push, no student messaging, no WebSockets
+
+**Not in Phase 16:** WhatsApp/SMS/email delivery, live chat, typing indicators, student–teacher chat, AI moderation, bulk export, professional UI redesign.
+
 ## Phase 12.5 — AI learning
 
 - `packages/ai` port + one provider
@@ -255,7 +267,7 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 No second backend.
 
-## Phase 16 — Integrations and hardening
+## Phase 17 — Integrations and hardening
 
 - MIS identifiers, CTF/census experiments
 - SSO (Microsoft 365 / Google Workspace) if schools demand it

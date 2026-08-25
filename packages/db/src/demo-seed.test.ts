@@ -407,4 +407,35 @@ describe("demo seed", () => {
       expect(leaked.rows[0]?.n).toBe("0");
     });
   });
+
+  it("seeds Greenwood messaging without leaking Oak threads", async () => {
+    const orgs = await pools.owner.query<{ id: string; slug: string }>(
+      "select id, slug::text as slug from organisations where slug = any($1::citext[])",
+      [["greenwood", "oakacademy"]],
+    );
+    const greenwoodId = orgs.rows.find((row) => row.slug === "greenwood")!.id;
+    const oakId = orgs.rows.find((row) => row.slug === "oakacademy")!.id;
+    const gw = await pools.owner.query<{ subject: string }>(
+      "select subject from message_conversations where organisation_id = $1 order by reference",
+      [greenwoodId],
+    );
+    expect(gw.rows.map((row) => row.subject)).toEqual([
+      "Amelia Khan — Maths homework question",
+      "School office — holiday club dates",
+      "Yusuf Khan — lost jumper",
+    ]);
+    const admin = await pools.owner.query<{ id: string }>(
+      "select id from users where email = $1",
+      [DEMO_ACCOUNTS.greenwoodAdmin.email],
+    );
+    await withTenantContext(pools.app, admin.rows[0]!.id, greenwoodId, async (client) => {
+      const leaked = await client.query<{ n: string }>(
+        "select count(*)::text as n from message_conversations where organisation_id = $1",
+        [oakId],
+      );
+      expect(leaked.rows[0]?.n).toBe("0");
+      const subjects = await client.query<{ subject: string }>("select subject from message_conversations");
+      expect(subjects.rows.map((row) => row.subject).join(" ")).not.toContain("Oak-only");
+    });
+  });
 });

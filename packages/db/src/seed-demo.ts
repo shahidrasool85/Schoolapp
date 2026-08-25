@@ -149,8 +149,25 @@ async function wipeDemoData(client: pg.Client): Promise<void> {
       "update student_profiles set admitted_from_application_id = null where organisation_id = any($1::uuid[])",
       [orgIds],
     );
+    await client.query(
+      `update message_conversations
+       set last_message_id = null
+       where organisation_id = any($1::uuid[])`,
+      [orgIds],
+    );
+    await client.query(
+      `update message_participants
+       set last_read_message_id = null
+       where organisation_id = any($1::uuid[])`,
+      [orgIds],
+    );
 
     const tenantDeletes = [
+      "message_attachments",
+      "messages",
+      "message_participants",
+      "message_conversations",
+      "message_counters",
       "school_payment_receipts",
       "school_payment_refunds",
       "school_payment_provider_events",
@@ -1219,6 +1236,77 @@ async function notify(
       input.createdBy,
     ],
   );
+}
+
+async function seedMessageConversation(
+  client: pg.Client,
+  input: {
+    organisationId: string;
+    reference: string;
+    conversationType: "parent_teacher" | "parent_school" | "admissions" | "staff_internal";
+    subject: string;
+    relatedPupilId?: string | null;
+    createdBy: string;
+    status?: "open" | "closed" | "archived";
+    participants: Array<{ userId: string; kind: "staff" | "parent"; lastReadAt?: string | null }>;
+    messages: Array<{ senderUserId: string; body: string; sentAt: string }>;
+  },
+): Promise<string> {
+  const conversation = await client.query<IdRow>(
+    `insert into message_conversations (
+       organisation_id, reference, conversation_type, subject, related_pupil_id,
+       related_domain, status, created_by, last_message_at, last_message_preview,
+       closed_at, closed_by
+     ) values ($1,$2,$3,$4,$5,'none',$6,$7,$8,$9,$10,$11)
+     returning id`,
+    [
+      input.organisationId,
+      input.reference,
+      input.conversationType,
+      input.subject,
+      input.relatedPupilId ?? null,
+      input.status ?? "open",
+      input.createdBy,
+      input.messages[input.messages.length - 1]?.sentAt ?? new Date().toISOString(),
+      (input.messages[input.messages.length - 1]?.body ?? "").slice(0, 140),
+      input.status === "closed" ? input.messages[input.messages.length - 1]?.sentAt ?? null : null,
+      input.status === "closed" ? input.createdBy : null,
+    ],
+  );
+  const conversationId = conversation.rows[0]!.id;
+  for (const participant of input.participants) {
+    await client.query(
+      `insert into message_participants (
+         organisation_id, conversation_id, user_id, participant_kind, added_by, last_read_at
+       ) values ($1,$2,$3,$4,$5,$6)`,
+      [
+        input.organisationId,
+        conversationId,
+        participant.userId,
+        participant.kind,
+        input.createdBy,
+        participant.lastReadAt ?? null,
+      ],
+    );
+  }
+  let lastId: string | null = null;
+  for (const message of input.messages) {
+    const inserted = await client.query<IdRow>(
+      `insert into messages (
+         organisation_id, conversation_id, sender_user_id, body, sent_at
+       ) values ($1,$2,$3,$4,$5)
+       returning id`,
+      [input.organisationId, conversationId, message.senderUserId, message.body, message.sentAt],
+    );
+    lastId = inserted.rows[0]!.id;
+  }
+  if (lastId) {
+    await client.query(
+      `update message_conversations set last_message_id = $2 where id = $1`,
+      [conversationId, lastId],
+    );
+  }
+  return conversationId;
 }
 
 async function lookupId(client: pg.Client, sql: string, values: unknown[]): Promise<string> {
@@ -3999,6 +4087,98 @@ async function seedGreenwood(
     schoolKey: "greenwood",
   });
 
+  await client.query(
+    `insert into message_counters (organisation_id, last_value) values ($1, 3)`,
+    [orgId],
+  );
+  await seedMessageConversation(client, {
+    organisationId: orgId,
+    reference: "MSG-000001",
+    conversationType: "parent_teacher",
+    subject: "Amelia Khan — Maths homework question",
+    relatedPupilId: amelia.profileId,
+    createdBy: teacherId,
+    participants: [
+      { userId: teacherId, kind: "staff", lastReadAt: "2026-09-24T16:00:00Z" },
+      { userId: parentId, kind: "parent", lastReadAt: "2026-09-23T18:00:00Z" },
+    ],
+    messages: [
+      {
+        senderUserId: teacherId,
+        body: "Hello Aisha, Amelia asked a clear question about tonight's maths worksheet. She can skip question 8 if it is taking too long.",
+        sentAt: "2026-09-23T16:10:00Z",
+      },
+      {
+        senderUserId: parentId,
+        body: "Thank you, Mrs Cole. We will do questions 1 to 7 and come back to 8 at the weekend.",
+        sentAt: "2026-09-23T18:05:00Z",
+      },
+      {
+        senderUserId: teacherId,
+        body: "That plan is fine. I have left a short note in her reading diary as well.",
+        sentAt: "2026-09-24T15:40:00Z",
+      },
+    ],
+  });
+  await seedMessageConversation(client, {
+    organisationId: orgId,
+    reference: "MSG-000002",
+    conversationType: "parent_school",
+    subject: "School office — holiday club dates",
+    relatedPupilId: amelia.profileId,
+    createdBy: adminId,
+    participants: [
+      { userId: adminId, kind: "staff", lastReadAt: "2026-09-22T10:00:00Z" },
+      { userId: parentId, kind: "parent", lastReadAt: "2026-09-22T11:00:00Z" },
+    ],
+    messages: [
+      {
+        senderUserId: adminId,
+        body: "Holiday club booking forms are in the office. Please collect one if Amelia will attend October half-term.",
+        sentAt: "2026-09-22T09:30:00Z",
+      },
+      {
+        senderUserId: parentId,
+        body: "Thank you. I will collect a form on Friday.",
+        sentAt: "2026-09-22T10:45:00Z",
+      },
+    ],
+  });
+  await seedMessageConversation(client, {
+    organisationId: orgId,
+    reference: "MSG-000003",
+    conversationType: "parent_school",
+    subject: "Yusuf Khan — lost jumper",
+    relatedPupilId: yusuf.profileId,
+    createdBy: adminId,
+    status: "closed",
+    participants: [
+      { userId: adminId, kind: "staff", lastReadAt: "2026-09-20T12:00:00Z" },
+      { userId: parentId, kind: "parent", lastReadAt: "2026-09-20T12:00:00Z" },
+    ],
+    messages: [
+      {
+        senderUserId: parentId,
+        body: "Yusuf's navy jumper is missing after PE. Could the office check lost property?",
+        sentAt: "2026-09-19T17:20:00Z",
+      },
+      {
+        senderUserId: adminId,
+        body: "We found it in lost property and it is waiting at reception.",
+        sentAt: "2026-09-20T09:15:00Z",
+      },
+    ],
+  });
+  await notify(client, {
+    organisationId: orgId,
+    recipientUserId: parentId,
+    createdBy: teacherId,
+    type: "message_received",
+    category: "messaging",
+    title: "New message",
+    body: "You have a new message from Greenwood Academy.",
+  });
+
   return {
     orgId,
     accounts: [
@@ -4376,6 +4556,30 @@ async function seedOakAcademy(
     academicYearId,
     yearGroupId: yearGroups.get("3")!,
     schoolKey: "oak",
+  });
+
+  await client.query(
+    `insert into message_counters (organisation_id, last_value) values ($1, 1)`,
+    [orgId],
+  );
+  await seedMessageConversation(client, {
+    organisationId: orgId,
+    reference: "MSG-000001",
+    conversationType: "parent_teacher",
+    subject: "Niamh Okonkwo — reading book",
+    relatedPupilId: niamh.profileId,
+    createdBy: teacherId,
+    participants: [
+      { userId: teacherId, kind: "staff", lastReadAt: "2026-09-21T16:00:00Z" },
+      { userId: parentId, kind: "parent", lastReadAt: "2026-09-21T16:00:00Z" },
+    ],
+    messages: [
+      {
+        senderUserId: teacherId,
+        body: "Oak-only message: Niamh's reading book is due back on Friday. Greenwood families must never see this.",
+        sentAt: "2026-09-21T15:10:00Z",
+      },
+    ],
   });
 
   await notify(client, {

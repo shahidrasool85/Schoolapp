@@ -22,6 +22,7 @@ type Dashboard = {
   children: PortalChild[];
   upcoming?: { available: boolean; items?: NextLesson[] };
   notifications: { unreadCount: number };
+  messaging?: { unreadCount: number };
 };
 
 export default function ParentDashboardPage() {
@@ -91,6 +92,14 @@ export default function ParentDashboardPage() {
         <Link className="card" href="/parent/notices">
           <strong>Notices</strong>
           <p>School announcements for your family.</p>
+        </Link>
+        <Link className="card" href="/parent/messages">
+          <strong>Messages</strong>
+          <p>
+            {data.messaging?.unreadCount
+              ? `${data.messaging.unreadCount} unread`
+              : "Parent and school conversations."}
+          </p>
         </Link>
         <Link className="card" href="/parent/calendar">
           <strong>Calendar</strong>

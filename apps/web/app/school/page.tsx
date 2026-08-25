@@ -35,6 +35,7 @@ const LINKS = [
   { href: "/school/teaching", title: "Teaching & Learning", text: "Assignments, homework and marking." },
   { href: "/school/assessment", title: "Assessment & Progress", text: "Formal results and published reports." },
   { href: "/school/communications", title: "Communications", text: "Notices and the school calendar." },
+  { href: "/school/messages", title: "Messages", text: "Parent and staff conversations." },
   { href: "/school/timetable", title: "Timetable", text: "School day, rooms, class and teacher schedules." },
   { href: "/school/finance", title: "Finance / Payments", text: "Charges, outstanding balances, refunds and receipts." },
 ];
@@ -44,6 +45,7 @@ export default function SchoolDashboardPage() {
   const [lessons, setLessons] = useState<Lesson[] | null>(null);
   const [coversToday, setCoversToday] = useState(0);
   const [persona, setPersona] = useState<{ fullName: string; label: string } | null>(null);
+  const [messagingUnread, setMessagingUnread] = useState<number | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -64,6 +66,9 @@ export default function SchoolDashboardPage() {
         setCoversToday(body.coversToday);
       })
       .catch(() => setLessons([]));
+    api<{ unreadCount: number }>("/api/v1/messages/unread-count")
+      .then((body) => setMessagingUnread(body.unreadCount))
+      .catch(() => setMessagingUnread(null));
   }, []);
 
   if (error) return <p className="error">{error}</p>;
@@ -128,7 +133,11 @@ export default function SchoolDashboardPage() {
         {LINKS.map((link) => (
           <Link key={link.href} className="card" href={link.href}>
             <strong>{link.title}</strong>
-            <p>{link.text}</p>
+            <p>
+              {link.href === "/school/messages" && messagingUnread
+                ? `${messagingUnread} unread`
+                : link.text}
+            </p>
           </Link>
         ))}
       </div>

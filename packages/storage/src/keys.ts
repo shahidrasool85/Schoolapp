@@ -14,6 +14,7 @@ const DOMAIN_SEGMENTS: Record<StoredObjectDomain, string> = {
   pastoral: "pastoral",
   safeguarding: "safeguarding",
   activity: "activities",
+  message: "messages",
 };
 
 export function assertUuid(value: string, label = "id"): string {

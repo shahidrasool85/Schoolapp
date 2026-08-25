@@ -1,6 +1,6 @@
 # Schoolapp — Platform Architecture
 
-**Status:** Phases 1–15 implemented (foundation through school payments). Later modules (AI, mobile) are not built.  
+**Status:** Phases 1–16 implemented (foundation through parent–teacher messaging). Later modules (AI, mobile) are not built.  
 **Audience:** Product owner and engineering.  
 **Scope:** Multi-tenant UK school SaaS (SIS + LMS + AI learning), web first, mobile-ready.
 
@@ -56,7 +56,7 @@ These must shape the model now, but must not be built yet:
 - Full accounting ledger, VAT, payroll, lunch ordering, and SaaS billing collection
 - Safeguarding case management (beyond audit-friendly foundations)
 - School-to-school competitions (until intra-school competitions are proven; **governance placeholders only**)
-- Direct pupil–pupil messaging
+- Direct pupil–pupil messaging and student–teacher chat (parent–teacher messaging is Phase 16; student messaging remains off)
 
 Trying to ship all modules at once is the largest product risk. The schema and API boundaries below are designed so later modules plug in without rewriting tenancy or auth.
 
@@ -524,6 +524,15 @@ See [ADR 0023](./adr/0023-phase14-activities-consents.md). Calendar list APIs in
 
 Money is integer minor units. Consent and payment stay separate. Default activity `charge_policy` is `on_confirmed` (waitlisted pupils are not charged). Provider webhooks are authoritative; tenant is resolved from stored session/payment references, never from `X-Organisation-Id`. Local/CI default is `PAYMENT_PROVIDER=fake`. See [ADR 0024](./adr/0024-phase15-payments.md).
 
+### 6.2g School messaging (Phase 16)
+
+- Conversations: `message_conversations` (types `parent_teacher`, `parent_school`, `admissions`, `staff_internal`; statuses `open`, `closed`, `archived`)
+- Participants: `message_participants` (explicit history; per-user archive and read pointer)
+- Messages: `messages` (append-only; redaction flags; no normal edits)
+- Attachments: `message_attachments` linked to Phase 13 `stored_objects` domain `message`
+
+Messaging is conversational and participant-based. Phase 10 announcements remain broadcast. Parent access re-checks guardianship + `portal_access`. Teachers initiate only for currently assigned pupils; participation preserves read access after a class move. Platform Admin has no school message browse. See [ADR 0025](./adr/0025-phase16-messaging.md).
+
 ### 6.3 Later entities (do not implement now; reserved names)
 
 - Admissions: `admissions_enquiries`, `admissions_applications`, `admissions_application_contacts`, `admissions_application_status_history`, `admissions_assessments`, `admissions_waiting_list_entries`, `admissions_offers`, `admissions_documents` (metadata only)
@@ -727,6 +736,7 @@ Each phase ships behind feature flags per organisation. Mobile starts only when 
 14. Inter-school competitions remain unimplemented; governance placeholders only.
 15. SaaS hostname tenancy: one shared application; school slug subdomains; apex is platform context; `X-Organisation-Id` is never authority; unverified custom domains do not resolve (ADR 0014).
 16. School payments: integer minor units; charge vs transaction; provider port; webhook authority; no card data (ADR 0024).
+17. School messaging: explicit participants; current access vs history; assigned-only teacher initiation; no student chat; immutable messages with moderation redaction (ADR 0025).
 
 ### Product-owner Phase 1 decisions (ADR 0011)
 

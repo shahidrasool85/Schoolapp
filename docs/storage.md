@@ -81,6 +81,7 @@ Validated from extension, declared MIME type, and magic bytes. Executables, HTML
 | Learning | PDF, JPEG, PNG, WebP, DOCX, XLSX, text |
 | Pastoral / safeguarding | PDF, JPEG, PNG, WebP, DOCX |
 | Activity documents | PDF, JPEG, PNG, WebP, DOCX, XLSX, text |
+| Message attachments | PDF, JPEG, PNG, WebP, DOCX, text |
 
 Original filenames are sanitised for display. They are never used as filesystem paths or object keys.
 

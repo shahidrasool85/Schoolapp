@@ -73,6 +73,16 @@ const COMMUNICATION_NAV_PERMISSIONS = [
   "calendar.manage_school",
 ];
 
+const MESSAGING_NAV_PERMISSIONS = [
+  "messaging.read",
+  "messaging.read_assigned",
+  "messaging.create",
+  "messaging.create_assigned",
+  "messaging.manage",
+  "messaging.staff_internal",
+  "messaging.admissions",
+];
+
 const ASSESSMENT_NAV_PERMISSIONS = [
   "assessments.read",
   "assessments.read_assigned",
@@ -195,6 +205,16 @@ const LINKS: NavLink[] = [
     children: [
       { href: "/school/communications/announcements", label: "Announcements", permissions: COMMUNICATION_NAV_PERMISSIONS },
       { href: "/school/communications/calendar", label: "Calendar", permissions: COMMUNICATION_NAV_PERMISSIONS },
+    ],
+  },
+  {
+    href: "/school/messages",
+    label: "Messages",
+    exact: true,
+    permissions: MESSAGING_NAV_PERMISSIONS,
+    children: [
+      { href: "/school/messages", label: "Inbox", exact: true, permissions: MESSAGING_NAV_PERMISSIONS },
+      { href: "/school/messages?folder=archived", label: "Archived", permissions: MESSAGING_NAV_PERMISSIONS },
     ],
   },
   {

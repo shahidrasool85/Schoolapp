@@ -31,6 +31,7 @@ type Bundle = {
   staff: Array<{ staffUserId: string; fullName: string | null; staffRole: string }>;
   documents: Array<{ id: string; title: string; visibility: string; downloadPath: string | null; originalFilename: string | null }>;
   consentClauses: Array<{ title: string; wording: string }>;
+  updates: Array<{ id: string; body: string; parentVisible: boolean; studentVisible: boolean; publishedAt: string | null }>;
   canPublish?: boolean;
   canManageParticipants?: boolean;
   canManageResponses?: boolean;
@@ -98,34 +99,61 @@ export default function StaffActivityDetailPage() {
   async function action(path: string, body?: unknown) {
     setError("");
     setMessage("");
-    await api(path, { method: "POST", body: body ? JSON.stringify(body) : "{}" });
-    await load();
+    try {
+      await api(path, { method: "POST", body: body ? JSON.stringify(body) : "{}" });
+      await load();
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not complete that action.");
+      return false;
+    }
   }
 
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setError("");
     const form = event.currentTarget;
     const payload = new FormData(form);
-    await api(`/api/v1/activities/${params.id}/documents`, { method: "POST", body: payload });
-    form.reset();
-    await load();
+    try {
+      await api(`/api/v1/activities/${params.id}/documents`, { method: "POST", body: payload });
+      form.reset();
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not attach the document.");
+    }
   }
 
   async function offline(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const studentId = String(form.get("studentProfileId"));
-    await action(`/api/v1/activities/${params.id}/participants/${studentId}/offline-response`, {
+    const ok = await action(`/api/v1/activities/${params.id}/participants/${studentId}/offline-response`, {
       response: form.get("response"),
       staffNote: form.get("staffNote") || "Recorded from paper / phone consent.",
       confirm: true,
     });
-    setMessage("Offline response recorded as staff-entered.");
+    if (ok) setMessage("Offline response recorded as staff-entered.");
+  }
+
+  async function addParticipant(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const ok = await action(`/api/v1/activities/${params.id}/participants`, {
+      studentProfileId: form.get("studentProfileId"),
+    });
+    if (ok) {
+      event.currentTarget.reset();
+      setMessage("Participant added.");
+    }
   }
 
   if (error && !data) return <p className="error">{error}</p>;
   if (!data) return <p>Loading…</p>;
   const activity = data.activity;
+  const addable = eligible.filter((row) => {
+    const place = participants.find((item) => item.studentProfileId === row.studentProfileId);
+    return !place || place.registrationStatus === "withdrawn";
+  });
 
   return (
     <>
@@ -154,7 +182,13 @@ export default function StaffActivityDetailPage() {
         {data.canPublish && activity.status === "draft" ? <button type="button" onClick={() => action(`/api/v1/activities/${activity.id}/publish`)}>Publish</button> : null}
         {data.canPublish && activity.status === "published" ? <button type="button" className="secondary" onClick={() => action(`/api/v1/activities/${activity.id}/close`)}>Close</button> : null}
         {data.canPublish && (activity.status === "published" || activity.status === "closed") ? (
+          <button type="button" className="secondary" onClick={() => action(`/api/v1/activities/${activity.id}/complete`)}>Mark completed</button>
+        ) : null}
+        {data.canPublish && (activity.status === "published" || activity.status === "closed") ? (
           <button type="button" className="secondary" onClick={() => action(`/api/v1/activities/${activity.id}/cancel`, { reason: "Cancelled from staff UI" })}>Cancel activity</button>
+        ) : null}
+        {data.canPublish && (activity.status === "completed" || activity.status === "cancelled") ? (
+          <button type="button" className="secondary" onClick={() => action(`/api/v1/activities/${activity.id}/archive`)}>Archive</button>
         ) : null}
         <a
           className="secondary"
@@ -174,6 +208,22 @@ export default function StaffActivityDetailPage() {
           <p>{clause.wording}</p>
         </div>
       ))}
+      <h2>Updates</h2>
+      {!(data.updates?.length) ? <p className="muted">No parent or student updates yet.</p> : (
+        <ul>
+          {data.updates.map((update) => (
+            <li key={update.id}>
+              {update.body}
+              <span className="muted">
+                {" "}
+                · {update.parentVisible ? "parents" : "not parents"}
+                {update.studentVisible ? " · students" : ""}
+                {update.publishedAt ? ` · ${new Date(update.publishedAt).toLocaleString()}` : ""}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
       <h2>Documents</h2>
       <ul>
         {data.documents.map((doc) => (
@@ -212,7 +262,24 @@ export default function StaffActivityDetailPage() {
               <td>{row.legalName}</td>
               <td>{row.className ?? "—"}</td>
               <td>{row.consentResponse}</td>
-              <td>{row.registrationStatus ?? "—"}</td>
+              <td>
+                {row.registrationStatus ?? "—"}
+                {data.canManageParticipants &&
+                row.registrationStatus &&
+                row.registrationStatus !== "withdrawn" &&
+                ["draft", "published", "closed"].includes(activity.status) ? (
+                  <>
+                    {" "}
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => action(`/api/v1/activities/${activity.id}/participants/${row.studentProfileId}/withdraw`)}
+                    >
+                      Withdraw
+                    </button>
+                  </>
+                ) : null}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -234,6 +301,22 @@ export default function StaffActivityDetailPage() {
             ))}
         </ul>
       )}
+      {data.canManageParticipants && ["draft", "published", "closed"].includes(activity.status) && addable.length > 0 ? (
+        <>
+          <h2>Add participant</h2>
+          <form className="card form-grid" onSubmit={addParticipant}>
+            <label>
+              Pupil
+              <select name="studentProfileId" required>
+                {addable.map((row) => (
+                  <option key={row.studentProfileId} value={row.studentProfileId}>{row.legalName}</option>
+                ))}
+              </select>
+            </label>
+            <button type="submit">Add pupil</button>
+          </form>
+        </>
+      ) : null}
       {data.canManageResponses ? (
         <>
       <h2>Record offline consent</h2>
@@ -266,13 +349,15 @@ export default function StaffActivityDetailPage() {
         onSubmit={async (event) => {
           event.preventDefault();
           const form = new FormData(event.currentTarget);
-          await action(`/api/v1/activities/${activity.id}/updates`, {
+          const ok = await action(`/api/v1/activities/${activity.id}/updates`, {
             body: form.get("body"),
             parentVisible: true,
             studentVisible: form.get("studentVisible") === "on",
           });
-          event.currentTarget.reset();
-          setMessage("Update published to parents.");
+          if (ok) {
+            event.currentTarget.reset();
+            setMessage("Update published to parents.");
+          }
         }}
       >
         <label>Update<textarea name="body" rows={3} required placeholder="Departure time changed / bring a coat" /></label>

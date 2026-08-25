@@ -16,9 +16,11 @@ type Detail = {
     responseDeadlineAt: string | null;
     consentRequired: boolean;
     status: string;
+    cancelReason: string | null;
   };
   consentClauses: Array<{ title: string; wording: string; required: boolean }>;
   documents: Array<{ id: string; title: string; downloadPath: string | null; originalFilename: string | null }>;
+  updates: Array<{ id: string; body: string; publishedAt: string | null }>;
   child: {
     studentProfileId: string;
     consentResponse: string;
@@ -54,24 +56,33 @@ export default function ParentActivityDetailPage() {
     const form = new FormData(event.currentTarget);
     setError("");
     setMessage("");
-    const result = await api<{ registrationStatus: string }>(
-      `/api/v1/parent/children/${studentId}/activities/${params.activityId}/respond`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          response: form.get("response"),
-          comment: form.get("comment") || null,
-          emergencyMedicalAcknowledged: form.get("emergency") === "on",
-          confirm: form.get("confirm") === "on",
-        }),
-      },
-    );
-    setMessage(
-      result.registrationStatus === "waitlisted"
-        ? "This activity is full. Your child has been placed on the waiting list."
-        : `Response saved. Place status: ${result.registrationStatus}.`,
-    );
-    await load();
+    if (form.get("confirm") !== "on") {
+      setError("Tick the confirmation box to record this response.");
+      return;
+    }
+    try {
+      const comment = String(form.get("comment") ?? "").trim();
+      const result = await api<{ registrationStatus: string }>(
+        `/api/v1/parent/children/${studentId}/activities/${params.activityId}/respond`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            response: form.get("response"),
+            comment: comment || undefined,
+            emergencyMedicalAcknowledged: form.get("emergency") === "on",
+            confirm: true,
+          }),
+        },
+      );
+      setMessage(
+        result.registrationStatus === "waitlisted"
+          ? "This activity is full. Your child has been placed on the waiting list."
+          : `Response saved. Place status: ${result.registrationStatus}.`,
+      );
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save the response.");
+    }
   }
 
   if (error && !data) return <p className="error">{error}</p>;
@@ -91,6 +102,12 @@ export default function ParentActivityDetailPage() {
         {new Date(data.activity.startsAt).toLocaleString()} – {new Date(data.activity.endsAt).toLocaleString()}
         {data.activity.location ? ` · ${data.activity.location}` : ""}
       </p>
+      {data.activity.status === "cancelled" ? (
+        <p role="status" className="error">
+          This activity has been cancelled.
+          {data.activity.cancelReason ? ` ${data.activity.cancelReason}` : ""}
+        </p>
+      ) : null}
       <p>
         Status: <strong>{statusLabel}</strong>
         {data.child.consentResponse === "pending" &&
@@ -103,6 +120,17 @@ export default function ParentActivityDetailPage() {
       {data.activity.description ? <p>{data.activity.description}</p> : null}
       {data.activity.responseDeadlineAt ? (
         <p>Response deadline: {new Date(data.activity.responseDeadlineAt).toLocaleString()}</p>
+      ) : null}
+      {data.updates?.length ? (
+        <>
+          <h2>Updates</h2>
+          {data.updates.map((update) => (
+            <section className="card" key={update.id}>
+              <p>{update.body}</p>
+              {update.publishedAt ? <p className="muted">{new Date(update.publishedAt).toLocaleString()}</p> : null}
+            </section>
+          ))}
+        </>
       ) : null}
       <h2>Documents</h2>
       {data.documents.length === 0 ? <p className="muted">No parent-visible documents.</p> : (

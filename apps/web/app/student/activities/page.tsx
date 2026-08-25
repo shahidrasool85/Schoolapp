@@ -11,6 +11,7 @@ type Activity = {
   location: string | null;
   activityTypeName: string | null;
   studentSignupEnabled: boolean;
+  status: string;
   children: Array<{ registrationStatus: string | null; consentResponse: string }>;
 };
 
@@ -35,7 +36,7 @@ export default function StudentActivitiesPage() {
           <Link className="card" href={`/student/activities/${item.id}`} key={item.id}>
             <strong>{item.title}</strong>
             <span className="muted">
-              {item.activityTypeName} · {new Date(item.startsAt).toLocaleString()}
+              {item.activityTypeName} · {item.status} · {new Date(item.startsAt).toLocaleString()}
               {item.location ? ` · ${item.location}` : ""}
               {item.children[0]?.registrationStatus ? ` · ${item.children[0].registrationStatus}` : ""}
             </span>

@@ -329,18 +329,52 @@ describe("Phase 14 activities, consents, and parent responses", () => {
       },
     );
     expect(missingConfirm.status).toBe(400);
+    expect(((await missingConfirm.json()) as { error: { message: string } }).error.message).toBe(
+      "Consent must be confirmed explicitly",
+    );
+
+    const invalidPayload = await app.request(
+      `/api/v1/parent/children/${pupil.student.id}/activities/${created.activity.id}/respond`,
+      {
+        method: "POST",
+        headers: parentHdrs,
+        body: JSON.stringify({ response: "maybe", confirm: true }),
+      },
+    );
+    expect(invalidPayload.status).toBe(400);
+    expect(((await invalidPayload.json()) as { error: { message: string } }).error.message).toBe("Invalid response");
+
+    const update = await app.request(`/api/v1/activities/${created.activity.id}/updates`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ body: "Bring a waterproof coat.", parentVisible: true, studentVisible: false }),
+    });
+    expect(update.status).toBe(201);
 
     const consent = await app.request(
       `/api/v1/parent/children/${pupil.student.id}/activities/${created.activity.id}/respond`,
       {
         method: "POST",
         headers: parentHdrs,
-        body: JSON.stringify({ response: "consented", confirm: true, emergencyMedicalAcknowledged: true }),
+        body: JSON.stringify({
+          response: "consented",
+          confirm: true,
+          comment: null,
+          emergencyMedicalAcknowledged: true,
+        }),
       },
     );
     expect(consent.status).toBe(200);
     const consentBody = (await consent.json()) as { registrationStatus: string };
     expect(consentBody.registrationStatus).toBe("confirmed");
+
+    const parentDetail = (await (
+      await app.request(`/api/v1/parent/children/${pupil.student.id}/activities/${created.activity.id}`, {
+        headers: parentHdrs,
+      })
+    ).json()) as { updates: Array<{ body: string }>; child: { lastResponse: { comment: string | null } | null } };
+    expect(parentDetail.updates.map((row) => row.body)).toContain("Bring a waterproof coat.");
+    expect(parentDetail.child.lastResponse?.comment ?? null).toBeNull();
 
     await app.request(`/api/v1/activities/${created.activity.id}`, {
       method: "PATCH",

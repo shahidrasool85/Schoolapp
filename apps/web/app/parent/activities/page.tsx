@@ -10,6 +10,7 @@ type Activity = {
   startsAt: string;
   location: string | null;
   activityTypeName: string | null;
+  status: string;
   children: Array<{
     studentProfileId: string;
     consentResponse: string;
@@ -47,7 +48,7 @@ export default function ParentActivitiesPage() {
           <div className="card" key={item.id}>
             <strong>{item.title}</strong>
             <span className="muted">
-              {item.activityTypeName} · {new Date(item.startsAt).toLocaleString()}
+              {item.activityTypeName} · {item.status} · {new Date(item.startsAt).toLocaleString()}
               {item.location ? ` · ${item.location}` : ""}
             </span>
             {item.children.map((child) => {

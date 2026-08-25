@@ -114,3 +114,4 @@ Use small synthetic PDFs/images, not real personal documents.
 - School Admin → pupil record → Documents
 - Teaching → assignment → Upload file → publish → student downloads and attaches work
 - Pastoral / Safeguarding concern → Upload attachment (authorised staff only)
+- Activities → activity detail → Attach document (parent-visible trip letter vs staff-only risk assessment) → Parent/Student download only when visibility allows

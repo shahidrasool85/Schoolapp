@@ -152,8 +152,9 @@ Sign in as **Platform Admin** at http://localhost:3000/login. You should land on
 ## 7. Limitations
 
 - This is local demo data only. Names, emails, and passwords are fake and clearly labelled.
-- AI learning, binary document upload, PDF report cards, and mobile apps are **not built yet**. Formal assessments/results/reports are in Phase 8. Public admissions forms are in Phase 9. Announcements and the school calendar are in Phase 10. The school timetable is in Phase 12 (recurring definitions + exceptions; demo week starts 7 September 2026).
-- Learning resources are URL metadata only; S3-compatible binary upload is deferred.
+- AI learning, PDF report cards, and mobile apps are **not built yet**. Formal assessments/results/reports are in Phase 8. Public admissions forms are in Phase 9. Announcements and the school calendar are in Phase 10. The school timetable is in Phase 12. Trips, clubs, and parent consent are in Phase 14. Phase 13 object storage is available for pupil, learning, pastoral, safeguarding, admissions, and activity files.
+- Seeded activity document *titles* (for example the Science Museum trip letter) have no stored bytes until a School Admin attaches a PDF on the activity page. Use a small synthetic PDF, not a real pupil letter.
+- Learning resources that are URL-only still exist alongside optional file uploads on assignments.
 - Demo attendance is seeded from 1 September 2026 (the 2026/27 year). If “today” is before term, registers default to the year start.
 - There is no production wildcard DNS, TLS, or Plesk setup in this path.
 - Each school host has its own browser session. Sign in again when you switch from `localhost` to `greenwood.localhost` or `oakacademy.localhost`.

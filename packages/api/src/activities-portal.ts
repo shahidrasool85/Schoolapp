@@ -175,7 +175,7 @@ export async function loadPortalActivityDetail(
 
 const respondSchema = z.object({
   response: z.enum(["consented", "declined", "withdrawn"]),
-  comment: z.string().max(4000).optional(),
+  comment: z.string().max(4000).nullish(),
   emergencyMedicalAcknowledged: z.boolean().optional(),
   confirm: z.literal(true),
   createdBy: z.string().uuid().optional(),
@@ -197,7 +197,12 @@ export async function parentRespondToActivity(
   if (!guardian) throw new AppError(403, "forbidden", "You cannot respond for this child");
   const parsed = respondSchema.safeParse(input.body);
   if (!parsed.success) {
-    throw new AppError(400, "validation_failed", "Consent must be confirmed explicitly");
+    const confirmFailed = parsed.error.issues.some((issue) => issue.path.includes("confirm"));
+    throw new AppError(
+      400,
+      "validation_failed",
+      confirmFailed ? "Consent must be confirmed explicitly" : "Invalid response",
+    );
   }
   const activity = await client.query(
     `select * from school_activities where id = $1 and organisation_id = $2`,

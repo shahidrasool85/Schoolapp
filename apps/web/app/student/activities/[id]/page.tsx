@@ -15,8 +15,10 @@ type Detail = {
     studentSignupEnabled: boolean;
     consentRequired: boolean;
     status: string;
+    cancelReason: string | null;
   };
   documents: Array<{ id: string; title: string; downloadPath: string | null; originalFilename: string | null }>;
+  updates: Array<{ id: string; body: string; publishedAt: string | null }>;
   child: {
     registrationStatus: string | null;
     waitingListPosition: number | null;
@@ -65,9 +67,26 @@ export default function StudentActivityDetailPage() {
         {new Date(data.activity.startsAt).toLocaleString()}
         {data.activity.location ? ` · ${data.activity.location}` : ""}
       </p>
+      {data.activity.status === "cancelled" ? (
+        <p role="status" className="error">
+          This activity has been cancelled.
+          {data.activity.cancelReason ? ` ${data.activity.cancelReason}` : ""}
+        </p>
+      ) : null}
       <p>Your place: <strong>{data.child.registrationStatus ?? "not signed up"}</strong></p>
       {data.activity.parentNotes ? <p>{data.activity.parentNotes}</p> : null}
       {data.activity.description ? <p>{data.activity.description}</p> : null}
+      {data.updates?.length ? (
+        <>
+          <h2>Updates</h2>
+          {data.updates.map((update) => (
+            <section className="card" key={update.id}>
+              <p>{update.body}</p>
+              {update.publishedAt ? <p className="muted">{new Date(update.publishedAt).toLocaleString()}</p> : null}
+            </section>
+          ))}
+        </>
+      ) : null}
       <h2>Documents</h2>
       {data.documents.length === 0 ? <p className="muted">No student-visible documents.</p> : (
         <ul>

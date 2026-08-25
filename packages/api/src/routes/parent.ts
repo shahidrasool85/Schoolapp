@@ -70,6 +70,7 @@ import {
   pupilProgressSummary,
   startPracticeAttempt,
   submitPracticeAttempt,
+  competitionTargetStudentIds,
 } from "../engagement-service";
 import { mapCompetition } from "../serialize";
 
@@ -709,7 +710,12 @@ export function registerParentRoutes(app: SchoolappApi) {
          order by starts_at nulls last, title`,
         [orgId],
       );
-      return c.json({ competitions: rows.rows.map(mapCompetition) });
+      const visible = [];
+      for (const row of rows.rows) {
+        const targetIds = await competitionTargetStudentIds(client, orgId, row.id);
+        if (!targetIds || targetIds.has(studentId)) visible.push(row);
+      }
+      return c.json({ competitions: visible.map(mapCompetition) });
     }),
   );
 
@@ -727,6 +733,7 @@ export function registerParentRoutes(app: SchoolappApi) {
         audience: "parent",
         policy,
         requestedScope: c.req.query("scope"),
+        viewerStudentId: studentId,
       });
       return c.json(board);
     }),

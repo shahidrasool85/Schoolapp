@@ -622,6 +622,30 @@ describe("Phase 19 engagement", () => {
     expect(houseBody.entries[0]?.entryType).toBe("house");
     expect(JSON.stringify(houseBody)).not.toContain("Khan");
 
+    await app.request(`/api/v1/year-groups/${structure.year4Id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ studentLoginEnabled: true }),
+    });
+    await createStudent(app, hdrs, {
+      legalName: "Outsider Jones",
+      academicYearId: structure.yearId,
+      yearGroupId: structure.year4Id,
+      classId: structure.classBId,
+      loginAlias: `out-${id}`,
+      password: "student-pass-1",
+    });
+    const outsiderToken = await loginAlias(app, school.slug, `out-${id}`, "student-pass-1");
+    const outsiderH = jsonHeaders(outsiderToken, school.orgId);
+    const outsiderBoard = await app.request(`/api/v1/student/competitions/${created.competition.id}/leaderboard`, {
+      headers: outsiderH,
+    });
+    expect(outsiderBoard.status).toBe(404);
+    const outsiderList = (await (await app.request("/api/v1/student/competitions", { headers: outsiderH })).json()) as {
+      competitions: Array<{ id: string }>;
+    };
+    expect(outsiderList.competitions.some((row) => row.id === created.competition.id)).toBe(false);
+
     const named = await app.request("/api/v1/competitions", {
       method: "POST",
       headers: hdrs,

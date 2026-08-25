@@ -873,7 +873,7 @@ type ScoreEntry = {
   score: number;
 };
 
-async function competitionTargetStudentIds(
+export async function competitionTargetStudentIds(
   client: pg.PoolClient,
   organisationId: string,
   competitionId: string,
@@ -1112,6 +1112,7 @@ export async function buildLeaderboard(input: {
   audience: Audience;
   policy: EffectiveEngagementPolicy;
   requestedScope?: string | null;
+  viewerStudentId?: string | null;
 }): Promise<{
   enabled: boolean;
   reason?: string;
@@ -1126,6 +1127,15 @@ export async function buildLeaderboard(input: {
   const row = competition.rows[0];
   if (input.audience === "student" && (!row.student_visible || row.staff_only)) notFound();
   if (input.audience === "parent" && (!row.parent_visible || row.staff_only)) notFound();
+  if (input.audience === "student" || input.audience === "parent") {
+    if (!input.viewerStudentId) notFound();
+    const targetIds = await competitionTargetStudentIds(
+      input.client,
+      input.organisationId,
+      input.competitionId,
+    );
+    if (targetIds && !targetIds.has(input.viewerStudentId)) notFound();
+  }
   if (!input.policy.competitionsEnabled) {
     return { enabled: false, reason: "competitions_disabled", competition: mapCompetition(row), entries: [] };
   }

@@ -19,6 +19,7 @@ import {
 } from "@schoolapp/core";
 import {
   buildLeaderboard,
+  competitionTargetStudentIds,
   listPracticeForPupil,
   listRewardsForStudent,
   loadPlayableActivity,
@@ -693,7 +694,12 @@ export function registerStudentRoutes(app: SchoolappApi) {
          order by starts_at nulls last, title`,
         [orgId],
       );
-      return c.json({ competitions: rows.rows.map(mapCompetition) });
+      const visible = [];
+      for (const row of rows.rows) {
+        const targetIds = await competitionTargetStudentIds(client, orgId, row.id);
+        if (!targetIds || targetIds.has(studentProfileId)) visible.push(row);
+      }
+      return c.json({ competitions: visible.map(mapCompetition) });
     }),
   );
 
@@ -710,6 +716,7 @@ export function registerStudentRoutes(app: SchoolappApi) {
         audience: "student",
         policy,
         requestedScope: c.req.query("scope"),
+        viewerStudentId: studentProfileId,
       });
       return c.json(board);
     }),

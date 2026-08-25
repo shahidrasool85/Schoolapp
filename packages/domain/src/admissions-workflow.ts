@@ -251,3 +251,36 @@ export function workflowActionVisible(
 export function canUseAdministrativeCorrection(permissions: readonly string[]): boolean {
   return permissions.includes("admissions.decide") || permissions.includes("admissions.applications.manage");
 }
+
+export type ApplicationWorkflowViewContext = {
+  hasOpenOffer?: boolean;
+  hasScheduledAssessment?: boolean;
+};
+
+export function applicationWorkflowActionsForView(
+  status: ApplicationStatus,
+  permissions: readonly string[],
+  context: ApplicationWorkflowViewContext = {},
+): ApplicationWorkflowAction[] {
+  let actions = applicationWorkflowActions(status).filter((action) => workflowActionVisible(action, permissions));
+  if (context.hasOpenOffer) {
+    actions = actions.filter((action) => action.id !== "make_offer");
+    const existing = new Set(actions.map((action) => action.id));
+    const offerResponses = applicationWorkflowActions("offer_made").filter((action) => {
+      if (action.id !== "accept_offer" && action.id !== "decline_offer" && action.id !== "withdraw_offer") {
+        return false;
+      }
+      if (!workflowActionVisible(action, permissions) || existing.has(action.id)) return false;
+      if (action.id === "accept_offer") return isApplicationStatusTransitionAllowed(status, "accepted");
+      if (action.id === "decline_offer") {
+        return isApplicationStatusTransitionAllowed(status, "rejected") || status === "waiting_list";
+      }
+      return true;
+    });
+    actions = [...offerResponses, ...actions];
+  }
+  if (!context.hasScheduledAssessment) {
+    actions = actions.filter((action) => action.id !== "complete_assessment");
+  }
+  return actions;
+}

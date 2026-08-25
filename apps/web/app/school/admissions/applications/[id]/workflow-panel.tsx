@@ -5,13 +5,12 @@ import {
   APPLICATION_STAGE_COPY,
   ASSESSMENT_RECOMMENDATIONS,
   ASSESSMENT_TYPES,
-  applicationWorkflowActions,
+  applicationWorkflowActionsForView,
   canUseAdministrativeCorrection,
   captureSubmitTarget,
   directCorrectionStatuses,
   formatStatusLabel,
   resetFormSafely,
-  workflowActionVisible,
   type ApplicationStatus,
   type ApplicationWorkflowAction,
 } from "@schoolapp/domain";
@@ -74,24 +73,30 @@ export function ApplicationWorkflowPanel({
   const [fieldError, setFieldError] = useState("");
   const [waitlistOnDecline, setWaitlistOnDecline] = useState(false);
 
-  const actions = useMemo(
-    () => applicationWorkflowActions(status).filter((action) => workflowActionVisible(action, permissions)),
-    [status, permissions],
-  );
-  const correctionStatuses = useMemo(() => directCorrectionStatuses(status), [status]);
-  const openOffer = data.offers.find((offer) => offer.status === "made") ?? data.offers[0] ?? null;
-  const openAssessment = data.assessments.find((item) => item.status === "scheduled") ?? data.assessments[0] ?? null;
+  const openOffer = data.offers.find((offer) => offer.status === "made") ?? null;
+  const currentOffer = openOffer ?? data.offers[0] ?? null;
+  const openAssessment = data.assessments.find((item) => item.status === "scheduled") ?? null;
   const guardians = data.contacts.filter((contact) => !contact.isEmergency);
   const canCorrect = canUseAdministrativeCorrection(permissions);
 
-  async function run(label: string, work: () => Promise<void>) {
+  const actions = useMemo(
+    () =>
+      applicationWorkflowActionsForView(status, permissions, {
+        hasOpenOffer: Boolean(openOffer),
+        hasScheduledAssessment: Boolean(openAssessment),
+      }),
+    [status, permissions, openOffer, openAssessment],
+  );
+  const correctionStatuses = useMemo(() => directCorrectionStatuses(status), [status]);
+
+  async function run(label: string, work: () => Promise<string | void>) {
     setBusy(true);
     setError("");
     setMessage("");
     setFieldError("");
     try {
-      await work();
-      setMessage(label);
+      const result = await work();
+      setMessage(result || label);
       setPanel(null);
       await onReload();
     } catch (err) {
@@ -242,7 +247,7 @@ export function ApplicationWorkflowPanel({
           guardianLinks,
         }),
       });
-      setMessage(`Converted to pupil ${body.studentProfileId}.`);
+      return `Applicant enrolled. Pupil record ${body.studentProfileId} is ready.`;
     });
   }
 
@@ -288,32 +293,32 @@ export function ApplicationWorkflowPanel({
           <StatusBadge status={status} />
         </p>
 
-        {openOffer ? (
+        {currentOffer ? (
           <div className="offer-summary">
             <h3 style={{ margin: 0 }}>Offer</h3>
             <p className="muted" style={{ margin: "0.25rem 0 0.5rem" }}>
-              <StatusBadge status={openOffer.status} />
+              <StatusBadge status={currentOffer.status} />
             </p>
             <dl className="profile-list">
               <div>
                 <dt>Year group</dt>
-                <dd>{openOffer.offeredYearGroupName ?? "Not provided"}</dd>
+                <dd>{currentOffer.offeredYearGroupName ?? "Not provided"}</dd>
               </div>
               <div>
                 <dt>Intake</dt>
-                <dd>{openOffer.offeredAcademicYearName ?? "Not provided"}</dd>
+                <dd>{currentOffer.offeredAcademicYearName ?? "Not provided"}</dd>
               </div>
               <div>
                 <dt>Start date</dt>
-                <dd>{formatDate(openOffer.intendedStartDate) || "Not provided"}</dd>
+                <dd>{formatDate(currentOffer.intendedStartDate) || "Not provided"}</dd>
               </div>
               <div>
                 <dt>Response deadline</dt>
-                <dd>{formatDate(openOffer.responseDeadline) || "Not provided"}</dd>
+                <dd>{formatDate(currentOffer.responseDeadline) || "Not provided"}</dd>
               </div>
               <div>
                 <dt>Made</dt>
-                <dd>{formatDate(openOffer.offerMadeOn)}</dd>
+                <dd>{formatDate(currentOffer.offerMadeOn)}</dd>
               </div>
             </dl>
           </div>

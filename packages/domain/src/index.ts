@@ -483,6 +483,7 @@ export {
   directCorrectionStatuses,
   workflowActionVisible,
   canUseAdministrativeCorrection,
+  applicationWorkflowActionsForView,
   type ApplicationStatus,
   type ApplicationTransitionChannel,
   type ApplicationWorkflowPermission,

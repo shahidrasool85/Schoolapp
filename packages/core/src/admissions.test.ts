@@ -6,6 +6,7 @@ import {
   allowedApplicationTransitions,
   applicationTransitionChannel,
   applicationWorkflowActions,
+  applicationWorkflowActionsForView,
   canUseAdministrativeCorrection,
   captureSubmitTarget,
   directCorrectionStatuses,
@@ -71,6 +72,24 @@ describe("admissions application state machine", () => {
     expect(applicationWorkflowActions("waiting_list").some((action) => action.id === "waiting_list")).toBe(false);
     expect(applicationWorkflowActions("offer_made").some((action) => action.id === "make_offer")).toBe(false);
     expect(applicationWorkflowActions("enrolled")).toEqual([]);
+  });
+
+  it("hides make-offer when an open offer exists and hides complete-assessment without a schedule", () => {
+    const perms = ["admissions.decide", "admissions.offers.manage", "admissions.applications.manage"];
+    const waiting = applicationWorkflowActionsForView("waiting_list", perms, { hasOpenOffer: true });
+    expect(waiting.some((action) => action.id === "make_offer")).toBe(false);
+    expect(waiting.some((action) => action.id === "accept_offer")).toBe(false);
+    expect(waiting.map((action) => action.id)).toEqual(
+      expect.arrayContaining(["decline_offer", "withdraw_offer"]),
+    );
+    const pending = applicationWorkflowActionsForView("assessment_pending", perms, {
+      hasScheduledAssessment: false,
+    });
+    expect(pending.some((action) => action.id === "complete_assessment")).toBe(false);
+    const scheduled = applicationWorkflowActionsForView("assessment_pending", perms, {
+      hasScheduledAssessment: true,
+    });
+    expect(scheduled.some((action) => action.id === "complete_assessment")).toBe(true);
   });
 
   it("hides decide actions from staff who can only manage applications", () => {

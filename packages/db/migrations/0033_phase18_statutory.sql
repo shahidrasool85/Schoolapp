@@ -140,7 +140,7 @@ create unique index statutory_code_sets_one_current
 create table statutory_codes (
   id uuid primary key default gen_random_uuid(),
   code_set_id uuid not null references statutory_code_sets (id) on delete cascade,
-  code text not null check (char_length(trim(code)) between 1 and 16),
+  code text not null check (char_length(trim(code)) between 1 and 32),
   name text not null check (char_length(trim(name)) between 1 and 120),
   sort_order integer not null default 0,
   is_active boolean not null default true,

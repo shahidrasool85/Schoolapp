@@ -364,6 +364,7 @@ create table census_runs (
   error_count integer not null default 0,
   warning_count integer not null default 0,
   information_count integer not null default 0,
+  validated_snapshot_version integer not null default 0,
   created_by uuid not null references users (id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),

@@ -28,7 +28,7 @@ type Row = {
 };
 
 export default function PupilRollReportPage() {
-  const [rows, setRows] = useState<Row[]>([]);
+  const [rows, setRows] = useState<Row[] | null>(null);
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
 
@@ -41,8 +41,8 @@ export default function PupilRollReportPage() {
     load().catch((err: Error) => setError(userFacingError(err, "Could not load pupil roll.")));
   }, []);
 
-  if (error && rows.length === 0) return <PageError title="Pupil roll unavailable" description={error} />;
-  if (!error && rows.length === 0 && search === "") return <LoadingState label="Loading pupil roll…" />;
+  if (error && !rows) return <PageError title="Pupil roll unavailable" description={error} />;
+  if (!rows) return <LoadingState label="Loading pupil roll…" />;
 
   return (
     <>

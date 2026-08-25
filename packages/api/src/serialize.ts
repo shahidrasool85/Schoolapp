@@ -1648,6 +1648,7 @@ export function mapCensusRun(row: Record<string, unknown>) {
     errorCount: Number(row.error_count ?? 0),
     warningCount: Number(row.warning_count ?? 0),
     informationCount: Number(row.information_count ?? 0),
+    validatedSnapshotVersion: Number(row.validated_snapshot_version ?? 0),
     createdAt: row.created_at,
     finalisedAt: row.finalised_at ?? null,
     exportedAt: row.exported_at ?? null,

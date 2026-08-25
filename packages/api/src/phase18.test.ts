@@ -301,6 +301,17 @@ describe("Phase 18 statutory data and census readiness", () => {
     );
     expect(versions.rows.map((row) => Number(row.snapshot_version))).toEqual([1, 2]);
 
+    const premature = await app.request(`/api/v1/statutory/census/${run.censusRun.id}/finalise`, {
+      method: "POST",
+      headers: hdrs,
+    });
+    expect(premature.status).toBe(409);
+
+    const getExport = await app.request(`/api/v1/statutory/census/${run.censusRun.id}/export?format=csv`, {
+      headers: hdrs,
+    });
+    expect(getExport.status).not.toBe(200);
+
     const validated = await app.request(`/api/v1/statutory/census/${run.censusRun.id}/validate`, {
       method: "POST",
       headers: hdrs,

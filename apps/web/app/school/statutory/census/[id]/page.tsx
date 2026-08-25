@@ -28,6 +28,7 @@ type CensusDetail = {
     errorCount: number;
     warningCount: number;
     informationCount: number;
+    validatedSnapshotVersion: number;
   };
   pupils: Array<{
     studentProfileId: string;
@@ -103,6 +104,7 @@ export default function CensusDetailPage() {
       await downloadAuthenticated(
         `/api/v1/statutory/census/${params.id}/export?format=csv`,
         `census-${params.id}.csv`,
+        { method: "POST" },
       );
       await load();
       setMessage("Census snapshot CSV downloaded from stored snapshot values.");
@@ -118,6 +120,7 @@ export default function CensusDetailPage() {
       await downloadAuthenticated(
         `/api/v1/statutory/census/${params.id}/export?format=xml`,
         `census-preview-${params.id}.xml`,
+        { method: "POST" },
       );
       await load();
       setMessage("Census-ready XML preview downloaded from stored snapshot values. Not a DfE-approved submission.");
@@ -151,7 +154,9 @@ export default function CensusDetailPage() {
                 Validate snapshot
               </button>
             ) : null}
-            {permissions.has("statutory.census.finalise") ? (
+            {permissions.has("statutory.census.finalise") &&
+            data.censusRun.validatedSnapshotVersion === data.censusRun.currentSnapshotVersion &&
+            data.censusRun.currentSnapshotVersion > 0 ? (
               <button className="button" type="button" onClick={() => setConfirm("finalise")}>
                 Finalise
               </button>

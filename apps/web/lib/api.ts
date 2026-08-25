@@ -64,13 +64,21 @@ export async function api<T>(
   return body as T;
 }
 
-export async function downloadAuthenticated(path: string, filename: string): Promise<void> {
+export async function downloadAuthenticated(
+  path: string,
+  filename: string,
+  options: { method?: string } = {},
+): Promise<void> {
   const headers = new Headers({ Accept: "*/*" });
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
   const orgId = getOrgId();
   if (orgId) headers.set("X-Organisation-Id", orgId);
-  const response = await fetch(path, { headers, credentials: "include" });
+  const response = await fetch(path, {
+    method: options.method ?? "GET",
+    headers,
+    credentials: "include",
+  });
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as {
       error?: { code?: string; message?: string };

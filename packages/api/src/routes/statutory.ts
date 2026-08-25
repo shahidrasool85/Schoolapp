@@ -808,7 +808,13 @@ export function registerStatutoryRoutes(app: SchoolappApi) {
       }
       await client.query(
         `update census_runs
-         set current_snapshot_version = $3, snapshot_schema_version = $4, status = 'draft'
+         set current_snapshot_version = $3,
+             snapshot_schema_version = $4,
+             status = 'draft',
+             error_count = 0,
+             warning_count = 0,
+             information_count = 0,
+             validated_snapshot_version = 0
          where id = $1 and organisation_id = $2`,
         [id, orgId, version, CENSUS_SNAPSHOT_SCHEMA_VERSION],
       );
@@ -872,9 +878,13 @@ export function registerStatutoryRoutes(app: SchoolappApi) {
       const counts = countIssues(issues);
       await client.query(
         `update census_runs
-         set status = 'draft', error_count = $3, warning_count = $4, information_count = $5
+         set status = 'draft',
+             error_count = $3,
+             warning_count = $4,
+             information_count = $5,
+             validated_snapshot_version = $6
          where id = $1 and organisation_id = $2`,
-        [id, orgId, counts.errorCount, counts.warningCount, counts.informationCount],
+        [id, orgId, counts.errorCount, counts.warningCount, counts.informationCount, version],
       );
       await writeAudit(client, {
         organisationId: orgId,
@@ -899,6 +909,9 @@ export function registerStatutoryRoutes(app: SchoolappApi) {
       }
       if (Number(run.rows[0].current_snapshot_version) < 1) {
         throw new AppError(409, "conflict", "Generate a snapshot before finalising");
+      }
+      if (Number(run.rows[0].validated_snapshot_version) !== Number(run.rows[0].current_snapshot_version)) {
+        throw new AppError(409, "conflict", "Validate this snapshot version before finalising");
       }
       if (Number(run.rows[0].error_count) > 0) {
         throw new AppError(409, "conflict", "Resolve snapshot errors before finalising");

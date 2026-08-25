@@ -10,6 +10,7 @@ import {
   homePath,
   pickMembership,
   pickPortalMembership,
+  staffPersonaLabel,
   type Membership,
 } from "../../lib/portal";
 import { loadPublicTenant, membershipForHost, switchSchoolLocation } from "../../lib/tenant";
@@ -256,6 +257,7 @@ export default function SchoolShell({ children }: { children: ReactNode }) {
   const [orgId, setOrg] = useState<string | null>(null);
   const [canOpenParentPortal, setCanOpenParentPortal] = useState(false);
   const [permissions, setPermissions] = useState<string[]>([]);
+  const [signedInName, setSignedInName] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const [platformDomain, setPlatformDomain] = useState<string | null>(null);
@@ -291,7 +293,9 @@ export default function SchoolShell({ children }: { children: ReactNode }) {
           setOrgId(current.organisationId);
           setOrg(current.organisationId);
           setCanOpenParentPortal(hasParentRole(current.roleKeys));
-          return api<{ permissions: string[] }>("/api/v1/me", { orgId: current.organisationId });
+          return api<{ permissions: string[]; user: { fullName: string } }>("/api/v1/me", {
+            orgId: current.organisationId,
+          });
         }
         const current = pickPortalMembership(active, "staff", getOrgId());
         if (!current) {
@@ -303,11 +307,12 @@ export default function SchoolShell({ children }: { children: ReactNode }) {
         setOrgId(current.organisationId);
         setOrg(current.organisationId);
         setCanOpenParentPortal(active.some((m) => hasParentRole(m.roleKeys)));
-        return api<{ permissions: string[] }>("/api/v1/me");
+        return api<{ permissions: string[]; user: { fullName: string } }>("/api/v1/me");
       })
       .then((me) => {
         if (!me) return;
         setPermissions(me.permissions ?? []);
+        setSignedInName(me.user?.fullName ?? null);
         setReady(true);
       })
       .catch((err: Error) => {
@@ -336,15 +341,21 @@ export default function SchoolShell({ children }: { children: ReactNode }) {
   }
 
   const current = memberships.find((m) => m.organisationId === orgId);
+  const personaLabel = staffPersonaLabel(current?.roleKeys ?? []);
   const visible = LINKS.filter((link) => hasPermission(permissions, link));
 
   return (
     <div className="shell">
       <aside className="nav">
-        <h1>School Admin</h1>
-        <p className="muted" style={{ color: "#d6e4f5", margin: "0 0 1rem" }}>
+        <h1>{personaLabel}</h1>
+        <p className="muted" style={{ color: "#d6e4f5", margin: signedInName ? "0 0 0.35rem" : "0 0 1rem" }}>
           {current?.name ?? "Select a school"}
         </p>
+        {signedInName ? (
+          <p className="muted" style={{ color: "#d6e4f5", margin: "0 0 1rem" }}>
+            {signedInName}
+          </p>
+        ) : null}
         {memberships.length > 1 ? (
           <select value={orgId ?? ""} onChange={onOrgChange} style={{ marginBottom: 12 }}>
             {memberships.map((m) => (

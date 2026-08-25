@@ -169,6 +169,35 @@ export const STAFF_ROLE_KEYS = [
   "school.staff",
 ] as const;
 
+/**
+ * Display-only labels for the authenticated staff persona.
+ * Do not use these strings for authorisation — permission keys remain authoritative.
+ */
+export const STAFF_PERSONA_LABELS = {
+  "school.headteacher": "Headteacher",
+  "school.admin": "School Admin",
+  "school.admissions": "Admissions Staff",
+  "school.teacher": "Teacher",
+  "school.staff": "School Staff",
+} as const;
+
+const STAFF_PERSONA_PRECEDENCE = [
+  "school.headteacher",
+  "school.admin",
+  "school.admissions",
+  "school.teacher",
+  "school.staff",
+] as const satisfies ReadonlyArray<keyof typeof STAFF_PERSONA_LABELS>;
+
+export function staffPersonaLabel(roleKeys: readonly string[]): string {
+  for (const key of STAFF_PERSONA_PRECEDENCE) {
+    if (roleKeys.includes(key)) {
+      return STAFF_PERSONA_LABELS[key];
+    }
+  }
+  return "Staff";
+}
+
 export type UserKind = "platform_admin" | "staff" | "parent" | "student";
 
 export type Actor = {

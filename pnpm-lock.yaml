@@ -26,6 +26,9 @@ importers:
       '@schoolapp/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@schoolapp/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@schoolapp/storage':
         specifier: workspace:*
         version: link:../../packages/storage

@@ -503,6 +503,8 @@ export {
   type ActivitySafetySummary,
 } from "./activities.js";
 
+export { staffPersonaLabel, STAFF_PERSONA_LABELS, STAFF_ROLE_KEYS } from "@schoolapp/domain";
+
 export {
   ACTIVITY_SCHOOL_READ_PERMISSIONS,
   ACTIVITY_MANAGE_PERMISSIONS,

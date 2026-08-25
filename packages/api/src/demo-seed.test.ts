@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { staffPersonaLabel } from "@schoolapp/core";
 import { closePools } from "@schoolapp/db";
 import { DEMO_ACCOUNTS, DEMO_EXTRA_ACCOUNTS, seedDemo } from "@schoolapp/db";
 import { ensureMigrated, login, loginAlias, testApp, testPools } from "./test-helpers";
@@ -73,5 +74,62 @@ describe("demo seed HTTP smoke", () => {
       DEMO_ACCOUNTS.greenwoodStudent.password,
     );
     expect(studentToken).toBeTruthy();
+  });
+
+  it("derives Greenwood staff persona labels from membership roles, not a hard-coded School Admin title", async () => {
+    const host = { Host: "greenwood.localhost:3000" };
+    async function meFor(email: string, password: string) {
+      const token = await login(app, email, password);
+      const res = await app.request("/api/v1/me", {
+        headers: { Authorization: `Bearer ${token}`, "X-Organisation-Id": greenwoodId, ...host },
+      });
+      expect(res.status).toBe(200);
+      return (await res.json()) as { roleKeys: string[]; permissions: string[] };
+    }
+
+    const teacher = await meFor(DEMO_ACCOUNTS.greenwoodTeacher.email!, DEMO_ACCOUNTS.greenwoodTeacher.password);
+    expect(teacher.roleKeys).toContain("school.teacher");
+    expect(teacher.roleKeys).not.toContain("school.admin");
+    expect(staffPersonaLabel(teacher.roleKeys)).toBe("Teacher");
+    expect(teacher.permissions).toContain("lms.assignments.manage_assigned");
+    expect(teacher.permissions).not.toContain("org.members.manage");
+
+    const head = await meFor(
+      DEMO_ACCOUNTS.greenwoodHeadteacher.email!,
+      DEMO_ACCOUNTS.greenwoodHeadteacher.password,
+    );
+    expect(head.roleKeys).toContain("school.headteacher");
+    expect(staffPersonaLabel(head.roleKeys)).toBe("Headteacher");
+
+    const admin = await meFor(DEMO_ACCOUNTS.greenwoodAdmin.email!, DEMO_ACCOUNTS.greenwoodAdmin.password);
+    expect(admin.roleKeys).toContain("school.admin");
+    expect(staffPersonaLabel(admin.roleKeys)).toBe("School Admin");
+    expect(admin.permissions).toContain("org.members.manage");
+
+    const parentToken = await login(
+      app,
+      DEMO_ACCOUNTS.greenwoodParent.email!,
+      DEMO_ACCOUNTS.greenwoodParent.password,
+    );
+    const parent = (await (
+      await app.request("/api/v1/me", {
+        headers: { Authorization: `Bearer ${parentToken}`, "X-Organisation-Id": greenwoodId, ...host },
+      })
+    ).json()) as { roleKeys: string[] };
+    expect(parent.roleKeys).toContain("school.parent");
+    expect(staffPersonaLabel(parent.roleKeys)).toBe("Staff");
+
+    const platformToken = await login(
+      app,
+      DEMO_ACCOUNTS.platformAdmin.email!,
+      DEMO_ACCOUNTS.platformAdmin.password,
+    );
+    const platform = (await (
+      await app.request("/api/v1/me", {
+        headers: { Authorization: `Bearer ${platformToken}` },
+      })
+    ).json()) as { isPlatformAdmin: boolean; roleKeys: string[] };
+    expect(platform.isPlatformAdmin).toBe(true);
+    expect(platform.roleKeys).toEqual([]);
   });
 });

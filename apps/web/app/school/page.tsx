@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
+import { staffPersonaLabel } from "../../lib/portal";
 
 type Lesson = {
   entryId: string;
@@ -41,9 +42,18 @@ export default function SchoolDashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [lessons, setLessons] = useState<Lesson[] | null>(null);
   const [coversToday, setCoversToday] = useState(0);
+  const [persona, setPersona] = useState<{ fullName: string; label: string } | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    api<{ user: { fullName: string }; roleKeys: string[] }>("/api/v1/me")
+      .then((me) =>
+        setPersona({
+          fullName: me.user.fullName,
+          label: staffPersonaLabel(me.roleKeys),
+        }),
+      )
+      .catch(() => setPersona(null));
     api<Dashboard>("/api/v1/dashboard")
       .then(setData)
       .catch((err: Error) => setError(err.message));
@@ -61,6 +71,11 @@ export default function SchoolDashboardPage() {
   return (
     <>
       <h1>Dashboard</h1>
+      {persona ? (
+        <p className="muted">
+          {persona.fullName} · {persona.label}
+        </p>
+      ) : null}
       <p className="muted">
         Current academic year: {data.currentAcademicYear?.name ?? "not set"}
       </p>

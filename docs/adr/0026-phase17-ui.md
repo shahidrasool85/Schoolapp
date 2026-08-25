@@ -19,4 +19,5 @@ Phases 1–16 delivered a complete school MIS/LMS with permission-aware routing,
 
 - Existing pages pick up table, form, button, and heading styles immediately via `globals.css`.
 - Deep module pages can keep current workflows while adopting PageHeader/FilterBar over time.
+- Intentionally deferred deep restyles: assessment result-entry grids, activity participant/consent admin detail, pastoral incident/concern detail, academic-setup CRUD forms, finance charge create/bulk, print receipts (global print CSS already hides nav).
 - Print and login layouts are isolated so global styles do not restyle receipts or the public login card into the staff shell.

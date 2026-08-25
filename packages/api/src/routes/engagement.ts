@@ -14,6 +14,7 @@ import {
   canManageSchoolCompetitions,
   canManageSchoolPractice,
   canReadEngagementSettings,
+  canReadSchoolCompetitions,
   canReadSchoolPractice,
   canReadSchoolRewards,
   DEFAULT_ENGAGEMENT_SETTINGS,

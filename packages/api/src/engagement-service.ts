@@ -1039,7 +1039,15 @@ async function liveCompetitionScores(input: {
        from competition_manual_scores where competition_id = $1`,
       [input.competition.id],
     );
-    return rows.rows.map((row) => ({
+    return rows.rows
+      .filter((row) => {
+        if (row.student_profile_id) return !pupilFilter || pupilFilter.has(row.student_profile_id);
+        if (row.class_id) return eligible.some((pupil) => pupil.class_id === row.class_id);
+        if (row.house_id) return eligible.some((pupil) => pupil.house_id === row.house_id);
+        if (row.year_group_id) return eligible.some((pupil) => pupil.year_group_id === row.year_group_id);
+        return pupilFilter == null;
+      })
+      .map((row) => ({
       entryType: row.student_profile_id
         ? "student"
         : row.class_id

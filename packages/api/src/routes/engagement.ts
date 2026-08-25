@@ -37,6 +37,7 @@ import {
   assertStaffAchievementRead,
   assertStaffPracticeRead,
   buildLeaderboard,
+  competitionTargetStudentIds,
   freezeCompetitionResults,
   listRewardsForStudent,
   mapAchievementDefinition,
@@ -812,6 +813,10 @@ export function registerEngagementRoutes(app: SchoolappApi) {
       if (!canManageSchoolCompetitions(actor) && parsed.data.studentProfileId) {
         const assigned = await assignedStudentIds(client, actor.userId, orgId);
         if (!assigned.has(parsed.data.studentProfileId)) notFound();
+      }
+      if (parsed.data.studentProfileId) {
+        const targetIds = await competitionTargetStudentIds(client, orgId, id);
+        if (targetIds && !targetIds.has(parsed.data.studentProfileId)) notFound();
       }
       await client.query(
         `insert into competition_manual_scores (

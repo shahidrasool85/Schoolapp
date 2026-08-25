@@ -739,6 +739,9 @@ export function registerParentRoutes(app: SchoolappApi) {
       await requireLinkedChild(client, userId, orgId, studentId);
       const yearGroupId = await loadPupilYearGroupId(client, orgId, studentId);
       const policy = await loadEffectiveEngagementPolicy(client, orgId, yearGroupId);
+      if (!policy.parentAssistedMode) {
+        return c.json({ practice: [], parentAssistedMode: false, childFriendlyUi: policy.childFriendlyUi });
+      }
       const practice = await listPracticeForPupil({
         client,
         organisationId: orgId,
@@ -754,6 +757,11 @@ export function registerParentRoutes(app: SchoolappApi) {
       assertPermission(actor, PERMISSIONS.LEARNING_PRACTICE_READ_OWN_CHILDREN);
       const studentId = uuidRouteParam(c, "studentId");
       await requireLinkedChild(client, userId, orgId, studentId);
+      const yearGroupId = await loadPupilYearGroupId(client, orgId, studentId);
+      const policy = await loadEffectiveEngagementPolicy(client, orgId, yearGroupId);
+      if (!policy.parentAssistedMode) {
+        throw new AppError(403, "forbidden", "Parent-assisted learning is not enabled for this year group");
+      }
       const playable = await loadPlayableActivity({
         client,
         organisationId: orgId,
@@ -805,6 +813,7 @@ export function registerParentRoutes(app: SchoolappApi) {
         studentProfileId: studentId,
         answers: body.answers ?? {},
         actorUserId: userId,
+        expectedChannel: "parent_assisted",
       });
       return c.json(result);
     }),

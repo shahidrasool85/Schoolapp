@@ -838,6 +838,7 @@ export {
   isCompetitionStatusTransitionAllowed,
   leaderboardPrivacy,
   parsePracticeItems,
+  practiceActivityAllowed,
   resolveEngagementPolicy,
   scorePracticeAttempt,
   scorePracticeItem,

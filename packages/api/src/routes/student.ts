@@ -779,6 +779,7 @@ export function registerStudentRoutes(app: SchoolappApi) {
         studentProfileId,
         answers: body.answers ?? {},
         actorUserId: userId,
+        expectedChannel: "student",
       });
       return c.json(result);
     }),

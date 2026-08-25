@@ -145,6 +145,14 @@ function inherit(flag: boolean | null | undefined, fallback: boolean): boolean {
   return flag == null ? fallback : flag;
 }
 
+export function practiceActivityAllowed(
+  activityType: string,
+  policy: Pick<EffectiveEngagementPolicy, "earlyLearningEnabled" | "learningChallengesEnabled">,
+): boolean {
+  if (activityType === "challenge") return policy.learningChallengesEnabled;
+  return policy.earlyLearningEnabled;
+}
+
 export function resolveEngagementPolicy(
   settings: EngagementSettings,
   yearGroup: YearGroupEngagementPolicy | null,

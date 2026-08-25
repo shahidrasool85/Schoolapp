@@ -316,7 +316,7 @@ Positive recognition and practice, not a social network. See [ADR 0028](./adr/00
 - `engagement_settings` / `engagement_year_group_policies` — school defaults and year-group overlays (early learning, parent-assisted, child-friendly UI, competitions, leaderboards)
 - `houses` — reused; `short_code`, `colour`, `active`. House points derived from authorised `pupil_rewards`
 - `reward_categories` / `pupil_rewards` — organisation catalogue; server-stamped `awarded_by`; non-negative integer points; revoke/correct rather than silent delete
-- `pupil_xp_events` — append-only learning XP, idempotent on source; not the same number as reward points
+- `pupil_xp_events` — append-only learning XP, idempotent on source; compensating `reversal` rows when a reward that granted XP is revoked; not the same number as reward points
 - `achievement_definitions` / `pupil_achievements` — controlled criteria types only; unique unless the definition allows repeats
 - `competitions` / `competition_targets` / `competition_manual_scores` / `competition_results` — statuses include draft → published → active → completed; completing freezes results
 - `learning_activity_definitions` / `_items` / `_assignments` / `_targets` / `_recipients` / `_attempts` / `_answers` — deterministic item types; server scores; `channel` is `student` or `parent_assisted`

@@ -680,7 +680,7 @@ POST   /api/v1/parent/children/{studentId}/practice/{assignmentId}/start
 POST   /api/v1/parent/children/{studentId}/practice/attempts/{attemptId}/submit
 ```
 
-Leaderboard `?scope=` cannot widen visibility. Parent/student practice GET never includes `correctAnswer`. Internal reward notes are omitted from parent/student payloads. Parent start/submit requires year-group `parentAssistedMode` plus live `portal_access`. Cross-school IDs return `not_found`. Platform Admin has no school engagement browse. See [ADR 0028](../adr/0028-phase19-engagement.md).
+Leaderboard `?scope=` cannot widen visibility. Parent/student practice GET never includes `correctAnswer`. Internal reward notes are omitted from parent/student payloads. Parent list/play/start/submit require year-group `parentAssistedMode` plus live `portal_access`; GET of items is `403` when assisted mode is off. Pupil-facing practice lists only activity types allowed by year-group policy (early-learning types vs `challenge`). Attempts resume only on the same channel (`student` vs `parent_assisted`). Revoking a reward that granted XP inserts an append-only XP reversal. Cross-school IDs return `not_found`. Platform Admin has no school engagement browse. See [ADR 0028](../adr/0028-phase19-engagement.md).
 
 ## Files
 

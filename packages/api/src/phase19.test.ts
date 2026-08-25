@@ -321,21 +321,31 @@ describe("Phase 19 engagement", () => {
       headers: hdrs,
       body: JSON.stringify({ xpEnabled: true, rewardsEnabled: true }),
     });
-    const cats = (await (await app.request("/api/v1/reward-categories", { headers: hdrs })).json()) as {
-      categories: Array<{ id: string; key: string }>;
-    };
-    const reading = cats.categories.find((row) => row.key === "reading_star")!;
+    const xpCat = await app.request("/api/v1/reward-categories", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        key: "xp_praise",
+        name: "XP Praise",
+        defaultPoints: 7,
+        grantsXp: true,
+        defaultXp: 12,
+      }),
+    });
+    expect(xpCat.status).toBe(201);
+    const xpCategory = (await xpCat.json()) as { category: { id: string } };
     const first = await app.request("/api/v1/rewards", {
       method: "POST",
       headers: hdrs,
-      body: JSON.stringify({ studentProfileId: pupil.student.id, categoryId: reading.id, points: 7 }),
+      body: JSON.stringify({ studentProfileId: pupil.student.id, categoryId: xpCategory.category.id, points: 7 }),
     });
     expect(first.status).toBe(201);
     const reward = (await first.json()) as { reward: { id: string } };
     const progress = (await (
       await app.request(`/api/v1/learning-practice/progress?studentId=${pupil.student.id}`, { headers: hdrs })
-    ).json()) as { progress: { rewardPoints: number } };
+    ).json()) as { progress: { rewardPoints: number; xp: number | null } };
     expect(progress.progress.rewardPoints).toBe(7);
+    expect(progress.progress.xp).toBe(12);
     const revoked = await app.request(`/api/v1/rewards/${reward.reward.id}/revoke`, {
       method: "POST",
       headers: hdrs,
@@ -344,8 +354,9 @@ describe("Phase 19 engagement", () => {
     expect(revoked.status).toBe(200);
     const after = (await (
       await app.request(`/api/v1/learning-practice/progress?studentId=${pupil.student.id}`, { headers: hdrs })
-    ).json()) as { progress: { rewardPoints: number } };
+    ).json()) as { progress: { rewardPoints: number; xp: number | null } };
     expect(after.progress.rewardPoints).toBe(0);
+    expect(after.progress.xp).toBe(0);
 
     const activity = await app.request("/api/v1/learning-activities", {
       method: "POST",
@@ -439,7 +450,7 @@ describe("Phase 19 engagement", () => {
     const selfAward = await app.request("/api/v1/rewards", {
       method: "POST",
       headers: studentH,
-      body: JSON.stringify({ studentProfileId: pupil.student.id, categoryId: reading.id }),
+      body: JSON.stringify({ studentProfileId: pupil.student.id, categoryId: xpCategory.category.id }),
     });
     expect(selfAward.status).toBe(403);
   });
@@ -681,6 +692,8 @@ describe("Phase 19 engagement", () => {
       academicYearId: structure.yearId,
       yearGroupId: structure.yearRId,
       classId: recClass.class.id,
+      loginAlias: `leo-${id}`,
+      password: "student-pass-1",
     });
     await inviteParent(app, hdrs, child.student.id, `parent-r-${id}@example.com`, true);
     await app.request(`/api/v1/engagement/year-groups/${structure.yearRId}`, {
@@ -737,6 +750,22 @@ describe("Phase 19 engagement", () => {
     );
     expect(started.status).toBe(201);
     const attempt = (await started.json()) as { attemptId: string };
+    const studentToken = await loginAlias(app, school.slug, `leo-${id}`, "student-pass-1");
+    const studentH = jsonHeaders(studentToken, school.orgId);
+    const studentStart = await app.request(`/api/v1/student/practice/${assigned.assignment.id}/start`, {
+      method: "POST",
+      headers: studentH,
+      body: "{}",
+    });
+    expect(studentStart.status).toBe(201);
+    const studentAttempt = (await studentStart.json()) as { attemptId: string; resumed: boolean };
+    expect(studentAttempt.attemptId).not.toBe(attempt.attemptId);
+    expect(studentAttempt.resumed).toBe(false);
+    const hijack = await app.request(
+      `/api/v1/parent/children/${child.student.id}/practice/attempts/${studentAttempt.attemptId}/submit`,
+      { method: "POST", headers: parentH, body: JSON.stringify({ answers: {} }) },
+    );
+    expect(hijack.status).toBe(404);
     const item = (await (
       await app.request(`/api/v1/parent/children/${child.student.id}/practice/${assigned.assignment.id}`, {
         headers: parentH,
@@ -757,6 +786,140 @@ describe("Phase 19 engagement", () => {
         [attempt.attemptId],
       );
       expect(row.rows[0]?.channel).toBe("parent_assisted");
+      const studentRow = await client.query<{ channel: string }>(
+        `select channel from learning_activity_attempts where id = $1`,
+        [studentAttempt.attemptId],
+      );
+      expect(studentRow.rows[0]?.channel).toBe("student");
     });
+  });
+
+  it("hides early-learning practice when year-group policy is challenges-only and blocks unaided parent play", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const adminToken = await login(app, school.adminEmail, "password-12x");
+    const hdrs = jsonHeaders(adminToken, school.orgId);
+    const structure = await seedStructure(app, hdrs);
+    const pupil = await createStudent(app, hdrs, {
+      legalName: "Year Three",
+      academicYearId: structure.yearId,
+      yearGroupId: structure.year3Id,
+      classId: structure.classAId,
+      loginAlias: `y3-${id}`,
+      password: "student-pass-1",
+    });
+    await inviteParent(app, hdrs, pupil.student.id, `parent-y3-${id}@example.com`, true);
+    await app.request(`/api/v1/engagement/year-groups/${structure.year3Id}`, {
+      method: "PUT",
+      headers: hdrs,
+      body: JSON.stringify({
+        earlyLearningEnabled: false,
+        learningChallengesEnabled: true,
+        parentAssistedMode: false,
+        childFriendlyUi: false,
+      }),
+    });
+    const counting = await app.request("/api/v1/learning-activities", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        title: "Count the apples",
+        activityType: "counting",
+        items: [
+          {
+            promptText: "How many?",
+            itemType: "single_choice",
+            choices: [
+              { id: "3", label: "3" },
+              { id: "4", label: "4" },
+            ],
+            correctAnswer: { choiceId: "4" },
+          },
+        ],
+      }),
+    });
+    const countingCreated = (await counting.json()) as { activity: { id: string } };
+    await app.request(`/api/v1/learning-activities/${countingCreated.activity.id}/publish`, {
+      method: "POST",
+      headers: hdrs,
+    });
+    const countingAssignment = await app.request("/api/v1/learning-practice/assignments", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        activityId: countingCreated.activity.id,
+        targets: [{ type: "class", classId: structure.classAId }],
+      }),
+    });
+    const countingAssigned = (await countingAssignment.json()) as { assignment: { id: string } };
+    await app.request(`/api/v1/learning-practice/assignments/${countingAssigned.assignment.id}/publish`, {
+      method: "POST",
+      headers: hdrs,
+    });
+    const challenge = await app.request("/api/v1/learning-activities", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        title: "Times tables",
+        activityType: "challenge",
+        items: [
+          {
+            promptText: "2 x 3",
+            itemType: "single_choice",
+            choices: [
+              { id: "5", label: "5" },
+              { id: "6", label: "6" },
+            ],
+            correctAnswer: { choiceId: "6" },
+          },
+        ],
+      }),
+    });
+    const challengeCreated = (await challenge.json()) as { activity: { id: string } };
+    await app.request(`/api/v1/learning-activities/${challengeCreated.activity.id}/publish`, {
+      method: "POST",
+      headers: hdrs,
+    });
+    const challengeAssignment = await app.request("/api/v1/learning-practice/assignments", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        activityId: challengeCreated.activity.id,
+        targets: [{ type: "class", classId: structure.classAId }],
+      }),
+    });
+    const challengeAssigned = (await challengeAssignment.json()) as { assignment: { id: string } };
+    await app.request(`/api/v1/learning-practice/assignments/${challengeAssigned.assignment.id}/publish`, {
+      method: "POST",
+      headers: hdrs,
+    });
+
+    const studentToken = await loginAlias(app, school.slug, `y3-${id}`, "student-pass-1");
+    const studentH = jsonHeaders(studentToken, school.orgId);
+    const listed = (await (await app.request("/api/v1/student/practice", { headers: studentH })).json()) as {
+      practice: Array<{ assignmentId: string; activityType: string }>;
+    };
+    expect(listed.practice.map((row) => row.activityType)).toEqual(["challenge"]);
+    const hidden = await app.request(`/api/v1/student/practice/${countingAssigned.assignment.id}`, {
+      headers: studentH,
+    });
+    expect(hidden.status).toBe(404);
+    const visible = await app.request(`/api/v1/student/practice/${challengeAssigned.assignment.id}`, {
+      headers: studentH,
+    });
+    expect(visible.status).toBe(200);
+
+    const parentToken = await login(app, `parent-y3-${id}@example.com`, "parent-pass-1");
+    const parentH = jsonHeaders(parentToken, school.orgId);
+    const parentPlay = await app.request(
+      `/api/v1/parent/children/${pupil.student.id}/practice/${challengeAssigned.assignment.id}`,
+      { headers: parentH },
+    );
+    expect(parentPlay.status).toBe(403);
+    const parentList = (await (
+      await app.request(`/api/v1/parent/children/${pupil.student.id}/practice`, { headers: parentH })
+    ).json()) as { practice: unknown[]; parentAssistedMode: boolean };
+    expect(parentList.practice).toEqual([]);
+    expect(parentList.parentAssistedMode).toBe(false);
   });
 });

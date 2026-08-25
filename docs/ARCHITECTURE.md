@@ -548,7 +548,7 @@ Live pupil/enrolment/attendance/SEND notes remain canonical. Snapshots store cen
 - Settings: `engagement_settings` (school defaults) and `engagement_year_group_policies` (nullable overlays). Student Portal on/off remains Phase 6 policy.
 - Houses: existing `houses` plus `short_code`, `colour`, `active`. House points are derived from authorised `pupil_rewards`, not a separate counter.
 - Rewards: `reward_categories`, `pupil_rewards` (server-stamped `awarded_by`; revoke is a state, not a silent delete). Distinct from Phase 11 behaviour positives.
-- XP: `pupil_xp_events` append-only with idempotent source keys. XP is not reward points.
+- XP: `pupil_xp_events` append-only with idempotent source keys. Reward revocation inserts a compensating `reversal` row. XP is not reward points.
 - Achievements: `achievement_definitions` with controlled criteria types; `pupil_achievements` unique per definition unless repeats are allowed.
 - Competitions: `competitions`, `competition_targets`, `competition_manual_scores`, frozen `competition_results`.
 - Practice: `learning_activity_definitions` / `_items` / `_assignments` / `_targets` / `_recipients` / `_attempts` / `_answers`. Deterministic item schema only. Scores are not Phase 8 results.

@@ -6,6 +6,7 @@ import {
   isCompletedByThreshold,
   isCompetitionStatusTransitionAllowed,
   leaderboardPrivacy,
+  practiceActivityAllowed,
   resolveEngagementPolicy,
   scorePracticeAttempt,
   scorePracticeItem,
@@ -51,6 +52,27 @@ describe("engagement policy", () => {
     expect(policy.childFriendlyUi).toBe(true);
     expect(policy.learningChallengesEnabled).toBe(false);
     expect(leaderboardPrivacy(policy)).toBe("off");
+  });
+
+  it("hides early-learning types when only challenges are enabled", () => {
+    const challengesOnly = resolveEngagementPolicy(DEFAULT_ENGAGEMENT_SETTINGS, {
+      rewardsEnabled: null,
+      achievementsEnabled: null,
+      competitionsEnabled: null,
+      leaderboardsEnabled: null,
+      earlyLearningEnabled: false,
+      learningChallengesEnabled: true,
+      parentAssistedMode: false,
+      childFriendlyUi: false,
+      xpEnabled: null,
+      studentVisiblePoints: null,
+      parentVisiblePoints: null,
+    });
+    expect(practiceActivityAllowed("counting", challengesOnly)).toBe(false);
+    expect(practiceActivityAllowed("challenge", challengesOnly)).toBe(true);
+    expect(practiceActivityAllowed("counting", resolveEngagementPolicy(DEFAULT_ENGAGEMENT_SETTINGS, null))).toBe(
+      true,
+    );
   });
 
   it("does not expose named individual leaderboards when anonymised", () => {

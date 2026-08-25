@@ -20,6 +20,7 @@ import {
   loadPupilYearGroupId,
   notFound,
   parsePracticeItems,
+  practiceActivityAllowed,
   requireCurrentEnrolment,
   scorePracticeAttempt,
   stripAnswerKey,
@@ -77,6 +78,38 @@ export async function grantXp(input: {
     ],
   );
   return inserted.rows[0]?.amount ?? 0;
+}
+
+export async function reverseXpForSource(input: {
+  client: pg.PoolClient;
+  organisationId: string;
+  studentProfileId: string;
+  sourceType: "learning_attempt" | "reward" | "achievement" | "manual";
+  sourceId: string;
+  awardedBy: string | null;
+}): Promise<void> {
+  await input.client.query(
+    `insert into pupil_xp_events (
+       organisation_id, student_profile_id, amount, source_type, source_id, awarded_by
+     )
+     select organisation_id, student_profile_id, -amount, 'reversal', source_id, $5
+     from pupil_xp_events
+     where organisation_id = $1
+       and student_profile_id = $2
+       and source_type = $3
+       and source_id = $4
+       and amount > 0
+     on conflict (organisation_id, student_profile_id, source_type, source_id)
+       where source_id is not null
+     do nothing`,
+    [
+      input.organisationId,
+      input.studentProfileId,
+      input.sourceType,
+      input.sourceId,
+      input.awardedBy,
+    ],
+  );
 }
 
 export async function loadXpTotal(
@@ -343,9 +376,17 @@ export async function revokeReward(input: {
   await input.client.query(
     `update pupil_rewards
      set status = 'revoked', revoked_by = $3, revoked_at = now(), revoke_reason = $4
-     where id = $1 and organisation_id = $2`,
+     where id = $1 and organisation_id = $2 and status = 'active'`,
     [input.rewardId, input.organisationId, input.actor.userId, input.reason],
   );
+  await reverseXpForSource({
+    client: input.client,
+    organisationId: input.organisationId,
+    studentProfileId: existing.rows[0].student_profile_id,
+    sourceType: "reward",
+    sourceId: input.rewardId,
+    awardedBy: input.actor.userId,
+  });
   await writeAudit(input.client, {
     organisationId: input.organisationId,
     actorUserId: input.actor.userId,
@@ -414,8 +455,17 @@ export async function listPracticeForPupil(input: {
        and r.student_profile_id = $2
        and a.status = 'published'
        and d.status = 'published'
+       and (
+         (d.activity_type = 'challenge' and $3::boolean)
+         or (d.activity_type <> 'challenge' and $4::boolean)
+       )
      order by a.due_at nulls last, d.title`,
-    [input.organisationId, input.studentProfileId],
+    [
+      input.organisationId,
+      input.studentProfileId,
+      input.policy.learningChallengesEnabled,
+      input.policy.earlyLearningEnabled,
+    ],
   );
   return result.rows.map((row) => ({
     assignmentId: row.id,
@@ -464,6 +514,12 @@ export async function loadPlayableActivity(input: {
     [input.assignmentId, input.organisationId, input.studentProfileId],
   );
   if (!row.rows[0]) notFound();
+  const policy = await loadEffectiveEngagementPolicy(
+    input.client,
+    input.organisationId,
+    await loadPupilYearGroupId(input.client, input.organisationId, input.studentProfileId),
+  );
+  if (!practiceActivityAllowed(String(row.rows[0].activity_type), policy)) notFound();
   const items = await input.client.query(
     `select * from learning_activity_items
      where activity_id = $1 and organisation_id = $2
@@ -526,9 +582,10 @@ export async function startPracticeAttempt(input: {
     `select id from learning_activity_attempts
      where organisation_id = $1 and assignment_id = $2 and student_profile_id = $3
        and completion_state = 'in_progress'
+       and channel = $4
      order by attempt_number desc
      limit 1`,
-    [input.organisationId, input.assignmentId, input.studentProfileId],
+    [input.organisationId, input.assignmentId, input.studentProfileId, input.channel],
   );
   if (open.rows[0]) {
     return { attemptId: open.rows[0].id, resumed: true, items: playable.items };
@@ -569,6 +626,7 @@ export async function submitPracticeAttempt(input: {
   studentProfileId: string;
   answers: Record<string, unknown>;
   actorUserId: string;
+  expectedChannel: "student" | "parent_assisted";
 }): Promise<{
   score: number;
   maxScore: number;
@@ -585,6 +643,7 @@ export async function submitPracticeAttempt(input: {
     activity_id: string;
     assignment_id: string | null;
     completion_state: string;
+    channel: string;
     xp_awarded: number;
     score: number | null;
     max_score: number | null;
@@ -595,6 +654,7 @@ export async function submitPracticeAttempt(input: {
   );
   const row = attempt.rows[0];
   if (!row || row.student_profile_id !== input.studentProfileId) notFound();
+  if (row.channel !== input.expectedChannel) notFound();
   await requireCurrentEnrolment(input.client, input.organisationId, input.studentProfileId);
   if (row.completion_state === "completed") {
     return {

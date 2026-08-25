@@ -816,7 +816,7 @@ async function seedEngagementDemo(
       );
       await client.query(
         `insert into learning_activity_recipients (organisation_id, assignment_id, student_profile_id)
-         select distinct $1, $2, src.student_profile_id from (
+         select distinct $1::uuid, $2::uuid, src.student_profile_id from (
            select cm.student_profile_id
            from class_memberships cm
            join academic_years ay on ay.id = cm.academic_year_id and ay.is_current

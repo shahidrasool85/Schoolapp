@@ -364,7 +364,7 @@ export async function snapshotPracticeRecipients(
   await client.query(`delete from learning_activity_recipients where assignment_id = $1`, [assignmentId]);
   await client.query(
     `insert into learning_activity_recipients (organisation_id, assignment_id, student_profile_id)
-     select distinct $1, $2, src.student_profile_id
+     select distinct $1::uuid, $2::uuid, src.student_profile_id
      from (
        select cm.student_profile_id
        from learning_activity_targets t

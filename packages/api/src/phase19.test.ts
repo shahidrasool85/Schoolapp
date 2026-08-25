@@ -477,7 +477,7 @@ describe("Phase 19 engagement", () => {
       headers: hdrs,
       body: JSON.stringify({ studentProfileId: otherPupil.student.id, categoryId: cats.categories[0]!.id }),
     });
-    expect(foreignReward.status).toBe(400);
+    expect(foreignReward.status).toBe(404);
 
     const draft = await app.request("/api/v1/learning-activities", {
       method: "POST",

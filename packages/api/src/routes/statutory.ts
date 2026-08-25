@@ -26,7 +26,6 @@ import {
   canReadSendReport,
   canReadStatutory,
   canReadStudentProfile,
-  censusIsImmutable,
   censusMayExport,
   censusMayFinalise,
   censusMayRegenerate,
@@ -415,8 +414,8 @@ export function registerStatutoryRoutes(app: SchoolappApi) {
           data.addressPostcode ?? null,
           data.telephone ?? null,
           data.email || null,
-          data.timezone ?? null,
-          data.defaultCensusType ?? null,
+          data.timezone?.trim() || "Europe/London",
+          data.defaultCensusType ?? "autumn",
           userId,
         ],
       );
@@ -831,6 +830,9 @@ export function registerStatutoryRoutes(app: SchoolappApi) {
       const id = uuidRouteParam(c, "id");
       const run = await client.query(`select * from census_runs where id = $1 and organisation_id = $2`, [id, orgId]);
       if (!run.rows[0]) throw new AppError(404, "not_found", "Not found");
+      if (!censusMayRegenerate(String(run.rows[0].status))) {
+        throw new AppError(409, "conflict", "This census snapshot can no longer be revalidated");
+      }
       const version = Number(run.rows[0].current_snapshot_version);
       if (version < 1) throw new AppError(409, "conflict", "Generate a snapshot before validating");
       const asOf = String(run.rows[0].census_date).slice(0, 10);
@@ -1037,7 +1039,7 @@ export function registerStatutoryRoutes(app: SchoolappApi) {
         orgId,
       ]);
       if (!run.rows[0]) throw new AppError(404, "not_found", "Not found");
-      if (!censusIsImmutable(String(run.rows[0].status)) && String(run.rows[0].status) !== "ready") {
+      if (!["ready", "exported"].includes(String(run.rows[0].status))) {
         throw new AppError(409, "conflict", "Only ready or exported census runs can be superseded");
       }
       await client.query(`update census_runs set status = 'superseded' where id = $1 and organisation_id = $2`, [

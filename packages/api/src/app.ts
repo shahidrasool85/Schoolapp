@@ -92,6 +92,7 @@ export function createApiApp(config: ApiConfig) {
   registerDocumentRoutes(app);
   registerFileRoutes(app);
   registerLearningRoutes(app);
+  registerStatutoryRoutes(app);
   registerAssessmentRoutes(app);
   registerCommunicationRoutes(app);
   registerBehaviourRoutes(app);
@@ -102,7 +103,6 @@ export function createApiApp(config: ApiConfig) {
   registerFinanceRoutes(app);
   registerPaymentWebhookRoutes(app);
   registerMessagingRoutes(app);
-  registerStatutoryRoutes(app);
 
   app.notFound((c) =>
     c.json({ error: { code: "not_found", message: "Not found" } }, 404),

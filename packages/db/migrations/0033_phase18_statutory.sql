@@ -639,6 +639,30 @@ create trigger census_snapshot_schools_immutable_tg
   before insert or update or delete on census_snapshot_schools
   for each row execute function phase18_snapshot_immutable_tg();
 
+drop trigger if exists census_validation_issues_immutable_tg on census_validation_issues;
+create trigger census_validation_issues_immutable_tg
+  before insert or update or delete on census_validation_issues
+  for each row execute function phase18_snapshot_immutable_tg();
+
+-- Finalised census runs cannot be rolled back to a mutable working status.
+create or replace function phase18_census_run_status_tg()
+returns trigger
+language plpgsql
+as $$
+begin
+  if old.status in ('ready', 'exported', 'superseded', 'archived')
+     and new.status in ('draft', 'validating') then
+    raise exception 'census_snapshot_immutable' using errcode = '23514';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists census_runs_status_immutable_tg on census_runs;
+create trigger census_runs_status_immutable_tg
+  before update of status on census_runs
+  for each row execute function phase18_census_run_status_tg();
+
 create or replace function phase18_actor_tg()
 returns trigger
 language plpgsql

@@ -166,7 +166,7 @@ describe("Phase 18 statutory data and census readiness", () => {
     const token = await login(app, school.adminEmail, "password-12x");
     const hdrs = jsonHeaders(token, school.orgId);
     const year = await seedYear(app, hdrs);
-    await app.request("/api/v1/statutory/profile", {
+    const profile = await app.request("/api/v1/statutory/profile", {
       method: "PATCH",
       headers: hdrs,
       body: JSON.stringify({
@@ -177,6 +177,7 @@ describe("Phase 18 statutory data and census readiness", () => {
         schoolPhase: "PS",
       }),
     });
+    expect(profile.status).toBe(200);
     const complete = await createStudent(app, hdrs, {
       legalName: "Amelia Khan",
       academicYearId: year.yearId,

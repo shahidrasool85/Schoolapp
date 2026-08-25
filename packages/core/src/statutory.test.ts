@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { summariseStatutoryAttendance } from "./statutory-attendance.js";
-import { fsmEligibleOnDate, mapOperationalSendToStatutory } from "./statutory.js";
+import { fsmEligibleOnDate, mapOperationalSendToStatutory, censusIsImmutable } from "./statutory.js";
 import { defaultStatutoryCodeLookup } from "./statutory-codes.js";
 import { validateStatutory } from "./statutory-validation.js";
 import type { PupilStatutoryRecord } from "./statutory.js";
@@ -139,5 +139,16 @@ describe("statutory attendance denominators", () => {
     expect(summary.sessionsPresent).toBe(2);
     expect(summary.late).toBe(1);
     expect(summary.unauthorisedAbsence).toBe(0);
+  });
+});
+
+describe("census snapshot lifecycle", () => {
+  it("treats ready and later statuses as immutable", () => {
+    expect(censusIsImmutable("draft")).toBe(false);
+    expect(censusIsImmutable("validating")).toBe(false);
+    expect(censusIsImmutable("ready")).toBe(true);
+    expect(censusIsImmutable("exported")).toBe(true);
+    expect(censusIsImmutable("superseded")).toBe(true);
+    expect(censusIsImmutable("archived")).toBe(true);
   });
 });

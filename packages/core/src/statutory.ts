@@ -119,7 +119,7 @@ export function censusMayExport(status: string): boolean {
 }
 
 export function censusIsImmutable(status: string): boolean {
-  return status === "exported" || status === "superseded" || status === "archived";
+  return status === "ready" || status === "exported" || status === "superseded" || status === "archived";
 }
 
 export function fsmEligibleOnDate(periods: readonly FsmPeriod[], date: string): boolean {

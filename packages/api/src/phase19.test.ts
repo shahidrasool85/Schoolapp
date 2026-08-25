@@ -516,7 +516,7 @@ describe("Phase 19 engagement", () => {
     expect(unseen.status).toBe(404);
 
     await pools.owner.query(
-      `update student_enrolments set ended_on = started_on, status = 'left'
+      `update student_enrolments set ended_on = started_on, status = 'withdrawn'
        where student_profile_id = $1`,
       [pupil.student.id],
     );

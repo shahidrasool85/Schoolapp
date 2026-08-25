@@ -149,6 +149,18 @@ async function wipeDemoData(client: pg.Client): Promise<void> {
       "update student_profiles set admitted_from_application_id = null where organisation_id = any($1::uuid[])",
       [orgIds],
     );
+    await client.query(
+      `update message_conversations
+       set last_message_id = null
+       where organisation_id = any($1::uuid[])`,
+      [orgIds],
+    );
+    await client.query(
+      `update message_participants
+       set last_read_message_id = null
+       where organisation_id = any($1::uuid[])`,
+      [orgIds],
+    );
 
     const tenantDeletes = [
       "message_attachments",

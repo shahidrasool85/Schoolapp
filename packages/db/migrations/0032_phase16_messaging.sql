@@ -327,10 +327,12 @@ as $$
 declare
   v_org uuid;
 begin
-  if tg_table_name = 'message_conversations' and new.related_pupil_id is not null then
-    select organisation_id into v_org from student_profiles where id = new.related_pupil_id;
-    if v_org is null or v_org is distinct from new.organisation_id then
-      raise exception 'organisation_mismatch' using errcode = '23514';
+  if tg_table_name = 'message_conversations' then
+    if new.related_pupil_id is not null then
+      select organisation_id into v_org from student_profiles where id = new.related_pupil_id;
+      if v_org is null or v_org is distinct from new.organisation_id then
+        raise exception 'organisation_mismatch' using errcode = '23514';
+      end if;
     end if;
   elsif tg_table_name = 'message_participants' then
     select organisation_id into v_org from message_conversations where id = new.conversation_id;
@@ -442,6 +444,10 @@ language plpgsql
 as $$
 begin
   if tg_op = 'DELETE' then
+    -- Application role has no DELETE grant. Owner may wipe demo/org data.
+    if current_user = 'schoolapp_owner' then
+      return old;
+    end if;
     raise exception 'message_immutable' using errcode = '23514';
   end if;
   if new.conversation_id is distinct from old.conversation_id

@@ -310,9 +310,10 @@ export async function loadConversationRow(
   forUpdate = false,
 ): Promise<ConversationRow> {
   const row = await client.query<ConversationRow>(
-    `select c.*, sp.legal_name as pupil_legal_name, sp.preferred_name as pupil_preferred_name
+    `select c.*, sp.legal_name as pupil_legal_name, u.preferred_name as pupil_preferred_name
      from message_conversations c
      left join student_profiles sp on sp.id = c.related_pupil_id
+     left join users u on u.id = sp.user_id
      where c.id = $1 and c.organisation_id = $2
      ${forUpdate ? "for update of c" : ""}`,
     [conversationId, organisationId],
@@ -578,6 +579,7 @@ function visibilitySql(actor: Actor): string {
       c.conversation_type <> 'staff_internal'
       or ${staffInternal ? "true" : "false"}
     )
+    and cardinality($3::uuid[]) >= 0
   `;
 }
 
@@ -628,7 +630,7 @@ export async function listConversations(
     where.push(`(
       lower(c.subject) like $${idx}
       or lower(coalesce(sp.legal_name, '')) like $${idx}
-      or lower(coalesce(sp.preferred_name, '')) like $${idx}
+      or lower(coalesce(u.preferred_name, '')) like $${idx}
       or exists (
         select 1 from message_participants p
         join users u on u.id = p.user_id
@@ -643,7 +645,7 @@ export async function listConversations(
   }
   params.push(limit + 1);
   const result = await client.query<ConversationRow & { unread_count: number }>(
-    `select c.*, sp.legal_name as pupil_legal_name, sp.preferred_name as pupil_preferred_name,
+    `select c.*, sp.legal_name as pupil_legal_name, u.preferred_name as pupil_preferred_name,
       coalesce((
         select count(*)::int from messages m
         join message_participants me
@@ -654,6 +656,7 @@ export async function listConversations(
       ), 0) as unread_count
      from message_conversations c
      left join student_profiles sp on sp.id = c.related_pupil_id
+     left join users u on u.id = sp.user_id
      where ${where.join(" and ")}
      order by c.last_message_at desc, c.id desc
      limit $${params.length}`,

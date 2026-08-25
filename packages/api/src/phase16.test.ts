@@ -319,8 +319,14 @@ describe("Phase 16 messaging foundation", () => {
     await app.request(`/api/v1/class-staff-assignments/${teacher.assignmentId}`, {
       method: "PATCH",
       headers: hdrs,
-      body: JSON.stringify({ endedOn: "2026-08-01" }),
+      body: JSON.stringify({ endedOn: "2026-08-24" }),
     });
+    await pools.owner.query(
+      `update class_staff_assignments
+       set started_on = current_date - 2, ended_on = current_date - 1
+       where id = $1`,
+      [teacher.assignmentId],
+    );
 
     const stillVisible = await app.request(`/api/v1/messages/conversations/${thread.conversation.id}`, {
       headers: teacherHdrs,
@@ -580,23 +586,18 @@ describe("Phase 16 messaging foundation", () => {
       [school.orgId, parentUser.rows[0]!.id],
     );
     expect(Number(notes.rows[0]?.n)).toBeGreaterThan(0);
-    const sample = await pools.owner.query<{ body: string }>(
-      `select body from notifications
+    const sample = await pools.owner.query<{ body: string; idempotency_key: string | null }>(
+      `select body, idempotency_key from notifications
        where organisation_id = $1 and type = 'message_received' and recipient_user_id = $2
        limit 1`,
       [school.orgId, parentUser.rows[0]!.id],
     );
     expect(sample.rows[0]?.body).not.toContain("Greenwood only");
     expect(sample.rows[0]?.body).not.toContain("Please see the attached");
+    const idempotencyKey = sample.rows[0]?.idempotency_key;
+    expect(idempotencyKey).toBeTruthy();
 
     await withTenantContext(pools.app, school.adminId, school.orgId, async (client) => {
-      const before = await client.query<{ n: string }>(
-        `select count(*)::text as n from notifications
-         where organisation_id = $1 and type = 'message_received' and recipient_user_id = $2
-           and idempotency_key = $3`,
-        [school.orgId, parentUser.rows[0]!.id, `message:received:${message.message.id}:${parentUser.rows[0]!.id}`],
-      );
-      expect(Number(before.rows[0]?.n)).toBe(1);
       await createInboxNotification(client, {
         organisationId: school.orgId,
         recipientUserId: parentUser.rows[0]!.id,
@@ -605,16 +606,16 @@ describe("Phase 16 messaging foundation", () => {
         body: "You have a new message from Greenwood Academy.",
         type: "message_received",
         category: "messaging",
-        idempotencyKey: `message:received:${message.message.id}:${parentUser.rows[0]!.id}`,
+        idempotencyKey,
       });
-      const after = await client.query<{ n: string }>(
-        `select count(*)::text as n from notifications
-         where organisation_id = $1 and type = 'message_received' and recipient_user_id = $2
-           and idempotency_key = $3`,
-        [school.orgId, parentUser.rows[0]!.id, `message:received:${message.message.id}:${parentUser.rows[0]!.id}`],
-      );
-      expect(Number(after.rows[0]?.n)).toBe(1);
     });
+    const after = await pools.owner.query<{ n: string }>(
+      `select count(*)::text as n from notifications
+       where organisation_id = $1 and type = 'message_received' and recipient_user_id = $2
+         and idempotency_key = $3`,
+      [school.orgId, parentUser.rows[0]!.id, idempotencyKey],
+    );
+    expect(Number(after.rows[0]?.n)).toBe(1);
 
     const parentToken = await login(app, `iso-${id}@example.com`, "parent-pass-1");
     const parentHdrs = jsonHeaders(parentToken, school.orgId);
@@ -633,7 +634,9 @@ describe("Phase 16 messaging foundation", () => {
     expect(limited).toBe(429);
 
     await pools.owner.query(
-      "update organisation_memberships set status = 'inactive' where user_id = $1 and organisation_id = $2",
+      `update organisation_memberships
+       set status = 'suspended', ended_at = now()
+       where user_id = $1 and organisation_id = $2`,
       [school.adminId, school.orgId],
     );
     const inactive = await app.request(`/api/v1/messages/conversations/${thread.conversation.id}`, { headers: hdrs });

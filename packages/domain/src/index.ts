@@ -273,6 +273,8 @@ export {
   type StatusTone,
 } from "./ui.js";
 
+export { captureSubmitTarget, resetFormSafely } from "./forms.js";
+
 export type UserKind = "platform_admin" | "staff" | "parent" | "student";
 
 export type Actor = {
@@ -469,24 +471,23 @@ export const PORTAL_COMING_LATER_MESSAGE = "Coming in a later phase.";
 export const ENQUIRY_STATUSES = ["open", "contacted", "converted", "closed", "withdrawn"] as const;
 export type EnquiryStatus = (typeof ENQUIRY_STATUSES)[number];
 
-export const APPLICATION_STATUSES = [
-  "enquiry",
-  "draft",
-  "submitted",
-  "under_review",
-  "information_required",
-  "assessment_pending",
-  "assessment_completed",
-  "waiting_list",
-  "offer_pending",
-  "offer_made",
-  "accepted",
-  "deferred",
-  "rejected",
-  "withdrawn",
-  "enrolled",
-] as const;
-export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
+export {
+  APPLICATION_STATUSES,
+  APPLICATION_STATUS_TRANSITIONS,
+  APPLICATION_STAGE_COPY,
+  allowedApplicationTransitions,
+  isApplicationStatusTransitionAllowed,
+  applicationTransitionChannel,
+  applicationWorkflowActions,
+  isDomainActionStatus,
+  directCorrectionStatuses,
+  workflowActionVisible,
+  canUseAdministrativeCorrection,
+  type ApplicationStatus,
+  type ApplicationTransitionChannel,
+  type ApplicationWorkflowPermission,
+  type ApplicationWorkflowAction,
+} from "./admissions-workflow.js";
 
 export const ASSESSMENT_TYPES = [
   "admissions_interview",

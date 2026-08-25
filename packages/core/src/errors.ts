@@ -241,6 +241,16 @@ export function pgErrorToAppError(error: unknown): AppError | null {
     return new AppError(413, "payload_too_large", "Request is too large");
   }
   if (code === "23505") {
+    if (message.includes("admissions_offers_one_open")) {
+      return new AppError(
+        409,
+        "conflict",
+        "This application already has an open offer. Record a decision on that offer before making another.",
+      );
+    }
+    if (message.includes("admissions_waiting_list_one_active")) {
+      return new AppError(409, "conflict", "This application is already on the waiting list.");
+    }
     return new AppError(409, "conflict", "Resource already exists");
   }
   if (code === "23514" || code === "23503") {

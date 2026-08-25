@@ -101,6 +101,91 @@ export function ConfirmationDialog({
   );
 }
 
+export function Dialog({
+  open,
+  title,
+  description,
+  onClose,
+  children,
+}: {
+  open: boolean;
+  title: string;
+  description?: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const headingId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function focusables() {
+      return Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []).filter(
+        (el) => !el.hasAttribute("disabled") && el.getAttribute("aria-hidden") !== "true",
+      );
+    }
+
+    const items = focusables();
+    items[0]?.focus();
+
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const tabItems = focusables();
+      if (tabItems.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = tabItems[0]!;
+      const last = tabItems[tabItems.length - 1]!;
+      const active = document.activeElement;
+      if (event.shiftKey) {
+        if (active === first || !dialogRef.current?.contains(active)) {
+          event.preventDefault();
+          last.focus();
+        }
+      } else if (active === last || !dialogRef.current?.contains(active)) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previousOverflow;
+      previous?.focus();
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div className="dialog-backdrop" onClick={onClose}>
+      <div
+        ref={dialogRef}
+        className="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={headingId}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <h2 id={headingId}>{title}</h2>
+        {description ? <p className="muted">{description}</p> : null}
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export function UserAvatar({ name }: { name?: string | null }) {
   const initials = (name ?? "?")
     .split(" ")

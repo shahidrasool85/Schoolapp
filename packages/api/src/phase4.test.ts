@@ -181,6 +181,16 @@ describe("Phase 4 admissions", () => {
     });
     expect(skip.status).toBe(409);
 
+    const missingSchedule = await app.request(
+      `/api/v1/admissions/applications/${application.application.id}/assessments`,
+      {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({ assessmentType: "admissions_interview" }),
+      },
+    );
+    expect(missingSchedule.status).toBe(400);
+
     const assessment = await app.request(
       `/api/v1/admissions/applications/${application.application.id}/assessments`,
       {
@@ -222,6 +232,22 @@ describe("Phase 4 admissions", () => {
     });
     expect(offer.status).toBe(201);
     const offerBody = (await offer.json()) as { offer: { id: string } };
+
+    const duplicateOffer = await app.request(
+      `/api/v1/admissions/applications/${application.application.id}/offers`,
+      {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({
+          offeredAcademicYearId: structure.yearId,
+          offeredYearGroupId: structure.yearGroupId,
+        }),
+      },
+    );
+    expect(duplicateOffer.status).toBe(409);
+    expect(((await duplicateOffer.json()) as { error: { message: string } }).error.message).toMatch(
+      /already has an open offer/i,
+    );
 
     const accepted = await app.request(`/api/v1/admissions/offers/${offerBody.offer.id}`, {
       method: "PATCH",

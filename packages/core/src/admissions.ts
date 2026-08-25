@@ -1,6 +1,8 @@
 import type pg from "pg";
 import {
   PERMISSIONS,
+  allowedApplicationTransitions,
+  isApplicationStatusTransitionAllowed,
   type Actor,
   type ApplicationStatus,
   actorHasAny,
@@ -22,32 +24,7 @@ export const ADMISSIONS_READ_PERMISSIONS = [
   PERMISSIONS.ADMISSIONS_PUBLIC_SUBMISSIONS_READ,
 ] as const;
 
-const MANAGE_TRANSITIONS: Record<ApplicationStatus, readonly ApplicationStatus[]> = {
-  enquiry: ["draft", "submitted", "withdrawn"],
-  draft: ["submitted", "withdrawn"],
-  submitted: ["under_review", "information_required", "assessment_pending", "withdrawn"],
-  under_review: [
-    "information_required",
-    "assessment_pending",
-    "offer_pending",
-    "offer_made",
-    "waiting_list",
-    "rejected",
-    "withdrawn",
-    "deferred",
-  ],
-  information_required: ["submitted", "under_review", "withdrawn"],
-  assessment_pending: ["assessment_completed", "under_review", "withdrawn", "rejected"],
-  assessment_completed: ["under_review", "offer_pending", "offer_made", "waiting_list", "rejected", "withdrawn"],
-  waiting_list: ["offer_pending", "offer_made", "under_review", "rejected", "withdrawn", "deferred"],
-  offer_pending: ["offer_made", "waiting_list", "withdrawn", "rejected"],
-  offer_made: ["accepted", "rejected", "withdrawn", "waiting_list"],
-  accepted: ["withdrawn"],
-  deferred: ["under_review", "waiting_list", "withdrawn", "rejected", "offer_pending"],
-  rejected: ["under_review"],
-  withdrawn: ["draft", "under_review"],
-  enrolled: [],
-};
+export { allowedApplicationTransitions, isApplicationStatusTransitionAllowed };
 
 const DECIDE_STATUSES = new Set<ApplicationStatus>([
   "waiting_list",
@@ -121,18 +98,6 @@ export function canReadPublicSubmissions(actor: Actor): boolean {
     PERMISSIONS.ADMISSIONS_READ,
     PERMISSIONS.ADMISSIONS_FORMS_MANAGE,
   ]);
-}
-
-export function allowedApplicationTransitions(from: ApplicationStatus): readonly ApplicationStatus[] {
-  return MANAGE_TRANSITIONS[from] ?? [];
-}
-
-export function isApplicationStatusTransitionAllowed(
-  from: ApplicationStatus,
-  to: ApplicationStatus,
-): boolean {
-  if (from === to) return true;
-  return allowedApplicationTransitions(from).includes(to);
 }
 
 export function transitionRequiresDecide(from: ApplicationStatus, to: ApplicationStatus): boolean {

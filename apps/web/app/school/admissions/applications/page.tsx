@@ -2,8 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import {
+  APPLICATION_STATUSES,
+  formatStatusLabel,
+} from "@schoolapp/domain";
 import { EmptyState, FilterBar, PageError, PageHeader, SearchInput, StatusBadge } from "../../../../components/ui";
 import { api } from "../../../../lib/api";
+import { formatDate } from "../../../../lib/dates";
 import { userFacingError } from "../../../../lib/errors";
 
 type Application = {
@@ -17,12 +22,6 @@ type Application = {
   source: string | null;
   publicFormName?: string | null;
 };
-
-const STATUSES = [
-  "enquiry", "draft", "submitted", "under_review", "information_required",
-  "assessment_pending", "assessment_completed", "waiting_list", "offer_pending",
-  "offer_made", "accepted", "deferred", "rejected", "withdrawn", "enrolled",
-];
 
 export default function ApplicationsPage() {
   const [applications, setApplications] = useState<Application[] | null>(null);
@@ -78,9 +77,9 @@ export default function ApplicationsPage() {
           Status
           <select value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="">All statuses</option>
-            {STATUSES.map((s) => (
+            {APPLICATION_STATUSES.map((s) => (
               <option key={s} value={s}>
-                {s.replaceAll("_", " ")}
+                {formatStatusLabel(s)}
               </option>
             ))}
           </select>
@@ -113,9 +112,9 @@ export default function ApplicationsPage() {
                     <Link href={`/school/admissions/applications/${row.id}`}>{row.reference}</Link>
                   </td>
                   <td>{row.pupilLegalName}</td>
-                  <td>{row.applicationDate ?? row.intendedAcademicYearName ?? "—"}</td>
-                  <td>{row.intendedYearGroupName ?? "—"}</td>
-                  <td>{row.publicFormName ?? row.source ?? "—"}</td>
+                  <td>{formatDate(row.applicationDate) || row.intendedAcademicYearName || "Not provided"}</td>
+                  <td>{row.intendedYearGroupName ?? "Not provided"}</td>
+                  <td>{row.publicFormName ?? row.source ?? "Not provided"}</td>
                   <td>
                     <StatusBadge status={row.status} />
                   </td>

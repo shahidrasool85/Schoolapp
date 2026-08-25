@@ -43,7 +43,6 @@ type Attendance = {
 const SECTION_LABELS: Array<{ key: string; title: string }> = [
   { key: "attendance", title: "Attendance" },
   { key: "achievements", title: "Achievements" },
-  { key: "activities", title: "Activities" },
   { key: "competitions", title: "Competitions" },
 ];
 
@@ -189,6 +188,10 @@ export default function ParentChildDetailPage() {
       <h2>Learning</h2>
       <p>
         <Link href={`/parent/children/${params.id}/learning`}>View assignments and homework</Link>
+      </p>
+      <h2>Activities</h2>
+      <p>
+        <Link href={`/parent/activities`}>Trips, clubs, and consent responses</Link>
       </p>
       <h2>Documents</h2>
       {documents.length === 0 ? (

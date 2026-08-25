@@ -135,6 +135,18 @@ Platform Super Admin does **not** silently receive pupil read. Tenant data requi
 | `timetable.cover.manage` | — | F | F | — | — | — | — | — |
 | `timetable.read_own_children` | — | — | — | — | — | — | F | — |
 | `timetable.read_self` | — | — | — | — | — | — | — | F |
+| `activities.read` | — | F | F | — | — | — | — | — |
+| `activities.read_assigned` | — | — | — | F | — | F | — | — |
+| `activities.manage` | — | F | F | — | — | — | — | — |
+| `activities.manage_assigned` | — | — | — | F | — | — | — | — |
+| `activities.publish` | — | F | F | — | — | — | — | — |
+| `activities.participants.read` | — | F | F | F | — | — | — | — |
+| `activities.participants.manage` | — | F | F | — | — | — | — | — |
+| `activities.responses.read` | — | F | F | F | — | — | — | — |
+| `activities.responses.manage` | — | F | F | — | — | — | — | — |
+| `activities.medical_summary.read` | — | F | F | — | — | — | — | — |
+| `activities.read_own_children` | — | — | — | — | — | — | F | — |
+| `activities.read_self` | — | — | — | — | — | — | — | F |
 | `external_identifiers.upn.read` | — | F | F | — | R | — | — | — |
 
 `students.documents.read_self` is seeded on the Student role for a later pupil-visible documents API. No current route checks that permission, so it does not grant access by itself.
@@ -172,5 +184,7 @@ Safeguarding tables also require a safeguarding capability at RLS, in addition t
 `pastoral.read_assigned` is seeded for later form-tutor / head-of-year grants and is not on the default Teacher role.
 
 Timetable keys follow the calendar pattern. School Admin and Headteacher manage the school day, rooms, recurring entries, and cover. Teachers receive `timetable.read_assigned` plus room/cover read. Cover grants class access only on the cover date; a timetable row never itself grants RBAC. Parents and students see only authorised child/self occurrences and never staff notes or cover reasons.
+
+Activity keys are assigned-only for teachers. `activities.manage` / `activities.publish` / `activities.responses.manage` / `activities.medical_summary.read` are School Admin and Headteacher. Teachers may manage participants on activities they created or are assigned to, but offline consent requires `activities.responses.manage`. Parent APIs re-check guardianship + `portal_access`. Student self-sign-up requires the activity flag and is blocked when parent consent is required. Safety summaries never include safeguarding.
 
 Unused module keys are seeded so later phases do not hardcode role names; those modules are not implemented in Phase 1.

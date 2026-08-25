@@ -137,8 +137,12 @@ GET /api/v1/parent/announcements
 GET /api/v1/parent/announcements/{id}
 POST /api/v1/parent/announcements/{id}/read
 POST /api/v1/parent/announcements/{id}/acknowledge
-GET /api/v1/parent/calendar/events
-GET /api/v1/parent/calendar/events/{id}
+GET  /api/v1/parent/calendar/events
+GET  /api/v1/parent/calendar/events/{id}
+GET  /api/v1/parent/activities
+GET  /api/v1/parent/children/{studentId}/activities
+GET  /api/v1/parent/children/{studentId}/activities/{activityId}
+POST /api/v1/parent/children/{studentId}/activities/{activityId}/respond
 ```
 
 Phase 3 implements dashboard, children list, and child overview (profile + school/year/form + viewer guardianship). Phase 6 implements child attendance (parent-visible notes only). Phase 8 implements released formal results, subject progress, and published report snapshots. Phase 10 implements family notices and calendar (authorised children only; no staff-only rows; no actor/storage-key fields). Responses never include `restricted_contact`, admin notes, billing, moderation notes, or other organisations' children.
@@ -153,7 +157,9 @@ GET  /api/v1/student/assignments
 POST /api/v1/student/assignments/{id}/submissions
 GET  /api/v1/student/resources
 GET  /api/v1/student/activities
-POST /api/v1/student/activities/{id}/attempts
+GET  /api/v1/student/activities/{activityId}
+POST /api/v1/student/activities/{activityId}/signup
+POST /api/v1/student/activities/{activityId}/withdraw
 GET  /api/v1/student/results
 GET  /api/v1/student/progress
 GET  /api/v1/student/reports
@@ -474,6 +480,47 @@ GET    /api/v1/parent/children/{studentId}/timetable
 ```
 
 `POST /timetable/occurrences/attendance-register` identifies the existing Phase 6 register for that class/date/session and does not create marks. Conflicts return `409` with `details.conflicts`.
+
+## Activities, trips, clubs, and consents (Phase 14)
+
+Canonical activity records. Calendar list endpoints also return `activities` with `source: "activity"`; they are not copied into `school_events`. Parent and student calendars do not apply the timetable 14-day default to activities unless `from`/`to` are passed. Clients cannot set `createdBy` / `publishedBy` / guardian identity. Consent requires `confirm: true`. Offline consent is stored as `staff_offline` with guardian columns forced null. Safety summaries never return `restricted_contact` or `send_notes`.
+
+```http
+GET    /api/v1/activities/types
+GET    /api/v1/activities/context
+GET    /api/v1/activities
+POST   /api/v1/activities
+GET    /api/v1/activities/{id}
+PATCH  /api/v1/activities/{id}
+POST   /api/v1/activities/{id}/publish
+POST   /api/v1/activities/{id}/close
+POST   /api/v1/activities/{id}/complete
+POST   /api/v1/activities/{id}/cancel
+POST   /api/v1/activities/{id}/archive
+GET    /api/v1/activities/{id}/eligible
+GET    /api/v1/activities/{id}/participants
+GET    /api/v1/activities/{id}/participants.csv
+POST   /api/v1/activities/{id}/participants
+POST   /api/v1/activities/{id}/participants/{studentId}/offline-response
+POST   /api/v1/activities/{id}/participants/{studentId}/promote
+POST   /api/v1/activities/{id}/participants/{studentId}/withdraw
+PATCH  /api/v1/activities/{id}/participants/{studentId}
+GET    /api/v1/activities/{id}/responses
+GET    /api/v1/activities/{id}/safety-summary
+POST   /api/v1/activities/{id}/documents
+POST   /api/v1/activities/{id}/documents/{documentId}/delete
+POST   /api/v1/activities/{id}/updates
+GET    /api/v1/parent/activities
+GET    /api/v1/parent/children/{studentId}/activities
+GET    /api/v1/parent/children/{studentId}/activities/{activityId}
+POST   /api/v1/parent/children/{studentId}/activities/{activityId}/respond
+GET    /api/v1/student/activities
+GET    /api/v1/student/activities/{activityId}
+POST   /api/v1/student/activities/{activityId}/signup
+POST   /api/v1/student/activities/{activityId}/withdraw
+```
+
+User-facing errors include `response_deadline_passed`, `activity_full`, `no_longer_eligible`, `activity_cancelled`. CSV export omits medical fields. Safety summary is live pupil data, permission-gated, and never includes safeguarding.
 
 ## Files
 

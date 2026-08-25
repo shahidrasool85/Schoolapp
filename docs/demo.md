@@ -129,6 +129,7 @@ Sign in as **Greenwood School Admin** at http://greenwood.localhost:3000/login, 
 - Assessment & Progress (`/school/assessment`) — formal assessments, result entry, reports
 - Communications (`/school/communications`) — announcements and calendar
 - Timetable (`/school/timetable`) — school day, rooms, class/teacher views, cover/changes
+- Activities (`/school/activities`) — trips, clubs, consent responses, waiting list
 - Pastoral & Behaviour (`/school/pastoral`) — incidents, achievements, pastoral concerns
 - Safeguarding (`/school/safeguarding`) — restricted; Headteacher and School Admin only in the demo
 - Students (open Amelia Khan — attendance, Learning history, Academic / Results, and behaviour summary)
@@ -138,11 +139,11 @@ Sign in as **Greenwood School Admin** at http://greenwood.localhost:3000/login, 
 - Parents / Guardians
 - Admissions → Forms, Sources / Campaigns, Enquiries, Applications
 
-Sign in as the Greenwood **teacher** and open Teaching & Learning. You should see Year 3 work for 3A (and 3B subject work), with unsubmitted, submitted, marked, and resubmission-requested examples. Attendance → My registers should still show 3A, not the whole school. Communications should let the teacher create a class notice for 3A, not a whole-school broadcast. **My Timetable** should show Hannah Cole’s 3A lessons (week of 7 September 2026 if today is before term) with Take attendance.
+Sign in as the Greenwood **teacher** and open Teaching & Learning. You should see Year 3 work for 3A (and 3B subject work), with unsubmitted, submitted, marked, and resubmission-requested examples. Attendance → My registers should still show 3A, not the whole school. Communications should let the teacher create a class notice for 3A, not a whole-school broadcast. **My Timetable** should show Hannah Cole’s 3A lessons (week of 7 September 2026 if today is before term) with Take attendance. **Activities** should show trips/clubs Hannah is assigned to (museum visit, chess club, football fixture), not school-wide management of every activity.
 
-Sign in as the Greenwood **parent** and open the parent portal (`/parent`). You should see Amelia Khan and Yusuf Khan, attendance, Learning (assignments/due/status; marks only when released to parents), released formal results, published reports, Notices, Calendar, and notifications. Unreleased results, the draft spring report, and the staff-only briefing must not appear. Family calendar rows should name which child/class they relate to. Each child has a **Timetable** page; Amelia (3A) and Yusuf (5A Friday Maths) differ.
+Sign in as the Greenwood **parent** and open the parent portal (`/parent`). You should see Amelia Khan and Yusuf Khan, attendance, Learning (assignments/due/status; marks only when released to parents), released formal results, published reports, Notices, Calendar, **Activities** (Science Museum consent for Amelia, Chess Club waiting list for Amelia / confirmed for Yusuf, football fixture, cancelled pottery workshop), and notifications. Unreleased results, the draft spring report, and the staff-only briefing must not appear. Family calendar rows should name which child/class they relate to. Each child has a **Timetable** page; Amelia (3A) and Yusuf (5A Friday Maths) differ.
 
-Sign in as the Greenwood **student** (Student tab, username `amelia.khan`) and open My Learning (`/student/learning`) plus Results (`/student/results`) and Notices. You should see assigned work, student-released formal results, the whole-school welcome, and the Year 3 swimming notice. Parent-only English reading, unreleased science, parents' evening booking copy, and staff-only notices must not appear. **My Timetable** should show only Amelia’s 3A lessons.
+Sign in as the Greenwood **student** (Student tab, username `amelia.khan`) and open My Learning (`/student/learning`) plus Results (`/student/results`), Notices, and **Activities**. You should see assigned work, student-released formal results, the whole-school welcome, and the Year 3 swimming notice. Parent-only English reading, unreleased science, parents' evening booking copy, and staff-only notices must not appear. **My Timetable** should show only Amelia’s 3A lessons. Coding club taster allows student self-sign-up; the museum trip does not.
 
 Sign in as **Oak Academy School Admin** at http://oakacademy.localhost:3000/login. You should see Oak pupils such as Niamh Okonkwo and Oak comprehension work, **not** Greenwood’s Amelia Khan or Year 3 Fractions.
 
@@ -151,8 +152,9 @@ Sign in as **Platform Admin** at http://localhost:3000/login. You should land on
 ## 7. Limitations
 
 - This is local demo data only. Names, emails, and passwords are fake and clearly labelled.
-- AI learning, binary document upload, PDF report cards, and mobile apps are **not built yet**. Formal assessments/results/reports are in Phase 8. Public admissions forms are in Phase 9. Announcements and the school calendar are in Phase 10. The school timetable is in Phase 12 (recurring definitions + exceptions; demo week starts 7 September 2026).
-- Learning resources are URL metadata only; S3-compatible binary upload is deferred.
+- AI learning, PDF report cards, and mobile apps are **not built yet**. Formal assessments/results/reports are in Phase 8. Public admissions forms are in Phase 9. Announcements and the school calendar are in Phase 10. The school timetable is in Phase 12. Trips, clubs, and parent consent are in Phase 14. Phase 13 object storage is available for pupil, learning, pastoral, safeguarding, admissions, and activity files.
+- Seeded activity document *titles* (for example the Science Museum trip letter) have no stored bytes until a School Admin attaches a PDF on the activity page. Use a small synthetic PDF, not a real pupil letter.
+- Learning resources that are URL-only still exist alongside optional file uploads on assignments.
 - Demo attendance is seeded from 1 September 2026 (the 2026/27 year). If “today” is before term, registers default to the year start.
 - There is no production wildcard DNS, TLS, or Plesk setup in this path.
 - Each school host has its own browser session. Sign in again when you switch from `localhost` to `greenwood.localhost` or `oakacademy.localhost`.

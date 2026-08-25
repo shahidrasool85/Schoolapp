@@ -66,12 +66,32 @@ describe("RLS catalog", () => {
            'safeguarding_concern_revisions', 'safeguarding_chronology_entries', 'safeguarding_attachments',
            'school_day_profiles', 'school_day_periods', 'rooms',
            'timetable_entries', 'timetable_entry_teachers', 'timetable_exceptions', 'timetable_covers',
-           'stored_objects'
+           'stored_objects',
+           'school_activity_types', 'school_activities', 'school_activity_status_history',
+           'school_activity_targets', 'school_activity_eligible_pupils', 'school_activity_staff',
+           'school_activity_consent_clauses', 'school_activity_participants', 'school_activity_responses',
+           'school_activity_documents', 'school_activity_updates'
          )`,
     );
-    expect(result.rows.length).toBe(113);
+    expect(result.rows.length).toBe(124);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
+    }
+  });
+
+  it("grants the app role DML on activity tables", async () => {
+    const result = await pools.owner.query<{ table_name: string; can_select: boolean }>(
+      `select t.table_name, has_table_privilege('schoolapp_app', t.table_name, 'SELECT') as can_select
+       from unnest(array[
+         'school_activity_types', 'school_activities', 'school_activity_status_history',
+         'school_activity_targets', 'school_activity_eligible_pupils', 'school_activity_staff',
+         'school_activity_consent_clauses', 'school_activity_participants', 'school_activity_responses',
+         'school_activity_documents', 'school_activity_updates'
+       ]) as t(table_name)`,
+    );
+    expect(result.rows).toHaveLength(11);
+    for (const row of result.rows) {
+      expect(row.can_select, row.table_name).toBe(true);
     }
   });
 

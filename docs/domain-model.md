@@ -239,6 +239,23 @@ Progress is latest vs previous comparable result (percentage, else scheme `numer
 
 Parent and student visibility uses the snapshot plus current portal/enrolment rules. Expired notices leave active lists. Staff-only targets never leak to portals.
 
+## School activities, trips, clubs, and consents (Phase 14)
+
+Canonical activity records, not a second events table. See [ADR 0023](./adr/0023-phase14-activities-consents.md).
+
+- `school_activity_types` — organisation catalogue (`trip`, `club`, `sports_fixture`, …) plus custom keys
+- `school_activities` — title, type, controlled status, dates, location, optional capacity/deadline, consent/sign-up flags, recurrence, parent vs staff notes, session-stamped actors
+- `school_activity_targets` — whole school / year group / class / selected pupil / selected staff
+- `school_activity_eligible_pupils` — publish-time eligibility snapshot (historical class/year)
+- `school_activity_staff` — activity-scoped lead/accompanying staff, not school-wide RBAC
+- `school_activity_consent_clauses` — current wording; responses store a version snapshot
+- `school_activity_responses` — one effective decision per pupil; history retained; channels `parent_portal` / `student_portal` / `staff_offline`
+- `school_activity_participants` — registration, waiting list, activity attendance (not statutory attendance)
+- `school_activity_documents` — Phase 13 files; visibility is explicit
+- `school_activity_updates` — parent-safe notices using existing notification patterns
+
+Calendar list APIs include `activities` with `source: "activity"`. Medical/emergency information is live and limited. Payments are not modelled.
+
 ## Behaviour, pastoral and safeguarding (Phase 11)
 
 These are related staff workflows but **not** the same data category. Safeguarding never appears on ordinary student-record payloads or parent/student APIs.

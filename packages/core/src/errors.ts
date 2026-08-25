@@ -82,7 +82,8 @@ export function pgErrorToAppError(error: unknown): AppError | null {
     message.includes("behaviour_actor_required") ||
     message.includes("pastoral_actor_required") ||
     message.includes("safeguarding_actor_required") ||
-    message.includes("timetable_actor_required")
+    message.includes("timetable_actor_required") ||
+    message.includes("activity_actor_required")
   ) {
     return new AppError(400, "validation_failed", "The request violates a data constraint");
   }
@@ -94,6 +95,12 @@ export function pgErrorToAppError(error: unknown): AppError | null {
   }
   if (message.includes("acknowledgement_not_required")) {
     return new AppError(400, "validation_failed", "Acknowledgement is not required for this notice");
+  }
+  if (message.includes("activity_capacity_exceeded")) {
+    return new AppError(409, "activity_full", "This activity is full");
+  }
+  if (message.includes("activity_guardian_required")) {
+    return new AppError(400, "validation_failed", "A guardian identity is required for this response");
   }
   if (message.includes("event_dates_invalid")) {
     return new AppError(400, "validation_failed", "Event end must be on or after the start");

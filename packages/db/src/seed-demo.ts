@@ -158,6 +158,17 @@ async function wipeDemoData(client: pg.Client): Promise<void> {
       "school_day_periods",
       "school_day_profiles",
       "rooms",
+      "school_activity_updates",
+      "school_activity_documents",
+      "school_activity_responses",
+      "school_activity_participants",
+      "school_activity_consent_clauses",
+      "school_activity_staff",
+      "school_activity_eligible_pupils",
+      "school_activity_targets",
+      "school_activity_status_history",
+      "school_activities",
+      "school_activity_types",
       "safeguarding_attachments",
       "safeguarding_chronology_entries",
       "safeguarding_concern_revisions",
@@ -251,6 +262,7 @@ async function wipeDemoData(client: pg.Client): Promise<void> {
       "guardianships",
       "notification_preferences",
       "user_login_aliases",
+      "stored_objects",
       "student_profiles",
       "staff_profiles",
       "classes",
@@ -1204,6 +1216,243 @@ async function lookupId(client: pg.Client, sql: string, values: unknown[]): Prom
   const id = result.rows[0]?.id;
   if (!id) throw new Error(`Demo seed lookup failed: ${sql}`);
   return id;
+}
+
+async function activityTypeId(client: pg.Client, organisationId: string, key: string): Promise<string> {
+  return lookupId(client, "select id from school_activity_types where organisation_id = $1 and key = $2", [
+    organisationId,
+    key,
+  ]);
+}
+
+async function seedSchoolActivity(
+  client: pg.Client,
+  input: {
+    organisationId: string;
+    createdBy: string;
+    title: string;
+    description?: string;
+    typeKey: string;
+    academicYearId?: string | null;
+    startsAt: string;
+    endsAt: string;
+    location?: string | null;
+    externalAddress?: string | null;
+    meetingPoint?: string | null;
+    returnPoint?: string | null;
+    capacity?: number | null;
+    responseDeadlineAt?: string | null;
+    consentRequired?: boolean;
+    parentResponseRequired?: boolean;
+    studentSignupEnabled?: boolean;
+    studentVisible?: boolean;
+    parentVisible?: boolean;
+    occurrenceKind?: "one_off" | "recurring";
+    recurrenceWeekdays?: number[] | null;
+    recurrenceUntil?: string | null;
+    staffNotes?: string | null;
+    parentNotes?: string | null;
+    status?: "published" | "cancelled";
+    cancelReason?: string | null;
+    targets: Array<{
+      targetType: "whole_school" | "year_group" | "class" | "student" | "staff_member";
+      classId?: string;
+      yearGroupId?: string;
+      studentProfileId?: string;
+      staffUserId?: string;
+    }>;
+    clauses?: Array<{ clauseKey: string; title: string; wording: string }>;
+    staff?: Array<{ staffUserId: string; staffRole?: string }>;
+    documents?: Array<{ title: string; visibility: string }>;
+    eligible: Array<{ studentProfileId: string; classId?: string | null; yearGroupId?: string | null }>;
+    participants?: Array<{
+      studentProfileId: string;
+      registrationStatus: string;
+      waitingListPosition?: number | null;
+      source?: string;
+    }>;
+    responses?: Array<{
+      studentProfileId: string;
+      actorUserId: string;
+      guardianUserId?: string | null;
+      channel: "parent_portal" | "staff_offline";
+      response: "consented" | "declined" | "withdrawn";
+      wording: string;
+    }>;
+    updates?: Array<{ body: string; parentVisible?: boolean; studentVisible?: boolean }>;
+  },
+): Promise<string> {
+  const typeId = await activityTypeId(client, input.organisationId, input.typeKey);
+  const created = await client.query<IdRow>(
+    `insert into school_activities (
+       organisation_id, academic_year_id, title, description, activity_type_id,
+       starts_at, ends_at, location, external_address, meeting_point, return_point,
+       capacity, response_deadline_at, consent_required, parent_response_required,
+       student_signup_enabled, student_visible, parent_visible, occurrence_kind,
+       recurrence_weekdays, recurrence_until, staff_notes, parent_notes, created_by
+     ) values (
+       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24
+     ) returning id`,
+    [
+      input.organisationId,
+      input.academicYearId ?? null,
+      input.title,
+      input.description ?? null,
+      typeId,
+      input.startsAt,
+      input.endsAt,
+      input.location ?? null,
+      input.externalAddress ?? null,
+      input.meetingPoint ?? null,
+      input.returnPoint ?? null,
+      input.capacity ?? null,
+      input.responseDeadlineAt ?? null,
+      input.consentRequired ?? false,
+      input.parentResponseRequired ?? input.consentRequired ?? false,
+      input.studentSignupEnabled ?? false,
+      input.studentVisible ?? true,
+      input.parentVisible ?? true,
+      input.occurrenceKind ?? "one_off",
+      input.recurrenceWeekdays ?? null,
+      input.recurrenceUntil ?? null,
+      input.staffNotes ?? null,
+      input.parentNotes ?? null,
+      input.createdBy,
+    ],
+  );
+  const activityId = created.rows[0]!.id;
+  for (const target of input.targets) {
+    await client.query(
+      `insert into school_activity_targets (
+         organisation_id, activity_id, target_type, class_id, year_group_id,
+         student_profile_id, staff_user_id, created_by
+       ) values ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [
+        input.organisationId,
+        activityId,
+        target.targetType,
+        target.classId ?? null,
+        target.yearGroupId ?? null,
+        target.studentProfileId ?? null,
+        target.staffUserId ?? null,
+        input.createdBy,
+      ],
+    );
+  }
+  const clauses =
+    input.clauses ??
+    (input.consentRequired
+      ? [
+          {
+            clauseKey: "permission_to_attend",
+            title: "Permission to attend",
+            wording:
+              "I give permission for my child to take part in this school activity and confirm the information I provide is accurate.",
+          },
+        ]
+      : []);
+  for (const [index, clause] of clauses.entries()) {
+    await client.query(
+      `insert into school_activity_consent_clauses (
+         organisation_id, activity_id, clause_key, title, wording, required, sort_order
+       ) values ($1,$2,$3,$4,$5,true,$6)`,
+      [input.organisationId, activityId, clause.clauseKey, clause.title, clause.wording, index],
+    );
+  }
+  for (const member of input.staff ?? []) {
+    await client.query(
+      `insert into school_activity_staff (organisation_id, activity_id, staff_user_id, staff_role, created_by)
+       values ($1,$2,$3,$4,$5)`,
+      [input.organisationId, activityId, member.staffUserId, member.staffRole ?? "lead", input.createdBy],
+    );
+  }
+  await client.query(
+    `update school_activities
+        set status = $3,
+            published_by = $4,
+            cancel_reason = $5
+      where id = $1 and organisation_id = $2`,
+    [activityId, input.organisationId, input.status ?? "published", input.createdBy, input.cancelReason ?? null],
+  );
+  for (const pupil of input.eligible) {
+    await client.query(
+      `insert into school_activity_eligible_pupils (
+         organisation_id, activity_id, student_profile_id, class_id, year_group_id
+       ) values ($1,$2,$3,$4,$5)
+       on conflict (activity_id, student_profile_id) do nothing`,
+      [
+        input.organisationId,
+        activityId,
+        pupil.studentProfileId,
+        pupil.classId ?? null,
+        pupil.yearGroupId ?? null,
+      ],
+    );
+  }
+  for (const participant of input.participants ?? []) {
+    await client.query(
+      `insert into school_activity_participants (
+         organisation_id, activity_id, student_profile_id, registration_status,
+         waiting_list_position, source, confirmed_at
+       ) values ($1,$2,$3,$4,$5,$6,$7)`,
+      [
+        input.organisationId,
+        activityId,
+        participant.studentProfileId,
+        participant.registrationStatus,
+        participant.waitingListPosition ?? null,
+        participant.source ?? "staff_assigned",
+        participant.registrationStatus === "confirmed" ? new Date().toISOString() : null,
+      ],
+    );
+  }
+  for (const response of input.responses ?? []) {
+    await client.query(
+      `insert into school_activity_responses (
+         organisation_id, activity_id, student_profile_id, actor_user_id, guardian_user_id,
+         channel, response, is_effective, consent_version, wording_snapshot, staff_note
+       ) values ($1,$2,$3,$4,$5,$6,$7,true,1,$8::jsonb,$9)`,
+      [
+        input.organisationId,
+        activityId,
+        response.studentProfileId,
+        response.actorUserId,
+        response.channel === "staff_offline" ? null : (response.guardianUserId ?? null),
+        response.channel,
+        response.response,
+        JSON.stringify({
+          consentVersion: 1,
+          capturedAt: "2026-09-20T09:00:00.000Z",
+          clauses: [{ clauseKey: "permission_to_attend", title: "Permission to attend", wording: response.wording, required: true, sortOrder: 0 }],
+        }),
+        response.channel === "staff_offline" ? "Recorded from paper consent for demo." : null,
+      ],
+    );
+  }
+  for (const document of input.documents ?? []) {
+    await client.query(
+      `insert into school_activity_documents (
+         organisation_id, activity_id, title, visibility, created_by
+       ) values ($1,$2,$3,$4,$5)`,
+      [input.organisationId, activityId, document.title, document.visibility, input.createdBy],
+    );
+  }
+  for (const update of input.updates ?? []) {
+    await client.query(
+      `insert into school_activity_updates (
+         organisation_id, activity_id, body, parent_visible, student_visible, published_by
+       ) values ($1,$2,$3,$4,$5,$6)`,
+      [
+        input.organisationId,
+        activityId,
+        update.body,
+        update.parentVisible ?? true,
+        update.studentVisible ?? false,
+        input.createdBy,
+      ],
+    );
+  }
+  return activityId;
 }
 
 async function seedReportingPeriod(
@@ -2368,6 +2617,20 @@ async function seedGreenwood(
     relationship: "father",
   });
 
+  await client.query(
+    `insert into student_additional_needs (
+       organisation_id, student_profile_id, allergies, medication, dietary_requirements, medical_conditions
+     ) values ($1, $2, $3, $4, $5, $6)`,
+    [
+      orgId,
+      amelia.profileId,
+      "Peanut allergy (synthetic demo example)",
+      "Antihistamine as recorded by the school nurse (demo)",
+      "No nuts",
+      "Mild asthma — inhaler as needed (demo)",
+    ],
+  );
+
   await seedAttendanceMarks(client, {
     organisationId: orgId,
     academicYearId,
@@ -3131,21 +3394,6 @@ async function seedGreenwood(
   });
   await seedSchoolEvent(client, {
     organisationId: orgId,
-    title: "Year 3 science museum trip",
-    typeKey: "trip",
-    startsAt: "2026-11-12T09:00:00Z",
-    endsAt: "2026-11-12T15:30:00Z",
-    location: "Science Museum",
-    createdBy: teacherId,
-    targets: [{ targetType: "class", classId: class3A }],
-    audience: [
-      { userId: teacherId, audienceRole: "staff" },
-      { userId: parentId, audienceRole: "parent", subjects: [ameliaSubject] },
-      { userId: amelia.userId, audienceRole: "student", subjects: [ameliaSubject] },
-    ],
-  });
-  await seedSchoolEvent(client, {
-    organisationId: orgId,
     title: "Staff meeting",
     typeKey: "meeting",
     startsAt: "2026-09-04T15:30:00Z",
@@ -3158,6 +3406,167 @@ async function seedGreenwood(
       { userId: headId, audienceRole: "staff" },
       { userId: teacherId, audienceRole: "staff" },
     ],
+  });
+
+  const class3APupils = [
+    { studentProfileId: amelia.profileId, classId: class3A, yearGroupId: year3 },
+    { studentProfileId: jack.profileId, classId: class3A, yearGroupId: year3 },
+    { studentProfileId: priya.profileId, classId: class3A, yearGroupId: year3 },
+  ];
+  const museumWording =
+    "I give permission for my child to attend the Year 3 Science Museum visit, including coach travel, and confirm that emergency/medical information held by the school is up to date.";
+  await seedSchoolActivity(client, {
+    organisationId: orgId,
+    createdBy: adminId,
+    title: "Year 3 Science Museum visit",
+    description: "Class 3A visit to the Science Museum. Packed lunch required. Consent is a school acknowledgement, not an electronic signature.",
+    typeKey: "trip",
+    academicYearId,
+    startsAt: "2026-11-12T09:00:00Z",
+    endsAt: "2026-11-12T15:30:00Z",
+    location: "Science Museum",
+    externalAddress: "Exhibition Road, London SW7 2DD",
+    meetingPoint: "School playground 08:45",
+    returnPoint: "School playground 15:45",
+    capacity: 20,
+    responseDeadlineAt: "2026-11-04T16:00:00Z",
+    consentRequired: true,
+    parentNotes: "Please return consent by 4 November. Packed lunch and a waterproof coat are required.",
+    staffNotes: "Coach booked for 08:45. Internal staffing plan — not visible to parents.",
+    targets: [{ targetType: "class", classId: class3A }],
+    staff: [{ staffUserId: teacherId, staffRole: "trip_leader" }],
+    clauses: [
+      { clauseKey: "permission_to_attend", title: "Permission to attend", wording: museumWording },
+      {
+        clauseKey: "emergency_treatment",
+        title: "Emergency treatment",
+        wording: "I agree that school staff may seek emergency medical treatment if needed during this visit.",
+      },
+    ],
+    documents: [
+      { title: "Science Museum trip letter", visibility: "staff_and_parents" },
+      { title: "Staff risk-assessment summary", visibility: "staff" },
+    ],
+    eligible: class3APupils,
+    participants: [
+      { studentProfileId: jack.profileId, registrationStatus: "confirmed", source: "staff_offline" },
+    ],
+    responses: [
+      {
+        studentProfileId: jack.profileId,
+        actorUserId: adminId,
+        channel: "staff_offline",
+        response: "consented",
+        wording: museumWording,
+      },
+    ],
+    updates: [{ body: "Please bring a waterproof coat. Departure remains 08:45 from the playground." }],
+  });
+  await seedSchoolActivity(client, {
+    organisationId: orgId,
+    createdBy: adminId,
+    title: "Chess Club",
+    description: "Tuesday after-school chess club in the library. Limited to two confirmed places in this demo so the waiting list is visible.",
+    typeKey: "club",
+    academicYearId,
+    startsAt: "2026-09-08T15:30:00Z",
+    endsAt: "2026-09-08T16:30:00Z",
+    location: "Library",
+    capacity: 2,
+    occurrenceKind: "recurring",
+    recurrenceWeekdays: [2],
+    recurrenceUntil: "2026-12-15",
+    parentNotes: "Club runs every Tuesday until 15 December. Places are limited.",
+    targets: [
+      { targetType: "student", studentProfileId: amelia.profileId },
+      { targetType: "student", studentProfileId: yusuf.profileId },
+      { targetType: "student", studentProfileId: jack.profileId },
+    ],
+    staff: [{ staffUserId: teacherId, staffRole: "lead" }],
+    eligible: [
+      { studentProfileId: amelia.profileId, classId: class3A, yearGroupId: year3 },
+      { studentProfileId: yusuf.profileId, classId: classIds.get("5A")!, yearGroupId: yearGroups.get("5")! },
+      { studentProfileId: jack.profileId, classId: class3A, yearGroupId: year3 },
+    ],
+    participants: [
+      { studentProfileId: yusuf.profileId, registrationStatus: "confirmed", source: "staff_assigned" },
+      { studentProfileId: jack.profileId, registrationStatus: "confirmed", source: "staff_assigned" },
+      {
+        studentProfileId: amelia.profileId,
+        registrationStatus: "waitlisted",
+        waitingListPosition: 1,
+        source: "staff_assigned",
+      },
+    ],
+  });
+  await seedSchoolActivity(client, {
+    organisationId: orgId,
+    createdBy: adminId,
+    title: "Year 3 vs Oak football fixture",
+    description: "Selected pupils play a friendly fixture. Hannah Cole is the accompanying teacher.",
+    typeKey: "sports_fixture",
+    academicYearId,
+    startsAt: "2026-10-09T13:30:00Z",
+    endsAt: "2026-10-09T15:00:00Z",
+    location: "Playing field",
+    studentVisible: true,
+    parentVisible: true,
+    parentNotes: "Football boots and shin pads. Collect from the field at 15:15.",
+    targets: [
+      { targetType: "student", studentProfileId: amelia.profileId },
+      { targetType: "student", studentProfileId: jack.profileId },
+    ],
+    staff: [{ staffUserId: teacherId, staffRole: "lead" }],
+    eligible: [
+      { studentProfileId: amelia.profileId, classId: class3A, yearGroupId: year3 },
+      { studentProfileId: jack.profileId, classId: class3A, yearGroupId: year3 },
+    ],
+    participants: [
+      { studentProfileId: amelia.profileId, registrationStatus: "confirmed", source: "school_assigned" },
+      { studentProfileId: jack.profileId, registrationStatus: "confirmed", source: "school_assigned" },
+    ],
+  });
+  await seedSchoolActivity(client, {
+    organisationId: orgId,
+    createdBy: adminId,
+    title: "Year 3 pottery workshop",
+    description: "This visit was cancelled after the venue closed. History and any responses are retained.",
+    typeKey: "workshop",
+    academicYearId,
+    startsAt: "2026-10-02T09:30:00Z",
+    endsAt: "2026-10-02T12:00:00Z",
+    location: "Town pottery studio",
+    consentRequired: true,
+    status: "cancelled",
+    cancelReason: "Venue closed — demo cancellation.",
+    parentNotes: "This activity has been cancelled. No further action is required.",
+    targets: [{ targetType: "class", classId: class3A }],
+    eligible: class3APupils,
+  });
+  await seedSchoolActivity(client, {
+    organisationId: orgId,
+    createdBy: adminId,
+    title: "Coding club taster",
+    description: "Optional student self-sign-up workshop. Parent consent is not required.",
+    typeKey: "workshop",
+    academicYearId,
+    startsAt: "2026-10-16T15:30:00Z",
+    endsAt: "2026-10-16T16:30:00Z",
+    location: "ICT suite",
+    studentSignupEnabled: true,
+    consentRequired: false,
+    parentNotes: "Pupils in 3A can sign up themselves from the student portal.",
+    targets: [{ targetType: "class", classId: class3A }],
+    eligible: class3APupils,
+  });
+  await notify(client, {
+    organisationId: orgId,
+    recipientUserId: parentId,
+    createdBy: adminId,
+    type: "activity_consent_required",
+    category: "activities",
+    title: "Consent needed: Year 3 Science Museum visit",
+    body: "Please respond for Year 3 Science Museum visit. This is a school consent acknowledgement, not an electronic signature.",
   });
 
   await notify(client, {
@@ -3758,6 +4167,30 @@ async function seedOakAcademy(
     category: "homework",
     title: "New learning work",
     body: "New learning work: Oak comprehension",
+  });
+
+  await seedSchoolActivity(client, {
+    organisationId: orgId,
+    createdBy: adminId,
+    title: "Oak harbour visit",
+    description: "Oak Academy Year 3 visit. Greenwood must never see this activity.",
+    typeKey: "visit",
+    academicYearId,
+    startsAt: "2026-11-18T09:00:00Z",
+    endsAt: "2026-11-18T14:00:00Z",
+    location: "Harbour Light visitor centre",
+    consentRequired: true,
+    parentNotes: "Oak-only activity for isolation testing.",
+    staffNotes: "Oak internal staffing note.",
+    targets: [{ targetType: "class", classId: class3.rows[0]!.id }],
+    staff: [{ staffUserId: teacherId, staffRole: "lead" }],
+    eligible: [
+      {
+        studentProfileId: niamh.profileId,
+        classId: class3.rows[0]!.id,
+        yearGroupId: yearGroups.get("3")!,
+      },
+    ],
   });
 
   return {

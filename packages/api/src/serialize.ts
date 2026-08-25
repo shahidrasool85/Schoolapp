@@ -1347,3 +1347,157 @@ export function mapPublishedReportSection(section: Record<string, unknown>) {
     sortOrder: section.sortOrder ?? section.sort_order ?? 0,
   };
 }
+
+export function mapSchoolActivity(
+  row: Record<string, unknown>,
+  options?: { includeInternal?: boolean; includeStaffNotes?: boolean; portal?: boolean },
+) {
+  const includeInternal = options?.includeInternal !== false && !options?.portal;
+  const includeStaffNotes = includeInternal && options?.includeStaffNotes === true;
+  const base = {
+    source: "activity" as const,
+    id: row.id,
+    title: row.title,
+    description: row.description ?? null,
+    activityTypeId: row.activity_type_id,
+    activityTypeKey: row.activity_type_key ?? null,
+    activityTypeName: row.activity_type_name ?? null,
+    status: row.status,
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    allDay: row.all_day,
+    location: row.location ?? null,
+    externalAddress: row.external_address ?? null,
+    meetingPoint: row.meeting_point ?? null,
+    returnPoint: row.return_point ?? null,
+    capacity: row.capacity ?? null,
+    responseDeadlineAt: row.response_deadline_at ?? null,
+    allowResponsesAfterDeadline: row.allow_responses_after_deadline,
+    consentRequired: row.consent_required,
+    parentResponseRequired: row.parent_response_required,
+    studentSignupEnabled: row.student_signup_enabled,
+    studentVisible: row.student_visible,
+    parentVisible: row.parent_visible,
+    occurrenceKind: row.occurrence_kind,
+    recurrenceWeekdays: row.recurrence_weekdays ?? null,
+    recurrenceUntil: row.recurrence_until ?? null,
+    consentVersion: row.consent_version,
+    parentNotes: row.parent_notes ?? null,
+    academicYearId: row.academic_year_id ?? null,
+    createdAt: row.created_at,
+    publishedAt: row.published_at ?? null,
+    cancelledAt: row.cancelled_at ?? null,
+    cancelReason: row.cancel_reason ?? null,
+  };
+  if (!includeInternal) return base;
+  return {
+    ...base,
+    ...(includeStaffNotes ? { staffNotes: row.staff_notes ?? null } : {}),
+    createdBy: row.created_by,
+    publishedBy: row.published_by ?? null,
+  };
+}
+
+export function mapActivityType(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    key: row.key,
+    name: row.name,
+    sortOrder: row.sort_order,
+    isSystem: row.is_system,
+    isActive: row.is_active,
+  };
+}
+
+export function mapActivityTarget(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    targetType: row.target_type,
+    classId: row.class_id ?? null,
+    yearGroupId: row.year_group_id ?? null,
+    studentProfileId: row.student_profile_id ?? null,
+    staffUserId: row.staff_user_id ?? null,
+  };
+}
+
+export function mapActivityStaff(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    staffUserId: row.staff_user_id,
+    staffRole: row.staff_role,
+    fullName: row.full_name ?? null,
+  };
+}
+
+export function mapActivityParticipant(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    studentProfileId: row.student_profile_id,
+    legalName: row.legal_name ?? null,
+    registrationStatus: row.registration_status,
+    waitingListPosition: row.waiting_list_position ?? null,
+    attendanceStatus: row.attendance_status ?? null,
+    source: row.source,
+    joinedAt: row.joined_at,
+    confirmedAt: row.confirmed_at ?? null,
+    withdrawnAt: row.withdrawn_at ?? null,
+    className: row.class_name ?? null,
+    yearGroupName: row.year_group_name ?? null,
+  };
+}
+
+export function mapActivityResponse(row: Record<string, unknown>, options?: { includeStaffNote?: boolean }) {
+  const base = {
+    id: row.id,
+    studentProfileId: row.student_profile_id,
+    response: row.response,
+    isEffective: row.is_effective,
+    channel: row.channel,
+    comment: row.comment ?? null,
+    emergencyMedicalAcknowledged: row.emergency_medical_acknowledged,
+    consentVersion: row.consent_version,
+    wordingSnapshot: row.wording_snapshot,
+    respondedAt: row.responded_at,
+    withdrawnAt: row.withdrawn_at ?? null,
+    withdrawalReason: row.withdrawal_reason ?? null,
+    actorUserId: row.actor_user_id,
+    guardianUserId: row.guardian_user_id ?? null,
+  };
+  if (!options?.includeStaffNote) return base;
+  return { ...base, staffNote: row.staff_note ?? null };
+}
+
+export function mapActivityDocument(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    title: row.title,
+    visibility: row.visibility,
+    originalFilename: row.original_filename ?? null,
+    contentType: row.content_type ?? null,
+    byteSize: row.byte_size ?? null,
+    downloadPath: row.stored_object_id ? `/api/v1/files/${row.stored_object_id}` : null,
+    createdAt: row.created_at,
+  };
+}
+
+export function mapActivityUpdate(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    body: row.body,
+    parentVisible: row.parent_visible,
+    studentVisible: row.student_visible,
+    publishedAt: row.published_at,
+    publishedBy: row.published_by ?? null,
+  };
+}
+
+export function mapActivityClause(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    clauseKey: row.clause_key,
+    title: row.title,
+    wording: row.wording,
+    required: row.required,
+    sortOrder: row.sort_order,
+  };
+}

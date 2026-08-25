@@ -13,6 +13,7 @@ import {
   STUDENT_DASHBOARD_SECTIONS,
   summariseAttendanceMarks,
   isoDate,
+  listCalendarActivities,
 } from "@schoolapp/core";
 import { listPupilTimetable } from "./timetable";
 import { mapTimetableOccurrence } from "../serialize";
@@ -48,6 +49,12 @@ import {
   loadPortalEventSubjects,
   markPortalAnnouncementRead,
 } from "../communications-portal";
+import {
+  calendarItemsFromActivities,
+  listPortalActivities,
+  loadPortalActivityDetail,
+  studentSignupForActivity,
+} from "../activities-portal";
 import { z } from "zod";
 
 export function registerStudentRoutes(app: SchoolappApi) {
@@ -497,10 +504,20 @@ export function registerStudentRoutes(app: SchoolappApi) {
       }
       const from = c.req.query("from") ?? isoDate();
       const to = c.req.query("to") ?? addDaysSafe(from, 14);
+      const activityFrom = c.req.query("from") ?? null;
+      const activityTo = c.req.query("to") ?? null;
       const lessons = await listPupilTimetable(client, orgId, studentProfileId, from, to);
+      const activityRows = await listCalendarActivities(client, {
+        organisationId: orgId,
+        from: activityFrom,
+        to: activityTo,
+        studentIds: [studentProfileId],
+        studentVisibleOnly: true,
+      });
       return c.json({
         events: withRelated,
         lessons: lessons.map((item) => mapTimetableOccurrence(item, { includeInternal: false })),
+        activities: calendarItemsFromActivities(activityRows, activityFrom, activityTo),
       });
     }),
   );
@@ -537,6 +554,55 @@ export function registerStudentRoutes(app: SchoolappApi) {
           related: await loadPortalEventSubjects(client, orgId, eventId, userId, [studentProfileId]),
         },
       });
+    }),
+  );
+
+  app.get("/student/activities", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACTIVITIES_READ_SELF);
+      const studentProfileId = await requireStudentPortalEnabled(client, orgId, userId);
+      const activities = await listPortalActivities(client, {
+        orgId,
+        studentIds: [studentProfileId],
+        audience: "student",
+      });
+      return c.json({ activities });
+    }),
+  );
+
+  app.get("/student/activities/:activityId", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACTIVITIES_READ_SELF);
+      const studentProfileId = await requireStudentPortalEnabled(client, orgId, userId);
+      const activityId = uuidRouteParam(c, "activityId");
+      return c.json(
+        await loadPortalActivityDetail(client, {
+          orgId,
+          activityId,
+          studentId: studentProfileId,
+          audience: "student",
+        }),
+      );
+    }),
+  );
+
+  app.post("/student/activities/:activityId/signup", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACTIVITIES_READ_SELF);
+      await requireStudentPortalEnabled(client, orgId, userId);
+      const activityId = uuidRouteParam(c, "activityId");
+      const result = await studentSignupForActivity(client, { orgId, userId, activityId });
+      return c.json(result, 201);
+    }),
+  );
+
+  app.post("/student/activities/:activityId/withdraw", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACTIVITIES_READ_SELF);
+      await requireStudentPortalEnabled(client, orgId, userId);
+      const activityId = uuidRouteParam(c, "activityId");
+      const result = await studentSignupForActivity(client, { orgId, userId, activityId, withdraw: true });
+      return c.json(result);
     }),
   );
 }

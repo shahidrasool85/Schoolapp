@@ -27,6 +27,7 @@ import { registerPastoralRoutes } from "./routes/pastoral";
 import { registerSafeguardingRoutes } from "./routes/safeguarding";
 import { registerTimetableRoutes } from "./routes/timetable";
 import { registerFileRoutes } from "./routes/files";
+import { registerActivityRoutes } from "./routes/activities";
 
 export type { ApiConfig, ApiEnv, SchoolappApi } from "./types";
 
@@ -93,6 +94,7 @@ export function createApiApp(config: ApiConfig) {
   registerPastoralRoutes(app);
   registerSafeguardingRoutes(app);
   registerTimetableRoutes(app);
+  registerActivityRoutes(app);
 
   app.notFound((c) =>
     c.json({ error: { code: "not_found", message: "Not found" } }, 404),

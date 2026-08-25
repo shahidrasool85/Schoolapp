@@ -594,6 +594,7 @@ export {
   FakePaymentProvider,
   StripePaymentProvider,
   signFakePaymentEvent,
+  signFakeCheckoutToken,
   parseFakePaymentEvent,
   verifyStripeSignature,
   mapStripeEvent,

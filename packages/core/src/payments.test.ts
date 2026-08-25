@@ -79,6 +79,7 @@ describe("fake provider signatures", () => {
     const signature = provider.signEvent(event);
     expect(provider.verifyWebhook(JSON.stringify(event), signature).eventId).toBe("evt_1");
     expect(() => provider.verifyWebhook(JSON.stringify(event), "nope")).toThrow(/Invalid provider signature/);
+    expect(provider.verifyCheckoutToken("sess-1", "nope")).toBe(false);
   });
 });
 

@@ -38,6 +38,10 @@ function jsonHeaders(token: string, orgId: string) {
   };
 }
 
+function demoCheckoutToken(checkoutUrl: string): string {
+  return new URL(checkoutUrl, "http://local.test").searchParams.get("t") ?? "";
+}
+
 async function seedYear(app: ReturnType<typeof testApp>, hdrs: ReturnType<typeof jsonHeaders>) {
   const year = (await (
     await app.request("/api/v1/academic-years", {
@@ -296,6 +300,15 @@ describe("Phase 15 payments foundation", () => {
     });
     expect(checkout.status).toBe(200);
     const session = (await checkout.json()) as { sessionId: string; checkoutUrl: string };
+    const failToken = demoCheckoutToken(session.checkoutUrl);
+    const unauthed = await app.request(`/api/v1/payments/demo/checkout/${session.sessionId}/complete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outcome: "succeeded" }),
+    });
+    expect(unauthed.status).toBe(401);
+    const leaked = await app.request(`/api/v1/payments/demo/checkout/${session.sessionId}`);
+    expect(leaked.status).toBe(401);
     const again = await app.request(`/api/v1/parent/payments/${charge.charge.id}/checkout`, {
       method: "POST",
       headers: parentHdrs,
@@ -306,7 +319,7 @@ describe("Phase 15 payments foundation", () => {
     const failed = await app.request(`/api/v1/payments/demo/checkout/${session.sessionId}/complete`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ outcome: "failed" }),
+      body: JSON.stringify({ outcome: "failed", t: failToken }),
     });
     expect(failed.status).toBe(200);
     const afterFail = (await (await app.request(`/api/v1/parent/payments/${charge.charge.id}`, { headers: parentHdrs })).json()) as {
@@ -320,17 +333,18 @@ describe("Phase 15 payments foundation", () => {
       headers: parentHdrs,
       body: JSON.stringify({ idempotencyKey: `pay-ok-${id}` }),
     });
-    const successSession = (await successCheckout.json()) as { sessionId: string };
+    const successSession = (await successCheckout.json()) as { sessionId: string; checkoutUrl: string };
+    const successToken = demoCheckoutToken(successSession.checkoutUrl);
     const paid = await app.request(`/api/v1/payments/demo/checkout/${successSession.sessionId}/complete`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ outcome: "succeeded" }),
+      body: JSON.stringify({ outcome: "succeeded", t: successToken }),
     });
     expect(paid.status).toBe(200);
     const replay = await app.request(`/api/v1/payments/demo/checkout/${successSession.sessionId}/complete`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ outcome: "succeeded" }),
+      body: JSON.stringify({ outcome: "succeeded", t: successToken }),
     });
     expect(replay.status).toBe(200);
     const afterPay = (await (await app.request(`/api/v1/finance/charges/${charge.charge.id}`, { headers: hdrs })).json()) as {
@@ -343,6 +357,17 @@ describe("Phase 15 payments foundation", () => {
     expect(afterPay.charge.netPaidMinor).toBe(1250);
     expect(afterPay.transactions.filter((row) => row.status === "succeeded")).toHaveLength(1);
     expect(afterPay.receipts).toHaveLength(1);
+    const lateFail = await app.request(`/api/v1/payments/demo/checkout/${successSession.sessionId}/complete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outcome: "failed", t: successToken }),
+    });
+    expect(lateFail.status).toBe(200);
+    const stillPaid = (await (await app.request(`/api/v1/finance/charges/${charge.charge.id}`, { headers: hdrs })).json()) as {
+      charge: { status: string; outstandingMinor: number };
+    };
+    expect(stillPaid.charge.status).toBe("paid");
+    expect(stillPaid.charge.outstandingMinor).toBe(0);
 
     const provider = new FakePaymentProvider("test-fake-payment-webhook");
     const bad = {
@@ -365,6 +390,38 @@ describe("Phase 15 payments foundation", () => {
       body: JSON.stringify(bad),
     });
     expect(unknown.status).toBe(400);
+
+    const extraCharge = (await (
+      await app.request("/api/v1/finance/charges", {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({
+          title: "Cancelled trip",
+          categoryKey: "trip",
+          studentProfileId: pupil.student.id,
+          amountMinor: 500,
+          currency: "GBP",
+        }),
+      })
+    ).json()) as { charge: { id: string } };
+    const extraCheckout = await app.request(`/api/v1/parent/payments/${extraCharge.charge.id}/checkout`, {
+      method: "POST",
+      headers: parentHdrs,
+      body: JSON.stringify({ idempotencyKey: `pay-cancel-${id}` }),
+    });
+    const extraSession = (await extraCheckout.json()) as { sessionId: string; checkoutUrl: string };
+    await app.request(`/api/v1/finance/charges/${extraCharge.charge.id}/cancel`, { method: "POST", headers: hdrs, body: "{}" });
+    const lateSuccess = await app.request(`/api/v1/payments/demo/checkout/${extraSession.sessionId}/complete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outcome: "succeeded", t: demoCheckoutToken(extraSession.checkoutUrl) }),
+    });
+    expect(lateSuccess.status).toBe(200);
+    const cancelled = (await (await app.request(`/api/v1/finance/charges/${extraCharge.charge.id}`, { headers: hdrs })).json()) as {
+      charge: { status: string; netPaidMinor: number };
+    };
+    expect(cancelled.charge.status).toBe("cancelled");
+    expect(cancelled.charge.netPaidMinor).toBe(0);
   });
 
   it("prevents overpayment, records offline payments, adjustments, and refunds", async () => {

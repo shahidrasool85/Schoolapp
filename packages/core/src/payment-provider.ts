@@ -100,7 +100,8 @@ export class FakePaymentProvider implements PaymentProvider {
 
   async createSession(input: CreatePaymentSessionInput): Promise<PaymentSessionResult> {
     const providerSessionId = `fake_sess_${input.sessionId.replace(/-/g, "")}`;
-    const checkoutUrl = `/payments/demo/checkout/${input.sessionId}`;
+    const token = signFakeCheckoutToken(this.webhookSecret, input.sessionId);
+    const checkoutUrl = `/payments/demo/checkout/${input.sessionId}?t=${token}`;
     return {
       providerKey: "fake",
       providerSessionId,
@@ -118,6 +119,12 @@ export class FakePaymentProvider implements PaymentProvider {
       providerRefundId: `fake_re_${input.providerPaymentId.slice(-12)}_${input.amountMinor}`,
       status: "succeeded",
     };
+  }
+
+  verifyCheckoutToken(sessionId: string, token: string | null | undefined): boolean {
+    if (!token) return false;
+    const expected = signFakeCheckoutToken(this.webhookSecret, sessionId);
+    return safeEqual(token, expected);
   }
 
   signEvent(event: ProviderEvent): string {
@@ -230,6 +237,10 @@ export class StripePaymentProvider implements PaymentProvider {
       throw new AppError(503, "provider_unavailable", "The payment provider is temporarily unavailable");
     }
   }
+}
+
+export function signFakeCheckoutToken(secret: string, sessionId: string): string {
+  return createHmac("sha256", secret).update(`checkout:${sessionId}`).digest("hex");
 }
 
 export function signFakePaymentEvent(secret: string, event: ProviderEvent): string {

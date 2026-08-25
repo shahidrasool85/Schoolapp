@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { api } from "../../../../../lib/api";
 import { formatMinor } from "../../../../../lib/money";
 
@@ -16,22 +16,24 @@ type Session = {
 
 export default function DemoCheckoutPage() {
   const params = useParams<{ sessionId: string }>();
+  const search = useSearchParams();
+  const token = search.get("t") ?? "";
   const [session, setSession] = useState<Session | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    api<{ session: Session }>(`/api/v1/payments/demo/checkout/${params.sessionId}`)
+    api<{ session: Session }>(`/api/v1/payments/demo/checkout/${params.sessionId}?t=${encodeURIComponent(token)}`)
       .then((body) => setSession(body.session))
       .catch((err: Error) => setError(err.message));
-  }, [params.sessionId]);
+  }, [params.sessionId, token]);
 
   async function complete(outcome: "succeeded" | "failed" | "cancelled") {
     setError("");
     try {
       const body = await api<{ chargeId: string }>(`/api/v1/payments/demo/checkout/${params.sessionId}/complete`, {
         method: "POST",
-        body: JSON.stringify({ outcome }),
+        body: JSON.stringify({ outcome, t: token }),
       });
       if (outcome === "cancelled") {
         window.location.href = `/parent/payments/${body.chargeId}?status=cancelled`;

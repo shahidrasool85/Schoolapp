@@ -38,7 +38,7 @@ Provider webhooks are authoritative for asynchronous success. The success URL is
 
 ### Fake provider
 
-Demo checkout posts a signed event to the same webhook handler. Replay of the same event id does not double-credit.
+Demo checkout posts a signed event to the same webhook handler. Replay of the same event id does not double-credit. The demo checkout URL includes an HMAC token (`t=`); session UUID alone cannot load or complete checkout.
 
 ### PCI-minimising approach
 

@@ -766,12 +766,15 @@ export async function settleProviderEvent(
   }
 
   if (input.event.outcome === "failed" || input.event.outcome === "cancelled") {
+    if (transaction.status !== "pending") {
+      return;
+    }
     await client.query(
       `update school_payment_transactions
           set status = $3, failed_at = case when $3 = 'failed' then now() else failed_at end,
               cancelled_at = case when $3 = 'cancelled' then now() else cancelled_at end,
               failure_code = $4
-        where id = $1 and organisation_id = $2`,
+        where id = $1 and organisation_id = $2 and status = 'pending'`,
       [
         transaction.id,
         input.organisationId,
@@ -787,8 +790,13 @@ export async function settleProviderEvent(
   }
 
   if (input.event.outcome !== "succeeded") return;
-  if (transaction.status === "succeeded" || transaction.status === "partially_refunded" || transaction.status === "refunded") {
+  if (transaction.status !== "pending") {
     return;
+  }
+  const chargeStatus = String(charge.status);
+  if (chargeStatus === "cancelled" || chargeStatus === "waived") {
+    await failTransaction(client, transaction, "charge_not_payable");
+    throw new AppError(409, "payment_unavailable", "This charge is no longer payable");
   }
 
   const balance = await chargeBalanceFor(client, charge);

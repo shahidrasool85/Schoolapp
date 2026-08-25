@@ -1,7 +1,20 @@
-import { AppError, settleProviderEvent } from "@schoolapp/core";
+import { AppError, settleProviderEvent, type PaymentProvider } from "@schoolapp/core";
 import { withTenantContext } from "@schoolapp/db";
 import type { SchoolappApi } from "../types";
 import { paymentProviderOf } from "../payments-context";
+
+function requireFakeCheckoutToken(
+  provider: PaymentProvider,
+  sessionId: string,
+  token: string | null | undefined,
+): void {
+  if (provider.key !== "fake" || !("verifyCheckoutToken" in provider)) {
+    throw new AppError(404, "not_found", "Not found");
+  }
+  if (!(provider as { verifyCheckoutToken: (id: string, token: string | null | undefined) => boolean }).verifyCheckoutToken(sessionId, token)) {
+    throw new AppError(401, "unauthenticated", "Invalid checkout token");
+  }
+}
 
 export function registerPaymentWebhookRoutes(app: SchoolappApi) {
   app.post("/webhooks/payments/:provider", async (c) => {
@@ -106,6 +119,8 @@ export function registerPaymentWebhookRoutes(app: SchoolappApi) {
 
   app.get("/payments/demo/checkout/:sessionId", async (c) => {
     const sessionId = c.req.param("sessionId");
+    const provider = paymentProviderOf(c);
+    requireFakeCheckoutToken(provider, sessionId, c.req.query("t"));
     const session = await c.get("config").pools.app.query<{
       amount_minor: string;
       currency: string;
@@ -133,15 +148,13 @@ export function registerPaymentWebhookRoutes(app: SchoolappApi) {
 
   app.post("/payments/demo/checkout/:sessionId/complete", async (c) => {
     const sessionId = c.req.param("sessionId");
-    const parsed = (await c.req.json().catch(() => ({}))) as { outcome?: string };
+    const parsed = (await c.req.json().catch(() => ({}))) as { outcome?: string; t?: string };
     const outcome = parsed.outcome ?? "succeeded";
     if (!["succeeded", "failed", "cancelled"].includes(outcome)) {
       throw new AppError(400, "validation_failed", "Invalid checkout outcome");
     }
     const provider = paymentProviderOf(c);
-    if (provider.key !== "fake") {
-      throw new AppError(404, "not_found", "Not found");
-    }
+    requireFakeCheckoutToken(provider, sessionId, parsed.t ?? c.req.query("t"));
     const session = await c.get("config").pools.app.query<{
       organisation_id: string;
       provider_session_id: string;

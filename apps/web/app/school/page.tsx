@@ -410,8 +410,8 @@ export default function SchoolDashboardPage() {
               </li>
             ) : null}
           </ul>
-          {!admissions?.counts.awaitingReview &&
-          !outstanding?.overdueCount &&
+          {!(admissions && (admissions.counts.awaitingReview > 0 || admissions.counts.applicationsSubmitted > 0)) &&
+          !(outstanding && outstanding.overdueCount > 0) &&
           !messagingUnread &&
           awaitingMarking === 0 ? (
             <EmptyState title="Nothing waiting" description="Admissions, payments, messages and marking queues are clear." />

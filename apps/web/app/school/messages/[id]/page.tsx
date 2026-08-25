@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ConfirmationDialog, EmptyState, LoadingState, PageError, PageHeader, StatusBadge } from "../../../../components/ui";
+import { Alert, ConfirmationDialog, EmptyState, LoadingState, PageError, PageHeader, StatusBadge } from "../../../../components/ui";
 import { Button } from "../../../../components/ui/button";
 import { api, downloadAuthenticated } from "../../../../lib/api";
 import { userFacingError } from "../../../../lib/errors";
@@ -34,7 +34,8 @@ export default function StaffConversationPage() {
   const params = useParams<{ id: string }>();
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [actionError, setActionError] = useState("");
   const [notice, setNotice] = useState("");
   const [confirm, setConfirm] = useState<"close" | "archive" | "redact" | null>(null);
   const [redactId, setRedactId] = useState<string | null>(null);
@@ -50,7 +51,7 @@ export default function StaffConversationPage() {
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(userFacingError(err, "Could not load this conversation.")));
+    load().catch((err: Error) => setLoadError(userFacingError(err, "Could not load this conversation.")));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
 
@@ -74,9 +75,10 @@ export default function StaffConversationPage() {
         });
       }
       form.reset();
+      setActionError("");
       await load();
     } catch (err) {
-      setError(userFacingError(err, "Could not send the message"));
+      setActionError(userFacingError(err, "Could not send the message"));
     }
   }
 
@@ -110,7 +112,7 @@ export default function StaffConversationPage() {
     await load();
   }
 
-  if (error) return <PageError title="Conversation unavailable" description={error} />;
+  if (loadError) return <PageError title="Conversation unavailable" description={loadError} />;
   if (!conversation) return <LoadingState label="Loading conversation…" />;
 
   return (
@@ -135,7 +137,7 @@ export default function StaffConversationPage() {
               </Button>
             ) : null}
             {conversation.canManage && conversation.status !== "open" ? (
-              <Button type="button" variant="secondary" onClick={() => reopenThread().catch((err: Error) => setError(userFacingError(err)))}>
+              <Button type="button" variant="secondary" onClick={() => reopenThread().catch((err: Error) => setActionError(userFacingError(err)))}>
                 Reopen
               </Button>
             ) : null}
@@ -147,6 +149,7 @@ export default function StaffConversationPage() {
           </>
         }
       />
+      {actionError ? <Alert tone="danger">{actionError}</Alert> : null}
       {conversation.status === "closed" ? (
         <p className="alert alert-info" role="status">
           This conversation is closed. New replies are not allowed unless a member of staff reopens it.
@@ -167,7 +170,7 @@ export default function StaffConversationPage() {
                 variant="secondary"
                 onClick={() =>
                   downloadAuthenticated(file.downloadPath, file.originalFilename).catch((err: Error) =>
-                    setError(userFacingError(err)),
+                    setActionError(userFacingError(err)),
                   )
                 }
               >
@@ -216,7 +219,7 @@ export default function StaffConversationPage() {
         confirmLabel="Close conversation"
         danger
         onClose={() => setConfirm(null)}
-        onConfirm={() => closeThread().catch((err: Error) => setError(userFacingError(err)))}
+        onConfirm={() => closeThread().catch((err: Error) => setActionError(userFacingError(err)))}
       />
       <ConfirmationDialog
         open={confirm === "archive"}
@@ -224,7 +227,7 @@ export default function StaffConversationPage() {
         description="It will move to your archived folder. You can still open it later."
         confirmLabel="Archive"
         onClose={() => setConfirm(null)}
-        onConfirm={() => archiveThread().catch((err: Error) => setError(userFacingError(err)))}
+        onConfirm={() => archiveThread().catch((err: Error) => setActionError(userFacingError(err)))}
       />
       <ConfirmationDialog
         open={confirm === "redact"}
@@ -237,7 +240,7 @@ export default function StaffConversationPage() {
           setRedactId(null);
         }}
         onConfirm={() =>
-          redactId ? redact(redactId).catch((err: Error) => setError(userFacingError(err))) : undefined
+          redactId ? redact(redactId).catch((err: Error) => setActionError(userFacingError(err))) : undefined
         }
       />
     </>

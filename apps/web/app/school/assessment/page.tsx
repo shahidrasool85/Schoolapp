@@ -1,32 +1,37 @@
 "use client";
 
 import Link from "next/link";
+import { Card, PageHeader } from "../../../components/ui";
 
 export default function AssessmentHubPage() {
   return (
     <>
-      <h1>Assessment &amp; Progress</h1>
-      <p className="muted">
-        Formal assessments, result entry, and progress reports. Separate from Teaching &amp; Learning
-        assignment marks.
-      </p>
-      <div className="stat-grid">
-        <Link className="stat-card" href="/school/assessment/assessments">
-          <span>Assessments</span>
-          <strong>Open</strong>
-        </Link>
-        <Link className="stat-card" href="/school/assessment/results">
-          <span>Results</span>
-          <strong>Enter</strong>
-        </Link>
-        <Link className="stat-card" href="/school/assessment/reports">
-          <span>Reports</span>
-          <strong>Open</strong>
-        </Link>
-        <Link className="stat-card" href="/school/assessment/periods">
-          <span>Reporting periods</span>
-          <strong>Configure</strong>
-        </Link>
+      <PageHeader
+        title="Assessment & Progress"
+        description="Formal assessments, result entry, and progress reports. Separate from Teaching & Learning assignment marks."
+        actions={
+          <Link className="button" href="/school/assessment/assessments/new">
+            Create assessment
+          </Link>
+        }
+      />
+      <div className="cards">
+        <Card href="/school/assessment/assessments">
+          <strong>Assessments</strong>
+          <p>Create and manage formal assessments.</p>
+        </Card>
+        <Card href="/school/assessment/results">
+          <strong>Results</strong>
+          <p>Enter and review recorded results.</p>
+        </Card>
+        <Card href="/school/assessment/reports">
+          <strong>Reports</strong>
+          <p>Draft, review, and publish progress reports.</p>
+        </Card>
+        <Card href="/school/assessment/periods">
+          <strong>Reporting periods</strong>
+          <p>Configure the academic reporting calendar.</p>
+        </Card>
       </div>
     </>
   );

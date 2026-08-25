@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
+import { Alert, EmptyState, FilterBar, PageHeader, StatusBadge } from "../../../../components/ui";
 import { api } from "../../../../lib/api";
+import { userFacingError } from "../../../../lib/errors";
 
 type Occurrence = {
   entryId: string;
@@ -36,7 +38,7 @@ export default function MyTimetablePage() {
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    load().catch((err: Error) => setError(userFacingError(err, "Could not load your timetable.")));
   }, []);
 
   async function takeAttendance(entryId: string, date: string) {
@@ -50,28 +52,27 @@ export default function MyTimetablePage() {
 
   return (
     <>
-      <h1>My Timetable</h1>
-      <form
-        className="toolbar"
+      <PageHeader title="My Timetable" description="Your assigned lessons for the selected week, with quick attendance and learning links." />
+      <FilterBar
         onSubmit={(event: FormEvent) => {
           event.preventDefault();
-          load().catch((err: Error) => setError(err.message));
+          load().catch((err: Error) => setError(userFacingError(err)));
         }}
+        actions={<button type="submit">Show week</button>}
       >
-        <label>
+        <label htmlFor="timetable-week">
           Week starting
-          <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+          <input id="timetable-week" type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
         </label>
-        <button type="submit">Show week</button>
-      </form>
-      {error ? <p className="error">{error}</p> : null}
-      {registerError ? <p className="error">{registerError}</p> : null}
+      </FilterBar>
+      {error ? <Alert tone="danger">{error}</Alert> : null}
+      {registerError ? <Alert tone="danger">{registerError}</Alert> : null}
       {items.length === 0 ? (
-        <div className="empty-state">
-          <h2>No lessons this week</h2>
-          <p>Nothing is assigned to you for this week. Try another week or open the school timetable.</p>
-          <Link href="/school/timetable/schedule">School timetable</Link>
-        </div>
+        <EmptyState
+          title="No lessons this week"
+          description="Nothing is assigned to you for this week. Try another week or open the school timetable."
+          action={<Link href="/school/timetable/schedule">School timetable</Link>}
+        />
       ) : (
         <div className="stack">
           {DAYS.map((day, index) => {
@@ -96,13 +97,15 @@ export default function MyTimetablePage() {
                         </p>
                       </div>
                       {lesson.status === "cancelled" ? (
-                        <span className="badge tone-danger">Cancelled</span>
+                        <StatusBadge status="cancelled" />
                       ) : (
                         <div className="page-header-actions">
                           <button
                             type="button"
                             onClick={() =>
-                              takeAttendance(lesson.entryId, lesson.date).catch((err: Error) => setRegisterError(err.message))
+                              takeAttendance(lesson.entryId, lesson.date).catch((err: Error) =>
+                                setRegisterError(userFacingError(err)),
+                              )
                             }
                           >
                             Take attendance

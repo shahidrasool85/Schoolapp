@@ -3,6 +3,9 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { Button } from "./button";
 
+const FOCUSABLE =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export function ConfirmationDialog({
   open,
   title,
@@ -21,18 +24,52 @@ export function ConfirmationDialog({
   onClose: () => void;
 }) {
   const headingId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     cancelRef.current?.focus();
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+
+    function focusables() {
+      return Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []).filter(
+        (el) => !el.hasAttribute("disabled") && el.getAttribute("aria-hidden") !== "true",
+      );
     }
+
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = focusables();
+      if (items.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = items[0]!;
+      const last = items[items.length - 1]!;
+      const active = document.activeElement;
+      if (event.shiftKey) {
+        if (active === first || !dialogRef.current?.contains(active)) {
+          event.preventDefault();
+          last.focus();
+        }
+      } else if (active === last || !dialogRef.current?.contains(active)) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previousOverflow;
       previous?.focus();
     };
   }, [open, onClose]);
@@ -42,6 +79,7 @@ export function ConfirmationDialog({
   return (
     <div className="dialog-backdrop" onClick={onClose}>
       <div
+        ref={dialogRef}
         className="dialog"
         role="dialog"
         aria-modal="true"

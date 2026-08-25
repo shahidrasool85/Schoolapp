@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
-import { api, ApiError } from "../../../../lib/api";
+import { Alert, DataTable, EmptyState, FilterBar, PageHeader, StatusBadge } from "../../../../components/ui";
+import { api } from "../../../../lib/api";
+import { userFacingError } from "../../../../lib/errors";
 
 type Option = { id: string; name: string };
 type Staff = { id: string; fullName?: string; name?: string };
@@ -84,7 +86,7 @@ export default function TimetableSchedulePage() {
   }
 
   useEffect(() => {
-    Promise.all([loadOptions(), loadGrid()]).catch((err: Error) => setError(err.message));
+    Promise.all([loadOptions(), loadGrid()]).catch((err: Error) => setError(userFacingError(err, "Could not load the timetable.")));
   }, []);
 
   async function onFilter(event: FormEvent) {
@@ -120,21 +122,24 @@ export default function TimetableSchedulePage() {
       event.currentTarget.reset();
       await loadGrid();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : (err as Error).message);
+      setError(userFacingError(err, "Could not save that timetable entry."));
     }
   }
 
   return (
     <>
-      <h1>Timetable</h1>
-      <form className="toolbar" onSubmit={onFilter}>
-        <label>
+      <PageHeader
+        title="Timetable"
+        description="Filter by week, class, teacher, or room. Drag-and-drop scheduling is not available."
+      />
+      <FilterBar onSubmit={(event) => onFilter(event).catch((err: Error) => setError(userFacingError(err)))} actions={<button type="submit">Apply filters</button>}>
+        <label htmlFor="schedule-week">
           Week starting
-          <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+          <input id="schedule-week" type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
         </label>
-        <label>
+        <label htmlFor="schedule-class">
           Class
-          <select value={classId} onChange={(event) => setClassId(event.target.value)}>
+          <select id="schedule-class" value={classId} onChange={(event) => setClassId(event.target.value)}>
             <option value="">All authorised classes</option>
             {classes.map((item) => (
               <option key={item.id} value={item.id}>
@@ -143,9 +148,9 @@ export default function TimetableSchedulePage() {
             ))}
           </select>
         </label>
-        <label>
+        <label htmlFor="schedule-teacher">
           Teacher
-          <select value={staffProfileId} onChange={(event) => setStaffProfileId(event.target.value)}>
+          <select id="schedule-teacher" value={staffProfileId} onChange={(event) => setStaffProfileId(event.target.value)}>
             <option value="">Any teacher</option>
             {teachers.map((item) => (
               <option key={item.id} value={item.id}>
@@ -154,9 +159,9 @@ export default function TimetableSchedulePage() {
             ))}
           </select>
         </label>
-        <label>
+        <label htmlFor="schedule-room">
           Room
-          <select value={roomId} onChange={(event) => setRoomId(event.target.value)}>
+          <select id="schedule-room" value={roomId} onChange={(event) => setRoomId(event.target.value)}>
             <option value="">Any room</option>
             {rooms.map((item) => (
               <option key={item.id} value={item.id}>
@@ -165,16 +170,22 @@ export default function TimetableSchedulePage() {
             ))}
           </select>
         </label>
-        <button type="submit">Apply filters</button>
-      </form>
-      {error ? <p className="error">{error}</p> : null}
-      {message ? <p>{message}</p> : null}
+      </FilterBar>
+      {error ? <Alert tone="danger">{error}</Alert> : null}
+      {message ? (
+        <p className="alert alert-success" role="status">
+          {message}
+        </p>
+      ) : null}
       {occurrences.length === 0 ? (
-        <p>No lessons in this view. Try the week of 7 September 2026 for the demo year.</p>
+        <EmptyState
+          title="No lessons in this view"
+          description="Try another class or teacher, or the week of 7 September 2026 for the demo year."
+        />
       ) : (
-        <table>
-          <thead>
-            <tr>
+        <DataTable
+          headers={
+            <>
               <th>Day</th>
               <th>Time</th>
               <th>Class</th>
@@ -182,26 +193,27 @@ export default function TimetableSchedulePage() {
               <th>Teacher</th>
               <th>Room</th>
               <th>Status</th>
+            </>
+          }
+        >
+          {occurrences.map((lesson) => (
+            <tr key={`${lesson.entryId}-${lesson.date}`}>
+              <td>
+                {DAYS[lesson.weekday - 1]} {lesson.date}
+              </td>
+              <td>
+                {lesson.startsAt.slice(0, 5)}–{lesson.endsAt.slice(0, 5)}
+              </td>
+              <td>{lesson.className}</td>
+              <td>{lesson.subjectName ?? "—"}</td>
+              <td>{lesson.teachers.map((teacher) => teacher.fullName).join(", ")}</td>
+              <td>{lesson.roomName ?? "—"}</td>
+              <td>
+                <StatusBadge status={lesson.covered ? "Cover" : lesson.status} />
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {occurrences.map((lesson) => (
-              <tr key={`${lesson.entryId}-${lesson.date}`}>
-                <td>
-                  {DAYS[lesson.weekday - 1]} {lesson.date}
-                </td>
-                <td>
-                  {lesson.startsAt.slice(0, 5)}–{lesson.endsAt.slice(0, 5)}
-                </td>
-                <td>{lesson.className}</td>
-                <td>{lesson.subjectName ?? "—"}</td>
-                <td>{lesson.teachers.map((teacher) => teacher.fullName).join(", ")}</td>
-                <td>{lesson.roomName ?? "—"}</td>
-                <td>{lesson.covered ? "Cover" : lesson.status}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+          ))}
+        </DataTable>
       )}
       <h2>Add a recurring lesson</h2>
       <form className="card form-grid" onSubmit={onCreate}>

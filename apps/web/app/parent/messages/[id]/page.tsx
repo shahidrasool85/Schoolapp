@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { ConfirmationDialog, LoadingState, PageError, PageHeader, StatusBadge } from "../../../../components/ui";
+import { Alert, ConfirmationDialog, LoadingState, PageError, PageHeader, StatusBadge } from "../../../../components/ui";
 import { Button } from "../../../../components/ui/button";
 import { api, downloadAuthenticated } from "../../../../lib/api";
 import { userFacingError } from "../../../../lib/errors";
@@ -29,7 +29,8 @@ export default function ParentConversationPage() {
   const params = useParams<{ id: string }>();
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [actionError, setActionError] = useState("");
   const [confirmArchive, setConfirmArchive] = useState(false);
 
   async function load() {
@@ -43,7 +44,7 @@ export default function ParentConversationPage() {
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(userFacingError(err, "Could not load this conversation.")));
+    load().catch((err: Error) => setLoadError(userFacingError(err, "Could not load this conversation.")));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
 
@@ -66,13 +67,14 @@ export default function ParentConversationPage() {
         });
       }
       form.reset();
+      setActionError("");
       await load();
     } catch (err) {
-      setError(userFacingError(err, "Could not send the message"));
+      setActionError(userFacingError(err, "Could not send the message"));
     }
   }
 
-  if (error) return <PageError title="Conversation unavailable" description={error} />;
+  if (loadError) return <PageError title="Conversation unavailable" description={loadError} />;
   if (!conversation) return <LoadingState label="Loading conversation…" />;
 
   return (
@@ -95,6 +97,7 @@ export default function ParentConversationPage() {
           </>
         }
       />
+      {actionError ? <Alert tone="danger">{actionError}</Alert> : null}
       {conversation.status === "closed" ? (
         <p className="alert alert-info" role="status">
           This conversation is closed. You can still read it, but new replies are not allowed.
@@ -113,7 +116,7 @@ export default function ParentConversationPage() {
                 variant="secondary"
                 onClick={() =>
                   downloadAuthenticated(file.downloadPath, file.originalFilename).catch((err: Error) =>
-                    setError(userFacingError(err)),
+                    setActionError(userFacingError(err)),
                   )
                 }
               >
@@ -149,7 +152,7 @@ export default function ParentConversationPage() {
         onConfirm={() => {
           api(`/api/v1/parent/messages/${params.id}/archive`, { method: "POST", body: "{}" })
             .then(() => setConfirmArchive(false))
-            .catch((err: Error) => setError(userFacingError(err)));
+            .catch((err: Error) => setActionError(userFacingError(err)));
         }}
       />
     </>

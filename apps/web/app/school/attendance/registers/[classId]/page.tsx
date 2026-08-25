@@ -2,7 +2,9 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
+import { Alert, DataTable, PageHeader } from "../../../../../components/ui";
 import { api } from "../../../../../lib/api";
+import { userFacingError } from "../../../../../lib/errors";
 
 type SessionType = { id: string; key: string; name: string };
 type Code = { id: string; code: string; name: string; category: string };
@@ -81,7 +83,7 @@ export default function ClassRegisterPage() {
     setError("");
     const initialDate = searchParams.get("date") ?? "";
     const initialSession = searchParams.get("sessionTypeId") ?? "";
-    load(initialDate, initialSession).catch((err: Error) => setError(err.message));
+    load(initialDate, initialSession).catch((err: Error) => setError(userFacingError(err, "Could not load this register.")));
     return () => {
       loadSeq.current += 1;
     };
@@ -155,17 +157,23 @@ export default function ClassRegisterPage() {
     date === loadedDate &&
     sessionTypeId === loadedSessionTypeId;
 
-  if (error) return <p className="error">{error}</p>;
+  const markedCount = pupils.filter((pupil) => pupil.mark).length;
 
   return (
     <>
-      <h1>{className} register</h1>
-      <p className="muted">Mark each pupil, add late minutes or a note where needed, then save the register.</p>
-      <form className="card form-grid" onSubmit={(event) => reload(event).catch((err: Error) => setError(err.message))}>
-        <label>Date<input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
-        <label>
+      <PageHeader
+        title={`${className} register`}
+        description="Mark each pupil, add late minutes or a note where needed, then save the register."
+      />
+      {error ? <Alert tone="danger">{error}</Alert> : null}
+      <form className="card form-grid" onSubmit={(event) => reload(event).catch((err: Error) => setError(userFacingError(err)))}>
+        <label htmlFor="register-date">
+          Date
+          <input id="register-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </label>
+        <label htmlFor="register-session">
           Session
-          <select value={sessionTypeId} onChange={(e) => setSessionTypeId(e.target.value)}>
+          <select id="register-session" value={sessionTypeId} onChange={(e) => setSessionTypeId(e.target.value)}>
             {sessions.map((row) => (
               <option key={row.id} value={row.id}>{row.name}</option>
             ))}
@@ -173,23 +181,36 @@ export default function ClassRegisterPage() {
         </label>
         <div><button type="submit" className="secondary">Load</button></div>
       </form>
-      {!canSave ? <p className="muted">Load this date and session before taking the register.</p> : (
-        <p className="alert alert-success" role="status">Register loaded. {pupils.filter((p) => p.mark).length}/{pupils.length} marked.</p>
+      {!canSave ? (
+        <p className="muted">Load this date and session before taking the register.</p>
+      ) : (
+        <p className="alert alert-success" role="status">
+          Register loaded. {markedCount}/{pupils.length} marked.
+        </p>
       )}
       <div className="toolbar">
-        <button type="button" disabled={!canSave} onClick={() => markAllPresent().catch((err: Error) => setError(err.message))}>
+        <button type="button" disabled={!canSave} onClick={() => markAllPresent().catch((err: Error) => setError(userFacingError(err)))}>
           Mark all present
         </button>
-        <button type="button" className="secondary" disabled={!canSave} onClick={() => save().catch((err: Error) => setError(err.message))}>
+        <button type="button" className="secondary" disabled={!canSave} onClick={() => save().catch((err: Error) => setError(userFacingError(err)))}>
           Save register
         </button>
       </div>
-      {message ? <p>{message}</p> : null}
-      <table>
-        <thead>
-          <tr><th>Pupil</th><th>Mark</th><th>Late minutes</th><th>Reason</th></tr>
-        </thead>
-        <tbody>
+      {message ? (
+        <p className="alert alert-success" role="status">
+          {message}
+        </p>
+      ) : null}
+      <DataTable
+        headers={
+          <>
+            <th>Pupil</th>
+            <th>Mark</th>
+            <th>Late minutes</th>
+            <th>Reason / note</th>
+          </>
+        }
+      >
           {pupils.map((pupil) => {
             const value = draft[pupil.studentProfileId] ?? { codeId: "", lateMinutes: "", reason: "" };
             return (
@@ -245,8 +266,7 @@ export default function ClassRegisterPage() {
               </tr>
             );
           })}
-        </tbody>
-      </table>
+      </DataTable>
     </>
   );
 }

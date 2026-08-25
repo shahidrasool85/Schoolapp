@@ -164,6 +164,8 @@ describe("practice scoring", () => {
       correctAnswer: { text: "Cat", caseInsensitive: true },
     };
     expect(scorePracticeItem(numeric, { value: 20 }).correct).toBe(true);
+    expect(scorePracticeItem(numeric, { value: "" }).correct).toBe(false);
+    expect(scorePracticeItem(numeric, { value: 0 }).correct).toBe(false);
     expect(scorePracticeItem(order, { order: ["1", "2"] }).correct).toBe(true);
     expect(scorePracticeItem(match, { pairs: [["A", "a"]] }).correct).toBe(true);
     expect(scorePracticeItem(text, { text: "cat" }).correct).toBe(true);

@@ -143,7 +143,7 @@ export function EarlyLearnPlayer(props: {
                       ...current,
                       [item.id]:
                         item.itemType === "numeric"
-                          ? { value: Number(event.target.value) }
+                          ? { value: event.target.value === "" ? "" : event.target.value }
                           : { text: event.target.value },
                     }))
                   }

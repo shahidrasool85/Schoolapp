@@ -415,11 +415,22 @@ describe("Phase 19 engagement", () => {
     });
     expect(started.status).toBe(201);
     const attempt = (await started.json()) as { attemptId: string };
+    const itemId = (playBody as { items: Array<{ id: string }> }).items[0]!.id;
+    const wrong = await app.request(`/api/v1/student/practice/attempts/${attempt.attemptId}/submit`, {
+      method: "POST",
+      headers: studentH,
+      body: JSON.stringify({ answers: { [itemId]: { choiceId: "3" } } }),
+    });
+    expect(wrong.status).toBe(200);
+    const wrongBody = (await wrong.json()) as { completed: boolean; xpAwarded: number; score: number };
+    expect(wrongBody.completed).toBe(false);
+    expect(wrongBody.xpAwarded).toBe(0);
+    expect(wrongBody.score).toBe(0);
     const submit = await app.request(`/api/v1/student/practice/attempts/${attempt.attemptId}/submit`, {
       method: "POST",
       headers: studentH,
       body: JSON.stringify({
-        answers: { [(playBody as { items: Array<{ id: string }> }).items[0]!.id]: { choiceId: "4" } },
+        answers: { [itemId]: { choiceId: "4" } },
         xpAwarded: 999,
         rewardPoints: 999,
         score: 99,
@@ -436,7 +447,7 @@ describe("Phase 19 engagement", () => {
       method: "POST",
       headers: studentH,
       body: JSON.stringify({
-        answers: { [(playBody as { items: Array<{ id: string }> }).items[0]!.id]: { choiceId: "4" } },
+        answers: { [itemId]: { choiceId: "4" } },
       }),
     });
     expect(again.status).toBe(200);

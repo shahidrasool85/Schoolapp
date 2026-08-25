@@ -291,6 +291,18 @@ function normalizeText(value: string, caseInsensitive: boolean): string {
   return caseInsensitive ? trimmed.toLowerCase() : trimmed;
 }
 
+function parseNumericAnswer(submitted: unknown): number | null {
+  if (submitted == null || submitted === "") return null;
+  const raw =
+    typeof submitted === "object" && submitted !== null && "value" in submitted
+      ? (submitted as { value: unknown }).value
+      : submitted;
+  if (raw == null || raw === "") return null;
+  if (typeof raw === "string" && raw.trim() === "") return null;
+  const got = Number(raw);
+  return Number.isFinite(got) ? got : null;
+}
+
 export function scorePracticeItem(
   item: PracticeItem,
   submitted: unknown,
@@ -341,11 +353,8 @@ export function scorePracticeItem(
       [...expected.entries()].every(([left, right]) => got.get(left) === right);
   } else if (item.itemType === "numeric") {
     const expected = Number(answer.value);
-    const got =
-      submitted && typeof submitted === "object" && "value" in submitted
-        ? Number((submitted as { value: unknown }).value)
-        : Number(submitted);
-    correct = Number.isFinite(expected) && Number.isFinite(got) && expected === got;
+    const got = parseNumericAnswer(submitted);
+    correct = Number.isFinite(expected) && got != null && expected === got;
   } else if (item.itemType === "short_exact_text") {
     const caseInsensitive = answer.caseInsensitive !== false;
     const expected = normalizeText(String(answer.text ?? answer.value ?? ""), caseInsensitive);

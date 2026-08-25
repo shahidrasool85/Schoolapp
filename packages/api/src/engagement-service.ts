@@ -768,20 +768,29 @@ export async function submitPracticeAttempt(input: {
   }
   await input.client.query(
     `update learning_activity_attempts
-     set completion_state = 'completed',
-         completed_at = now(),
+     set completion_state = $6,
+         completed_at = case when $6 = 'completed' then now() else completed_at end,
          score = $3,
          max_score = $4,
          xp_awarded = $5
      where id = $1 and organisation_id = $2`,
-    [input.attemptId, input.organisationId, scored.score, scored.maxScore, xpAwarded],
+    [
+      input.attemptId,
+      input.organisationId,
+      scored.score,
+      scored.maxScore,
+      xpAwarded,
+      completed ? "completed" : "in_progress",
+    ],
   );
-  await evaluateAchievements({
-    client: input.client,
-    organisationId: input.organisationId,
-    studentProfileId: input.studentProfileId,
-    actorUserId: input.actorUserId,
-  });
+  if (completed) {
+    await evaluateAchievements({
+      client: input.client,
+      organisationId: input.organisationId,
+      studentProfileId: input.studentProfileId,
+      actorUserId: input.actorUserId,
+    });
+  }
   const itemById = new Map(parsed.map((item) => [item.id, item]));
   return {
     score: scored.score,
@@ -999,11 +1008,15 @@ async function liveCompetitionScores(input: {
   ) {
     const rows = await input.client.query<{ student_profile_id: string; total: string }>(
       input.competition.scoring_model === "quiz_score"
-        ? `select student_profile_id, coalesce(sum(score),0)::text as total
-           from learning_activity_attempts
-           where organisation_id = $1 and completion_state = 'completed'
-             and ($2::timestamptz is null or completed_at >= $2)
-             and ($3::timestamptz is null or completed_at <= $3)
+        ? `select student_profile_id, coalesce(sum(best_score),0)::text as total
+           from (
+             select student_profile_id, activity_id, max(score) as best_score
+             from learning_activity_attempts
+             where organisation_id = $1 and completion_state = 'completed' and score is not null
+               and ($2::timestamptz is null or completed_at >= $2)
+               and ($3::timestamptz is null or completed_at <= $3)
+             group by student_profile_id, activity_id
+           ) best
            group by student_profile_id`
         : `select student_profile_id, count(distinct activity_id)::text as total
            from learning_activity_attempts

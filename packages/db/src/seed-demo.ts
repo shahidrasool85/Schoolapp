@@ -163,6 +163,14 @@ async function wipeDemoData(client: pg.Client): Promise<void> {
     );
 
     const tenantDeletes = [
+      "census_validation_issues",
+      "census_snapshot_pupils",
+      "census_snapshot_schools",
+      "data_exports",
+      "census_runs",
+      "student_fsm_periods",
+      "student_statutory_profiles",
+      "organisation_statutory_profiles",
       "message_attachments",
       "messages",
       "message_participants",
@@ -498,8 +506,13 @@ async function seedStudent(
     dateOfBirth: string;
     loginAlias?: string;
     passwordHash?: string;
+    startedOn?: string;
+    endedOn?: string | null;
+    enrolmentStatus?: "enrolled" | "left" | "alumni";
   },
 ): Promise<{ profileId: string; userId: string }> {
+  const startedOn = input.startedOn ?? "2026-09-01";
+  const enrolmentStatus = input.enrolmentStatus ?? "enrolled";
   const userId = await insertUser(client, {
     fullName: input.legalName,
     preferredName: input.preferredName ?? null,
@@ -517,25 +530,116 @@ async function seedStudent(
   const profile = await client.query<IdRow>(
     `insert into student_profiles (
        organisation_id, user_id, admission_number, enrolment_status, legal_name
-     ) values ($1, $2, $3, 'enrolled', $4)
+     ) values ($1, $2, $3, $4, $5)
      returning id`,
-    [input.organisationId, userId, input.admissionNumber, input.legalName],
+    [input.organisationId, userId, input.admissionNumber, enrolmentStatus, input.legalName],
   );
   const profileId = profile.rows[0]!.id;
   await client.query(
     `insert into student_enrolments (
        organisation_id, student_profile_id, academic_year_id, year_group_id, house_id,
-       status, is_primary, placement_kind, started_on
-     ) values ($1, $2, $3, $4, $5, 'enrolled', true, 'primary', '2026-09-01')`,
-    [input.organisationId, profileId, input.academicYearId, input.yearGroupId, input.houseId ?? null],
+       status, is_primary, placement_kind, started_on, ended_on
+     ) values ($1, $2, $3, $4, $5, $6, true, 'primary', $7, $8)`,
+    [
+      input.organisationId,
+      profileId,
+      input.academicYearId,
+      input.yearGroupId,
+      input.houseId ?? null,
+      enrolmentStatus === "left" ? "withdrawn" : "enrolled",
+      startedOn,
+      input.endedOn ?? null,
+    ],
   );
   await client.query(
     `insert into class_memberships (
-       organisation_id, class_id, student_profile_id, academic_year_id, started_on
-     ) values ($1, $2, $3, $4, '2026-09-01')`,
-    [input.organisationId, input.classId, profileId, input.academicYearId],
+       organisation_id, class_id, student_profile_id, academic_year_id, started_on, ended_on
+     ) values ($1, $2, $3, $4, $5, $6)`,
+    [input.organisationId, input.classId, profileId, input.academicYearId, startedOn, input.endedOn ?? null],
   );
   return { profileId, userId };
+}
+
+async function seedStatutoryProfile(
+  client: pg.Client,
+  input: {
+    organisationId: string;
+    studentProfileId: string;
+    legalForename: string;
+    legalSurname: string;
+    middleNames?: string | null;
+    sex: "M" | "F";
+    upn?: string | null;
+    ethnicityCode?: string | null;
+    languageCode?: string | null;
+    enrolmentStatusCode?: string;
+    dateOfAdmission?: string;
+    dateOfLeaving?: string | null;
+    leavingReasonCode?: string | null;
+    previousSchoolName?: string | null;
+    sendProvisionCode?: string | null;
+    lookedAfterStatus?: "none" | "looked_after" | "previously_looked_after";
+    serviceChild?: boolean | null;
+  },
+): Promise<void> {
+  await client.query(
+    `insert into student_statutory_profiles (
+       student_profile_id, organisation_id, legal_forename, legal_surname, middle_names, sex, upn,
+       ethnicity_code, language_code, enrolment_status_code, date_of_admission, date_of_leaving,
+       leaving_reason_code, previous_school_name, send_provision_code, looked_after_status, service_child
+     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+    [
+      input.studentProfileId,
+      input.organisationId,
+      input.legalForename,
+      input.legalSurname,
+      input.middleNames ?? null,
+      input.sex,
+      input.upn ?? null,
+      input.ethnicityCode ?? null,
+      input.languageCode ?? null,
+      input.enrolmentStatusCode ?? "C",
+      input.dateOfAdmission ?? "2026-09-01",
+      input.dateOfLeaving ?? null,
+      input.leavingReasonCode ?? null,
+      input.previousSchoolName ?? null,
+      input.sendProvisionCode ?? "N",
+      input.lookedAfterStatus ?? "none",
+      input.serviceChild ?? false,
+    ],
+  );
+}
+
+async function seedSchoolStatutory(
+  client: pg.Client,
+  input: {
+    organisationId: string;
+    statutoryName: string;
+    establishmentNumber: string;
+    localAuthorityNumber: string;
+    urn: string;
+  },
+): Promise<void> {
+  await client.query(
+    `insert into organisation_statutory_profiles (
+       organisation_id, statutory_name, establishment_number, local_authority_number, urn,
+       school_phase, establishment_type, establishment_status, address_line1, address_town,
+       address_postcode, timezone
+     ) values ($1,$2,$3,$4,$5,'PS','11','1','1 Demo Lane','London','N1 1AA','Europe/London')`,
+    [
+      input.organisationId,
+      input.statutoryName,
+      input.establishmentNumber,
+      input.localAuthorityNumber,
+      input.urn,
+    ],
+  );
+  await client.query(
+    `insert into organisation_identifiers (organisation_id, system, identifier)
+     values ($1, 'urn', $2)
+     on conflict (organisation_id, system) do update set identifier = excluded.identifier`,
+    [input.organisationId, input.urn],
+  );
 }
 
 async function seedStudentDocument(
@@ -2504,6 +2608,13 @@ async function seedGreenwood(
   hashes: Record<string, string>,
 ): Promise<{ orgId: string; accounts: DemoSeedResult["accounts"] }> {
   const orgId = await createOrganisation(client, DEMO_ORGANISATIONS.greenwood);
+  await seedSchoolStatutory(client, {
+    organisationId: orgId,
+    statutoryName: "Greenwood Academy (synthetic demo)",
+    establishmentNumber: "9901",
+    localAuthorityNumber: "201",
+    urn: "999001",
+  });
   const year = await client.query<IdRow>(
     `insert into academic_years (organisation_id, name, starts_on, ends_on, is_current)
      values ($1, '2026/27', '2026-09-01', '2027-07-31', true)
@@ -2739,6 +2850,7 @@ async function seedGreenwood(
     legalName: "Oliver Brooks",
     admissionNumber: "GW-2026-004",
     dateOfBirth: "2017-06-18",
+    startedOn: "2026-11-03",
   });
   const sophie = await seedStudent(client, {
     organisationId: orgId,
@@ -2757,6 +2869,17 @@ async function seedGreenwood(
     legalName: "Leo Nwosu",
     admissionNumber: "GW-2026-006",
     dateOfBirth: "2014-02-27",
+  });
+  const harper = await seedStudent(client, {
+    organisationId: orgId,
+    academicYearId,
+    yearGroupId: yearGroups.get("4")!,
+    classId: classIds.get("4A")!,
+    legalName: "Harper Quinn",
+    admissionNumber: "GW-2026-009",
+    dateOfBirth: "2017-02-11",
+    endedOn: "2026-12-18",
+    enrolmentStatus: "left",
   });
 
   await seedGuardian(client, {
@@ -2780,8 +2903,8 @@ async function seedGreenwood(
 
   await client.query(
     `insert into student_additional_needs (
-       organisation_id, student_profile_id, allergies, medication, dietary_requirements, medical_conditions
-     ) values ($1, $2, $3, $4, $5, $6)`,
+       organisation_id, student_profile_id, allergies, medication, dietary_requirements, medical_conditions, send_notes
+     ) values ($1, $2, $3, $4, $5, $6, $7)`,
     [
       orgId,
       amelia.profileId,
@@ -2789,8 +2912,110 @@ async function seedGreenwood(
       "Antihistamine as recorded by the school nurse (demo)",
       "No nuts",
       "Mild asthma — inhaler as needed (demo)",
+      "EHCP for speech and language support (synthetic demo)",
     ],
   );
+
+  await seedStatutoryProfile(client, {
+    organisationId: orgId,
+    studentProfileId: amelia.profileId,
+    legalForename: "Amelia",
+    legalSurname: "Khan",
+    sex: "F",
+    upn: "P201990100001",
+    ethnicityCode: "APKN",
+    languageCode: "ENG",
+    sendProvisionCode: "E",
+  });
+  await seedStatutoryProfile(client, {
+    organisationId: orgId,
+    studentProfileId: jack.profileId,
+    legalForename: "Jack",
+    legalSurname: "Brennan",
+    sex: "M",
+    ethnicityCode: "WBRI",
+    languageCode: "ENG",
+  });
+  await seedStatutoryProfile(client, {
+    organisationId: orgId,
+    studentProfileId: priya.profileId,
+    legalForename: "Priya",
+    legalSurname: "Shah",
+    sex: "F",
+    upn: "T201990100003",
+  });
+  await seedStatutoryProfile(client, {
+    organisationId: orgId,
+    studentProfileId: yusuf.profileId,
+    legalForename: "Yusuf",
+    legalSurname: "Khan",
+    sex: "M",
+    upn: "G201990100004",
+    ethnicityCode: "APKN",
+    languageCode: "URD",
+  });
+  await client.query(
+    `insert into student_fsm_periods (organisation_id, student_profile_id, started_on, ended_on)
+     values ($1, $2, '2026-09-01', '2026-12-31')`,
+    [orgId, yusuf.profileId],
+  );
+  await seedStatutoryProfile(client, {
+    organisationId: orgId,
+    studentProfileId: maya.profileId,
+    legalForename: "Maya",
+    legalSurname: "Ellis",
+    sex: "F",
+    upn: "W201990100005",
+    ethnicityCode: "WBRI",
+    languageCode: "ENG",
+    serviceChild: true,
+  });
+  await seedStatutoryProfile(client, {
+    organisationId: orgId,
+    studentProfileId: oliver.profileId,
+    legalForename: "Oliver",
+    legalSurname: "Brooks",
+    sex: "M",
+    upn: "K201990100006",
+    ethnicityCode: "WBRI",
+    languageCode: "ENG",
+    dateOfAdmission: "2026-11-03",
+  });
+  await seedStatutoryProfile(client, {
+    organisationId: orgId,
+    studentProfileId: sophie.profileId,
+    legalForename: "Sophie",
+    legalSurname: "Chen",
+    sex: "F",
+    upn: "Z201990100007",
+    ethnicityCode: "CHNE",
+    languageCode: "ENG",
+    lookedAfterStatus: "previously_looked_after",
+  });
+  await seedStatutoryProfile(client, {
+    organisationId: orgId,
+    studentProfileId: leo.profileId,
+    legalForename: "Leo",
+    legalSurname: "Nwosu",
+    sex: "M",
+    upn: "N201990100008",
+    ethnicityCode: "BAFR",
+    languageCode: "ENG",
+    lookedAfterStatus: "looked_after",
+  });
+  await seedStatutoryProfile(client, {
+    organisationId: orgId,
+    studentProfileId: harper.profileId,
+    legalForename: "Harper",
+    legalSurname: "Quinn",
+    sex: "F",
+    upn: "C201990100009",
+    ethnicityCode: "WBRI",
+    languageCode: "ENG",
+    dateOfLeaving: "2026-12-18",
+    leavingReasonCode: "SC",
+    previousSchoolName: null,
+  });
 
   await seedAttendanceMarks(client, {
     organisationId: orgId,
@@ -4642,6 +4867,34 @@ async function seedOakAcademy(
         yearGroupId: yearGroups.get("3")!,
       },
     ],
+  });
+
+  await seedSchoolStatutory(client, {
+    organisationId: orgId,
+    statutoryName: "Oak Academy (synthetic demo)",
+    establishmentNumber: "9902",
+    localAuthorityNumber: "202",
+    urn: "999002",
+  });
+  await seedStatutoryProfile(client, {
+    organisationId: orgId,
+    studentProfileId: niamh.profileId,
+    legalForename: "Niamh",
+    legalSurname: "Okonkwo",
+    sex: "F",
+    upn: "C202990200001",
+    ethnicityCode: "BAFR",
+    languageCode: "ENG",
+  });
+  await seedStatutoryProfile(client, {
+    organisationId: orgId,
+    studentProfileId: ethan.profileId,
+    legalForename: "Ethan",
+    legalSurname: "Cole",
+    sex: "M",
+    upn: "R202990200002",
+    ethnicityCode: "AIND",
+    languageCode: "GUJ",
   });
 
   return {

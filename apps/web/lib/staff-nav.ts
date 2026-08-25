@@ -92,6 +92,22 @@ const ASSESSMENT_NAV_PERMISSIONS = [
   "academic.oversight",
 ];
 
+const STATUTORY_NAV_PERMISSIONS = [
+  "statutory.read",
+  "statutory.manage",
+  "statutory.validate",
+  "statutory.census.create",
+  "statutory.census.export",
+];
+
+const REPORTS_NAV_PERMISSIONS = [
+  "reports.pupils.read",
+  "reports.attendance.read",
+  "reports.admissions.read",
+  "reports.send.read",
+  "reports.exports.create",
+];
+
 const ACTIVITY_NAV_PERMISSIONS = [
   "activities.read",
   "activities.read_assigned",
@@ -148,6 +164,38 @@ export const STAFF_NAV_SECTIONS: StaffNavSection[] = [
             label: "School attendance",
             permissions: ["attendance.record.read", "attendance.record.manage", "attendance.record.correct"],
           },
+        ],
+      },
+      {
+        href: "/school/statutory",
+        label: "Statutory data",
+        icon: "layers",
+        exact: true,
+        permissions: STATUTORY_NAV_PERMISSIONS,
+        children: [
+          { href: "/school/statutory", label: "Overview", exact: true, permissions: STATUTORY_NAV_PERMISSIONS },
+          { href: "/school/statutory/data-quality", label: "Data quality", permissions: STATUTORY_NAV_PERMISSIONS },
+          { href: "/school/statutory/census", label: "Census", permissions: STATUTORY_NAV_PERMISSIONS },
+          {
+            href: "/school/settings/statutory",
+            label: "School profile",
+            permissions: ["statutory.read", "statutory.manage"],
+          },
+        ],
+      },
+      {
+        href: "/school/reports",
+        label: "Reports",
+        icon: "chart",
+        exact: true,
+        permissions: REPORTS_NAV_PERMISSIONS,
+        children: [
+          { href: "/school/reports", label: "Overview", exact: true, permissions: REPORTS_NAV_PERMISSIONS },
+          { href: "/school/reports/pupils", label: "Pupils", permissions: ["reports.pupils.read"] },
+          { href: "/school/reports/attendance", label: "Attendance", permissions: ["reports.attendance.read"] },
+          { href: "/school/reports/admissions", label: "Admissions", permissions: ["reports.admissions.read"] },
+          { href: "/school/reports/send", label: "SEND", permissions: ["reports.send.read"] },
+          { href: "/school/reports/exports", label: "Exports", permissions: ["reports.exports.create", "statutory.read"] },
         ],
       },
       {

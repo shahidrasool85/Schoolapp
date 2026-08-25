@@ -76,10 +76,13 @@ describe("RLS catalog", () => {
            'school_payment_refunds', 'school_payment_receipts', 'school_payment_provider_events',
            'school_payment_provider_configs',
            'message_counters', 'message_conversations', 'message_participants', 'messages',
-           'message_attachments'
+           'message_attachments',
+           'organisation_statutory_profiles', 'student_statutory_profiles', 'student_fsm_periods',
+           'census_runs', 'census_snapshot_schools', 'census_snapshot_pupils',
+           'census_validation_issues', 'data_exports'
          )`,
     );
-    expect(result.rows.length).toBe(139);
+    expect(result.rows.length).toBe(147);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
     }
@@ -99,6 +102,25 @@ describe("RLS catalog", () => {
     for (const row of result.rows) {
       expect(row.can_select, row.table_name).toBe(true);
     }
+  });
+
+  it("grants the app role DML on statutory tables and withholds snapshot updates", async () => {
+    const result = await pools.owner.query<{ table_name: string; can_select: boolean }>(
+      `select t.table_name, has_table_privilege('schoolapp_app', t.table_name, 'SELECT') as can_select
+       from unnest(array[
+         'organisation_statutory_profiles', 'student_statutory_profiles', 'student_fsm_periods',
+         'census_runs', 'census_snapshot_schools', 'census_snapshot_pupils',
+         'census_validation_issues', 'data_exports', 'statutory_code_sets', 'statutory_codes'
+       ]) as t(table_name)`,
+    );
+    expect(result.rows).toHaveLength(10);
+    for (const row of result.rows) {
+      expect(row.can_select, row.table_name).toBe(true);
+    }
+    const snapshotUpdate = await pools.owner.query<{ can_update: boolean }>(
+      `select has_table_privilege('schoolapp_app', 'census_snapshot_pupils', 'UPDATE') as can_update`,
+    );
+    expect(snapshotUpdate.rows[0]?.can_update).toBe(false);
   });
 
   it("grants the app role DML on messaging tables", async () => {
@@ -1104,5 +1126,58 @@ describe("RLS catalog", () => {
       const self = await client.query("select id from users where id = $1", [parent.rows[0]!.id]);
       expect(self.rowCount).toBe(1);
     });
+  });
+
+  it("keeps FORCE RLS from leaking statutory pupil records across tenants", async () => {
+    const id = randomUUID().slice(0, 8);
+    const userA = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Admin A', 'staff', 'active') returning id`,
+      [`rls-stat-admin-a-${id}@example.com`],
+    );
+    const userB = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Admin B', 'staff', 'active') returning id`,
+      [`rls-stat-admin-b-${id}@example.com`],
+    );
+    const orgA = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-stat-iso-a-${id}`, "Stat Iso A"],
+    );
+    const orgB = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-stat-iso-b-${id}`, "Stat Iso B"],
+    );
+    await pools.owner.query(
+      `insert into organisation_memberships (organisation_id, user_id, status)
+       values ($1, $2, 'active'), ($3, $4, 'active')`,
+      [orgA.rows[0]!.id, userA.rows[0]!.id, orgB.rows[0]!.id, userB.rows[0]!.id],
+    );
+    const pupilA = await pools.owner.query<{ id: string }>(
+      "insert into student_profiles (organisation_id, legal_name) values ($1, 'Child A') returning id",
+      [orgA.rows[0]!.id],
+    );
+    const pupilB = await pools.owner.query<{ id: string }>(
+      "insert into student_profiles (organisation_id, legal_name) values ($1, 'Child B') returning id",
+      [orgB.rows[0]!.id],
+    );
+    await pools.owner.query(
+      `insert into student_statutory_profiles (
+         student_profile_id, organisation_id, legal_forename, legal_surname, sex, upn
+       ) values ($1,$2,'Child','A','F','P201990100001'), ($3,$4,'Child','B','M','R202990200002')`,
+      [pupilA.rows[0]!.id, orgA.rows[0]!.id, pupilB.rows[0]!.id, orgB.rows[0]!.id],
+    );
+    await withTenantContext(pools.app, userA.rows[0]!.id, orgA.rows[0]!.id, async (client) => {
+      const seen = await client.query<{ upn: string }>("select upn from student_statutory_profiles");
+      expect(seen.rows.map((row) => row.upn)).toEqual(["P201990100001"]);
+    });
+    await expect(
+      pools.owner.query(
+        `insert into student_statutory_profiles (
+           student_profile_id, organisation_id, legal_forename, legal_surname, sex
+         ) values ($1,$2,'Cross','Tenant','F')`,
+        [pupilB.rows[0]!.id, orgA.rows[0]!.id],
+      ),
+    ).rejects.toThrow(/organisation_mismatch/);
   });
 });

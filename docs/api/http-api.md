@@ -587,6 +587,40 @@ List APIs are cursor-paginated (`cursor` / `before`, `limit`). Parent contact po
 
 User-facing errors include `conversation_closed`, `recipient_unavailable`, `rate_limited`, `validation_failed`.
 
+## Statutory data, census snapshots, and reports (Phase 18)
+
+School-scoped. Every route re-checks organisation membership and capability keys. These APIs are **census-ready / preview**, not DfE COLLECT submission.
+
+```http
+GET    /api/v1/statutory/codes
+GET    /api/v1/statutory/overview
+GET    /api/v1/statutory/profile
+PATCH  /api/v1/statutory/profile
+GET    /api/v1/statutory/data-quality
+POST   /api/v1/statutory/validate
+GET    /api/v1/students/{id}/statutory
+PATCH  /api/v1/students/{id}/statutory
+POST   /api/v1/students/{id}/statutory/fsm
+
+GET    /api/v1/statutory/census
+POST   /api/v1/statutory/census
+GET    /api/v1/statutory/census/{id}
+POST   /api/v1/statutory/census/{id}/snapshot
+POST   /api/v1/statutory/census/{id}/validate
+POST   /api/v1/statutory/census/{id}/finalise
+POST   /api/v1/statutory/census/{id}/export?format=csv|xml
+POST   /api/v1/statutory/census/{id}/supersede
+POST   /api/v1/statutory/census/{id}/archive
+
+GET    /api/v1/reports/pupils
+GET    /api/v1/reports/attendance
+GET    /api/v1/reports/admissions
+GET    /api/v1/reports/send
+GET    /api/v1/reports/exports
+```
+
+Report routes accept `?format=csv` where the actor also has `reports.exports.create`. Census XML is labelled a preview and is not a certified COLLECT file. Cross-school census IDs return `not_found`. Teachers, parents, students, and Platform Admin without school membership cannot browse statutory pupil data.
+
 ## Files
 
 ```http

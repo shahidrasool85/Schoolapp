@@ -132,9 +132,11 @@ Sign in as **Greenwood School Admin** at http://greenwood.localhost:3000/login, 
 - Activities (`/school/activities`) — trips, clubs, consent responses, waiting list
 - Finance / Payments (`/school/finance`) — charges, outstanding, offline payment, waiver, refund
 - Messages (`/school/messages`) — parent–teacher and school-office threads; not announcements
+- Statutory data (`/school/statutory`) — data quality, census workspace, school identifiers (`/school/settings/statutory`)
+- Reports (`/school/reports`) — pupil roll, attendance summaries, admissions, SEND, exports
 - Pastoral & Behaviour (`/school/pastoral`) — incidents, achievements, pastoral concerns
 - Safeguarding (`/school/safeguarding`) — restricted; Headteacher and School Admin only in the demo
-- Students (open Amelia Khan — attendance, Learning history, Academic / Results, and behaviour summary)
+- Students (open Amelia Khan — attendance, Learning history, Academic / Results, behaviour summary, and the permission-gated Statutory section: UPN `P201990100001`, EHCP provision E. Jack Brennan has no UPN for the data-quality error example; Priya Shah is missing ethnicity/language; Oliver Brooks joins 3 November 2026; Harper Quinn left 18 December 2026)
 - Attendance → My registers (Hannah Cole’s 3A) or School attendance
 - Student portal (year-group enable/disable; Reception can be turned on)
 - Staff / Teachers
@@ -154,7 +156,7 @@ Sign in as **Platform Admin** at http://localhost:3000/login. You should land on
 ## 7. Limitations
 
 - This is local demo data only. Names, emails, and passwords are fake and clearly labelled.
-- AI learning, PDF report cards, and mobile apps are **not built yet**. Formal assessments/results/reports are in Phase 8. Public admissions forms are in Phase 9. Announcements and the school calendar are in Phase 10. The school timetable is in Phase 12. Trips, clubs, and parent consent are in Phase 14. School charges and parent payments are in Phase 15 (local fake provider; no Stripe credentials required). Parent–teacher messaging is in Phase 16 (in-app only; no email/SMS). Phase 17 restyles the authenticated product; it does not add new workflows. Phase 13 object storage is available for pupil, learning, pastoral, safeguarding, admissions, activity, and message files.
+- AI learning, PDF report cards, and mobile apps are **not built yet**. Formal assessments/results/reports are in Phase 8. Public admissions forms are in Phase 9. Announcements and the school calendar are in Phase 10. The school timetable is in Phase 12. Trips, clubs, and parent consent are in Phase 14. School charges and parent payments are in Phase 15 (local fake provider; no Stripe credentials required). Parent–teacher messaging is in Phase 16 (in-app only; no email/SMS). Phase 17 restyles the authenticated product; it does not add new workflows. Phase 18 adds statutory pupil/school data, a data-quality centre, census snapshots, and census-ready exports (not a DfE COLLECT product). Phase 13 object storage is available for pupil, learning, pastoral, safeguarding, admissions, activity, and message files.
 - Seeded activity document *titles* (for example the Science Museum trip letter) have no stored bytes until a School Admin attaches a PDF on the activity page. Use a small synthetic PDF, not a real pupil letter.
 - Learning resources that are URL-only still exist alongside optional file uploads on assignments.
 - Demo attendance is seeded from 1 September 2026 (the 2026/27 year). If “today” is before term, registers default to the year start.

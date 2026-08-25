@@ -1372,7 +1372,7 @@ export function registerAssessmentRoutes(app: SchoolappApi) {
     }),
   );
 
-  app.get("/reports/:id", requireUser, async (c) =>
+  app.get("/reports/:id{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertAnyPermission(actor, REPORT_READ_PERMISSIONS);
       const id = uuidRouteParam(c, "id");
@@ -1388,7 +1388,7 @@ export function registerAssessmentRoutes(app: SchoolappApi) {
     }),
   );
 
-  app.patch("/reports/:id", requireUser, async (c) =>
+  app.patch("/reports/:id{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       assertAnyPermission(actor, REPORT_MANAGE_PERMISSIONS);
       const id = uuidRouteParam(c, "id");
@@ -1418,7 +1418,7 @@ export function registerAssessmentRoutes(app: SchoolappApi) {
     }),
   );
 
-  app.post("/reports/:id/sections", requireUser, async (c) =>
+  app.post("/reports/:id{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}/sections", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertAnyPermission(actor, REPORT_MANAGE_PERMISSIONS);
       const id = uuidRouteParam(c, "id");
@@ -1462,7 +1462,7 @@ export function registerAssessmentRoutes(app: SchoolappApi) {
     }),
   );
 
-  app.patch("/reports/:id/sections/:sectionId", requireUser, async (c) =>
+  app.patch("/reports/:id{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}/sections/:sectionId", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertAnyPermission(actor, REPORT_MANAGE_PERMISSIONS);
       const id = uuidRouteParam(c, "id");
@@ -1566,28 +1566,28 @@ export function registerAssessmentRoutes(app: SchoolappApi) {
     return loadReportRow(client, orgId, id);
   }
 
-  app.post("/reports/:id/submit", requireUser, async (c) =>
+  app.post("/reports/:id{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}/submit", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       const id = uuidRouteParam(c, "id");
       const row = await transitionReport(client, actor, orgId, userId, id, "submitted_for_review", "assessment.report.submitted");
       return c.json({ report: mapAcademicReport(row, { includeWorkflow: true }), sections: await loadReportSections(client, id) });
     }),
   );
-  app.post("/reports/:id/approve", requireUser, async (c) =>
+  app.post("/reports/:id{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}/approve", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       const id = uuidRouteParam(c, "id");
       const row = await transitionReport(client, actor, orgId, userId, id, "approved", "assessment.report.approved");
       return c.json({ report: mapAcademicReport(row, { includeWorkflow: true }), sections: await loadReportSections(client, id) });
     }),
   );
-  app.post("/reports/:id/publish", requireUser, async (c) =>
+  app.post("/reports/:id{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}/publish", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       const id = uuidRouteParam(c, "id");
       const row = await transitionReport(client, actor, orgId, userId, id, "published", "assessment.report.published");
       return c.json({ report: mapAcademicReport(row, { includeWorkflow: true }), sections: await loadReportSections(client, id) });
     }),
   );
-  app.post("/reports/:id/archive", requireUser, async (c) =>
+  app.post("/reports/:id{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}/archive", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       const id = uuidRouteParam(c, "id");
       const row = await transitionReport(client, actor, orgId, userId, id, "archived", "assessment.report.archived");

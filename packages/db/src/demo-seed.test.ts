@@ -56,6 +56,34 @@ describe("demo seed", () => {
     expect(oak.rows.map((row) => row.legal_name)).not.toContain(DEMO_ACCOUNTS.greenwoodStudent.fullName);
   });
 
+  it("seeds distinct synthetic statutory identifiers for Greenwood and Oak", async () => {
+    const orgs = await pools.owner.query<{ id: string; slug: string }>(
+      "select id, slug::text as slug from organisations where slug = any($1::citext[])",
+      [["greenwood", "oakacademy"]],
+    );
+    const greenwoodId = orgs.rows.find((row) => row.slug === "greenwood")!.id;
+    const oakId = orgs.rows.find((row) => row.slug === "oakacademy")!.id;
+    const profiles = await pools.owner.query<{ organisation_id: string; urn: string; establishment_number: string }>(
+      `select organisation_id, urn, establishment_number
+       from organisation_statutory_profiles
+       where organisation_id = any($1::uuid[])`,
+      [[greenwoodId, oakId]],
+    );
+    expect(profiles.rows).toHaveLength(2);
+    expect(profiles.rows.find((row) => row.organisation_id === greenwoodId)?.urn).toBe("999001");
+    expect(profiles.rows.find((row) => row.organisation_id === oakId)?.urn).toBe("999002");
+    const upns = await pools.owner.query<{ organisation_id: string; upn: string }>(
+      `select organisation_id, upn from student_statutory_profiles
+       where organisation_id = any($1::uuid[]) and upn is not null`,
+      [[greenwoodId, oakId]],
+    );
+    const gwUpns = upns.rows.filter((row) => row.organisation_id === greenwoodId).map((row) => row.upn);
+    const oakUpns = upns.rows.filter((row) => row.organisation_id === oakId).map((row) => row.upn);
+    expect(gwUpns).toContain("P201990100001");
+    expect(oakUpns).toContain("C202990200001");
+    expect(gwUpns.some((upn) => oakUpns.includes(upn))).toBe(false);
+  });
+
   it("keeps RLS from leaking Oak pupils into the Greenwood admin context", async () => {
     const admin = await pools.owner.query<{ id: string }>(
       "select id from users where email = $1",

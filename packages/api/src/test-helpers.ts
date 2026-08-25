@@ -6,6 +6,7 @@ import pg from "pg";
 import { migrate } from "@schoolapp/db";
 import { createPools, type DbPools } from "@schoolapp/db";
 import { FilesystemObjectStorage, NoopFileScanner } from "@schoolapp/storage";
+import { createPaymentProvider, paymentConfigFromEnv } from "@schoolapp/core";
 import { createApiApp } from "./app";
 import type { SchoolappApi } from "./types";
 
@@ -46,6 +47,21 @@ export function testApp(
     trustProxy: options.trustProxy ?? false,
     storage: testObjectStorage,
     fileScanner: testFileScanner,
+    payments: {
+      ...paymentConfigFromEnv({
+        PAYMENT_PROVIDER: "fake",
+        FAKE_PAYMENT_WEBHOOK_SECRET: "test-fake-payment-webhook",
+        AUTH_SECRET: TEST_AUTH_SECRET,
+      }),
+      providerKey: "fake",
+      fakeWebhookSecret: "test-fake-payment-webhook",
+    },
+    paymentProvider: createPaymentProvider({
+      providerKey: "fake",
+      fakeWebhookSecret: "test-fake-payment-webhook",
+      stripeSecretKey: null,
+      stripeWebhookSecret: null,
+    }),
   });
 }
 

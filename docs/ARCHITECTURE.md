@@ -1,6 +1,6 @@
 # Schoolapp — Platform Architecture
 
-**Status:** Phases 1–13 implemented (foundation through production file storage). Later modules (AI, mobile) are not built.  
+**Status:** Phases 1–15 implemented (foundation through school payments). Later modules (AI, mobile) are not built.  
 **Audience:** Product owner and engineering.  
 **Scope:** Multi-tenant UK school SaaS (SIS + LMS + AI learning), web first, mobile-ready.
 
@@ -53,7 +53,7 @@ These must shape the model now, but must not be built yet:
 - Native/Expo applications
 - Full MIS parity with SIMS/Arbor/Bromcom
 - School census / CTF import-export
-- Finance, invoicing, and lunch money
+- Full accounting ledger, VAT, payroll, lunch ordering, and SaaS billing collection
 - Safeguarding case management (beyond audit-friendly foundations)
 - School-to-school competitions (until intra-school competitions are proven; **governance placeholders only**)
 - Direct pupil–pupil messaging
@@ -511,6 +511,18 @@ See [ADR 0020](./adr/0020-phase11-behaviour-pastoral-safeguarding.md). Safeguard
 - Documents / updates: `school_activity_documents` (Phase 13 `stored_objects`, domain `activity`), `school_activity_updates`
 
 See [ADR 0023](./adr/0023-phase14-activities-consents.md). Calendar list APIs include an `activities` array with `source: "activity"`. Medical/emergency data is read live and is not snapshotted onto the activity. Emergency contacts are loaded via `list_activity_safety_contacts` so the app role never SELECTs `guardianships.restricted_contact`.
+
+### 6.2f School charges and payments (Phase 15)
+
+- Catalogue: `school_charge_categories` (organisation-scoped; system keys such as trip, club, lost_item)
+- Charges: `school_charges` (pupil-owned payment request; optional activity; integer minor units + ISO currency)
+- Adjustments: `school_charge_adjustments` (waiver/reduction/subsidy/discount; never rewrite original amount)
+- Transactions: `school_payment_transactions` (provider or offline settlement attempts; immutable history)
+- Sessions / refunds / receipts: `school_payment_sessions`, `school_payment_refunds`, `school_payment_receipts`
+- Webhook processing: `school_payment_provider_events` (provider + event id unique; replay-safe)
+- Future per-school accounts: `school_payment_provider_configs.secret_ref` stores a vault/env key name, never a live secret
+
+Money is integer minor units. Consent and payment stay separate. Default activity `charge_policy` is `on_confirmed` (waitlisted pupils are not charged). Provider webhooks are authoritative; tenant is resolved from stored session/payment references, never from `X-Organisation-Id`. Local/CI default is `PAYMENT_PROVIDER=fake`. See [ADR 0024](./adr/0024-phase15-payments.md).
 
 ### 6.3 Later entities (do not implement now; reserved names)
 

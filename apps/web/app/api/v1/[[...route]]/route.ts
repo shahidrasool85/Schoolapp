@@ -1,5 +1,6 @@
 import { handle } from "hono/vercel";
 import { createApiApp } from "@schoolapp/api";
+import { createPaymentProvider, paymentConfigFromEnv } from "@schoolapp/core";
 import { createPools } from "@schoolapp/db";
 import { createFileScannerFromEnv, createObjectStorageFromEnv } from "@schoolapp/storage";
 
@@ -12,6 +13,7 @@ if (!appUrl || !ownerUrl || !authSecret) {
 }
 
 const pools = createPools({ appUrl, ownerUrl });
+const payments = paymentConfigFromEnv();
 
 const app = createApiApp({
   pools,
@@ -21,6 +23,8 @@ const app = createApiApp({
   trustProxy: process.env.TRUST_PROXY === "true",
   storage: createObjectStorageFromEnv(),
   fileScanner: createFileScannerFromEnv(),
+  payments,
+  paymentProvider: createPaymentProvider(payments),
 });
 
 export const runtime = "nodejs";

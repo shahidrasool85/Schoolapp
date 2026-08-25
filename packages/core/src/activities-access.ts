@@ -12,6 +12,7 @@ import {
   snapshotConsentWording,
   type ConsentClauseSnapshot,
 } from "./activities.js";
+import { syncActivityCharge } from "./payments-access.js";
 
 export const ACTIVITY_SCHOOL_READ_PERMISSIONS = [
   PERMISSIONS.ACTIVITIES_READ,
@@ -705,9 +706,11 @@ export async function upsertParticipant(
     registrationStatus: string;
     waitingListPosition: number | null;
     source: string;
+    actorUserId: string;
     confirmedAt?: string | null;
     withdrawnAt?: string | null;
     internalNote?: string | null;
+    consentResponse?: string | null;
   },
 ): Promise<void> {
   await client.query(
@@ -734,6 +737,14 @@ export async function upsertParticipant(
       input.internalNote ?? null,
     ],
   );
+  await syncActivityCharge(client, {
+    organisationId: input.organisationId,
+    actorUserId: input.actorUserId,
+    activityId: input.activityId,
+    studentProfileId: input.studentProfileId,
+    registrationStatus: input.registrationStatus,
+    consentResponse: input.consentResponse,
+  });
 }
 
 export async function recordActivityResponse(
@@ -868,8 +879,10 @@ export async function applyConsentDecision(
     registrationStatus,
     waitingListPosition,
     source: input.source,
+    actorUserId: input.actorUserId,
     confirmedAt: registrationStatus === "confirmed" ? new Date().toISOString() : null,
     withdrawnAt: input.response === "withdrawn" ? new Date().toISOString() : null,
+    consentResponse: input.response,
   });
 
   if (input.response === "withdrawn" || input.response === "declined") {
@@ -957,6 +970,13 @@ export async function maybePromoteNextWaitlisted(
     title: input.title,
     activityId: input.activityId,
     recipients: parents,
+  });
+  await syncActivityCharge(client, {
+    organisationId: input.organisationId,
+    actorUserId: input.actorUserId,
+    activityId: input.activityId,
+    studentProfileId: studentId,
+    registrationStatus: "confirmed",
   });
   return studentId;
 }

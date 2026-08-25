@@ -46,6 +46,7 @@ import {
   snapshotActivityEligibility,
   upsertParticipant,
   lockActivityCapacity,
+  syncActivityCharge,
   writeAudit,
 } from "@schoolapp/core";
 import type { ApiEnv, SchoolappApi } from "../types";
@@ -120,6 +121,12 @@ const activityBodySchema = z.object({
   recurrenceUntil: z.string().date().nullable().optional(),
   staffNotes: z.string().max(20000).nullable().optional(),
   parentNotes: z.string().max(20000).nullable().optional(),
+  priceAmountMinor: z.number().int().min(0).nullable().optional(),
+  priceCurrency: z.string().regex(/^[A-Z]{3}$/).nullable().optional(),
+  paymentRequired: z.boolean().optional(),
+  paymentDeadlineAt: z.string().datetime({ offset: true }).nullable().optional(),
+  paymentInstructions: z.string().max(4000).nullable().optional(),
+  chargePolicy: z.enum(["none", "on_confirmed", "on_consent"]).optional(),
   targets: z.array(targetSchema).max(80).optional(),
   consentClauses: z.array(clauseSchema).max(20).optional(),
   staff: z
@@ -441,9 +448,11 @@ export function registerActivityRoutes(app: SchoolappApi) {
            starts_at, ends_at, all_day, location, external_address, meeting_point, return_point,
            capacity, response_deadline_at, allow_responses_after_deadline, consent_required,
            parent_response_required, student_signup_enabled, student_visible, parent_visible,
-           occurrence_kind, recurrence_weekdays, recurrence_until, staff_notes, parent_notes, created_by
+           occurrence_kind, recurrence_weekdays, recurrence_until, staff_notes, parent_notes,
+           price_amount_minor, price_currency, payment_required, payment_deadline_at,
+           payment_instructions, charge_policy, created_by
          ) values (
-           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26
+           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33
          ) returning id`,
         [
           orgId,
@@ -471,6 +480,12 @@ export function registerActivityRoutes(app: SchoolappApi) {
           parsed.data.recurrenceUntil ?? null,
           parsed.data.staffNotes ?? null,
           parsed.data.parentNotes ?? null,
+          parsed.data.priceAmountMinor ?? null,
+          parsed.data.priceCurrency ?? null,
+          parsed.data.paymentRequired ?? false,
+          parsed.data.paymentDeadlineAt ?? null,
+          parsed.data.paymentInstructions ?? null,
+          parsed.data.chargePolicy ?? "on_confirmed",
           userId,
         ],
       );
@@ -568,7 +583,13 @@ export function registerActivityRoutes(app: SchoolappApi) {
            recurrence_until = coalesce($24, recurrence_until),
            staff_notes = coalesce($25, staff_notes),
            parent_notes = coalesce($26, parent_notes),
-           consent_version = consent_version + case when $27::boolean then 1 else 0 end
+           price_amount_minor = coalesce($27, price_amount_minor),
+           price_currency = coalesce($28, price_currency),
+           payment_required = coalesce($29, payment_required),
+           payment_deadline_at = coalesce($30, payment_deadline_at),
+           payment_instructions = coalesce($31, payment_instructions),
+           charge_policy = coalesce($32, charge_policy),
+           consent_version = consent_version + case when $33::boolean then 1 else 0 end
          where id = $1 and organisation_id = $2`,
         [
           activityId,
@@ -597,6 +618,12 @@ export function registerActivityRoutes(app: SchoolappApi) {
           parsed.data.recurrenceUntil ?? null,
           parsed.data.staffNotes === undefined ? null : parsed.data.staffNotes,
           parsed.data.parentNotes === undefined ? null : parsed.data.parentNotes,
+          parsed.data.priceAmountMinor === undefined ? null : parsed.data.priceAmountMinor,
+          parsed.data.priceCurrency === undefined ? null : parsed.data.priceCurrency,
+          parsed.data.paymentRequired ?? null,
+          parsed.data.paymentDeadlineAt === undefined ? null : parsed.data.paymentDeadlineAt,
+          parsed.data.paymentInstructions === undefined ? null : parsed.data.paymentInstructions,
+          parsed.data.chargePolicy ?? null,
           Boolean(parsed.data.consentClauses),
         ],
       );
@@ -694,13 +721,33 @@ export function registerActivityRoutes(app: SchoolappApi) {
       const activityId = uuidRouteParam(c, "activityId");
       await assertCanReadStaffActivity(client, actor, activityId);
       const rows = await client.query(
-        `select p.*, sp.legal_name, c.name as class_name, yg.name as year_group_name
+        `select p.*, sp.legal_name, c.name as class_name, yg.name as year_group_name,
+                case
+                  when not a.payment_required and ch.id is null then 'not_required'
+                  when ch.id is null then 'not_requested'
+                  when ch.status = 'paid' then 'paid'
+                  when ch.status = 'waived' then 'waived'
+                  when ch.status = 'refunded' then 'refunded'
+                  when ch.status in ('cancelled', 'draft') then 'not_requested'
+                  else 'outstanding'
+                end as payment_status
          from school_activity_participants p
+         join school_activities a on a.id = p.activity_id
          join student_profiles sp on sp.id = p.student_profile_id
          left join school_activity_eligible_pupils e
            on e.activity_id = p.activity_id and e.student_profile_id = p.student_profile_id
          left join classes c on c.id = e.class_id
          left join year_groups yg on yg.id = e.year_group_id
+         left join lateral (
+           select sc.id, sc.status
+             from school_charges sc
+            where sc.organisation_id = p.organisation_id
+              and sc.activity_id = p.activity_id
+              and sc.student_profile_id = p.student_profile_id
+              and sc.status <> 'cancelled'
+            order by sc.created_at desc
+            limit 1
+         ) ch on true
          where p.activity_id = $1 and p.organisation_id = $2
          order by p.registration_status, p.waiting_list_position nulls last, sp.legal_name`,
         [activityId, orgId],
@@ -717,8 +764,18 @@ export function registerActivityRoutes(app: SchoolappApi) {
       await assertCanReadStaffActivity(client, actor, activityId);
       const rows = await client.query(
         `select e.student_profile_id, sp.legal_name, c.name as class_name, yg.name as year_group_name,
-                p.registration_status, r.response as consent_response
+                p.registration_status, r.response as consent_response,
+                case
+                  when not a.payment_required and ch.id is null then 'not_required'
+                  when ch.id is null then 'not_requested'
+                  when ch.status = 'paid' then 'paid'
+                  when ch.status = 'waived' then 'waived'
+                  when ch.status = 'refunded' then 'refunded'
+                  when ch.status in ('cancelled', 'draft') then 'not_requested'
+                  else 'outstanding'
+                end as payment_status
          from school_activity_eligible_pupils e
+         join school_activities a on a.id = e.activity_id
          join student_profiles sp on sp.id = e.student_profile_id
          left join classes c on c.id = e.class_id
          left join year_groups yg on yg.id = e.year_group_id
@@ -726,6 +783,16 @@ export function registerActivityRoutes(app: SchoolappApi) {
            on p.activity_id = e.activity_id and p.student_profile_id = e.student_profile_id
          left join school_activity_responses r
            on r.activity_id = e.activity_id and r.student_profile_id = e.student_profile_id and r.is_effective
+         left join lateral (
+           select sc.id, sc.status
+             from school_charges sc
+            where sc.organisation_id = e.organisation_id
+              and sc.activity_id = e.activity_id
+              and sc.student_profile_id = e.student_profile_id
+              and sc.status <> 'cancelled'
+            order by sc.created_at desc
+            limit 1
+         ) ch on true
          where e.activity_id = $1 and e.organisation_id = $2
          order by sp.legal_name`,
         [activityId, orgId],
@@ -738,6 +805,7 @@ export function registerActivityRoutes(app: SchoolappApi) {
           yearGroupName: row.year_group_name,
           registrationStatus: row.registration_status ?? null,
           consentResponse: row.consent_response ?? "pending",
+          paymentStatus: row.payment_status ?? "not_required",
         })),
       });
     }),
@@ -838,6 +906,7 @@ export function registerActivityRoutes(app: SchoolappApi) {
         registrationStatus: status,
         waitingListPosition: status === "waitlisted" ? nextWaitingListPosition(locked.waitlistPositions) : null,
         source: "staff_assigned",
+        actorUserId: userId,
         confirmedAt: status === "confirmed" ? new Date().toISOString() : null,
         internalNote: parsed.data.note,
       });
@@ -928,6 +997,13 @@ export function registerActivityRoutes(app: SchoolappApi) {
           where activity_id = $1 and student_profile_id = $2 and organisation_id = $3`,
         [activityId, studentId, orgId],
       );
+      await syncActivityCharge(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        activityId,
+        studentProfileId: studentId,
+        registrationStatus: "confirmed",
+      });
       await auditActivity(client, {
         organisationId: orgId,
         actorUserId: userId,
@@ -954,6 +1030,13 @@ export function registerActivityRoutes(app: SchoolappApi) {
           where activity_id = $1 and student_profile_id = $2 and organisation_id = $3`,
         [activityId, studentId, orgId],
       );
+      await syncActivityCharge(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        activityId,
+        studentProfileId: studentId,
+        registrationStatus: "withdrawn",
+      });
       await maybePromoteNextWaitlisted(client, {
         organisationId: orgId,
         activityId,

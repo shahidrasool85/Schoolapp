@@ -36,6 +36,7 @@ const LINKS = [
   { href: "/school/assessment", title: "Assessment & Progress", text: "Formal results and published reports." },
   { href: "/school/communications", title: "Communications", text: "Notices and the school calendar." },
   { href: "/school/timetable", title: "Timetable", text: "School day, rooms, class and teacher schedules." },
+  { href: "/school/finance", title: "Finance / Payments", text: "Charges, outstanding balances, refunds and receipts." },
 ];
 
 export default function SchoolDashboardPage() {

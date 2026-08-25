@@ -70,12 +70,32 @@ describe("RLS catalog", () => {
            'school_activity_types', 'school_activities', 'school_activity_status_history',
            'school_activity_targets', 'school_activity_eligible_pupils', 'school_activity_staff',
            'school_activity_consent_clauses', 'school_activity_participants', 'school_activity_responses',
-           'school_activity_documents', 'school_activity_updates'
+           'school_activity_documents', 'school_activity_updates',
+           'school_finance_counters', 'school_charge_categories', 'school_charges',
+           'school_charge_adjustments', 'school_payment_transactions', 'school_payment_sessions',
+           'school_payment_refunds', 'school_payment_receipts', 'school_payment_provider_events',
+           'school_payment_provider_configs'
          )`,
     );
-    expect(result.rows.length).toBe(124);
+    expect(result.rows.length).toBe(134);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
+    }
+  });
+
+  it("grants the app role DML on finance tables", async () => {
+    const result = await pools.owner.query<{ table_name: string; can_select: boolean }>(
+      `select t.table_name, has_table_privilege('schoolapp_app', t.table_name, 'SELECT') as can_select
+       from unnest(array[
+         'school_finance_counters', 'school_charge_categories', 'school_charges',
+         'school_charge_adjustments', 'school_payment_transactions', 'school_payment_sessions',
+         'school_payment_refunds', 'school_payment_receipts', 'school_payment_provider_events',
+         'school_payment_provider_configs'
+       ]) as t(table_name)`,
+    );
+    expect(result.rows).toHaveLength(10);
+    for (const row of result.rows) {
+      expect(row.can_select, row.table_name).toBe(true);
     }
   });
 

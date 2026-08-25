@@ -22,6 +22,7 @@ type Detail = {
   child: {
     registrationStatus: string | null;
     waitingListPosition: number | null;
+    paymentStatus?: string | null;
   };
 };
 
@@ -74,6 +75,7 @@ export default function StudentActivityDetailPage() {
         </p>
       ) : null}
       <p>Your place: <strong>{data.child.registrationStatus ?? "not signed up"}</strong></p>
+      {data.child.paymentStatus === "paid" ? <p>Trip payment completed</p> : null}
       {data.activity.parentNotes ? <p>{data.activity.parentNotes}</p> : null}
       {data.activity.description ? <p>{data.activity.description}</p> : null}
       {data.updates?.length ? (

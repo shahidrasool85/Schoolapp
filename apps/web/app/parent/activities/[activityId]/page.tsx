@@ -26,6 +26,7 @@ type Detail = {
     consentResponse: string;
     registrationStatus: string | null;
     waitingListPosition: number | null;
+    paymentStatus?: string | null;
   };
 };
 
@@ -116,6 +117,12 @@ export default function ParentActivityDetailPage() {
           ? " · response needed"
           : ""}
       </p>
+      {data.child.paymentStatus && data.child.paymentStatus !== "not_required" ? (
+        <p>
+          Payment: <strong>{data.child.paymentStatus}</strong>
+          {data.child.paymentStatus === "outstanding" ? " · open Payments to pay" : ""}
+        </p>
+      ) : null}
       {data.activity.parentNotes ? <p>{data.activity.parentNotes}</p> : null}
       {data.activity.description ? <p>{data.activity.description}</p> : null}
       {data.activity.responseDeadlineAt ? (

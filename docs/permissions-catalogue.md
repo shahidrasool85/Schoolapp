@@ -187,4 +187,15 @@ Timetable keys follow the calendar pattern. School Admin and Headteacher manage 
 
 Activity keys are assigned-only for teachers. `activities.manage` / `activities.publish` / `activities.responses.manage` / `activities.medical_summary.read` are School Admin and Headteacher. Teachers may manage participants on activities they created or are assigned to, but offline consent requires `activities.responses.manage`. Parent APIs re-check guardianship + `portal_access`. Student self-sign-up requires the activity flag and is blocked when parent consent is required. Safety summaries never include safeguarding.
 
+| `finance.charges.read` | — | F | F | — | — | — | — | — |
+| `finance.charges.manage` | — | F | — | — | — | — | — | — |
+| `finance.transactions.read` | — | F | F | — | — | — | — | — |
+| `finance.payments.record_offline` | — | F | — | — | — | — | — | — |
+| `finance.refunds.manage` | — | F | — | — | — | — | — | — |
+| `finance.adjustments.manage` | — | F | — | — | — | — | — | — |
+| `finance.reports.read` | — | F | F | — | — | — | — | — |
+| `finance.read_own_children` | — | — | — | — | — | — | F | — |
+
+Finance keys are capability-based. School Admin manages charges, offline payments, refunds, and adjustments. Headteacher has overview/read only. Teachers have no finance browse keys; activity participant lists may show operational `paid` / `outstanding` only. Parents pay and read authorised children after guardianship + `portal_access`. Students and Platform Admin have no school-finance access by default.
+
 Unused module keys are seeded so later phases do not hardcode role names; those modules are not implemented in Phase 1.

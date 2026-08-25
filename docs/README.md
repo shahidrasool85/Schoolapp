@@ -1,6 +1,6 @@
 # Schoolapp documentation
 
-Architecture **accepted**. Phases 1–13 (foundation through production file storage) are implemented. Later product modules (AI, games, mobile) are not built yet.
+Architecture **accepted**. Phases 1–15 (foundation through school payments) are implemented. Later product modules (AI, games, mobile) are not built yet.
 
 | Document | Contents |
 | --- | --- |

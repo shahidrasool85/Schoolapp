@@ -45,7 +45,7 @@ export function registerOrganisationRoutes(app: SchoolappApi) {
 
         const settings = canReadSettings
           ? await client.query(
-              `select academic_year_start_month, locale, max_year_group_code, extras
+              `select academic_year_start_month, locale, max_year_group_code, extras, default_currency
                from organisation_settings where organisation_id = $1`,
               [orgId],
             )
@@ -69,6 +69,7 @@ export function registerOrganisationRoutes(app: SchoolappApi) {
                   locale: settings.rows[0].locale,
                   maxYearGroupCode: settings.rows[0].max_year_group_code,
                   extras: settings.rows[0].extras,
+                  defaultCurrency: settings.rows[0].default_currency ?? "GBP",
                 }
               : null
             : null,

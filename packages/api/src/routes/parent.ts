@@ -47,6 +47,9 @@ import {
   loadPortalActivityDetail,
   parentRespondToActivity,
 } from "../activities-portal";
+import { listParentCharges, loadParentCharge, startParentCheckout } from "../payments-portal";
+import { paymentProviderOf, publicOriginFromRequest } from "../payments-context";
+import { z } from "zod";
 
 export function registerParentRoutes(app: SchoolappApi) {
   app.get("/parent/dashboard", requireUser, async (c) =>
@@ -112,6 +115,7 @@ export function registerParentRoutes(app: SchoolappApi) {
           reports: { available: true },
           teacherFeedback: { available: true },
           timetable: { available: true },
+          payments: { available: true },
         },
       });
     }),
@@ -444,6 +448,57 @@ export function registerParentRoutes(app: SchoolappApi) {
         body: await c.req.json(),
       });
       return c.json(result);
+    }),
+  );
+
+  app.get("/parent/payments", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      const charges = await listParentCharges(client, { orgId, userId, actor });
+      return c.json({ charges });
+    }),
+  );
+
+  app.get("/parent/children/:studentId/payments", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      const studentId = uuidRouteParam(c, "studentId");
+      const charges = await listParentCharges(client, { orgId, userId, actor, studentId });
+      return c.json({ charges });
+    }),
+  );
+
+  app.get("/parent/payments/:chargeId", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      return c.json(await loadParentCharge(client, {
+        orgId,
+        userId,
+        actor,
+        chargeId: uuidRouteParam(c, "chargeId"),
+      }));
+    }),
+  );
+
+  app.post("/parent/payments/:chargeId/checkout", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      const chargeId = uuidRouteParam(c, "chargeId");
+      const parsed = z
+        .object({
+          amountMinor: z.number().int().positive().optional(),
+          idempotencyKey: z.string().min(8).max(120).optional(),
+        })
+        .safeParse((await c.req.json().catch(() => ({}))) ?? {});
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid checkout");
+      const origin = publicOriginFromRequest(c);
+      const result = await startParentCheckout(client, {
+        orgId,
+        actor,
+        chargeId,
+        provider: paymentProviderOf(c),
+        amountMinor: parsed.data.amountMinor,
+        idempotencyKey: parsed.data.idempotencyKey,
+        successUrl: `${origin}/parent/payments/${chargeId}?status=pending`,
+        cancelUrl: `${origin}/parent/payments/${chargeId}?status=cancelled`,
+      });
+      return c.json({ checkoutUrl: result.checkoutUrl, sessionId: result.session.id });
     }),
   );
 }

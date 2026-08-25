@@ -53,6 +53,12 @@ export default function NewActivityPage() {
       String(form.get("deadlineDate") || ""),
       String(form.get("deadlineTime") || "") || "23:59",
     );
+    const paymentDeadlineAt = localDateAndTimeToIso(
+      String(form.get("paymentDeadlineDate") || ""),
+      String(form.get("paymentDeadlineTime") || "") || "23:59",
+    );
+    const pricePounds = String(form.get("pricePounds") || "").trim();
+    const paymentRequired = form.get("paymentRequired") === "on";
     const occurrenceKind = String(form.get("occurrenceKind") || "one_off");
     const wholeSchool = form.get("wholeSchool") === "on";
     const targets = wholeSchool
@@ -75,6 +81,15 @@ export default function NewActivityPage() {
       setError("Select at least one class, year group, pupil, or whole school.");
       return;
     }
+    let priceAmountMinor: number | null = null;
+    if (paymentRequired && pricePounds) {
+      if (!/^\d+(\.\d{1,2})?$/.test(pricePounds)) {
+        setError("Enter a price such as 12.50");
+        return;
+      }
+      const [whole, fraction = ""] = pricePounds.split(".");
+      priceAmountMinor = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+    }
     const body = {
       title: form.get("title"),
       description: form.get("description") || null,
@@ -93,6 +108,10 @@ export default function NewActivityPage() {
       studentSignupEnabled: form.get("studentSignupEnabled") === "on",
       parentNotes: form.get("parentNotes") || null,
       staffNotes: form.get("staffNotes") || null,
+      paymentRequired,
+      priceAmountMinor,
+      paymentDeadlineAt,
+      paymentInstructions: form.get("paymentInstructions") || null,
       occurrenceKind,
       recurrenceWeekdays: occurrenceKind === "recurring" ? [Number(form.get("weekday") || 2)] : null,
       recurrenceUntil: occurrenceKind === "recurring" ? String(form.get("recurrenceUntil") || "") || null : null,
@@ -195,6 +214,11 @@ export default function NewActivityPage() {
           </select>
         </label>
         <label><input name="consentRequired" type="checkbox" defaultChecked /> Parent consent required</label>
+        <label><input name="paymentRequired" type="checkbox" /> Payment required</label>
+        <label>Price (£)<input name="pricePounds" type="text" inputMode="decimal" placeholder="12.50" /></label>
+        <label>Payment deadline date<input name="paymentDeadlineDate" type="date" /></label>
+        <label>Payment deadline time<input name="paymentDeadlineTime" type="time" /></label>
+        <label>Payment instructions<textarea name="paymentInstructions" rows={2} /></label>
         <label><input name="studentSignupEnabled" type="checkbox" /> Student self-sign-up</label>
         {ctx.canTargetYearGroups ? <label><input name="wholeSchool" type="checkbox" /> Whole school</label> : null}
         <label>Parent-visible notes<textarea name="parentNotes" rows={3} /></label>

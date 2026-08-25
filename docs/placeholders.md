@@ -11,7 +11,7 @@ The in-app `notifications` inbox is implemented in Phase 3. `notification_prefer
 | `terms` / `half_terms` | UK academic calendar | Calendar admin UI; attendance already records against academic year dates |
 | `notification_preferences` | Per-user, per-org, per-channel, per-category opt-in/out | Email/push workers, templates, Children’s Code marketing rules enforcement in code |
 | `guardianships` extras | Parental responsibility, emergency contact, restricted-contact flag | Court-order workflows, pickup permissions, multi-household rules beyond the columns |
-| `billing_accounts` / `organisation_subscriptions` | SaaS commercial boundary (who pays, plan, status, licensed seats) | Payments, invoices, dunning, usage metering |
+| `billing_accounts` / `organisation_subscriptions` | SaaS commercial boundary (who pays Schoolapp, plan, status, licensed seats) | Platform invoices, dunning, usage metering. Distinct from Phase 15 school-to-parent charges. |
 | `inter_school_competition_networks` (+ members) | Future governance for school-vs-school competitions | Any cross-tenant pupil data path, scoring, leaderboards across schools |
 
 **Hard rule:** placeholder tables must not be used to JOIN pupil or learning data across `organisation_id`. Inter-school competition rows are governance metadata only until a dedicated ADR and DPIA land.

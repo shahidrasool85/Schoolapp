@@ -240,6 +240,7 @@ export const PARENT_CHILD_SECTIONS = Object.freeze({
   timetable: { available: true as const },
   achievements: comingLater,
   activities: { available: true as const },
+  payments: { available: true as const },
   competitions: comingLater,
 });
 

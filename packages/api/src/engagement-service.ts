@@ -153,7 +153,7 @@ async function loadAchievementProgress(
     attendancePercentage: null,
     attendanceStreak: 0,
     learningActivityCount: Number(activities.rows[0]?.n ?? 0),
-    challengeCompletedCount: Number(challenges.rows[0]?.n ?? 0) || Number(activities.rows[0]?.n ?? 0),
+    challengeCompletedCount: Number(challenges.rows[0]?.n ?? 0),
   };
 }
 
@@ -662,6 +662,43 @@ export async function submitPracticeAttempt(input: {
       sourceId: row.activity_id,
       awardedBy: input.actorUserId,
     });
+  }
+  if (completed && policy.grantRewardPointsOnLearning) {
+    const category = await input.client.query<{ id: string; name: string; default_points: number }>(
+      `select id, name, default_points from reward_categories
+       where organisation_id = $1 and active = true
+       order by (key = 'excellent_work') desc, sort_order, name
+       limit 1`,
+      [input.organisationId],
+    );
+    if (category.rows[0]) {
+      await input.client.query(
+        `insert into pupil_rewards (
+           organisation_id, student_profile_id, category_id, points, title, pupil_message,
+           awarded_by, house_id, source_type, source_id
+         )
+         select $1,$2,$3,$4,$5,$6,$7,$8,'learning_activity',$9
+         where not exists (
+           select 1 from pupil_rewards
+           where organisation_id = $1
+             and student_profile_id = $2
+             and source_type = 'learning_activity'
+             and source_id = $9
+             and status = 'active'
+         )`,
+        [
+          input.organisationId,
+          input.studentProfileId,
+          category.rows[0].id,
+          Math.max(0, Number(category.rows[0].default_points)),
+          category.rows[0].name,
+          "Well done for completing practice.",
+          input.actorUserId,
+          await loadPupilHouseId(input.client, input.organisationId, input.studentProfileId),
+          row.activity_id,
+        ],
+      );
+    }
   }
   await input.client.query(
     `update learning_activity_attempts

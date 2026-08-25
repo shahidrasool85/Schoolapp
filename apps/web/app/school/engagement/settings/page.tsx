@@ -59,6 +59,7 @@ export default function EngagementSettingsPage() {
       allowClassLeaderboard: form.get("allowClassLeaderboard") === "on",
       allowHouseLeaderboard: form.get("allowHouseLeaderboard") === "on",
       anonymisePupilLeaderboard: form.get("anonymisePupilLeaderboard") === "on",
+      grantRewardPointsOnLearning: form.get("grantRewardPointsOnLearning") === "on",
       leaderboardDisplayNamePolicy: String(form.get("leaderboardDisplayNamePolicy") || "first_name_initial"),
     };
     const updated = await api<{ settings: Settings }>("/api/v1/engagement/settings", {
@@ -106,6 +107,7 @@ export default function EngagementSettingsPage() {
           <label><input type="checkbox" name="allowClassLeaderboard" defaultChecked={data.settings.allowClassLeaderboard} /> Class leaderboard</label>
           <label><input type="checkbox" name="allowIndividualLeaderboard" defaultChecked={data.settings.allowIndividualLeaderboard} /> Individual leaderboard (off by default for younger pupils)</label>
           <label><input type="checkbox" name="anonymisePupilLeaderboard" defaultChecked={data.settings.anonymisePupilLeaderboard} /> Anonymise pupil names</label>
+          <label><input type="checkbox" name="grantRewardPointsOnLearning" defaultChecked={data.settings.grantRewardPointsOnLearning} /> Also grant reward points when practice is completed (off unless the school wants this)</label>
           <label>
             Display names
             <select name="leaderboardDisplayNamePolicy" defaultValue={data.settings.leaderboardDisplayNamePolicy}>

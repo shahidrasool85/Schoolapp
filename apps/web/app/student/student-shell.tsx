@@ -1,26 +1,21 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { ReactNode, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { ReactNode, Suspense, useEffect, useState } from "react";
+import { AppShell } from "../../components/app-shell";
 import { api, getOrgId, getToken, setOrgId, setToken } from "../../lib/api";
+import { resolveLoginBranding } from "../../lib/login-branding";
 import { homePath, hasStudentRole, pickMembership, pickPortalMembership, type Membership } from "../../lib/portal";
 import { loadPublicTenant, membershipForHost } from "../../lib/tenant";
 
-type NavLink = {
-  href: string;
-  label: string;
-  exact?: boolean;
-  children?: NavLink[];
-};
-
-const LINKS: NavLink[] = [
-  { href: "/student", label: "Home", exact: true },
-  { href: "/student/timetable", label: "My Timetable" },
-  { href: "/student/attendance", label: "Attendance" },
+const LINKS = [
+  { href: "/student", label: "Home", icon: "home" as const, exact: true },
+  { href: "/student/timetable", label: "My Timetable", icon: "calendar" as const },
+  { href: "/student/attendance", label: "Attendance", icon: "check" as const },
   {
     href: "/student/learning",
     label: "My Learning",
+    icon: "book" as const,
     exact: true,
     children: [
       { href: "/student/learning", label: "Assigned", exact: true },
@@ -29,35 +24,23 @@ const LINKS: NavLink[] = [
       { href: "/student/learning/feedback", label: "Feedback" },
     ],
   },
-  { href: "/student/results", label: "Results" },
-  { href: "/student/reports", label: "Reports" },
-  { href: "/student/notices", label: "Notices" },
-  { href: "/student/calendar", label: "Calendar" },
-  { href: "/student/activities", label: "Activities" },
-  { href: "/student/notifications", label: "Notifications" },
-  { href: "/student/profile", label: "Profile" },
+  { href: "/student/results", label: "Results", icon: "chart" as const },
+  { href: "/student/reports", label: "Reports", icon: "clipboard" as const },
+  { href: "/student/notices", label: "Notices", icon: "megaphone" as const },
+  { href: "/student/calendar", label: "Calendar", icon: "flag" as const },
+  { href: "/student/activities", label: "Activities", icon: "flag" as const },
+  { href: "/student/notifications", label: "Notifications", icon: "bell" as const },
+  { href: "/student/profile", label: "Profile", icon: "users" as const },
 ];
 
-function isActivePath(pathname: string, href: string, exact?: boolean, siblingHrefs: string[] = []): boolean {
-  if (pathname === href) return true;
-  if (!pathname.startsWith(`${href}/`)) return false;
-  if (siblingHrefs.some((sibling) => sibling !== href && (pathname === sibling || pathname.startsWith(`${sibling}/`)))) {
-    return false;
-  }
-  return !exact || siblingHrefs.length > 0;
-}
-
-function isSectionOpen(pathname: string, link: NavLink): boolean {
-  if (!link.children?.length) return false;
-  return pathname === link.href || pathname.startsWith(`${link.href}/`);
-}
-
-export default function StudentShell({ children }: { children: ReactNode }) {
+function StudentShellInner({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const pathname = usePathname();
   const [schoolName, setSchoolName] = useState("My school");
+  const [userName, setUserName] = useState<string | null>(null);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
+  const [unreadNotifications, setUnreadNotifications] = useState<number | null>(null);
 
   useEffect(() => {
     if (!getToken()) {
@@ -74,6 +57,14 @@ export default function StudentShell({ children }: { children: ReactNode }) {
           return;
         }
         if (tenant.kind === "school") {
+          const branding = resolveLoginBranding({
+            organisationName: tenant.organisation.name,
+            hostname: tenant.hostname,
+            branding: tenant.organisation.branding,
+          });
+          setLogoUrl(branding.logoUrl);
+          document.documentElement.style.setProperty("--brand", branding.primaryColor);
+          document.documentElement.style.setProperty("--sidebar", branding.primaryColor);
           const current = membershipForHost(body.memberships, tenant);
           if (!current || !hasStudentRole(current.roleKeys)) {
             router.replace(current ? homePath(current.roleKeys) : "/login");
@@ -94,6 +85,12 @@ export default function StudentShell({ children }: { children: ReactNode }) {
         setSchoolName(current.name);
         setReady(true);
       })
+      .then(async () => {
+        const me = await api<{ user: { fullName: string } }>("/api/v1/me").catch(() => null);
+        const notifications = await api<{ unreadCount: number }>("/api/v1/notifications").catch(() => null);
+        setUserName(me?.user.fullName ?? null);
+        setUnreadNotifications(notifications?.unreadCount ?? null);
+      })
       .catch(() => {
         setError("Could not load your school.");
         router.replace("/login");
@@ -108,58 +105,37 @@ export default function StudentShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="shell portal-student">
-      <aside className="nav">
-        <h1>Student Portal</h1>
-        <p className="muted" style={{ color: "#e7f7ef", margin: "0 0 1rem" }}>
-          {schoolName}
-        </p>
-        {LINKS.map((link) => {
-          const children = link.children ?? [];
-          const siblingHrefs = children.map((child) => child.href);
-          const open = isSectionOpen(pathname, link);
-          const childActive = children.some((child) =>
-            isActivePath(pathname, child.href, child.exact, siblingHrefs),
-          );
-          const parentActive = isActivePath(pathname, link.href, link.exact) && !childActive;
-          if (children.length === 0) {
-            return (
-              <Link key={link.href} href={link.href} className={parentActive ? "active" : undefined}>
-                {link.label}
-              </Link>
-            );
-          }
-          return (
-            <div key={link.href} className={`nav-group${open ? " open" : ""}`}>
-              <Link
-                href={link.href}
-                className={`nav-parent${parentActive ? " active" : ""}${open && !parentActive ? " open" : ""}`}
-              >
-                {link.label}
-              </Link>
-              {open
-                ? children.map((child) => (
-                    <Link
-                      key={child.href + child.label}
-                      href={child.href}
-                      className={`nav-child${isActivePath(pathname, child.href, child.exact, siblingHrefs) ? " active" : ""}`}
-                    >
-                      {child.label}
-                    </Link>
-                  ))
-                : null}
-            </div>
-          );
-        })}
-        <div style={{ marginTop: "auto", paddingTop: 24 }}>
-          <button className="secondary" type="button" onClick={logout}>
-            Sign out
-          </button>
-        </div>
-      </aside>
-      <main className="content">
-        {error ? <p className="error">{error}</p> : ready ? children : <p>Loading…</p>}
-      </main>
-    </div>
+    <AppShell
+      variant="student"
+      schoolName={schoolName}
+      personaLabel="Student"
+      userName={userName}
+      logoUrl={logoUrl}
+      sections={[
+        {
+          id: "student",
+          items: LINKS.map((link) =>
+            link.href === "/student/notifications"
+              ? { ...link, count: unreadNotifications && unreadNotifications > 0 ? unreadNotifications : null }
+              : link,
+          ),
+        },
+      ]}
+      unreadNotifications={unreadNotifications}
+      notificationsHref="/student/notifications"
+      onLogout={logout}
+      ready={ready}
+      error={error}
+    >
+      {children}
+    </AppShell>
+  );
+}
+
+export default function StudentShell({ children }: { children: ReactNode }) {
+  return (
+    <Suspense fallback={<p className="content">Loading…</p>}>
+      <StudentShellInner>{children}</StudentShellInner>
+    </Suspense>
   );
 }

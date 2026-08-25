@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { EmptyState, FilterBar, PageError, PageHeader, SearchInput, StatusBadge } from "../../../../components/ui";
 import { api } from "../../../../lib/api";
+import { userFacingError } from "../../../../lib/errors";
 
 type Application = {
   id: string;
@@ -23,7 +25,7 @@ const STATUSES = [
 ];
 
 export default function ApplicationsPage() {
-  const [applications, setApplications] = useState<Application[]>([]);
+  const [applications, setApplications] = useState<Application[] | null>(null);
   const [status, setStatus] = useState("");
   const [q, setQ] = useState("");
   const [error, setError] = useState("");
@@ -47,53 +49,82 @@ export default function ApplicationsPage() {
   }, []);
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    load().catch((err: Error) => setError(userFacingError(err, "Could not load applications.")));
   }, [query]);
 
   return (
     <>
-      <div className="toolbar">
-        <h1>Applications</h1>
-        <Link href="/school/admissions/applications/new">
-          <button type="button">+ New application</button>
-        </Link>
-      </div>
-      <p className="muted">
-        Public form submissions and staff-entered applications use the same admissions record.
-        Use <Link href="/school/admissions/forms">Forms</Link> to share the school’s public application.
-      </p>
-      <div className="toolbar">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name or reference" />
-        <select value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="">All statuses</option>
-          {STATUSES.map((s) => <option key={s} value={s}>{s.replaceAll("_", " ")}</option>)}
-        </select>
-      </div>
-      {error ? <p className="error">{error}</p> : null}
-      <table>
-        <thead>
-          <tr>
-            <th>Reference</th>
-            <th>Pupil</th>
-            <th>Intake</th>
-            <th>Year group</th>
-            <th>Source</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {applications.map((row) => (
-            <tr key={row.id}>
-              <td><Link href={`/school/admissions/applications/${row.id}`}>{row.reference}</Link></td>
-              <td>{row.pupilLegalName}</td>
-              <td>{row.intendedAcademicYearName ?? "—"}</td>
-              <td>{row.intendedYearGroupName ?? "—"}</td>
-              <td>{row.publicFormName ?? row.source ?? "—"}</td>
-              <td>{row.status.replaceAll("_", " ")}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <PageHeader
+        title="Applications"
+        description="Public form submissions and staff-entered applications use the same admissions record."
+        breadcrumbs={[
+          { href: "/school/admissions", label: "Admissions" },
+          { label: "Applications" },
+        ]}
+        actions={
+          <Link className="button" href="/school/admissions/applications/new">
+            New application
+          </Link>
+        }
+      />
+      <FilterBar>
+        <SearchInput
+          value={q}
+          onChange={setQ}
+          placeholder="Search name or reference"
+          label="Search"
+        />
+        <label>
+          Status
+          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option value="">All statuses</option>
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {s.replaceAll("_", " ")}
+              </option>
+            ))}
+          </select>
+        </label>
+      </FilterBar>
+      {error ? <PageError description={error} /> : null}
+      {applications && applications.length === 0 ? (
+        <EmptyState
+          title="No applications match"
+          description="Try another status or search, or record a new application."
+          action={<Link href="/school/admissions/applications/new">New application</Link>}
+        />
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Reference</th>
+                <th>Pupil</th>
+                <th>Date</th>
+                <th>Year group</th>
+                <th>Source</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(applications ?? []).map((row) => (
+                <tr key={row.id}>
+                  <td>
+                    <Link href={`/school/admissions/applications/${row.id}`}>{row.reference}</Link>
+                  </td>
+                  <td>{row.pupilLegalName}</td>
+                  <td>{row.applicationDate ?? row.intendedAcademicYearName ?? "—"}</td>
+                  <td>{row.intendedYearGroupName ?? "—"}</td>
+                  <td>{row.publicFormName ?? row.source ?? "—"}</td>
+                  <td>
+                    <StatusBadge status={row.status} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </>
   );
 }

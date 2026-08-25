@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { PageHeader, StatusBadge } from "../../../../../components/ui";
 import { api, downloadAuthenticated } from "../../../../../lib/api";
 
 type Canonical = {
@@ -299,8 +300,16 @@ export default function ApplicationDetailPage() {
 
   return (
     <>
-      <h1>{app.reference}</h1>
-      <p className="muted">{app.pupilLegalName} · {app.status.replaceAll("_", " ")}</p>
+      <PageHeader
+        title={app.pupilLegalName}
+        description={`${app.reference} · ${app.intendedYearGroupName ?? "Year group not set"} · ${app.intendedAcademicYearName ?? "Intake not set"}`}
+        breadcrumbs={[
+          { href: "/school/admissions", label: "Admissions" },
+          { href: "/school/admissions/applications", label: "Applications" },
+          { label: app.reference },
+        ]}
+        actions={<StatusBadge status={app.status} />}
+      />
 
       <h2>Application record</h2>
       <dl className="profile-list">

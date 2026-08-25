@@ -34,16 +34,16 @@ export default function TeachingHomePage() {
     <>
       <h1>My Teaching</h1>
       <p className="muted">Create learning work, track submissions, and mark returned work.</p>
-      <div className="cards">
-        <Link href="/school/teaching/assignments/new" className="card">
+      <div className="stat-grid">
+        <Link href="/school/teaching/assignments/new" className="stat-card">
           <span>Create work</span>
           <strong>New</strong>
         </Link>
-        <Link href="/school/teaching/assignments" className="card">
+        <Link href="/school/teaching/assignments" className="stat-card">
           <span>Assignments</span>
           <strong>{items.length}</strong>
         </Link>
-        <Link href="/school/teaching/submissions" className="card">
+        <Link href="/school/teaching/submissions" className="stat-card">
           <span>Submissions / Marking</span>
           <strong>Open</strong>
         </Link>

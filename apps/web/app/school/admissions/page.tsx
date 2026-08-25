@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { LoadingState, PageError, PageHeader, StatCard } from "../../../components/ui";
 import { api } from "../../../lib/api";
+import { userFacingError } from "../../../lib/errors";
 
 type Dashboard = {
   counts: {
@@ -44,32 +46,31 @@ export default function AdmissionsDashboardPage() {
   useEffect(() => {
     api<Dashboard>("/api/v1/admissions/dashboard")
       .then(setData)
-      .catch((err: Error) => setError(err.message));
+      .catch((err: Error) => setError(userFacingError(err, "Could not load admissions.")));
   }, []);
 
-  if (error) return <p className="error">{error}</p>;
-  if (!data) return <p>Loading…</p>;
+  if (error) return <PageError description={error} />;
+  if (!data) return <LoadingState label="Loading admissions…" />;
 
   return (
     <>
-      <h1>Admissions</h1>
-      <p className="muted">
-        Enquiry through to enrolment. Public forms and staff-entered records use the same
-        admissions workflow. An applicant is not an enrolled pupil until conversion.
-      </p>
-      <p>
-        <Link href="/school/admissions/forms">Public forms</Link>
-        {" · "}
-        <Link href="/school/admissions/enquiries">Enquiries</Link>
-        {" · "}
-        <Link href="/school/admissions/applications">Applications</Link>
-      </p>
-      <div className="cards">
+      <PageHeader
+        title="Admissions"
+        description="Enquiry through to enrolment. Public forms and staff-entered records use the same workflow. An applicant is not an enrolled pupil until conversion."
+        actions={
+          <>
+            <Link className="button" href="/school/admissions/applications">
+              Applications
+            </Link>
+            <Link className="button secondary" href="/school/admissions/forms">
+              Public forms
+            </Link>
+          </>
+        }
+      />
+      <div className="stat-grid">
         {CARDS.map((card) => (
-          <Link key={card.key} href={card.href} className="card">
-            <span>{card.label}</span>
-            <strong>{data.counts[card.key]}</strong>
-          </Link>
+          <StatCard key={card.key} label={card.label} value={data.counts[card.key]} href={card.href} />
         ))}
       </div>
     </>

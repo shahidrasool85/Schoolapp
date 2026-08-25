@@ -216,6 +216,21 @@ export function staffPersonaLabel(roleKeys: readonly string[]): string {
   return "Staff";
 }
 
+export {
+  parseNavHref,
+  navHrefSpecificity,
+  navHrefMatches,
+  isActiveNavHref,
+  isNavSectionOpen,
+  staffDashboardKind,
+  statusTone,
+  formatStatusLabel,
+  hasAnyPermission,
+  hasPermissionPrefix,
+  type NavHref,
+  type StatusTone,
+} from "./ui.js";
+
 export type UserKind = "platform_admin" | "staff" | "parent" | "student";
 
 export type Actor = {

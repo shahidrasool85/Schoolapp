@@ -67,51 +67,58 @@ export default function MyTimetablePage() {
       {error ? <p className="error">{error}</p> : null}
       {registerError ? <p className="error">{registerError}</p> : null}
       {items.length === 0 ? (
-        <p>No lessons assigned to you in this week.</p>
+        <div className="empty-state">
+          <h2>No lessons this week</h2>
+          <p>Nothing is assigned to you for this week. Try another week or open the school timetable.</p>
+          <Link href="/school/timetable/schedule">School timetable</Link>
+        </div>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>When</th>
-              <th>Class</th>
-              <th>Subject</th>
-              <th>Room</th>
-              <th>Status</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((lesson) => (
-              <tr key={`${lesson.entryId}-${lesson.date}`}>
-                <td>
-                  {DAYS[lesson.weekday - 1]} {lesson.startsAt.slice(0, 5)}–{lesson.endsAt.slice(0, 5)}
-                </td>
-                <td>{lesson.className}</td>
-                <td>{lesson.subjectName ?? "—"}</td>
-                <td>{lesson.roomName ?? "—"}</td>
-                <td>{lesson.covered ? "Cover" : lesson.status}</td>
-                <td>
-                  {lesson.status === "cancelled" ? null : (
-                    <>
-                      <Link href={`/school/classes?classId=${lesson.classId}`}>View class</Link>
-                      {" · "}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          takeAttendance(lesson.entryId, lesson.date).catch((err: Error) => setRegisterError(err.message))
-                        }
-                      >
-                        Take attendance
-                      </button>
-                      {" · "}
-                      <Link href={`/school/teaching/assignments?classId=${lesson.classId}`}>Learning</Link>
-                    </>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="stack">
+          {DAYS.map((day, index) => {
+            const dayItems = items.filter((lesson) => lesson.weekday === index + 1);
+            if (dayItems.length === 0) return null;
+            return (
+              <section key={day} className="section-card">
+                <h2>{day}</h2>
+                <div className="lesson-cards">
+                  {dayItems.map((lesson) => (
+                    <article key={`${lesson.entryId}-${lesson.date}`} className="lesson-card">
+                      <div className="lesson-time">
+                        {lesson.startsAt.slice(0, 5)}–{lesson.endsAt.slice(0, 5)}
+                      </div>
+                      <div>
+                        <strong>
+                          {lesson.subjectName ?? "Lesson"} · {lesson.className}
+                        </strong>
+                        <p className="muted">
+                          {lesson.roomName ?? "No room"}
+                          {lesson.covered ? " · Cover" : ""}
+                        </p>
+                      </div>
+                      {lesson.status === "cancelled" ? (
+                        <span className="badge tone-danger">Cancelled</span>
+                      ) : (
+                        <div className="page-header-actions">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              takeAttendance(lesson.entryId, lesson.date).catch((err: Error) => setRegisterError(err.message))
+                            }
+                          >
+                            Take attendance
+                          </button>
+                          <Link className="button secondary" href={`/school/teaching/assignments?classId=${lesson.classId}`}>
+                            Learning
+                          </Link>
+                        </div>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              </section>
+            );
+          })}
+        </div>
       )}
     </>
   );

@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { EmptyState, LoadingState, PageError, PageHeader } from "../../components/ui";
+import { Button } from "../../components/ui/button";
 import { api, getToken, setOrgId, setToken } from "../../lib/api";
+import { userFacingError } from "../../lib/errors";
 import { loadPublicTenant, schoolOrigin } from "../../lib/tenant";
 
 type Organisation = {
@@ -18,6 +21,7 @@ export default function PlatformPage() {
   const [platformDomain, setPlatformDomain] = useState("localhost");
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
+  const [userName, setUserName] = useState<string | null>(null);
 
   useEffect(() => {
     if (!getToken()) {
@@ -26,7 +30,7 @@ export default function PlatformPage() {
     }
     Promise.all([
       loadPublicTenant(),
-      api<{ isPlatformAdmin: boolean }>("/api/v1/me", { orgId: null }),
+      api<{ isPlatformAdmin: boolean; user: { fullName: string } }>("/api/v1/me", { orgId: null }),
     ])
       .then(async ([tenant, me]) => {
         if (tenant.kind === "unknown") {
@@ -41,6 +45,7 @@ export default function PlatformPage() {
           setError("This page is for platform administrators.");
           return;
         }
+        setUserName(me.user?.fullName ?? null);
         setPlatformDomain(tenant.platformDomain);
         const body = await api<{ organisations: Organisation[] }>("/api/v1/platform/organisations", {
           orgId: null,
@@ -49,7 +54,7 @@ export default function PlatformPage() {
         setReady(true);
       })
       .catch((err: Error) => {
-        setError(err.message);
+        setError(userFacingError(err, "Could not load platform administration."));
         router.replace("/login");
       });
   }, [router]);
@@ -67,36 +72,56 @@ export default function PlatformPage() {
   };
 
   return (
-    <main style={{ fontFamily: "system-ui", maxWidth: 720, margin: "2rem auto", padding: 16 }}>
-      <h1>Platform Admin</h1>
-      <p className="muted">
-        This is the platform host. Schools are opened on their own subdomain. Super Admin does not
-        browse pupil records from here.
-      </p>
-      {error ? <p className="error">{error}</p> : null}
-      {!ready && !error ? <p>Loading…</p> : null}
+    <main className="platform-shell">
+      <PageHeader
+        title="Platform Admin"
+        description="Manage schools on the platform host. Super Admin does not browse pupil records from here."
+        actions={
+          <Button type="button" variant="secondary" onClick={logout}>
+            Sign out
+          </Button>
+        }
+      />
+      {userName ? <p className="muted">{userName} · Platform administrator</p> : null}
+      {error ? <PageError description={error} /> : null}
+      {!ready && !error ? <LoadingState label="Loading schools…" /> : null}
       {ready ? (
         <>
           <h2>Schools</h2>
           {organisations.length === 0 ? (
-            <p>No organisations have been provisioned yet.</p>
+            <EmptyState title="No schools yet" description="No organisations have been provisioned yet." />
           ) : (
-            <ul>
-              {organisations.map((org) => (
-                <li key={org.id}>
-                  <strong>{org.name}</strong> ({org.slug}) — {org.status}{" "}
-                  <a href={schoolHref(org.slug)}>Open school login</a>
-                </li>
-              ))}
-            </ul>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>School</th>
+                    <th>Slug</th>
+                    <th>Status</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {organisations.map((org) => (
+                    <tr key={org.id}>
+                      <td>
+                        <strong>{org.name}</strong>
+                      </td>
+                      <td>{org.slug}</td>
+                      <td>{org.status}</td>
+                      <td>
+                        <a href={schoolHref(org.slug)}>Open school login</a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
           <p className="muted">
             Local demo URLs look like <code>http://greenwood.localhost:3000</code>. Production DNS
             and TLS are not configured in this environment.
           </p>
-          <button className="secondary" type="button" onClick={logout}>
-            Sign out
-          </button>
         </>
       ) : null}
     </main>

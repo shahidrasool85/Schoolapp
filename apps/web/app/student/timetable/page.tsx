@@ -51,7 +51,10 @@ export default function StudentTimetablePage() {
       </form>
       {error ? <p className="error">{error}</p> : null}
       {items.length === 0 ? (
-        <p>No lessons in this week.</p>
+        <div className="empty-state">
+          <h2>No lessons this week</h2>
+          <p>When the school publishes your timetable, lessons will appear here.</p>
+        </div>
       ) : (
         <table>
           <thead>

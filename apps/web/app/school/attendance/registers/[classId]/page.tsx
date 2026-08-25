@@ -160,6 +160,7 @@ export default function ClassRegisterPage() {
   return (
     <>
       <h1>{className} register</h1>
+      <p className="muted">Mark each pupil, add late minutes or a note where needed, then save the register.</p>
       <form className="card form-grid" onSubmit={(event) => reload(event).catch((err: Error) => setError(err.message))}>
         <label>Date<input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
         <label>
@@ -170,15 +171,17 @@ export default function ClassRegisterPage() {
             ))}
           </select>
         </label>
-        <div><button type="submit">Load</button></div>
+        <div><button type="submit" className="secondary">Load</button></div>
       </form>
-      {!canSave ? <p className="muted">Load this date and session before taking the register.</p> : null}
+      {!canSave ? <p className="muted">Load this date and session before taking the register.</p> : (
+        <p className="alert alert-success" role="status">Register loaded. {pupils.filter((p) => p.mark).length}/{pupils.length} marked.</p>
+      )}
       <div className="toolbar">
         <button type="button" disabled={!canSave} onClick={() => markAllPresent().catch((err: Error) => setError(err.message))}>
           Mark all present
         </button>
         <button type="button" className="secondary" disabled={!canSave} onClick={() => save().catch((err: Error) => setError(err.message))}>
-          Save exceptions
+          Save register
         </button>
       </div>
       {message ? <p>{message}</p> : null}

@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
+import { EmptyState, FilterBar, PageError, PageHeader, SearchInput, StatusBadge, Tabs } from "../../../components/ui";
 import { api } from "../../../lib/api";
+import { userFacingError } from "../../../lib/errors";
 
 type Conversation = {
   id: string;
@@ -17,7 +19,7 @@ type Conversation = {
 
 export default function StaffMessagesPage() {
   const [folder, setFolder] = useState("inbox");
-  const [items, setItems] = useState<Conversation[]>([]);
+  const [items, setItems] = useState<Conversation[] | null>(null);
   const [q, setQ] = useState("");
   const [error, setError] = useState("");
 
@@ -32,60 +34,83 @@ export default function StaffMessagesPage() {
     const params = new URLSearchParams(window.location.search);
     const nextFolder = params.get("folder") || "inbox";
     setFolder(nextFolder);
-    load(nextFolder, "").catch((err: Error) => setError(err.message));
+    load(nextFolder, "").catch((err: Error) => setError(userFacingError(err, "Could not load messages.")));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function searchConversations(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await load(folder, q).catch((err: Error) => setError(err.message));
+    await load(folder, q).catch((err: Error) => setError(userFacingError(err, "Could not search messages.")));
   }
 
-  if (error) return <p className="error">{error}</p>;
+  function openFolder(nextFolder: string) {
+    setFolder(nextFolder);
+    const url = nextFolder === "inbox" ? "/school/messages" : `/school/messages?folder=${nextFolder}`;
+    window.history.replaceState({}, "", url);
+    load(nextFolder, q).catch((err: Error) => setError(userFacingError(err, "Could not load messages.")));
+  }
+
+  if (error) return <PageError title="Messages unavailable" description={error} />;
 
   return (
     <>
-      <div className="toolbar">
-        <h1>Messages</h1>
-        <Link href="/school/messages/new">New conversation</Link>
-      </div>
-      <p className="muted">Conversational messages with parents and staff. School-wide notices stay in Communications.</p>
-      <nav aria-label="Message folders">
-        <button type="button" onClick={() => { setFolder("inbox"); load("inbox", q).catch((err: Error) => setError(err.message)); }}>Inbox</button>
-        {" · "}
-        <button type="button" onClick={() => { setFolder("all"); load("all", q).catch((err: Error) => setError(err.message)); }}>All</button>
-        {" · "}
-        <button type="button" onClick={() => { setFolder("archived"); load("archived", q).catch((err: Error) => setError(err.message)); }}>Archived</button>
-      </nav>
-      <form onSubmit={searchConversations} style={{ margin: "1rem 0" }}>
-        <label htmlFor="message-search">Search</label>
-        <input
+      <PageHeader
+        title="Messages"
+        description="Private conversations with parents and staff. School-wide notices stay in Communications."
+        actions={
+          <Link className="button" href="/school/messages/new">
+            New conversation
+          </Link>
+        }
+      />
+      <Tabs>
+        <button type="button" className={folder === "inbox" ? "active" : undefined} onClick={() => openFolder("inbox")}>
+          Inbox
+        </button>
+        <button type="button" className={folder === "all" ? "active" : undefined} onClick={() => openFolder("all")}>
+          All
+        </button>
+        <button type="button" className={folder === "archived" ? "active" : undefined} onClick={() => openFolder("archived")}>
+          Archived
+        </button>
+      </Tabs>
+      <FilterBar onSubmit={searchConversations} actions={<button type="submit">Search</button>}>
+        <SearchInput
           id="message-search"
-          name="q"
           value={q}
-          onChange={(event) => setQ(event.target.value)}
+          onChange={setQ}
           placeholder="Pupil, subject or participant"
         />
-        <button type="submit">Search</button>
-      </form>
-      {items.length === 0 ? <p>No conversations in this folder.</p> : null}
-      <div className="cards">
-        {items.map((item) => (
-          <Link className="card" href={`/school/messages/${item.id}`} key={item.id}>
-            <strong>
-              {item.unreadCount > 0 ? <span aria-label="Unread">Unread · </span> : null}
-              {item.subject}
-            </strong>
-            <span className="muted">
-              {item.pupilName ?? "No linked pupil"}
-              {item.participants[0]?.fullName ? ` · ${item.participants[0].fullName}` : ""}
-              {` · ${item.status}`}
-              {item.lastMessageAt ? ` · ${new Date(item.lastMessageAt).toLocaleString()}` : ""}
-            </span>
-            <span>{item.lastMessagePreview || "No messages yet"}</span>
-          </Link>
-        ))}
-      </div>
+      </FilterBar>
+      {(items ?? []).length === 0 ? (
+        <EmptyState
+          title="No conversations in this folder"
+          description="Start a conversation from a pupil record or the new message screen."
+          action={<Link href="/school/messages/new">New conversation</Link>}
+        />
+      ) : (
+        <div className="thread-list">
+          {(items ?? []).map((item) => (
+            <Link
+              className={`thread-item${item.unreadCount > 0 ? " unread" : ""}`}
+              href={`/school/messages/${item.id}`}
+              key={item.id}
+            >
+              <strong>
+                {item.unreadCount > 0 ? <span aria-label="Unread">Unread · </span> : null}
+                {item.subject}
+              </strong>
+              <span className="muted">
+                {item.pupilName ?? "No linked pupil"}
+                {item.participants[0]?.fullName ? ` · ${item.participants[0].fullName}` : ""}
+                {item.lastMessageAt ? ` · ${new Date(item.lastMessageAt).toLocaleString("en-GB")}` : ""}
+              </span>
+              <span>{item.lastMessagePreview || "No messages yet"}</span>
+              <StatusBadge status={item.status} />
+            </Link>
+          ))}
+        </div>
+      )}
     </>
   );
 }

@@ -40,7 +40,12 @@ export default function ParentPaymentsPage() {
       <h1>Payments</h1>
       <p className="muted">Charges for your authorised children only. Payment confirmation comes from the school payment provider, not just the return page.</p>
       <h2>Outstanding</h2>
-      {outstanding.length === 0 ? <p>Nothing due.</p> : null}
+      {outstanding.length === 0 ? (
+        <div className="empty-state">
+          <h2>Nothing due</h2>
+          <p>When the school issues a charge for your child, it will appear here.</p>
+        </div>
+      ) : null}
       <div className="cards">
         {outstanding.map((item) => (
           <Link className="card" href={`/parent/payments/${item.id}`} key={item.id}>

@@ -33,19 +33,20 @@ export default function FinanceOverviewPage() {
     <>
       <div className="toolbar">
         <h1>Finance / Payments</h1>
-        <Link href="/school/finance/charges/new">Create charge</Link>
-        <Link href="/school/finance/charges/bulk">Bulk charges</Link>
+        <div className="page-header-actions">
+          <Link className="button" href="/school/finance/charges/new">Create charge</Link>
+          <Link className="button secondary" href="/school/finance/charges/bulk">Bulk charges</Link>
+        </div>
       </div>
       <p className="muted">Lightweight school payments overview. Totals are grouped by currency and never mixed.</p>
-      {data.currencies.length === 0 ? <p>No charges yet.</p> : null}
-      <div className="cards">
+      {data.currencies.length === 0 ? <p className="empty-state">No charges yet.</p> : null}
+      <div className="stat-grid">
         {data.currencies.map((row) => (
-          <div className="card" key={row.currency}>
-            <strong>{row.currency}</strong>
-            <p>Outstanding: {formatMinor(row.outstandingMinor, row.currency)}</p>
-            <p>Paid this month: {formatMinor(row.paidThisPeriodMinor, row.currency)}</p>
-            <p>Overdue charges: {row.overdueCount}</p>
-            <p>Refunds: {row.refundCount} ({formatMinor(row.refundMinor, row.currency)})</p>
+          <div className="stat-card" key={row.currency}>
+            <span>{row.currency} outstanding</span>
+            <strong>{formatMinor(row.outstandingMinor, row.currency)}</strong>
+            <p className="muted">Paid this month {formatMinor(row.paidThisPeriodMinor, row.currency)}</p>
+            <p className="muted">Overdue {row.overdueCount} · Refunds {row.refundCount}</p>
           </div>
         ))}
       </div>

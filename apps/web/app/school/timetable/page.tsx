@@ -59,7 +59,11 @@ export default function TimetableOverviewPage() {
       </div>
       <h2>Today</h2>
       {data.todayLessons.length === 0 ? (
-        <p>No lessons are scheduled for today. Open the timetable to view a school week.</p>
+        <div className="empty-state">
+          <h2>No lessons scheduled today</h2>
+          <p>Open the timetable to view a school week.</p>
+          <Link href="/school/timetable/schedule">View timetable</Link>
+        </div>
       ) : (
         <table>
           <thead>

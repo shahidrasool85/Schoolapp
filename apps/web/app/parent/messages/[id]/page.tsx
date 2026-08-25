@@ -2,7 +2,10 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { ConfirmationDialog, LoadingState, PageError, PageHeader, StatusBadge } from "../../../../components/ui";
+import { Button } from "../../../../components/ui/button";
 import { api, downloadAuthenticated } from "../../../../lib/api";
+import { userFacingError } from "../../../../lib/errors";
 
 type Attachment = { id: string; originalFilename: string; downloadPath: string };
 type Message = {
@@ -27,6 +30,7 @@ export default function ParentConversationPage() {
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [error, setError] = useState("");
+  const [confirmArchive, setConfirmArchive] = useState(false);
 
   async function load() {
     const [detail, history] = await Promise.all([
@@ -39,7 +43,7 @@ export default function ParentConversationPage() {
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    load().catch((err: Error) => setError(userFacingError(err, "Could not load this conversation.")));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
 
@@ -64,66 +68,90 @@ export default function ParentConversationPage() {
       form.reset();
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not send the message");
+      setError(userFacingError(err, "Could not send the message"));
     }
   }
 
-  if (error) return <p className="error" role="alert">{error}</p>;
-  if (!conversation) return <p>Loading…</p>;
+  if (error) return <PageError title="Conversation unavailable" description={error} />;
+  if (!conversation) return <LoadingState label="Loading conversation…" />;
 
   return (
     <>
-      <h1>{conversation.subject}</h1>
-      <p className="muted">
-        {conversation.pupilName ?? "School"}
-        {conversation.participants[0]?.fullName ? ` · ${conversation.participants[0].fullName}` : ""}
-        {` · ${conversation.status}`}
-      </p>
+      <PageHeader
+        title={conversation.subject}
+        description={`${conversation.pupilName ?? "School"}${
+          conversation.participants[0]?.fullName ? ` · ${conversation.participants[0].fullName}` : ""
+        }`}
+        breadcrumbs={[
+          { href: "/parent/messages", label: "Messages" },
+          { label: conversation.subject },
+        ]}
+        actions={
+          <>
+            <StatusBadge status={conversation.status} />
+            <Button type="button" variant="secondary" onClick={() => setConfirmArchive(true)}>
+              Archive
+            </Button>
+          </>
+        }
+      />
       {conversation.status === "closed" ? (
-        <p role="status">This conversation is closed. You can still read it, but new replies are not allowed.</p>
+        <p className="alert alert-info" role="status">
+          This conversation is closed. You can still read it, but new replies are not allowed.
+        </p>
       ) : null}
-      <p>
-        <button
-          type="button"
-          onClick={() =>
-            api(`/api/v1/parent/messages/${params.id}/archive`, { method: "POST", body: "{}" })
-              .catch((err: Error) => setError(err.message))
-          }
-        >
-          Archive
-        </button>
-      </p>
-      <ol style={{ listStyle: "none", padding: 0 }}>
+      <ol className="stack" style={{ listStyle: "none", padding: 0 }}>
         {messages.map((item) => (
-          <li key={item.id} className="card">
+          <li key={item.id} className="message-bubble">
             <strong>{item.senderName ?? "School"}</strong>
-            <span className="muted"> {new Date(item.sentAt).toLocaleString()}</span>
+            <span className="muted"> {new Date(item.sentAt).toLocaleString("en-GB")}</span>
             <p>{item.body}</p>
             {item.attachments.map((file) => (
-              <button
+              <Button
                 key={file.id}
                 type="button"
+                variant="secondary"
                 onClick={() =>
-                  downloadAuthenticated(file.downloadPath, file.originalFilename).catch((err: Error) => setError(err.message))
+                  downloadAuthenticated(file.downloadPath, file.originalFilename).catch((err: Error) =>
+                    setError(userFacingError(err)),
+                  )
                 }
               >
                 Download {file.originalFilename}
-              </button>
+              </Button>
             ))}
           </li>
         ))}
       </ol>
       {conversation.canReply ? (
-        <form onSubmit={send}>
-          <label htmlFor="body">Reply</label>
-          <textarea id="body" name="body" rows={5} required maxLength={8000} />
-          <label htmlFor="file">Attachment (optional)</label>
-          <input id="file" name="file" type="file" />
-          <button type="submit">Send</button>
+        <form className="card form-grid" onSubmit={send}>
+          <label className="span-2" htmlFor="body">
+            Reply
+            <textarea id="body" name="body" rows={5} required maxLength={8000} />
+          </label>
+          <label htmlFor="file">
+            Attachment (optional)
+            <input id="file" name="file" type="file" />
+          </label>
+          <div className="form-actions span-2">
+            <button type="submit">Send</button>
+          </div>
         </form>
       ) : (
-        <p>You cannot reply to this conversation.</p>
+        <p className="muted">You cannot reply to this conversation.</p>
       )}
+      <ConfirmationDialog
+        open={confirmArchive}
+        title="Archive this conversation?"
+        description="It will move out of your inbox. You can still find it later if needed."
+        confirmLabel="Archive"
+        onClose={() => setConfirmArchive(false)}
+        onConfirm={() => {
+          api(`/api/v1/parent/messages/${params.id}/archive`, { method: "POST", body: "{}" })
+            .then(() => setConfirmArchive(false))
+            .catch((err: Error) => setError(userFacingError(err)));
+        }}
+      />
     </>
   );
 }

@@ -39,9 +39,12 @@ export default function SafeguardingListPage() {
     <>
       <div className="toolbar">
         <h1>Safeguarding</h1>
-        <Link href="/school/safeguarding/new">Record concern</Link>
+        <Link className="button" href="/school/safeguarding/new">Record concern</Link>
       </div>
-      <p className="muted">Restricted staff area. This is not part of ordinary behaviour records.</p>
+      <p>
+        <span className="confidential-flag">Confidential</span>
+      </p>
+      <p className="muted">Restricted staff area. This is not part of ordinary behaviour records and is not shown on the school dashboard.</p>
       <form className="toolbar" onSubmit={onFilter}>
         <select name="status">
           <option value="">All statuses</option>

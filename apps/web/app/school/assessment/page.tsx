@@ -10,23 +10,23 @@ export default function AssessmentHubPage() {
         Formal assessments, result entry, and progress reports. Separate from Teaching &amp; Learning
         assignment marks.
       </p>
-      <div className="cards">
-        <div className="card">
+      <div className="stat-grid">
+        <Link className="stat-card" href="/school/assessment/assessments">
           <span>Assessments</span>
-          <strong><Link href="/school/assessment/assessments">Open</Link></strong>
-        </div>
-        <div className="card">
+          <strong>Open</strong>
+        </Link>
+        <Link className="stat-card" href="/school/assessment/results">
           <span>Results</span>
-          <strong><Link href="/school/assessment/results">Enter</Link></strong>
-        </div>
-        <div className="card">
+          <strong>Enter</strong>
+        </Link>
+        <Link className="stat-card" href="/school/assessment/reports">
           <span>Reports</span>
-          <strong><Link href="/school/assessment/reports">Open</Link></strong>
-        </div>
-        <div className="card">
+          <strong>Open</strong>
+        </Link>
+        <Link className="stat-card" href="/school/assessment/periods">
           <span>Reporting periods</span>
-          <strong><Link href="/school/assessment/periods">Configure</Link></strong>
-        </div>
+          <strong>Configure</strong>
+        </Link>
       </div>
     </>
   );

@@ -1,9 +1,9 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { Button } from "../../components/ui";
-import { api } from "../../lib/api";
-import { userFacingError } from "../../lib/errors";
+import { Button } from "./ui";
+import { api } from "../lib/api";
+import { userFacingError } from "../lib/errors";
 
 type Item = {
   id: string;

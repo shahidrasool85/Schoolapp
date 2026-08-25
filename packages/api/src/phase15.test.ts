@@ -7,6 +7,7 @@ import {
   ensureMigrated,
   insertUser,
   login,
+  loginAlias,
   testApp,
   testPools,
 } from "./test-helpers";
@@ -26,7 +27,7 @@ async function createSchool(owner: ReturnType<typeof testPools>["owner"], id: st
   );
   await owner.query("insert into organisation_settings (organisation_id) values ($1)", [org.rows[0]!.id]);
   await addMembership(owner, org.rows[0]!.id, adminId, "school.admin");
-  return { adminId, orgId: org.rows[0]!.id, adminEmail: `admin-${id}@example.com` };
+  return { adminId, orgId: org.rows[0]!.id, slug: `p15-${id}`, adminEmail: `admin-${id}@example.com` };
 }
 
 function jsonHeaders(token: string, orgId: string) {
@@ -67,13 +68,25 @@ async function seedYear(app: ReturnType<typeof testApp>, hdrs: ReturnType<typeof
       }),
     })
   ).json()) as { class: { id: string } };
+  await app.request(`/api/v1/year-groups/${year3.id}`, {
+    method: "PATCH",
+    headers: hdrs,
+    body: JSON.stringify({ studentLoginEnabled: true }),
+  });
   return { yearId: year.academicYear.id, year3Id: year3.id, classAId: classA.class.id };
 }
 
 async function createStudent(
   app: ReturnType<typeof testApp>,
   hdrs: ReturnType<typeof jsonHeaders>,
-  input: { legalName: string; academicYearId: string; yearGroupId: string; classId?: string },
+  input: {
+    legalName: string;
+    academicYearId: string;
+    yearGroupId: string;
+    classId?: string;
+    loginAlias?: string;
+    password?: string;
+  },
 ) {
   const created = await app.request("/api/v1/students", {
     method: "POST",
@@ -514,16 +527,10 @@ describe("Phase 15 payments foundation", () => {
       academicYearId: seeded.yearId,
       yearGroupId: seeded.year3Id,
       classId: seeded.classAId,
-    });
-    const studentId = await insertUser(pools.owner, {
-      email: `student-${id}@example.com`,
+      loginAlias: `pay.${id}`,
       password: "student-pass-1",
-      fullName: "Amelia Pay",
-      kind: "student",
     });
-    await addMembership(pools.owner, school.orgId, studentId, "school.student");
-    await pools.owner.query("update student_profiles set user_id = $1 where id = $2", [studentId, pupil.student.id]);
-    const studentToken = await login(app, `student-${id}@example.com`, "student-pass-1");
+    const studentToken = await loginAlias(app, school.slug, `pay.${id}`, "student-pass-1");
     const student = await app.request("/api/v1/finance/charges", { headers: jsonHeaders(studentToken, school.orgId) });
     expect(student.status).toBe(403);
     const parentPay = await app.request("/api/v1/parent/payments", { headers: jsonHeaders(studentToken, school.orgId) });

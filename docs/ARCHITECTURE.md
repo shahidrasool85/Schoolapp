@@ -726,6 +726,7 @@ Each phase ships behind feature flags per organisation. Mobile starts only when 
 13. UK/EU residency is a preferred deployment policy; international transfers need safeguards.
 14. Inter-school competitions remain unimplemented; governance placeholders only.
 15. SaaS hostname tenancy: one shared application; school slug subdomains; apex is platform context; `X-Organisation-Id` is never authority; unverified custom domains do not resolve (ADR 0014).
+16. School payments: integer minor units; charge vs transaction; provider port; webhook authority; no card data (ADR 0024).
 
 ### Product-owner Phase 1 decisions (ADR 0011)
 

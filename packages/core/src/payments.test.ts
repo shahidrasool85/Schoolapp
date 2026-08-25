@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   chargeBalance,
@@ -86,7 +87,6 @@ describe("stripe webhook helper", () => {
     const secret = "whsec_test";
     const body = JSON.stringify({ id: "evt_1", type: "checkout.session.completed", data: { object: { id: "cs_1" } } });
     const timestamp = Math.floor(Date.now() / 1000);
-    const { createHmac } = await import("node:crypto");
     const v1 = createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex");
     const event = verifyStripeSignature(body, `t=${timestamp},v1=${v1}`, secret);
     expect(event.id).toBe("evt_1");

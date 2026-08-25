@@ -275,8 +275,8 @@ export function verifyStripeSignature(rawBody: string, header: string | null, se
   }
   const parts = Object.fromEntries(
     header.split(",").map((item) => {
-      const [key, ...rest] = item.split("=");
-      return [key.trim(), rest.join("=")];
+      const [rawKey, ...rest] = item.split("=");
+      return [(rawKey ?? "").trim(), rest.join("=")];
     }),
   );
   const timestamp = parts.t;
@@ -320,7 +320,9 @@ export function mapStripeEvent(event: Record<string, unknown>): ProviderEvent {
     providerKey: "stripe",
     eventId: String(event.id ?? ""),
     eventType: type,
-    providerSessionId: type.startsWith("checkout.session") ? sessionId : String(object.metadata && (object.metadata as { schoolapp_session_id?: string }).schoolapp_session_id ?? "") || null,
+    providerSessionId: type.startsWith("checkout.session")
+      ? sessionId
+      : String((object.metadata as { schoolapp_session_id?: string } | undefined)?.schoolapp_session_id ?? "") || null,
     providerPaymentId: paymentIntent,
     providerRefundId: type.includes("refund") ? String(object.id ?? "") : null,
     amountMinor: object.amount_total != null ? Number(object.amount_total) : object.amount != null ? Number(object.amount) : null,

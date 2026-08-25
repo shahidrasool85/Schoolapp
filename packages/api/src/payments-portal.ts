@@ -1,5 +1,5 @@
 import type pg from "pg";
-import { PERMISSIONS } from "@schoolapp/domain";
+import { PERMISSIONS, type Actor } from "@schoolapp/domain";
 import {
   AppError,
   assertPermission,
@@ -10,7 +10,6 @@ import {
   formatMoney,
   guardianChildIds,
   requireLinkedChild,
-  type Actor,
   type PaymentProvider,
 } from "@schoolapp/core";
 import { mapCharge, mapPaymentReceipt, mapPaymentTransaction } from "./serialize";

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type pg from "pg";
 import type { Context } from "hono";
+import type { Actor } from "@schoolapp/domain";
 import {
   ACTIVITY_MANAGE_PERMISSIONS,
   ACTIVITY_READ_PERMISSIONS,
@@ -26,6 +27,7 @@ import {
   canManageSchoolActivities,
   canPublishActivities,
   canReadMedicalSummary,
+  canReadActivityStaffNotes,
   canReadResponses,
   canReadSchoolActivities,
   isActivityStatusTransitionAllowed,
@@ -33,6 +35,7 @@ import {
   isSchoolActivityDocumentVisibility,
   isSchoolActivityStaffRole,
   isSchoolActivityStatus,
+  isActivityStaff,
   loadActivitySafetySummaries,
   maybePromoteNextWaitlisted,
   nextWaitingListPosition,
@@ -206,7 +209,7 @@ async function loadActivityBundle(
   client: pg.PoolClient,
   orgId: string,
   activityId: string,
-  options?: { includeInternal?: boolean },
+  options?: { includeInternal?: boolean; actor?: Actor },
 ) {
   const activity = await client.query(`${ACTIVITY_SELECT} where a.id = $1 and a.organisation_id = $2`, [
     activityId,
@@ -257,8 +260,18 @@ async function loadActivityBundle(
     ),
   ]);
   const summary = counts.rows[0]!;
+  const includeStaffNotes = options?.actor
+    ? canReadActivityStaffNotes({
+        actor: options.actor,
+        createdBy: row.created_by ? String(row.created_by) : null,
+        isAssignedStaff: await isActivityStaff(client, orgId, activityId, options.actor.userId),
+      })
+    : false;
   return {
-    activity: mapSchoolActivity(row, { includeInternal: options?.includeInternal !== false }),
+    activity: mapSchoolActivity(row, {
+      includeInternal: options?.includeInternal !== false,
+      includeStaffNotes,
+    }),
     targets: targets.rows.map((item) => mapActivityTarget(item as Record<string, unknown>)),
     staff: staff.rows.map((item) => mapActivityStaff(item as Record<string, unknown>)),
     consentClauses: clauses.rows.map((item) => mapActivityClause(item as Record<string, unknown>)),
@@ -350,7 +363,13 @@ export function registerActivityRoutes(app: SchoolappApi) {
       const classIds = schoolWide ? [] : [...(await assignedClassIds(client, userId, orgId))];
       const studentIds = schoolWide ? [] : [...(await assignedStudentIds(client, userId, orgId))];
       const rows = await client.query(
-        `${ACTIVITY_SELECT}
+        `select a.*, t.key as activity_type_key, t.name as activity_type_name,
+                exists (
+                  select 1 from school_activity_staff s
+                  where s.activity_id = a.id and s.staff_user_id = $5
+                ) as viewer_is_activity_staff
+         from school_activities a
+         join school_activity_types t on t.id = a.activity_type_id
          where a.organisation_id = $1
            and ($2::text is null or a.status = $2)
            and ($3::text[] is null or t.key = any($3::text[]))
@@ -383,7 +402,15 @@ export function registerActivityRoutes(app: SchoolappApi) {
         [orgId, status && isSchoolActivityStatus(status) ? status : null, typeKeys, schoolWide, userId, classIds, studentIds],
       );
       return c.json({
-        activities: rows.rows.map((row) => mapSchoolActivity(row as Record<string, unknown>)),
+        activities: rows.rows.map((row) =>
+          mapSchoolActivity(row as Record<string, unknown>, {
+            includeStaffNotes: canReadActivityStaffNotes({
+              actor,
+              createdBy: row.created_by ? String(row.created_by) : null,
+              isAssignedStaff: Boolean(row.viewer_is_activity_staff),
+            }),
+          }),
+        ),
       });
     }),
   );
@@ -480,7 +507,7 @@ export function registerActivityRoutes(app: SchoolappApi) {
         activityId: id,
         after: { title: parsed.data.title },
       });
-      const bundle = await loadActivityBundle(client, orgId, id);
+      const bundle = await loadActivityBundle(client, orgId, id, { actor });
       return c.json(bundle, 201);
     }),
   );
@@ -490,7 +517,7 @@ export function registerActivityRoutes(app: SchoolappApi) {
       const activityId = uuidRouteParam(c, "activityId");
       await assertCanReadStaffActivity(client, actor, activityId);
       return c.json({
-        ...(await loadActivityBundle(client, orgId, activityId)),
+        ...(await loadActivityBundle(client, orgId, activityId, { actor })),
         canPublish: canPublishActivities(actor),
         canManageParticipants: canManageParticipants(actor) || canManageAssignedActivities(actor),
         canManageResponses: canManageResponses(actor),
@@ -596,7 +623,7 @@ export function registerActivityRoutes(app: SchoolappApi) {
         action: "activity.updated",
         activityId,
       });
-      return c.json(await loadActivityBundle(client, orgId, activityId));
+      return c.json(await loadActivityBundle(client, orgId, activityId, { actor }));
     }),
   );
 
@@ -652,7 +679,7 @@ export function registerActivityRoutes(app: SchoolappApi) {
         before: { status: from },
         after: { status: next },
       });
-      return c.json(await loadActivityBundle(client, orgId, activityId));
+      return c.json(await loadActivityBundle(client, orgId, activityId, { actor }));
     });
   }
 

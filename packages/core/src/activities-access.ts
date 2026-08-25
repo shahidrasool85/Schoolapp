@@ -77,6 +77,20 @@ export function canReadMedicalSummary(actor: Actor): boolean {
   return actor.permissions.has(PERMISSIONS.ACTIVITIES_MEDICAL_SUMMARY_READ);
 }
 
+export function canReadActivityStaffNotes(input: {
+  actor: Actor;
+  createdBy?: string | null;
+  isAssignedStaff: boolean;
+}): boolean {
+  if (canManageSchoolActivities(input.actor) || canReadSchoolActivities(input.actor)) return true;
+  if (input.isAssignedStaff) return true;
+  return Boolean(
+    input.createdBy &&
+      input.createdBy === input.actor.userId &&
+      canManageAssignedActivities(input.actor),
+  );
+}
+
 export async function isActivityStaff(
   client: pg.PoolClient,
   organisationId: string,

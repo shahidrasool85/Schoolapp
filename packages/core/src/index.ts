@@ -516,6 +516,7 @@ export {
   canReadResponses,
   canManageResponses,
   canReadMedicalSummary,
+  canReadActivityStaffNotes,
   isActivityStaff,
   loadActivityRow,
   assertCanReadStaffActivity,

@@ -729,6 +729,81 @@ describe("Phase 14 activities, consents, and parent responses", () => {
     expect(withdrawCancelled.status).toBe(409);
   });
 
+  it("returns staffNotes only to assigned staff or managers, not class-overlap teachers or portals", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id, "notes");
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = jsonHeaders(token, school.orgId);
+    const seeded = await seedStructure(app, hdrs);
+    const teacher = await inviteTeacher(app, hdrs, id, seeded.classAId);
+    const otherTeacher = await inviteTeacher(app, hdrs, `${id}b`, seeded.classBId);
+    const teacherHdrs = jsonHeaders(await login(app, teacher.email, "teacher-pass-1"), school.orgId);
+    const otherHdrs = jsonHeaders(await login(app, otherTeacher.email, "teacher-pass-1"), school.orgId);
+    const teacherMe = (await (await app.request("/api/v1/me", { headers: teacherHdrs })).json()) as {
+      user: { id: string };
+    };
+    const pupil = await createStudent(app, hdrs, {
+      legalName: "Notes Pupil",
+      academicYearId: seeded.yearId,
+      yearGroupId: seeded.year3Id,
+      classId: seeded.classAId,
+      loginAlias: `notes.${id}`,
+      password: "student-pass-1",
+    });
+    await inviteParent(app, hdrs, pupil.student.id, `notes-parent-${id}@example.com`);
+    const parentHdrs = jsonHeaders(await login(app, `notes-parent-${id}@example.com`, "parent-pass-1"), school.orgId);
+    const studentHdrs = jsonHeaders(await loginAlias(app, school.slug, `notes.${id}`, "student-pass-1"), school.orgId);
+
+    const assigned = await createTrip(app, hdrs, {
+      title: "Assigned notes fixture",
+      activityTypeKey: "sports_fixture",
+      staffNotes: "Lead staffing plan",
+      targets: [{ targetType: "class", classId: seeded.classAId }],
+      staff: [{ staffUserId: teacherMe.user.id, staffRole: "lead" }],
+    });
+    const overlap = await createTrip(app, hdrs, {
+      title: "Class overlap trip",
+      staffNotes: "Internal coach plan for overlap only",
+      targets: [{ targetType: "class", classId: seeded.classAId }],
+    });
+    await app.request(`/api/v1/activities/${assigned.activity.id}/publish`, { method: "POST", headers: hdrs, body: "{}" });
+    await app.request(`/api/v1/activities/${overlap.activity.id}/publish`, { method: "POST", headers: hdrs, body: "{}" });
+
+    const assignedDetail = (await (
+      await app.request(`/api/v1/activities/${assigned.activity.id}`, { headers: teacherHdrs })
+    ).json()) as { activity: { id: string; title: string; staffNotes?: string | null } };
+    expect(assignedDetail.activity.id).toBe(assigned.activity.id);
+    expect(assignedDetail.activity.staffNotes).toBe("Lead staffing plan");
+
+    const overlapDetail = (await (
+      await app.request(`/api/v1/activities/${overlap.activity.id}`, { headers: teacherHdrs })
+    ).json()) as { activity: { id: string; title: string; staffNotes?: string | null } };
+    expect(overlapDetail.activity.id).toBe(overlap.activity.id);
+    expect(overlapDetail.activity.title).toBe("Class overlap trip");
+    expect(overlapDetail.activity.staffNotes).toBeUndefined();
+
+    const teacherList = (await (await app.request("/api/v1/activities", { headers: teacherHdrs })).json()) as {
+      activities: Array<{ id: string; staffNotes?: string | null }>;
+    };
+    expect(teacherList.activities.find((row) => row.id === assigned.activity.id)?.staffNotes).toBe("Lead staffing plan");
+    expect(teacherList.activities.find((row) => row.id === overlap.activity.id)?.staffNotes).toBeUndefined();
+
+    const parentDetail = (await (
+      await app.request(`/api/v1/parent/children/${pupil.student.id}/activities/${overlap.activity.id}`, {
+        headers: parentHdrs,
+      })
+    ).json()) as { activity: { staffNotes?: string } };
+    expect(parentDetail.activity.staffNotes).toBeUndefined();
+
+    const studentDetail = (await (
+      await app.request(`/api/v1/student/activities/${overlap.activity.id}`, { headers: studentHdrs })
+    ).json()) as { activity: { staffNotes?: string } };
+    expect(studentDetail.activity.staffNotes).toBeUndefined();
+
+    expect((await app.request(`/api/v1/activities/${assigned.activity.id}`, { headers: otherHdrs })).status).toBe(404);
+    expect((await app.request(`/api/v1/activities/${overlap.activity.id}`, { headers: otherHdrs })).status).toBe(404);
+  });
+
   it("stores Phase 13 files with explicit visibility and calendar source=activity", async () => {
     const id = suffix();
     const school = await createSchool(pools.owner, id, "file");

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { PERMISSIONS, type Actor } from "@schoolapp/domain";
 import {
   activityDatesValid,
   activityDeadlineValid,
@@ -12,6 +13,20 @@ import {
   nextWaitingListPosition,
   snapshotConsentWording,
 } from "./activities.js";
+import { canReadActivityStaffNotes } from "./activities-access.js";
+
+function actorWith(permissions: string[], userId = "teacher-1"): Actor {
+  return {
+    userId,
+    userKind: "staff",
+    isPlatformAdmin: false,
+    organisationId: "org-1",
+    membershipId: "mem-1",
+    roleKeys: ["school.teacher"],
+    permissions: new Set(permissions),
+    supportAccessGrantId: null,
+  };
+}
 
 describe("activities domain", () => {
   it("allows the activity lifecycle and blocks illegal moves", () => {
@@ -170,5 +185,20 @@ describe("activities domain", () => {
     });
     expect(rejectedSlice).toHaveLength(1);
     expect(rejectedSlice[0]?.date).toBe("2026-09-08");
+  });
+});
+
+describe("activity staffNotes access", () => {
+  const teacher = actorWith([PERMISSIONS.ACTIVITIES_READ_ASSIGNED, PERMISSIONS.ACTIVITIES_MANAGE_ASSIGNED]);
+  const admin = actorWith([PERMISSIONS.ACTIVITIES_READ, PERMISSIONS.ACTIVITIES_MANAGE], "admin-1");
+
+  it("allows assigned staff, creators with manage_assigned, and school-wide managers", () => {
+    expect(canReadActivityStaffNotes({ actor: teacher, createdBy: "admin-1", isAssignedStaff: true })).toBe(true);
+    expect(canReadActivityStaffNotes({ actor: teacher, createdBy: teacher.userId, isAssignedStaff: false })).toBe(true);
+    expect(canReadActivityStaffNotes({ actor: admin, createdBy: "other", isAssignedStaff: false })).toBe(true);
+  });
+
+  it("denies class-overlap teachers who are not activity staff or managers", () => {
+    expect(canReadActivityStaffNotes({ actor: teacher, createdBy: "admin-1", isAssignedStaff: false })).toBe(false);
   });
 });

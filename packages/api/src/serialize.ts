@@ -1350,9 +1350,10 @@ export function mapPublishedReportSection(section: Record<string, unknown>) {
 
 export function mapSchoolActivity(
   row: Record<string, unknown>,
-  options?: { includeInternal?: boolean; portal?: boolean },
+  options?: { includeInternal?: boolean; includeStaffNotes?: boolean; portal?: boolean },
 ) {
   const includeInternal = options?.includeInternal !== false && !options?.portal;
+  const includeStaffNotes = includeInternal && options?.includeStaffNotes === true;
   const base = {
     source: "activity" as const,
     id: row.id,
@@ -1391,7 +1392,7 @@ export function mapSchoolActivity(
   if (!includeInternal) return base;
   return {
     ...base,
-    staffNotes: row.staff_notes ?? null,
+    ...(includeStaffNotes ? { staffNotes: row.staff_notes ?? null } : {}),
     createdBy: row.created_by,
     publishedBy: row.published_by ?? null,
   };

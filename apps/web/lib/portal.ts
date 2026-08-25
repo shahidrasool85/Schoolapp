@@ -1,3 +1,5 @@
+import { staffPersonaLabel } from "@schoolapp/domain";
+
 export type Membership = {
   membershipId: string;
   organisationId: string;
@@ -14,6 +16,8 @@ const STAFF_ROLES = new Set([
   "school.admissions",
   "school.staff",
 ]);
+
+export { staffPersonaLabel };
 
 export function hasStaffRole(roleKeys: string[]): boolean {
   return roleKeys.some((key) => STAFF_ROLES.has(key));

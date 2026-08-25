@@ -1609,3 +1609,47 @@ export function mapActivityClause(row: Record<string, unknown>) {
     sortOrder: row.sort_order,
   };
 }
+
+export function mapStatutoryIssue(row: {
+  ruleKey: string;
+  severity: string;
+  entityType: string;
+  entityId: string | null;
+  message: string;
+  field: string | null;
+  metadata: Record<string, unknown>;
+  pupilName?: string | null;
+  fixPath?: string | null;
+}) {
+  return {
+    ruleKey: row.ruleKey,
+    severity: row.severity,
+    entityType: row.entityType,
+    entityId: row.entityId,
+    message: row.message,
+    field: row.field,
+    metadata: row.metadata,
+    pupilName: row.pupilName ?? null,
+    fixPath: row.fixPath ?? null,
+  };
+}
+
+export function mapCensusRun(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    academicYearId: row.academic_year_id,
+    academicYearName: row.academic_year_name ?? null,
+    censusType: row.census_type,
+    censusDate: row.census_date,
+    status: row.status,
+    currentSnapshotVersion: row.current_snapshot_version,
+    snapshotSchemaVersion: row.snapshot_schema_version,
+    codeSetVersion: row.code_set_version,
+    errorCount: Number(row.error_count ?? 0),
+    warningCount: Number(row.warning_count ?? 0),
+    informationCount: Number(row.information_count ?? 0),
+    createdAt: row.created_at,
+    finalisedAt: row.finalised_at ?? null,
+    exportedAt: row.exported_at ?? null,
+  };
+}

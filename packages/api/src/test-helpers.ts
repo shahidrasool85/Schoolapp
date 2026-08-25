@@ -187,6 +187,13 @@ export function assertPortalSafe(payload: unknown): void {
     "billing",
     "token_hash",
     "password_hash",
+    "ethnicityCode",
+    "lookedAfterStatus",
+    "serviceChild",
+    "formerUpn",
+    "fsmPeriods",
+    "sendProvisionCode",
+    '"upn"',
   ];
   for (const key of forbidden) {
     if (json.includes(key)) {

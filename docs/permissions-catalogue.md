@@ -211,4 +211,20 @@ Finance keys are capability-based. School Admin manages charges, offline payment
 
 Messaging keys are capability-based. School Admin and Headteacher oversee parent-facing threads and may redact. Teachers only initiate for currently assigned pupils and only list threads they participate in (or staff-internal threads they joined). Admissions Staff may create/read `admissions` conversations. Parents see only threads they participate in for children with live `portal_access`. Students and Platform Admin have no school messaging browse. See [ADR 0025](./adr/0025-phase16-messaging.md).
 
+| `statutory.read` | — | F | F | — | — | — | — | — |
+| `statutory.manage` | — | F | — | — | — | — | — | — |
+| `statutory.validate` | — | F | F | — | — | — | — | — |
+| `statutory.census.create` | — | F | — | — | — | — | — | — |
+| `statutory.census.finalise` | — | F | — | — | — | — | — | — |
+| `statutory.census.export` | — | F | F | — | — | — | — | — |
+| `reports.pupils.read` | — | F | F | — | F | — | — | — |
+| `reports.attendance.read` | — | F | F | — | — | — | — | — |
+| `reports.admissions.read` | — | F | F | — | F | — | — | — |
+| `reports.send.read` | — | F | F | — | — | — | — | — |
+| `reports.exports.create` | — | F | F | — | — | — | — | — |
+| `pupils.statutory.read` | — | F | F | — | — | — | — | — |
+| `pupils.statutory.manage` | — | F | — | — | — | — | — | — |
+
+Statutory and reporting keys are capability-based. School Admin has full census/reporting management. Headteacher can read, validate, report, and export, but cannot create or finalise census runs or edit statutory pupil fields. Teachers have no school-wide statutory or census export access. Admissions Staff may read pupil-roll and admissions reports only. `reports.send.read` also requires `students.additional_needs.read`. Parent, student, and Platform Admin roles receive none of these keys. See [ADR 0027](./adr/0027-phase18-statutory-census.md).
+
 Unused module keys are seeded so later phases do not hardcode role names; those modules are not implemented in Phase 1.

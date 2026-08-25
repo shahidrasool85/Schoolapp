@@ -254,6 +254,20 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 **Not in Phase 17:** dark mode, drag-and-drop timetable, new business workflows, AI, gamification, SMS/email/push, native apps.
 
+## Phase 18 — UK statutory data, School Census readiness and data exports (implemented)
+
+**Outcome:** School Admin can maintain statutory school/pupil fields, see data-quality issues on canonical records, snapshot a census date, validate, and export census-ready files. Schoolapp is **not** a DfE COLLECT submission product.
+
+- School statutory profile (`/school/settings/statutory`) and pupil statutory section (permission-gated)
+- Versioned platform code sets (ethnicity, language, enrolment, SEND provision, leaving reason, school phase/type/status)
+- Data-quality centre and census workspace with draft → validating → ready → exported / superseded / archived
+- Immutable, versioned snapshots of census-relevant values (not medical/safeguarding/messaging)
+- Shared on-roll helpers; attendance summaries reuse Phase 6 marks and `statutory_category`
+- Pupil roll, attendance, admissions, SEND, and census CSV/XML preview exports with injection protection and audit
+- Capability keys: `statutory.*`, `reports.pupils.read`, `reports.attendance.read`, `reports.admissions.read`, `reports.send.read`, `reports.exports.create`, `pupils.statutory.*`
+
+**Not in Phase 18:** live DfE submission, COLLECT credentials, certification claims, payroll/HR returns, funding engine, LA integrations, meal/library/transport, AI census corrections, arbitrary report builders.
+
 ## Phase 12.5 — AI learning
 
 - `packages/ai` port + one provider

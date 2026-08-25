@@ -164,6 +164,19 @@ export const PERMISSIONS = {
   MESSAGING_REPLY_OWN: "messaging.reply_own",
   MESSAGING_STAFF_INTERNAL: "messaging.staff_internal",
   MESSAGING_ADMISSIONS: "messaging.admissions",
+  STATUTORY_READ: "statutory.read",
+  STATUTORY_MANAGE: "statutory.manage",
+  STATUTORY_VALIDATE: "statutory.validate",
+  STATUTORY_CENSUS_CREATE: "statutory.census.create",
+  STATUTORY_CENSUS_FINALISE: "statutory.census.finalise",
+  STATUTORY_CENSUS_EXPORT: "statutory.census.export",
+  REPORTS_PUPILS_READ: "reports.pupils.read",
+  REPORTS_ATTENDANCE_READ: "reports.attendance.read",
+  REPORTS_ADMISSIONS_READ: "reports.admissions.read",
+  REPORTS_SEND_READ: "reports.send.read",
+  REPORTS_EXPORTS_CREATE: "reports.exports.create",
+  PUPILS_STATUTORY_READ: "pupils.statutory.read",
+  PUPILS_STATUTORY_MANAGE: "pupils.statutory.manage",
   AUDIT_READ: "audit.read",
 } as const;
 
@@ -1132,3 +1145,73 @@ export const MESSAGE_BODY_MAX_LENGTH = 8000;
 export const MESSAGE_SUBJECT_MAX_LENGTH = 200;
 export const MESSAGE_PREVIEW_MAX_LENGTH = 140;
 export const MESSAGE_REDACTED_PLACEHOLDER = "Message removed by authorised staff";
+
+export const STATUTORY_CODE_CATALOGUES = [
+  "ethnicity",
+  "language",
+  "enrolment_status",
+  "send_provision",
+  "leaving_reason",
+  "school_phase",
+  "establishment_type",
+  "establishment_status",
+  "sex",
+  "looked_after",
+] as const;
+export type StatutoryCodeCatalogue = (typeof STATUTORY_CODE_CATALOGUES)[number];
+
+export const STATUTORY_SEX_CODES = ["M", "F"] as const;
+export type StatutorySexCode = (typeof STATUTORY_SEX_CODES)[number];
+
+export const STATUTORY_ENROLMENT_STATUS_CODES = ["C", "G", "M", "S", "F"] as const;
+export type StatutoryEnrolmentStatusCode = (typeof STATUTORY_ENROLMENT_STATUS_CODES)[number];
+
+export const STATUTORY_SEND_PROVISION_CODES = ["N", "K", "E"] as const;
+export type StatutorySendProvisionCode = (typeof STATUTORY_SEND_PROVISION_CODES)[number];
+
+export const LOOKED_AFTER_STATUSES = ["none", "looked_after", "previously_looked_after"] as const;
+export type LookedAfterStatus = (typeof LOOKED_AFTER_STATUSES)[number];
+
+export const CENSUS_TYPES = ["autumn", "spring", "summer"] as const;
+export type CensusType = (typeof CENSUS_TYPES)[number];
+
+export const CENSUS_RUN_STATUSES = [
+  "draft",
+  "validating",
+  "ready",
+  "exported",
+  "superseded",
+  "archived",
+] as const;
+export type CensusRunStatus = (typeof CENSUS_RUN_STATUSES)[number];
+
+export const STATUTORY_ISSUE_SEVERITIES = ["error", "warning", "information"] as const;
+export type StatutoryIssueSeverity = (typeof STATUTORY_ISSUE_SEVERITIES)[number];
+
+export const STATUTORY_ENTITY_TYPES = ["school", "pupil", "enrolment", "attendance", "fsm", "send"] as const;
+export type StatutoryEntityType = (typeof STATUTORY_ENTITY_TYPES)[number];
+
+export const DATA_EXPORT_KINDS = [
+  "pupil_roll",
+  "attendance_summary",
+  "admissions_enrolment",
+  "send_additional_needs",
+  "census_snapshot",
+  "census_ready",
+] as const;
+export type DataExportKind = (typeof DATA_EXPORT_KINDS)[number];
+
+export const DATA_EXPORT_FORMATS = ["csv", "xml"] as const;
+export type DataExportFormat = (typeof DATA_EXPORT_FORMATS)[number];
+
+export const STATUTORY_CODE_SET_VERSION = "2025-2026";
+export const CENSUS_SNAPSHOT_SCHEMA_VERSION = 1;
+
+export const STATUTORY_ATTENDANCE_CATEGORIES = [
+  "present",
+  "late",
+  "authorised_absence",
+  "unauthorised_absence",
+  "not_required",
+] as const;
+export type StatutoryAttendanceCategory = (typeof STATUTORY_ATTENDANCE_CATEGORIES)[number];

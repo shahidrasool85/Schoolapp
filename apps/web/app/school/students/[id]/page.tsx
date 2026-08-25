@@ -122,6 +122,25 @@ export default function StudentDetailPage() {
     concerns: Array<{ id: string; concernOn: string; categoryName: string | null; priority: string; status: string; summary: string }>;
   } | null>(null);
   const [safeguardingLink, setSafeguardingLink] = useState(false);
+  const [statutory, setStatutory] = useState<{
+    statutory: {
+      upn: string | null;
+      legalForename: string | null;
+      legalSurname: string | null;
+      middleNames: string | null;
+      sex: string | null;
+      ethnicityCode: string | null;
+      languageCode: string | null;
+      enrolmentStatusCode: string | null;
+      dateOfAdmission: string | null;
+      dateOfLeaving: string | null;
+      sendProvisionCode: string | null;
+      lookedAfterStatus: string | null;
+      serviceChild: boolean | null;
+      fsmPeriods: Array<{ startedOn: string; endedOn: string | null }>;
+    };
+    issues: Array<{ severity: string; message: string }>;
+  } | null>(null);
   const [documents, setDocuments] = useState<Array<{
     id: string;
     title: string;
@@ -237,6 +256,32 @@ export default function StudentDetailPage() {
       setAcademic(null);
       setAcademicStatus("error");
     }
+    try {
+      const statutoryRecord = await api<{
+        statutory: {
+          upn: string | null;
+          legalForename: string | null;
+          legalSurname: string | null;
+          middleNames: string | null;
+          sex: string | null;
+          ethnicityCode: string | null;
+          languageCode: string | null;
+          enrolmentStatusCode: string | null;
+          dateOfAdmission: string | null;
+          dateOfLeaving: string | null;
+          sendProvisionCode: string | null;
+          lookedAfterStatus: string | null;
+          serviceChild: boolean | null;
+          fsmPeriods: Array<{ startedOn: string; endedOn: string | null }>;
+        };
+        issues: Array<{ severity: string; message: string }>;
+      }>(`/api/v1/students/${studentId}/statutory`);
+      if (seq !== loadSeq.current) return;
+      setStatutory(statutoryRecord);
+    } catch {
+      if (seq !== loadSeq.current) return;
+      setStatutory(null);
+    }
   }
 
   useEffect(() => {
@@ -249,6 +294,7 @@ export default function StudentDetailPage() {
     setBehaviour(null);
     setPastoral(null);
     setSafeguardingLink(false);
+    setStatutory(null);
     setError("");
     setInvite("");
     load().catch((err: Error) => setError(err.message));
@@ -334,6 +380,7 @@ export default function StudentDetailPage() {
         <a href="#learning">Learning</a>
         <a href="#academic">Academic</a>
         <a href="#documents">Documents</a>
+        {statutory ? <a href="#statutory">Statutory</a> : null}
         {data.behaviourSummary || data.pastoralSummary ? <a href="#pastoral">Pastoral</a> : null}
       </nav>
       <div id="overview" />
@@ -701,6 +748,101 @@ export default function StudentDetailPage() {
         <p>
           Invitation token (share once): <code>{invite}</code>
         </p>
+      ) : null}
+      {statutory ? (
+        <section id="statutory" className="card">
+          <h2>Statutory record</h2>
+          <p className="muted">Permission-gated census fields. Preferred name stays operational and is not a substitute for legal name.</p>
+          {statutory.issues.length > 0 ? (
+            <ul>
+              {statutory.issues.map((issue) => (
+                <li key={issue.message}>
+                  <StatusBadge status={issue.severity} /> {issue.message}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">No statutory validation issues for this pupil.</p>
+          )}
+          <form
+            className="form-grid"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              await api(`/api/v1/students/${params.id}/statutory`, {
+                method: "PATCH",
+                body: JSON.stringify({
+                  upn: form.get("upn") || null,
+                  legalForename: form.get("legalForename") || null,
+                  legalSurname: form.get("legalSurname") || null,
+                  middleNames: form.get("middleNames") || null,
+                  sex: form.get("sex") || null,
+                  ethnicityCode: form.get("ethnicityCode") || null,
+                  languageCode: form.get("languageCode") || null,
+                  enrolmentStatusCode: form.get("enrolmentStatusCode") || null,
+                  dateOfAdmission: form.get("dateOfAdmission") || null,
+                  sendProvisionCode: form.get("sendProvisionCode") || null,
+                  lookedAfterStatus: form.get("lookedAfterStatus") || "none",
+                  serviceChild: form.get("serviceChild") === "on",
+                }),
+              });
+              await load();
+            }}
+          >
+            <label>UPN<input name="upn" defaultValue={statutory.statutory.upn ?? ""} /></label>
+            <label>Legal forename<input name="legalForename" defaultValue={statutory.statutory.legalForename ?? ""} /></label>
+            <label>Legal surname<input name="legalSurname" defaultValue={statutory.statutory.legalSurname ?? ""} /></label>
+            <label>Middle names<input name="middleNames" defaultValue={statutory.statutory.middleNames ?? ""} /></label>
+            <label>
+              Sex
+              <select name="sex" defaultValue={statutory.statutory.sex ?? ""}>
+                <option value="">Select</option>
+                <option value="F">Female</option>
+                <option value="M">Male</option>
+              </select>
+            </label>
+            <label>Ethnicity code<input name="ethnicityCode" defaultValue={statutory.statutory.ethnicityCode ?? ""} /></label>
+            <label>Language code<input name="languageCode" defaultValue={statutory.statutory.languageCode ?? ""} /></label>
+            <label>
+              Enrolment status
+              <select name="enrolmentStatusCode" defaultValue={statutory.statutory.enrolmentStatusCode ?? ""}>
+                <option value="">Select</option>
+                <option value="C">Current</option>
+                <option value="G">Guest</option>
+                <option value="M">Main dual</option>
+                <option value="S">Subsidiary dual</option>
+              </select>
+            </label>
+            <label>Admission date<input type="date" name="dateOfAdmission" defaultValue={statutory.statutory.dateOfAdmission ?? ""} /></label>
+            <label>
+              SEND provision
+              <select name="sendProvisionCode" defaultValue={statutory.statutory.sendProvisionCode ?? ""}>
+                <option value="">Select</option>
+                <option value="N">None</option>
+                <option value="K">SEN support</option>
+                <option value="E">EHC plan</option>
+              </select>
+            </label>
+            <label>
+              Looked-after status
+              <select name="lookedAfterStatus" defaultValue={statutory.statutory.lookedAfterStatus ?? "none"}>
+                <option value="none">Not looked after</option>
+                <option value="looked_after">Looked after</option>
+                <option value="previously_looked_after">Previously looked after</option>
+              </select>
+            </label>
+            <label style={{ alignItems: "center" }}>
+              Service child
+              <input name="serviceChild" type="checkbox" defaultChecked={Boolean(statutory.statutory.serviceChild)} />
+            </label>
+            <div><button type="submit">Save statutory record</button></div>
+          </form>
+          <p className="muted">
+            FSM periods: {statutory.statutory.fsmPeriods.length === 0
+              ? "none"
+              : statutory.statutory.fsmPeriods.map((period) => `${period.startedOn}–${period.endedOn ?? "ongoing"}`).join("; ")}
+          </p>
+        </section>
       ) : null}
     </>
   );

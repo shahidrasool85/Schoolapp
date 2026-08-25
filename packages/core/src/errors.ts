@@ -86,7 +86,8 @@ export function pgErrorToAppError(error: unknown): AppError | null {
     message.includes("timetable_actor_required") ||
     message.includes("activity_actor_required") ||
     message.includes("finance_actor_required") ||
-    message.includes("messaging_actor_required")
+    message.includes("messaging_actor_required") ||
+    message.includes("statutory_actor_required")
   ) {
     return new AppError(400, "validation_failed", "The request violates a data constraint");
   }
@@ -163,6 +164,9 @@ export function pgErrorToAppError(error: unknown): AppError | null {
   }
   if (message.includes("message_immutable")) {
     return new AppError(409, "conflict", "Sent messages cannot be edited");
+  }
+  if (message.includes("census_snapshot_immutable")) {
+    return new AppError(409, "conflict", "Finalised census snapshots cannot be rewritten");
   }
   if (message.includes("invalid_status_transition") || message.includes("application_status_invalid")) {
     return new AppError(409, "invalid_status_transition", "This status change is not allowed");

@@ -1,6 +1,6 @@
 # Schoolapp — Platform Architecture
 
-**Status:** Phases 1–17 implemented (foundation through professional UI). Later modules (AI, mobile) are not built.  
+**Status:** Phases 1–18 implemented (foundation through UK statutory data / census readiness). Later modules (AI, mobile) are not built.  
 **Audience:** Product owner and engineering.  
 **Scope:** Multi-tenant UK school SaaS (SIS + LMS + AI learning), web first, mobile-ready.
 
@@ -532,6 +532,16 @@ Money is integer minor units. Consent and payment stay separate. Default activit
 - Attachments: `message_attachments` linked to Phase 13 `stored_objects` domain `message`
 
 Messaging is conversational and participant-based. Phase 10 announcements remain broadcast. Parent access re-checks guardianship + `portal_access`. Teachers initiate only for currently assigned pupils; participation preserves read access after a class move. Platform Admin has no school message browse. See [ADR 0025](./adr/0025-phase16-messaging.md).
+
+### 6.2h UK statutory data and census readiness (Phase 18)
+
+- School identifiers: `organisation_statutory_profiles` (LA/establishment/URN, phase/type/status, DfE-facing address; synthetic demo numbers only)
+- Pupil statutory extension: `student_statutory_profiles` (UPN, legal identity, sex, ethnicity, language, enrolment status, SEND provision, care/service indicators) plus `student_fsm_periods`
+- Platform-owned versioned catalogues: `statutory_code_sets` / `statutory_codes` (schools cannot redefine official codes)
+- Census runs and snapshots: `census_runs`, `census_snapshot_schools`, `census_snapshot_pupils`, `census_validation_issues`
+- Export audit: `data_exports` (kind/format/row counts; not the extract payload)
+
+Live pupil/enrolment/attendance/SEND notes remain canonical. Snapshots store census-relevant values so a later operational edit does not rewrite history. Validation is a core engine, not UI-only. CSV/XML exports are census-ready / preview — not DfE COLLECT submissions. See [ADR 0027](./adr/0027-phase18-statutory-census.md).
 
 ### 6.3 Later entities (do not implement now; reserved names)
 

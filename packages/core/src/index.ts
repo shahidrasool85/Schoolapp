@@ -710,3 +710,112 @@ export {
   attachMessageFile,
   listPupilContactHistory,
 } from "./messaging-access.js";
+
+export { generatePermanentUpn, isValidPermanentUpn, normaliseUpn, validateUpn, upnCheckLetter } from "./upn.js";
+
+export {
+  compareIsoDates,
+  dateCountsTowardAttendance,
+  dateInInclusiveRange,
+  isCurrentPupil,
+  isFormerPupil,
+  isOnRollOnDate,
+  leftDuringPeriod,
+  onRollWindow,
+  wasAdmittedDuringPeriod,
+  type OnRollPupil,
+} from "./on-roll.js";
+
+export {
+  DEFAULT_STATUTORY_CODES,
+  buildStatutoryCodeLookup,
+  defaultStatutoryCodeLookup,
+  isStatutoryCode,
+  statutoryCodeName,
+  type StatutoryCode,
+  type StatutoryCodeLookup,
+} from "./statutory-codes.js";
+
+export {
+  CENSUS_SNAPSHOT_SCHEMA_VERSION,
+  auditSafeStatutoryAfter,
+  censusIsImmutable,
+  censusMayExport,
+  censusMayFinalise,
+  censusMayRegenerate,
+  countIssues,
+  fsmEligibleOnDate,
+  isCensusRunStatus,
+  isCensusType,
+  isDataExportFormat,
+  isDataExportKind,
+  isLookedAfterStatus,
+  mapOperationalSendToStatutory,
+  splitLegalName,
+  validateEstablishmentNumber,
+  validateLocalAuthorityNumber,
+  validateUrn,
+  type FsmPeriod,
+  type PupilStatutoryRecord,
+  type SchoolStatutoryRecord,
+  type StatutoryIssue,
+} from "./statutory.js";
+
+export { validateStatutory, validateStatutoryPupil, validateStatutorySchool } from "./statutory-validation.js";
+
+export {
+  ADMISSIONS_ENROLMENT_COLUMNS,
+  ATTENDANCE_SUMMARY_COLUMNS,
+  CENSUS_SNAPSHOT_COLUMNS,
+  PUPIL_ROLL_COLUMNS,
+  SEND_EXPORT_COLUMNS,
+  censusXmlPreview,
+  csvCell,
+  preventCsvInjection,
+  toCsv,
+  xmlEscape,
+} from "./statutory-export.js";
+
+export {
+  DEFAULT_STATUTORY_ATTENDANCE_MAP,
+  groupAttendanceSummaries,
+  mapAttendanceToStatutoryCategory,
+  summariseStatutoryAttendance,
+} from "./statutory-attendance.js";
+
+export {
+  REPORT_EXPORT_PERMISSIONS,
+  STATUTORY_PUPIL_READ_PERMISSIONS,
+  STATUTORY_READ_PERMISSIONS,
+  assertCanCreateCensus,
+  assertCanExportCensus,
+  assertCanFinaliseCensus,
+  assertCanManagePupilStatutory,
+  assertCanManageStatutory,
+  assertCanReadPupilStatutory,
+  assertCanReadSendReport,
+  assertCanReadStatutory,
+  assertCanValidateStatutory,
+  canCreateCensus,
+  canCreateReportExport,
+  canExportCensus,
+  canFinaliseCensus,
+  canManagePupilStatutory,
+  canManageStatutory,
+  canReadAdmissionsReport,
+  canReadAttendanceReport,
+  canReadPupilRollReport,
+  canReadPupilStatutory,
+  canReadSendReport,
+  canReadStatutory,
+  canValidateStatutory,
+} from "./statutory-access.js";
+
+export {
+  loadLiveStatutoryPupils,
+  loadSchoolStatutoryRecord,
+  loadSnapshotPupils,
+  loadSnapshotSchool,
+  loadStatutoryCodeLookup,
+  pupilToSnapshotRow,
+} from "./statutory-data.js";

@@ -103,11 +103,13 @@ const SUCCESS_STATUSES = new Set([
   "paid",
   "present",
   "published",
+  "ready",
   "released",
   "resolved",
   "success",
   "submitted",
   "waived",
+  "exported",
 ]);
 
 const WARNING_STATUSES = new Set([
@@ -126,6 +128,8 @@ const WARNING_STATUSES = new Set([
   "under_review",
   "waiting",
   "waiting_list",
+  "validating",
+  "superseded",
 ]);
 
 const DANGER_STATUSES = new Set([
@@ -146,6 +150,7 @@ const INFO_STATUSES = new Set([
   "open",
   "processing",
   "reopened",
+  "information",
 ]);
 
 const NEUTRAL_STATUSES = new Set([

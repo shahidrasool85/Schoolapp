@@ -282,6 +282,21 @@ Conversational threads, not broadcasts. See [ADR 0025](./adr/0025-phase16-messag
 
 Parent Portal shows only threads the parent participates in for children with live `portal_access`. Teachers start threads only for currently assigned pupils; they keep read access to threads they already joined after a class move. Staff-internal threads never appear to parents. Students have no messaging in this phase. Messaging is not the safeguarding record.
 
+## UK statutory data and census readiness (Phase 18)
+
+Canonical pupil, enrolment, attendance, and additional-needs records stay the source of truth. See [ADR 0027](./adr/0027-phase18-statutory-census.md).
+
+- `organisation_statutory_profiles` — tenant school identifiers (LA number, establishment number, URN, phase/type/status, statutory name/address). Demo schools use synthetic values.
+- `student_statutory_profiles` — UPN, legal names, statutory sex, ethnicity/language codes, enrolment status, admission/leaving, SEND provision, looked-after/service-child indicators
+- `student_fsm_periods` — dated FSM eligibility, not a single permanent boolean
+- `statutory_code_sets` / `statutory_codes` — platform-owned, versioned catalogues (currently `2025-2026`)
+- `census_runs` — academic year, census type/date, snapshot version, status, validation counts
+- `census_snapshot_schools` / `census_snapshot_pupils` — immutable census-relevant values for a version (INSERT-only for the app role)
+- `census_validation_issues` — live or snapshot issues with severity and rule key
+- `data_exports` — who exported which kind/format; row counts and filters; not the extract itself
+
+Religion, nationality, country of birth, ULN, and staff statutory identifiers are out of this phase. Parent and student APIs do not receive these fields.
+
 ## Behaviour, pastoral and safeguarding (Phase 11)
 
 These are related staff workflows but **not** the same data category. Safeguarding never appears on ordinary student-record payloads or parent/student APIs.

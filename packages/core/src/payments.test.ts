@@ -9,7 +9,7 @@ import {
   shouldCancelActivityCharge,
   shouldGenerateActivityCharge,
 } from "./payments.js";
-import { FakePaymentProvider, verifyStripeSignature } from "./payment-provider.js";
+import { FakePaymentProvider, verifyStripeSignature, mapStripeEvent } from "./payment-provider.js";
 
 describe("charge status and activity policy", () => {
   it("derives issued, partial, paid, waived and refunded", () => {
@@ -93,5 +93,26 @@ describe("stripe webhook helper", () => {
     expect(event.id).toBe("evt_1");
     expect(() => verifyStripeSignature(body, `t=${timestamp - 1000},v1=${v1}`, secret)).toThrow();
     expect(() => verifyStripeSignature(body, `t=${timestamp},v1=deadbeef`, secret)).toThrow();
+    expect(
+      mapStripeEvent({
+        id: "evt_unpaid",
+        type: "checkout.session.completed",
+        data: { object: { id: "cs_1", payment_status: "unpaid", amount_total: 1250, currency: "gbp" } },
+      }).outcome,
+    ).toBe("ignored");
+    expect(
+      mapStripeEvent({
+        id: "evt_paid",
+        type: "checkout.session.completed",
+        data: { object: { id: "cs_1", payment_status: "paid", amount_total: 1250, currency: "gbp" } },
+      }).outcome,
+    ).toBe("succeeded");
+    expect(
+      mapStripeEvent({
+        id: "evt_async",
+        type: "checkout.session.async_payment_succeeded",
+        data: { object: { id: "cs_1", payment_status: "paid" } },
+      }).outcome,
+    ).toBe("succeeded");
   });
 });

@@ -765,6 +765,33 @@ export async function settleProviderEvent(
     throw new AppError(400, "amount_mismatch", "Provider amount does not match the session");
   }
 
+  if (input.event.outcome === "ignored") {
+    return;
+  }
+  if (input.event.outcome === "refunded") {
+    await completeProviderRefund(client, {
+      organisationId: input.organisationId,
+      charge,
+      transaction,
+      event: input.event,
+    });
+    return;
+  }
+  if (
+    input.event.outcome === "failed" &&
+    (input.event.eventType.includes("refund") || input.event.providerRefundId)
+  ) {
+    await client.query(
+      `update school_payment_refunds
+          set status = 'failed'
+        where organisation_id = $1
+          and transaction_id = $2
+          and status = 'pending'
+          and ($3::text is null or provider_refund_id = $3)`,
+      [input.organisationId, transaction.id, input.event.providerRefundId ?? null],
+    );
+    return;
+  }
   if (input.event.outcome === "failed" || input.event.outcome === "cancelled") {
     if (transaction.status !== "pending") {
       return;
@@ -841,6 +868,50 @@ export async function settleProviderEvent(
     chargeId: String(charge.id),
     studentProfileId: String(charge.student_profile_id),
   });
+}
+
+async function completeProviderRefund(
+  client: pg.PoolClient,
+  input: {
+    organisationId: string;
+    charge: Record<string, unknown>;
+    transaction: Record<string, unknown>;
+    event: ProviderEvent;
+  },
+): Promise<void> {
+  if (!["succeeded", "partially_refunded", "refunded"].includes(String(input.transaction.status))) {
+    return;
+  }
+  const pending = await client.query(
+    `select * from school_payment_refunds
+      where organisation_id = $1
+        and transaction_id = $2
+        and status = 'pending'
+        and ($3::text is null or provider_refund_id = $3)
+      order by created_at
+      for update`,
+    [input.organisationId, input.transaction.id, input.event.providerRefundId ?? null],
+  );
+  const refund = pending.rows[0] as Record<string, unknown> | undefined;
+  if (!refund) return;
+  const amount = Number(refund.amount_minor);
+  if (input.event.amountMinor != null && Number(input.event.amountMinor) !== amount) {
+    throw new AppError(400, "amount_mismatch", "Provider refund amount does not match");
+  }
+  await applySucceededRefund(client, {
+    organisationId: input.organisationId,
+    charge: input.charge,
+    transaction: input.transaction,
+    amountMinor: amount,
+    actorUserId: String(refund.requested_by ?? input.charge.created_by),
+  });
+  await client.query(
+    `update school_payment_refunds
+        set status = 'succeeded', completed_at = now(),
+            provider_refund_id = coalesce($3, provider_refund_id)
+      where id = $1 and organisation_id = $2`,
+    [refund.id, input.organisationId, input.event.providerRefundId ?? null],
+  );
 }
 
 async function failTransaction(

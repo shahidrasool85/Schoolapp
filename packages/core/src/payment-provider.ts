@@ -47,7 +47,7 @@ export type ProviderEvent = {
   providerRefundId?: string | null;
   amountMinor?: number | null;
   currency?: string | null;
-  outcome: "succeeded" | "failed" | "cancelled" | "refunded";
+  outcome: "succeeded" | "failed" | "cancelled" | "refunded" | "ignored";
 };
 
 export type PaymentProvider = {
@@ -321,12 +321,25 @@ export function mapStripeEvent(event: Record<string, unknown>): ProviderEvent {
       : type.startsWith("payment_intent")
         ? String(object.id ?? "")
         : null;
-  let outcome: ProviderEvent["outcome"] = "failed";
-  if (type === "checkout.session.completed" || type === "payment_intent.succeeded") outcome = "succeeded";
-  else if (type === "checkout.session.expired" || type === "checkout.session.async_payment_failed") outcome = "failed";
-  else if (type === "charge.refunded" || type === "refund.updated" || type === "charge.refund.updated") {
+  let outcome: ProviderEvent["outcome"] = "ignored";
+  if (type === "checkout.session.completed") {
+    outcome = String(object.payment_status ?? "") === "paid" ? "succeeded" : "ignored";
+  } else if (type === "checkout.session.async_payment_succeeded" || type === "payment_intent.succeeded") {
+    outcome = "succeeded";
+  } else if (
+    type === "checkout.session.expired" ||
+    type === "checkout.session.async_payment_failed" ||
+    type === "payment_intent.payment_failed"
+  ) {
+    outcome = "failed";
+  } else if (type === "refund.created" || type === "refund.updated" || type === "charge.refund.updated") {
+    const refundStatus = String(object.status ?? "");
+    outcome = refundStatus === "succeeded" || refundStatus === "paid" ? "refunded" : refundStatus === "failed" ? "failed" : "ignored";
+  } else if (type === "charge.refunded") {
     outcome = "refunded";
-  } else if (type === "payment_intent.canceled") outcome = "cancelled";
+  } else if (type === "payment_intent.canceled") {
+    outcome = "cancelled";
+  }
   return {
     providerKey: "stripe",
     eventId: String(event.id ?? ""),

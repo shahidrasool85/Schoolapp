@@ -111,6 +111,150 @@ export function mapHouse(row: Record<string, unknown>) {
   return {
     id: row.id,
     name: row.name,
+    shortCode: row.short_code ?? null,
+    colour: row.colour ?? null,
+    active: row.active ?? true,
+  };
+}
+
+export function mapRewardCategory(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    key: row.key,
+    name: row.name,
+    defaultPoints: Number(row.default_points ?? 0),
+    grantsXp: Boolean(row.grants_xp),
+    defaultXp: Number(row.default_xp ?? 0),
+    studentVisible: Boolean(row.student_visible),
+    parentVisible: Boolean(row.parent_visible),
+    active: Boolean(row.active),
+    isSystem: Boolean(row.is_system),
+    sortOrder: Number(row.sort_order ?? 0),
+  };
+}
+
+export function mapPupilReward(
+  row: Record<string, unknown>,
+  audience: "staff" | "parent" | "student",
+) {
+  const pointsVisible =
+    audience === "staff" ||
+    (audience === "student" && row.student_visible_points !== false) ||
+    (audience === "parent" && row.parent_visible_points !== false);
+  const base = {
+    id: row.id,
+    studentProfileId: row.student_profile_id,
+    studentName: row.student_name ?? null,
+    categoryId: row.category_id,
+    categoryName: row.category_name ?? null,
+    title: row.title,
+    pupilMessage: row.pupil_message ?? null,
+    points: pointsVisible ? Number(row.points ?? 0) : null,
+    awardedAt: row.awarded_at,
+    subjectId: row.subject_id ?? null,
+    classId: row.class_id ?? null,
+    houseId: row.house_id ?? null,
+    status: row.status,
+    studentVisible: Boolean(row.student_visible),
+    parentVisible: Boolean(row.parent_visible),
+  };
+  if (audience === "staff") {
+    return {
+      ...base,
+      internalNote: row.internal_note ?? null,
+      awardedBy: row.awarded_by ?? null,
+      awardedByName: row.awarded_by_name ?? null,
+      xpAwarded: Number(row.xp_awarded ?? 0),
+      revokedAt: row.revoked_at ?? null,
+      revokedBy: row.revoked_by ?? null,
+      revokeReason: row.revoke_reason ?? null,
+    };
+  }
+  return base;
+}
+
+export function mapAchievementDefinition(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    key: row.key,
+    title: row.title,
+    description: row.description ?? null,
+    iconKey: row.icon_key ?? null,
+    criteriaType: row.criteria_type,
+    threshold: row.threshold == null ? null : Number(row.threshold),
+    allowRepeat: Boolean(row.allow_repeat),
+    active: Boolean(row.active),
+    studentVisible: Boolean(row.student_visible),
+    parentVisible: Boolean(row.parent_visible),
+    sortOrder: Number(row.sort_order ?? 0),
+  };
+}
+
+export function mapPupilAchievement(
+  row: Record<string, unknown>,
+  audience: "staff" | "parent" | "student",
+) {
+  const base = {
+    id: row.id,
+    definitionId: row.definition_id,
+    key: row.definition_key ?? row.key ?? null,
+    title: row.title,
+    description: row.description ?? null,
+    iconKey: row.icon_key ?? null,
+    awardedAt: row.awarded_at,
+    source: row.source,
+  };
+  if (audience === "staff") {
+    return {
+      ...base,
+      studentProfileId: row.student_profile_id,
+      studentName: row.student_name ?? null,
+      awardedBy: row.awarded_by ?? null,
+      note: row.note ?? null,
+    };
+  }
+  return base;
+}
+
+export function mapCompetition(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description ?? null,
+    competitionType: row.competition_type,
+    scoringModel: row.scoring_model,
+    status: row.status,
+    startsAt: row.starts_at ?? null,
+    endsAt: row.ends_at ?? null,
+    studentVisible: Boolean(row.student_visible),
+    parentVisible: Boolean(row.parent_visible),
+    staffOnly: Boolean(row.staff_only),
+    resultFrozen: Boolean(row.result_frozen),
+    academicYearId: row.academic_year_id ?? null,
+    createdAt: row.created_at,
+  };
+}
+
+export function mapLearningActivityDefinition(
+  row: Record<string, unknown>,
+  options?: { includeContent?: boolean },
+) {
+  return {
+    id: row.id,
+    title: row.title,
+    activityType: row.activity_type,
+    instructions: row.instructions ?? null,
+    difficulty: row.difficulty,
+    recommendedYearGroupId: row.recommended_year_group_id ?? null,
+    subjectId: row.subject_id ?? null,
+    subjectName: row.subject_name ?? null,
+    attemptsAllowed: row.attempts_allowed == null ? null : Number(row.attempts_allowed),
+    xpReward: Number(row.xp_reward ?? 0),
+    completionThreshold: Number(row.completion_threshold ?? 1),
+    status: row.status,
+    assignmentLinkId: row.assignment_link_id ?? null,
+    createdAt: row.created_at,
+    ...(options?.includeContent ? { contentPayload: row.content_payload ?? {} } : {}),
   };
 }
 

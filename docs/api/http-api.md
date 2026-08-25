@@ -621,6 +621,67 @@ GET    /api/v1/reports/exports
 
 Report routes accept `?format=csv` where the actor also has `reports.exports.create`. Census XML is labelled a preview and is not a certified COLLECT file. Cross-school census IDs return `not_found`. Teachers, parents, students, and Platform Admin without school membership cannot browse statutory pupil data.
 
+## Engagement, rewards, competitions, and early learning (Phase 19)
+
+School-scoped. Student Portal enablement stays on Phase 6 policy. Clients submit answers only; the server decides score, XP, achievements, and leaderboard contribution. `xpAwarded` / `rewardPoints` / `achievementIds` in a body are ignored.
+
+```http
+GET    /api/v1/engagement/settings
+PATCH  /api/v1/engagement/settings
+PUT    /api/v1/engagement/year-groups/{yearGroupId}
+GET    /api/v1/engagement/overview
+
+GET    /api/v1/reward-categories
+POST   /api/v1/reward-categories
+GET    /api/v1/rewards
+POST   /api/v1/rewards
+POST   /api/v1/rewards/bulk
+POST   /api/v1/rewards/{id}/revoke
+
+GET    /api/v1/achievements/definitions
+POST   /api/v1/achievements/definitions
+POST   /api/v1/achievements/award
+GET    /api/v1/achievements?studentId=
+
+GET    /api/v1/competitions
+POST   /api/v1/competitions
+GET    /api/v1/competitions/{id}
+POST   /api/v1/competitions/{id}/publish
+POST   /api/v1/competitions/{id}/complete
+POST   /api/v1/competitions/{id}/scores
+GET    /api/v1/competitions/{id}/leaderboard
+
+GET    /api/v1/learning-activities
+POST   /api/v1/learning-activities
+GET    /api/v1/learning-activities/{id}
+POST   /api/v1/learning-activities/{id}/publish
+POST   /api/v1/learning-practice/assignments
+POST   /api/v1/learning-practice/assignments/{id}/publish
+GET    /api/v1/learning-practice/progress?studentId=
+
+GET    /api/v1/student/engagement
+GET    /api/v1/student/rewards
+GET    /api/v1/student/achievements
+GET    /api/v1/student/competitions
+GET    /api/v1/student/competitions/{id}/leaderboard
+GET    /api/v1/student/practice
+GET    /api/v1/student/practice/{assignmentId}
+POST   /api/v1/student/practice/{assignmentId}/start
+POST   /api/v1/student/practice/attempts/{attemptId}/submit
+
+GET    /api/v1/parent/children/{studentId}/engagement
+GET    /api/v1/parent/children/{studentId}/rewards
+GET    /api/v1/parent/children/{studentId}/achievements
+GET    /api/v1/parent/children/{studentId}/competitions
+GET    /api/v1/parent/children/{studentId}/competitions/{id}/leaderboard
+GET    /api/v1/parent/children/{studentId}/practice
+GET    /api/v1/parent/children/{studentId}/practice/{assignmentId}
+POST   /api/v1/parent/children/{studentId}/practice/{assignmentId}/start
+POST   /api/v1/parent/children/{studentId}/practice/attempts/{attemptId}/submit
+```
+
+Leaderboard `?scope=` cannot widen visibility. Parent/student practice GET never includes `correctAnswer`. Internal reward notes are omitted from parent/student payloads. Parent start/submit requires year-group `parentAssistedMode` plus live `portal_access`. Cross-school IDs return `not_found`. Platform Admin has no school engagement browse. See [ADR 0028](../adr/0028-phase19-engagement.md).
+
 ## Files
 
 ```http

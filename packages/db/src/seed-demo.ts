@@ -163,6 +163,24 @@ async function wipeDemoData(client: pg.Client): Promise<void> {
     );
 
     const tenantDeletes = [
+      "learning_activity_answers",
+      "learning_activity_attempts",
+      "learning_activity_recipients",
+      "learning_activity_targets",
+      "learning_activity_assignments",
+      "learning_activity_items",
+      "learning_activity_definitions",
+      "competition_results",
+      "competition_manual_scores",
+      "competition_targets",
+      "competitions",
+      "pupil_achievements",
+      "achievement_definitions",
+      "pupil_xp_events",
+      "pupil_rewards",
+      "reward_categories",
+      "engagement_year_group_policies",
+      "engagement_settings",
       "census_validation_issues",
       "census_snapshot_pupils",
       "census_snapshot_schools",
@@ -558,6 +576,296 @@ async function seedStudent(
     [input.organisationId, input.classId, profileId, input.academicYearId, startedOn, input.endedOn ?? null],
   );
   return { profileId, userId };
+}
+
+async function seedEngagementDemo(
+  client: pg.Client,
+  input: {
+    organisationId: string;
+    actorUserId: string;
+    teacherUserId: string;
+    yearGroups: Map<string, string>;
+    classIds: Map<string, string>;
+    subjects: Map<string, string>;
+    houseId: string | null;
+    ameliaId?: string;
+    jackId?: string;
+    variant: "greenwood" | "oak";
+  },
+): Promise<void> {
+  await client.query("select ensure_organisation_phase19_defaults($1)", [input.organisationId]);
+  if (input.variant === "greenwood") {
+    await client.query(
+      `update engagement_settings set
+         leaderboards_enabled = true,
+         allow_individual_leaderboard = false,
+         allow_class_leaderboard = true,
+         allow_house_leaderboard = true,
+         anonymise_pupil_leaderboard = true,
+         leaderboard_display_name_policy = 'first_name_initial',
+         competitions_enabled = true,
+         early_learning_enabled = true,
+         xp_enabled = true
+       where organisation_id = $1`,
+      [input.organisationId],
+    );
+    for (const [code, flags] of [
+      ["R", { early: true, parent: true, friendly: true, board: false, challenges: false, competitions: false }],
+      ["1", { early: true, parent: true, friendly: true, board: false, challenges: false, competitions: false }],
+      ["2", { early: true, parent: true, friendly: true, board: false, challenges: true, competitions: false }],
+      ["3", { early: false, parent: false, friendly: false, board: true, challenges: true, competitions: true }],
+    ] as const) {
+      const yearGroupId = input.yearGroups.get(code);
+      if (!yearGroupId) continue;
+      await client.query(
+        `insert into engagement_year_group_policies (
+           organisation_id, year_group_id, early_learning_enabled, parent_assisted_mode, child_friendly_ui,
+           leaderboards_enabled, learning_challenges_enabled, competitions_enabled, rewards_enabled
+         ) values ($1,$2,$3,$4,$5,$6,$7,$8,true)
+         on conflict (year_group_id) do update set
+           early_learning_enabled = excluded.early_learning_enabled,
+           parent_assisted_mode = excluded.parent_assisted_mode,
+           child_friendly_ui = excluded.child_friendly_ui,
+           leaderboards_enabled = excluded.leaderboards_enabled,
+           learning_challenges_enabled = excluded.learning_challenges_enabled,
+           competitions_enabled = excluded.competitions_enabled`,
+        [
+          input.organisationId,
+          yearGroupId,
+          flags.early,
+          flags.parent,
+          flags.friendly,
+          flags.board,
+          flags.challenges,
+          flags.competitions,
+        ],
+      );
+    }
+    const reading = await client.query<IdRow>(
+      `select id from reward_categories where organisation_id = $1 and key = 'reading_star'`,
+      [input.organisationId],
+    );
+    const kindness = await client.query<IdRow>(
+      `select id from reward_categories where organisation_id = $1 and key = 'kindness'`,
+      [input.organisationId],
+    );
+    if (input.ameliaId && reading.rows[0]) {
+      await client.query(
+        `insert into pupil_rewards (
+           organisation_id, student_profile_id, category_id, points, title, pupil_message, awarded_by, house_id, source_type
+         ) values ($1,$2,$3,5,'Reading Star','Amelia read beautifully this week.',$4,$5,'manual')`,
+        [input.organisationId, input.ameliaId, reading.rows[0].id, input.teacherUserId, input.houseId],
+      );
+    }
+    if (input.jackId && kindness.rows[0]) {
+      await client.query(
+        `insert into pupil_rewards (
+           organisation_id, student_profile_id, category_id, points, title, pupil_message, awarded_by, house_id, source_type
+         ) values ($1,$2,$3,5,'Kindness','Jack helped a classmate without being asked.',$4,$5,'manual')`,
+        [input.organisationId, input.jackId, kindness.rows[0].id, input.teacherUserId, input.houseId],
+      );
+    }
+    const readingDef = await client.query<IdRow>(
+      `select id from achievement_definitions where organisation_id = $1 and key = 'reading_star'`,
+      [input.organisationId],
+    );
+    if (input.ameliaId && readingDef.rows[0]) {
+      await client.query(
+        `insert into pupil_achievements (
+           organisation_id, student_profile_id, definition_id, awarded_by, source
+         ) values ($1,$2,$3,$4,'manual')
+         on conflict do nothing`,
+        [input.organisationId, input.ameliaId, readingDef.rows[0].id, input.teacherUserId],
+      );
+    }
+    if (input.houseId) {
+      const competition = await client.query<IdRow>(
+        `insert into competitions (
+           organisation_id, title, description, competition_type, scoring_model, status,
+           student_visible, parent_visible, created_by
+         ) values ($1,'Greenwood House Reading Challenge','House points from reading rewards.','house','reward_points','active',true,true,$2)
+         returning id`,
+        [input.organisationId, input.actorUserId],
+      );
+      await client.query(
+        `insert into competition_targets (organisation_id, competition_id, target_type)
+         values ($1,$2,'whole_school')`,
+        [input.organisationId, competition.rows[0]!.id],
+      );
+    }
+
+    const apples = await client.query<IdRow>(
+      `insert into learning_activity_definitions (
+         organisation_id, title, activity_type, instructions, difficulty, recommended_year_group_id,
+         subject_id, xp_reward, status, created_by, content_payload
+       ) values ($1,'Count the Apples 1–10','counting','Count the fruit and choose how many.', 'easy', $2, $3, 10, 'published', $4, '{"schemaVersion":1}'::jsonb)
+       returning id`,
+      [input.organisationId, input.yearGroups.get("R"), input.subjects.get("mathematics"), input.actorUserId],
+    );
+    await client.query(
+      `insert into learning_activity_items (
+         organisation_id, activity_id, sort_order, prompt_text, prompt_emoji, item_type, choices, correct_answer, points
+       ) values ($1,$2,0,'How many apples?','🍎🍎🍎🍎','single_choice',
+         '[{"id":"3","label":"3"},{"id":"4","label":"4"},{"id":"5","label":"5"}]'::jsonb,
+         '{"choiceId":"4"}'::jsonb, 1)`,
+      [input.organisationId, apples.rows[0]!.id],
+    );
+    const letters = await client.query<IdRow>(
+      `insert into learning_activity_definitions (
+         organisation_id, title, activity_type, instructions, difficulty, recommended_year_group_id,
+         subject_id, xp_reward, status, created_by, content_payload
+       ) values ($1,'Match Uppercase and Lowercase Letters','case_matching','Match the capital letter to the small letter.','easy',$2,$3,10,'published',$4,'{"schemaVersion":1}'::jsonb)
+       returning id`,
+      [input.organisationId, input.yearGroups.get("R"), input.subjects.get("english") ?? input.subjects.get("phonics"), input.actorUserId],
+    );
+    await client.query(
+      `insert into learning_activity_items (
+         organisation_id, activity_id, sort_order, prompt_text, item_type, choices, correct_answer, points
+       ) values ($1,$2,0,'Match A to a','matching','[{"id":"A","label":"A"},{"id":"a","label":"a"}]'::jsonb,'{"pairs":[["A","a"]]}'::jsonb,1)`,
+      [input.organisationId, letters.rows[0]!.id],
+    );
+    const order = await client.query<IdRow>(
+      `insert into learning_activity_definitions (
+         organisation_id, title, activity_type, instructions, difficulty, recommended_year_group_id,
+         subject_id, xp_reward, status, created_by, content_payload
+       ) values ($1,'Number Order to 20','number_ordering','Put the numbers in order.','easy',$2,$3,10,'published',$4,'{"schemaVersion":1}'::jsonb)
+       returning id`,
+      [input.organisationId, input.yearGroups.get("1"), input.subjects.get("mathematics"), input.actorUserId],
+    );
+    await client.query(
+      `insert into learning_activity_items (
+         organisation_id, activity_id, sort_order, prompt_text, item_type, choices, correct_answer, points
+       ) values ($1,$2,0,'Put 1 then 2','ordering','[{"id":"1","label":"1"},{"id":"2","label":"2"}]'::jsonb,'{"order":["1","2"]}'::jsonb,1)`,
+      [input.organisationId, order.rows[0]!.id],
+    );
+    const sounds = await client.query<IdRow>(
+      `insert into learning_activity_definitions (
+         organisation_id, title, activity_type, instructions, difficulty, recommended_year_group_id,
+         subject_id, xp_reward, status, created_by, content_payload
+       ) values ($1,'Beginning Sounds','phonics_matching','Choose the letter that matches the sound.','easy',$2,$3,10,'published',$4,'{"schemaVersion":1}'::jsonb)
+       returning id`,
+      [input.organisationId, input.yearGroups.get("1"), input.subjects.get("phonics") ?? input.subjects.get("english"), input.actorUserId],
+    );
+    await client.query(
+      `insert into learning_activity_items (
+         organisation_id, activity_id, sort_order, prompt_text, item_type, choices, correct_answer, points
+       ) values ($1,$2,0,'ssssnake starts with','single_choice','[{"id":"s","label":"s"},{"id":"t","label":"t"}]'::jsonb,'{"choiceId":"s"}'::jsonb,1)`,
+      [input.organisationId, sounds.rows[0]!.id],
+    );
+    const addition = await client.query<IdRow>(
+      `insert into learning_activity_definitions (
+         organisation_id, title, activity_type, instructions, difficulty, recommended_year_group_id,
+         subject_id, xp_reward, status, created_by, content_payload
+       ) values ($1,'Addition within 20','simple_addition','Add the numbers.','easy',$2,$3,10,'published',$4,'{"schemaVersion":1}'::jsonb)
+       returning id`,
+      [input.organisationId, input.yearGroups.get("2"), input.subjects.get("mathematics"), input.actorUserId],
+    );
+    await client.query(
+      `insert into learning_activity_items (
+         organisation_id, activity_id, sort_order, prompt_text, item_type, correct_answer, points
+       ) values ($1,$2,0,'7 + 5 =','numeric','{"value":12}'::jsonb,1)`,
+      [input.organisationId, addition.rows[0]!.id],
+    );
+    const spelling = await client.query<IdRow>(
+      `insert into learning_activity_definitions (
+         organisation_id, title, activity_type, instructions, difficulty, recommended_year_group_id,
+         subject_id, xp_reward, status, created_by, content_payload
+       ) values ($1,'Simple Spelling','spelling','Type the word.','easy',$2,$3,10,'published',$4,'{"schemaVersion":1}'::jsonb)
+       returning id`,
+      [input.organisationId, input.yearGroups.get("2"), input.subjects.get("english"), input.actorUserId],
+    );
+    await client.query(
+      `insert into learning_activity_items (
+         organisation_id, activity_id, sort_order, prompt_text, item_type, correct_answer, points
+       ) values ($1,$2,0,'the animal: cat','short_exact_text','{"text":"cat","caseInsensitive":true}'::jsonb,1)`,
+      [input.organisationId, spelling.rows[0]!.id],
+    );
+    const maths = await client.query<IdRow>(
+      `insert into learning_activity_definitions (
+         organisation_id, title, activity_type, instructions, difficulty, recommended_year_group_id,
+         subject_id, xp_reward, status, created_by, content_payload
+       ) values ($1,'Year 3 Maths challenge','challenge','A short times-tables check.','challenge',$2,$3,15,'published',$4,'{"schemaVersion":1}'::jsonb)
+       returning id`,
+      [input.organisationId, input.yearGroups.get("3"), input.subjects.get("mathematics"), input.teacherUserId],
+    );
+    await client.query(
+      `insert into learning_activity_items (
+         organisation_id, activity_id, sort_order, prompt_text, item_type, correct_answer, points
+       ) values ($1,$2,0,'4 x 5 =','numeric','{"value":20}'::jsonb,1)`,
+      [input.organisationId, maths.rows[0]!.id],
+    );
+
+    async function assign(activityId: string, targetType: "year_group" | "class", targetId: string) {
+      const assignment = await client.query<IdRow>(
+        `insert into learning_activity_assignments (
+           organisation_id, activity_id, status, created_by, published_at
+         ) values ($1,$2,'published',$3,now()) returning id`,
+        [input.organisationId, activityId, input.actorUserId],
+      );
+      await client.query(
+        `insert into learning_activity_targets (
+           organisation_id, assignment_id, target_type, year_group_id, class_id
+         ) values ($1,$2,$3,$4,$5)`,
+        [
+          input.organisationId,
+          assignment.rows[0]!.id,
+          targetType,
+          targetType === "year_group" ? targetId : null,
+          targetType === "class" ? targetId : null,
+        ],
+      );
+      await client.query(
+        `insert into learning_activity_recipients (organisation_id, assignment_id, student_profile_id)
+         select distinct $1, $2, src.student_profile_id from (
+           select cm.student_profile_id
+           from class_memberships cm
+           join academic_years ay on ay.id = cm.academic_year_id and ay.is_current
+           where $3 = 'class' and cm.class_id = $4 and cm.organisation_id = $1
+             and (cm.ended_on is null or cm.ended_on >= current_date)
+           union
+           select se.student_profile_id
+           from student_enrolments se
+           join academic_years ay on ay.id = se.academic_year_id and ay.is_current
+           where $3 = 'year_group' and se.year_group_id = $4 and se.organisation_id = $1
+             and se.is_primary and se.ended_on is null and se.status = 'enrolled'
+         ) src`,
+        [input.organisationId, assignment.rows[0]!.id, targetType, targetId],
+      );
+    }
+    await assign(apples.rows[0]!.id, "year_group", input.yearGroups.get("R")!);
+    await assign(letters.rows[0]!.id, "year_group", input.yearGroups.get("R")!);
+    await assign(order.rows[0]!.id, "year_group", input.yearGroups.get("1")!);
+    await assign(sounds.rows[0]!.id, "year_group", input.yearGroups.get("1")!);
+    await assign(addition.rows[0]!.id, "year_group", input.yearGroups.get("2")!);
+    await assign(spelling.rows[0]!.id, "year_group", input.yearGroups.get("2")!);
+    if (input.classIds.get("3A")) {
+      await assign(maths.rows[0]!.id, "class", input.classIds.get("3A")!);
+    }
+  } else {
+    await client.query(
+      `update engagement_settings set rewards_enabled = true, competitions_enabled = true
+       where organisation_id = $1`,
+      [input.organisationId],
+    );
+    const kindness = await client.query<IdRow>(
+      `select id from reward_categories where organisation_id = $1 and key = 'kindness'`,
+      [input.organisationId],
+    );
+    if (input.ameliaId && kindness.rows[0]) {
+      await client.query(
+        `insert into pupil_rewards (
+           organisation_id, student_profile_id, category_id, points, title, pupil_message, awarded_by, source_type
+         ) values ($1,$2,$3,3,'Oak kindness','Oak-only reward for isolation tests.',$4,'manual')`,
+        [input.organisationId, input.ameliaId, kindness.rows[0].id, input.actorUserId],
+      );
+    }
+    await client.query(
+      `insert into learning_activity_definitions (
+         organisation_id, title, activity_type, instructions, difficulty, xp_reward, status, created_by, content_payload
+       ) values ($1,'Oak counting','counting','Oak-only practice.','easy',5,'published',$2,'{"schemaVersion":1}'::jsonb)`,
+      [input.organisationId, input.actorUserId],
+    );
+  }
 }
 
 async function seedStatutoryProfile(
@@ -2636,11 +2944,20 @@ async function seedGreenwood(
     subjects.set(key, inserted.rows[0]!.id);
   }
   const oakHouse = await client.query<IdRow>(
-    "insert into houses (organisation_id, name) values ($1, 'Oak') returning id",
+    `insert into houses (organisation_id, name, short_code, colour)
+     values ($1, 'Oak', 'OAK', '#2f6f4e') returning id`,
     [orgId],
   );
-  await client.query("insert into houses (organisation_id, name) values ($1, 'Willow')", [orgId]);
-  await client.query("insert into houses (organisation_id, name) values ($1, 'Beech')", [orgId]);
+  await client.query(
+    `insert into houses (organisation_id, name, short_code, colour)
+     values ($1, 'Willow', 'WIL', '#6b8e23')`,
+    [orgId],
+  );
+  await client.query(
+    `insert into houses (organisation_id, name, short_code, colour)
+     values ($1, 'Beech', 'BCH', '#8b5a2b')`,
+    [orgId],
+  );
 
   const classIds = new Map<string, string>();
   for (const row of [
@@ -4404,6 +4721,19 @@ async function seedGreenwood(
     body: "You have a new message from Greenwood Academy.",
   });
 
+  await seedEngagementDemo(client, {
+    organisationId: orgId,
+    actorUserId: adminId,
+    teacherUserId: teacherId,
+    yearGroups,
+    classIds,
+    subjects,
+    houseId: oakHouse.rows[0]!.id,
+    ameliaId: amelia.profileId,
+    jackId: jack.profileId,
+    variant: "greenwood",
+  });
+
   return {
     orgId,
     accounts: [
@@ -4895,6 +5225,21 @@ async function seedOakAcademy(
     upn: "R202990200002",
     ethnicityCode: "AIND",
     languageCode: "GUJ",
+  });
+
+  await seedEngagementDemo(client, {
+    organisationId: orgId,
+    actorUserId: adminId,
+    teacherUserId: teacherId,
+    yearGroups,
+    classIds: new Map([
+      ["3A", class3.rows[0]!.id],
+      ["5A", class5.rows[0]!.id],
+    ]),
+    subjects,
+    houseId: null,
+    ameliaId: niamh.profileId,
+    variant: "oak",
   });
 
   return {

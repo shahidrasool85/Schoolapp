@@ -268,19 +268,35 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 **Not in Phase 18:** live DfE submission, COLLECT credentials, certification claims, payroll/HR returns, funding engine, LA integrations, meal/library/transport, AI census corrections, arbitrary report builders.
 
-## Phase 12.5 — AI learning
+## Phase 19 — Student engagement, rewards, competitions, and early learning (implemented)
+
+**Outcome:** schools can recognise pupils, run house/class competitions with privacy controls, and assign deterministic early-learning / practice activities. This is not a social network and does not generate questions with AI.
+
+- Organisation engagement settings plus year-group overlays; Student Portal on/off stays Phase 6 policy
+- Reward catalogue and teacher/admin awarding (assigned-only for teachers); revoke/correct rather than silent delete
+- XP ledger separate from reward points; idempotent grants; no shop
+- Achievement definitions with controlled criteria; unique awards unless the definition allows repeats
+- Competitions with targeting, scoring models, and frozen results on complete
+- Leaderboards default off; house/class preferred; individual names follow display-name policy
+- Early-learning activity catalogue (counting, letters, phonics, addition, spelling, challenges) with server scoring
+- Parent-assisted channel when year-group policy allows; parent does not impersonate the student
+- Staff `/school/engagement`, student Play & learn / Rewards / Competitions, parent child Rewards
+- Capability keys: `engagement.settings.*`, `rewards.*`, `achievements.*`, `competitions.*`, `learning.practice.*`
+
+**Not in Phase 19:** AI tutoring or question generation, essay grading, student-to-student chat, virtual currency, loot boxes, public worldwide leaderboards, live multiplayer, sockets, native apps.
+
+## Phase 12.5 — AI learning (future)
 
 - `packages/ai` port + one provider
-- Activity drafts, moderation hook, teacher approval workflow
-- Student attempts API
-- Year-group and subject targeting
+- Activity drafts into the Phase 19 item schema, moderation hook, teacher approval workflow
 - Generation audit (no PII in prompts)
+- Always start as `draft`; no auto-publish
 
-## Phase 13 — Gamification
+## Phase 13 — Remaining gamification (future)
 
-- Points/XP ledgers, badges, streaks
-- Competitions: student, class, house (not school-vs-school; network tables remain governance placeholders)
-- Leaderboards honouring school flags and Children’s Code defaults (off)
+- Optional non-punitive streaks
+- Richer badge artwork
+- Inter-school competitions remain unimplemented (network tables are governance placeholders)
 
 ## Phase 14 — Mobile clients
 

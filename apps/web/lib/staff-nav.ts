@@ -108,6 +108,26 @@ const REPORTS_NAV_PERMISSIONS = [
   "reports.exports.create",
 ];
 
+const ENGAGEMENT_NAV_PERMISSIONS = [
+  "engagement.settings.read",
+  "engagement.settings.manage",
+  "rewards.read",
+  "rewards.read_assigned",
+  "rewards.award",
+  "rewards.award_assigned",
+  "rewards.manage",
+  "achievements.read",
+  "achievements.read_assigned",
+  "achievements.manage",
+  "competitions.read",
+  "competitions.read_assigned",
+  "competitions.manage",
+  "learning.practice.read",
+  "learning.practice.read_assigned",
+  "learning.practice.manage",
+  "learning.practice.manage_assigned",
+];
+
 const ACTIVITY_NAV_PERMISSIONS = [
   "activities.read",
   "activities.read_assigned",
@@ -283,6 +303,25 @@ export const STAFF_NAV_SECTIONS: StaffNavSection[] = [
     id: "engagement",
     label: "Engagement",
     items: [
+      {
+        href: "/school/engagement",
+        label: "Rewards & learning",
+        icon: "chart",
+        exact: true,
+        permissions: ENGAGEMENT_NAV_PERMISSIONS,
+        children: [
+          { href: "/school/engagement", label: "Overview", exact: true, permissions: ENGAGEMENT_NAV_PERMISSIONS },
+          { href: "/school/engagement/rewards", label: "Rewards", permissions: ENGAGEMENT_NAV_PERMISSIONS },
+          { href: "/school/engagement/achievements", label: "Achievements", permissions: ENGAGEMENT_NAV_PERMISSIONS },
+          { href: "/school/engagement/competitions", label: "Competitions", permissions: ENGAGEMENT_NAV_PERMISSIONS },
+          { href: "/school/engagement/learning", label: "Early learning", permissions: ENGAGEMENT_NAV_PERMISSIONS },
+          {
+            href: "/school/engagement/settings",
+            label: "Settings",
+            permissions: ["engagement.settings.read", "engagement.settings.manage"],
+          },
+        ],
+      },
       {
         href: "/school/activities",
         label: "Activities",

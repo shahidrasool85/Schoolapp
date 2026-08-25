@@ -1,6 +1,6 @@
 # Schoolapp documentation
 
-Architecture **accepted**. Phases 1–18 (foundation through UK statutory data / census readiness) are implemented. Later product modules (AI, games, mobile) are not built yet.
+Architecture **accepted**. Phases 1–19 (foundation through student engagement / early learning) are implemented. Later product modules (AI generation, native mobile) are not built yet.
 
 | Document | Contents |
 | --- | --- |

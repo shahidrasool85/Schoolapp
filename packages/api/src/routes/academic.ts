@@ -379,7 +379,7 @@ export function registerAcademicRoutes(app: SchoolappApi) {
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertAnyPermission(actor, academicReadPermissions);
       const rows = await client.query(
-        `select id, name from houses where organisation_id = $1 order by name`,
+        `select id, name, short_code, colour, active from houses where organisation_id = $1 order by name`,
         [orgId],
       );
       return c.json({ houses: rows.rows.map(mapHouse) });
@@ -389,11 +389,18 @@ export function registerAcademicRoutes(app: SchoolappApi) {
   app.post("/houses", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
-      const parsed = z.object({ name: z.string().min(1).max(80) }).safeParse(await c.req.json());
+      const parsed = z
+        .object({
+          name: z.string().min(1).max(80),
+          shortCode: z.string().min(1).max(12).optional(),
+          colour: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+        })
+        .safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid house payload");
       const inserted = await client.query(
-        `insert into houses (organisation_id, name) values ($1, $2) returning id, name`,
-        [orgId, parsed.data.name],
+        `insert into houses (organisation_id, name, short_code, colour) values ($1, $2, $3, $4)
+         returning id, name, short_code, colour, active`,
+        [orgId, parsed.data.name, parsed.data.shortCode ?? null, parsed.data.colour ?? null],
       );
       return c.json({ house: mapHouse(inserted.rows[0]!) }, 201);
     }),

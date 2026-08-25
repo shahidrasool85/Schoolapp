@@ -1285,6 +1285,64 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   .login-persona-grid { gap: 0.45rem; }
 }
 
+.early-learn {
+  max-width: 40rem;
+}
+
+.early-learn .early-item {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1rem;
+  background: var(--surface);
+}
+
+.early-learn .early-emoji {
+  display: block;
+  font-size: 2.4rem;
+  line-height: 1.2;
+  margin-bottom: 0.35rem;
+}
+
+.early-learn .early-choices {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.early-learn .early-choice {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 3rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  font-size: 1.1rem;
+}
+
+.early-learn .early-choice:focus-within {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.early-learn .early-input,
+.early-learn button {
+  min-height: 3rem;
+  font-size: 1.1rem;
+}
+
+.early-learn-cards .card {
+  min-height: 7rem;
+}
+
+@media (max-width: 390px) {
+  .early-learn .early-choice,
+  .early-learn .early-input,
+  .early-learn button {
+    width: 100%;
+  }
+}
+
 @media print {
   .nav,
   .app-sidebar,

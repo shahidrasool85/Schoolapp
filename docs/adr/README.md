@@ -31,5 +31,6 @@ ADRs capture *why* we chose an approach. The narrative proposal is in [ARCHITECT
 | [0025](./0025-phase16-messaging.md) | School messaging vs announcements, explicit participants, current-access rules | Accepted |
 | [0026](./0026-phase17-ui.md) | Professional UI design system and role-based dashboards | Accepted |
 | [0027](./0027-phase18-statutory-census.md) | Live canonical records vs census snapshots, versioned code sets, census-ready exports | Accepted |
+| [0028](./0028-phase19-engagement.md) | Rewards vs behaviour, XP vs points, leaderboard privacy, practice vs assessment, parent-assisted learning, server scoring | Accepted |
 
 Convention: one decision per file. If a decision is reversed, mark it **Superseded** and add a new ADR — do not silently edit history.

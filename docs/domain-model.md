@@ -254,7 +254,22 @@ Canonical activity records, not a second events table. See [ADR 0023](./adr/0023
 - `school_activity_documents` — Phase 13 files; visibility is explicit
 - `school_activity_updates` — parent-safe notices using existing notification patterns
 
-Calendar list APIs include `activities` with `source: "activity"`. Medical/emergency information is live and limited. Payments are not modelled.
+Calendar list APIs include `activities` with `source: "activity"`. Medical/emergency information is live and limited. Optional activity price/payment flags live on `school_activities`; payment state is modelled separately in Phase 15 and is not mixed with consent.
+
+## School charges and payments (Phase 15)
+
+Pupil-owned charges with separate settlement history. See [ADR 0024](./adr/0024-phase15-payments.md). This is not a general ledger and is not SaaS billing.
+
+- `school_charge_categories` — organisation catalogue (`trip`, `club`, `contribution`, `music`, `examination`, `uniform`, `lost_item`, `meal`, `other`)
+- `school_charges` — one charge per pupil (not per guardian); human `CHG-YYYY-NNNNNN` reference; integer `original_amount_minor` / `amount_due_minor` plus ISO currency; statuses `draft | issued | partially_paid | paid | waived | cancelled | refunded`
+- `school_charge_adjustments` — waiver/reduction/subsidy/discount; actor-stamped; never rewrite paid history
+- `school_payment_transactions` — provider or `offline` channel; statuses `pending | succeeded | failed | cancelled | partially_refunded | refunded`
+- `school_payment_sessions` — hosted checkout session; provider session id
+- `school_payment_refunds` / `school_payment_receipts` — refund requests and HTML receipt snapshots
+- `school_payment_provider_events` — idempotent webhook claim (`provider_key`, `event_id`)
+- `school_payment_provider_configs` — future per-school account hook (`secret_ref` is a vault/env name)
+
+Parents with guardianship + `portal_access` see and pay authorised children’s charges. Students do not initiate payments. Activity default `charge_policy = on_confirmed` does not charge waitlisted pupils. `source_kind = admissions` is reserved for later application fees.
 
 ## Behaviour, pastoral and safeguarding (Phase 11)
 

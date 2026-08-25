@@ -20,6 +20,7 @@ const LINKS = [
   { href: "/parent/notices", label: "Notices" },
   { href: "/parent/calendar", label: "Calendar" },
   { href: "/parent/activities", label: "Activities" },
+  { href: "/parent/payments", label: "Payments" },
   { href: "/parent/notifications", label: "Notifications" },
   { href: "/parent/account", label: "Account" },
 ];

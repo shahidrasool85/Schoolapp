@@ -28,6 +28,8 @@ import { registerSafeguardingRoutes } from "./routes/safeguarding";
 import { registerTimetableRoutes } from "./routes/timetable";
 import { registerFileRoutes } from "./routes/files";
 import { registerActivityRoutes } from "./routes/activities";
+import { registerFinanceRoutes } from "./routes/finance";
+import { registerPaymentWebhookRoutes } from "./routes/webhooks-payments";
 
 export type { ApiConfig, ApiEnv, SchoolappApi } from "./types";
 
@@ -95,6 +97,8 @@ export function createApiApp(config: ApiConfig) {
   registerSafeguardingRoutes(app);
   registerTimetableRoutes(app);
   registerActivityRoutes(app);
+  registerFinanceRoutes(app);
+  registerPaymentWebhookRoutes(app);
 
   app.notFound((c) =>
     c.json({ error: { code: "not_found", message: "Not found" } }, 404),

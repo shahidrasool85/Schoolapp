@@ -43,6 +43,7 @@ type Eligible = {
   className: string | null;
   consentResponse: string;
   registrationStatus: string | null;
+  paymentStatus?: string | null;
 };
 
 type Participant = {
@@ -50,6 +51,7 @@ type Participant = {
   legalName: string | null;
   registrationStatus: string;
   waitingListPosition: number | null;
+  paymentStatus?: string | null;
 };
 
 type Safety = {
@@ -254,7 +256,7 @@ export default function StaffActivityDetailPage() {
       <h2>Responses / participants</h2>
       <table>
         <thead>
-          <tr><th>Pupil</th><th>Class</th><th>Consent</th><th>Place</th></tr>
+          <tr><th>Pupil</th><th>Class</th><th>Consent</th><th>Place</th><th>Payment</th></tr>
         </thead>
         <tbody>
           {eligible.map((row) => (
@@ -280,6 +282,7 @@ export default function StaffActivityDetailPage() {
                   </>
                 ) : null}
               </td>
+              <td>{row.paymentStatus ?? "—"}</td>
             </tr>
           ))}
         </tbody>

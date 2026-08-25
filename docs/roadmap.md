@@ -216,6 +216,20 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 **Not in Phase 14:** Stripe/fees, SMS/email delivery, timetable auto-exceptions, statutory attendance mapping, full risk-assessment product, professional UI redesign.
 
+## Phase 15 — Payments, fees, and parent payment foundation (implemented)
+
+**Outcome:** a school can issue pupil charges, parents can pay through a provider-neutral checkout, and staff can reconcile outstanding/paid/refunded items without a general ledger.
+
+- Integer minor-unit money + ISO currency; charge vs transaction vs receipt vs refund kept separate
+- Organisation charge catalogue; individual and idempotent bulk pupil charges
+- Activity payment fields and `charge_policy` (default: charge on confirmed place; waitlist not charged)
+- `PaymentProvider` port, fake/demo provider, optional Stripe Checkout adapter
+- Signed webhook authority, replay-safe event ids, tenant resolved from stored provider references
+- Parent Payments area, HTML receipts, offline staff-recorded payments, waivers/refunds
+- Capability RBAC (`finance.*`); teachers see operational payment status only; students do not pay
+
+**Not in Phase 15:** accounting ledger, VAT, payroll, Stripe Connect, instalment plans, meal ordering, admissions fees, SMS/email delivery, professional UI redesign.
+
 ## Phase 12.5 — AI learning
 
 - `packages/ai` port + one provider
@@ -241,7 +255,7 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 No second backend.
 
-## Phase 15 — Integrations and hardening
+## Phase 16 — Integrations and hardening
 
 - MIS identifiers, CTF/census experiments
 - SSO (Microsoft 365 / Google Workspace) if schools demand it

@@ -27,5 +27,6 @@ ADRs capture *why* we chose an approach. The narrative proposal is in [ARCHITECT
 | [0021](./0021-phase12-timetable-scheduling.md) | Recurring timetable definitions and date-specific exceptions | Accepted |
 | [0022](./0022-phase13-object-storage.md) | Production object storage, private files, and authorised downloads | Accepted |
 | [0023](./0023-phase14-activities-consents.md) | School activities, consents, and parent responses | Accepted |
+| [0024](./0024-phase15-payments.md) | School charges, provider-neutral payments, and webhook authority | Accepted |
 
 Convention: one decision per file. If a decision is reversed, mark it **Superseded** and add a new ADR — do not silently edit history.

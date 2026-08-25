@@ -1388,6 +1388,12 @@ export function mapSchoolActivity(
     publishedAt: row.published_at ?? null,
     cancelledAt: row.cancelled_at ?? null,
     cancelReason: row.cancel_reason ?? null,
+    priceAmountMinor: row.price_amount_minor == null ? null : Number(row.price_amount_minor),
+    priceCurrency: row.price_currency ?? null,
+    paymentRequired: row.payment_required === true,
+    paymentDeadlineAt: row.payment_deadline_at ?? null,
+    paymentInstructions: row.payment_instructions ?? null,
+    chargePolicy: row.charge_policy ?? "on_confirmed",
   };
   if (!includeInternal) return base;
   return {
@@ -1443,6 +1449,108 @@ export function mapActivityParticipant(row: Record<string, unknown>) {
     withdrawnAt: row.withdrawn_at ?? null,
     className: row.class_name ?? null,
     yearGroupName: row.year_group_name ?? null,
+    paymentStatus: row.payment_status ?? null,
+  };
+}
+
+export function mapCharge(row: Record<string, unknown>, balance?: {
+  originalAmountMinor: number;
+  amountDueMinor: number;
+  grossPaidMinor: number;
+  refundedMinor: number;
+  netPaidMinor: number;
+  outstandingMinor: number;
+  adjustmentMinor: number;
+}) {
+  return {
+    id: row.id,
+    reference: row.reference,
+    title: row.title,
+    description: row.description ?? null,
+    categoryId: row.category_id,
+    categoryKey: row.category_key ?? null,
+    categoryName: row.category_name ?? null,
+    studentProfileId: row.student_profile_id,
+    studentLegalName: row.student_legal_name ?? null,
+    activityId: row.activity_id ?? null,
+    activityTitle: row.activity_title ?? null,
+    academicYearId: row.academic_year_id ?? null,
+    sourceKind: row.source_kind,
+    originalAmountMinor: Number(row.original_amount_minor),
+    amountDueMinor: Number(row.amount_due_minor),
+    currency: row.currency,
+    dueAt: row.due_at ?? null,
+    status: row.status,
+    paymentRequired: row.payment_required,
+    parentNote: row.parent_note ?? null,
+    createdAt: row.created_at,
+    issuedAt: row.issued_at ?? null,
+    ...(balance ?? {}),
+  };
+}
+
+export function mapChargeStaff(row: Record<string, unknown>, balance?: Parameters<typeof mapCharge>[1]) {
+  return {
+    ...mapCharge(row, balance),
+    internalNote: row.internal_note ?? null,
+    createdBy: row.created_by,
+    issuedBy: row.issued_by ?? null,
+    cancelledAt: row.cancelled_at ?? null,
+  };
+}
+
+export function mapPaymentTransaction(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    reference: row.reference,
+    chargeId: row.charge_id,
+    chargeReference: row.charge_reference ?? null,
+    chargeTitle: row.charge_title ?? null,
+    studentLegalName: row.student_legal_name ?? null,
+    amountMinor: Number(row.amount_minor),
+    currency: row.currency,
+    payerUserId: row.payer_user_id ?? null,
+    channel: row.channel,
+    providerKey: row.provider_key,
+    providerPaymentId: row.provider_payment_id
+      ? String(row.provider_payment_id).length > 10
+        ? `${String(row.provider_payment_id).slice(0, 6)}…${String(row.provider_payment_id).slice(-4)}`
+        : row.provider_payment_id
+      : null,
+    status: row.status,
+    initiatedAt: row.initiated_at,
+    paidAt: row.paid_at ?? null,
+    failedAt: row.failed_at ?? null,
+    refundedAmountMinor: Number(row.refunded_amount_minor ?? 0),
+    offlineMethod: row.offline_method ?? null,
+    offlineReference: row.offline_reference ?? null,
+  };
+}
+
+export function mapPaymentRefund(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    reference: row.reference,
+    chargeId: row.charge_id,
+    chargeReference: row.charge_reference ?? null,
+    transactionId: row.transaction_id,
+    amountMinor: Number(row.amount_minor),
+    currency: row.currency,
+    reason: row.reason,
+    status: row.status,
+    createdAt: row.created_at,
+    completedAt: row.completed_at ?? null,
+  };
+}
+
+export function mapPaymentReceipt(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    reference: row.reference,
+    chargeId: row.charge_id,
+    transactionId: row.transaction_id,
+    snapshot: row.snapshot,
+    createdAt: row.created_at,
   };
 }
 

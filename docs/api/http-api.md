@@ -522,6 +522,37 @@ POST   /api/v1/student/activities/{activityId}/withdraw
 
 User-facing errors include `response_deadline_passed`, `activity_full`, `no_longer_eligible`, `activity_cancelled`. CSV export omits medical fields. Safety summary is live pupil data, permission-gated, and never includes safeguarding.
 
+## School charges and payments (Phase 15)
+
+Charges belong to a pupil. Parents pay after guardianship + `portal_access` on every request. Provider webhooks are authoritative; they never trust `X-Organisation-Id`, Host, or a client-selected tenant. Redirect `?status=` is not treated as success. Local/CI uses `PAYMENT_PROVIDER=fake`. Stripe credentials stay server-side.
+
+```http
+GET    /api/v1/finance/overview
+GET    /api/v1/finance/categories
+GET    /api/v1/finance/charges
+POST   /api/v1/finance/charges
+POST   /api/v1/finance/charges/bulk
+GET    /api/v1/finance/charges/export
+GET    /api/v1/finance/charges/{id}
+POST   /api/v1/finance/charges/{id}/issue
+POST   /api/v1/finance/charges/{id}/cancel
+POST   /api/v1/finance/charges/{id}/adjust
+POST   /api/v1/finance/charges/{id}/offline-payment
+POST   /api/v1/finance/charges/{id}/refund
+GET    /api/v1/finance/outstanding
+GET    /api/v1/finance/transactions
+GET    /api/v1/finance/refunds
+GET    /api/v1/parent/payments
+GET    /api/v1/parent/children/{studentId}/payments
+GET    /api/v1/parent/payments/{chargeId}
+POST   /api/v1/parent/payments/{chargeId}/checkout
+POST   /api/v1/webhooks/payments/{provider}
+GET    /api/v1/payments/demo/checkout/{sessionId}
+POST   /api/v1/payments/demo/checkout/{sessionId}/complete
+```
+
+User-facing errors include `charge_already_paid`, `no_amount_outstanding`, `payment_unavailable`, `payment_failed`, `refund_failed`, `invalid_amount`, `overpayment`, `forbidden`. CSV export omits card data, provider secrets, and unnecessary guardian PII. Activity participant lists may include operational `paymentStatus` (`paid` / `outstanding` / `not_required`) without amounts unless the actor has finance permissions.
+
 ## Files
 
 ```http

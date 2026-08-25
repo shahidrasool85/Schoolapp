@@ -289,6 +289,20 @@ describe("demo seed", () => {
     expect(oakActivities.rows[0]?.titles).toContain("Oak harbour visit");
     expect(oakActivities.rows[0]?.titles).not.toContain("Year 3 Science Museum visit");
 
+    const gwCharges = await pools.owner.query<{ titles: string }>(
+      `select string_agg(title, ',') as titles from school_charges where organisation_id = $1`,
+      [greenwoodId],
+    );
+    expect(gwCharges.rows[0]?.titles).toContain("Year 3 Science Museum visit");
+    expect(gwCharges.rows[0]?.titles).toContain("Replacement reading book");
+    expect(gwCharges.rows[0]?.titles).not.toContain("Oak PE kit replacement");
+    const oakCharges = await pools.owner.query<{ titles: string }>(
+      `select string_agg(title, ',') as titles from school_charges where organisation_id = $1`,
+      [oakId],
+    );
+    expect(oakCharges.rows[0]?.titles).toContain("Oak PE kit replacement");
+    expect(oakCharges.rows[0]?.titles).not.toContain("Replacement reading book");
+
     const admin = await pools.owner.query<{ id: string }>(
       "select id from users where email = $1",
       [DEMO_ACCOUNTS.greenwoodAdmin.email],

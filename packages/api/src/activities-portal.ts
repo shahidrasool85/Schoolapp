@@ -16,6 +16,7 @@ import {
   requireLinkedChild,
   requireStudentPortalEnabled,
   upsertParticipant,
+  loadOperationalPaymentStatus,
 } from "@schoolapp/core";
 import {
   mapActivityClause,
@@ -80,16 +81,25 @@ export async function listPortalActivities(
         [activityId, studentId, input.orgId],
       );
       const consent = response.rows[0]?.response ?? "pending";
+      const paymentStatus = await loadOperationalPaymentStatus(
+        client,
+        input.orgId,
+        activityId,
+        studentId,
+        Boolean(activity.payment_required),
+      );
       children.push({
         studentProfileId: studentId,
         consentResponse: consent,
         registrationStatus: participant.rows[0]?.registration_status ?? null,
         waitingListPosition: participant.rows[0]?.waiting_list_position ?? null,
+        paymentStatus: input.audience === "student" ? (paymentStatus === "paid" ? "paid" : null) : paymentStatus,
         actionRequired:
           input.audience === "parent" &&
-          Boolean(activity.consent_required) &&
-          consent === "pending" &&
-          activity.status === "published",
+          ((Boolean(activity.consent_required) &&
+            consent === "pending" &&
+            activity.status === "published") ||
+            (input.audience === "parent" && paymentStatus === "outstanding")),
       });
     }
     result.push({
@@ -157,6 +167,13 @@ export async function loadPortalActivityDetail(
   const visibleUpdates = updates.rows.filter((update) =>
     input.audience === "parent" ? update.parent_visible : update.student_visible,
   );
+  const paymentStatus = await loadOperationalPaymentStatus(
+    client,
+    input.orgId,
+    input.activityId,
+    input.studentId,
+    Boolean(row.payment_required),
+  );
   return {
     activity: mapSchoolActivity(row, { portal: true }),
     consentClauses: clauses.rows.map((item) => mapActivityClause(item as Record<string, unknown>)),
@@ -168,6 +185,7 @@ export async function loadPortalActivityDetail(
       registrationStatus: (participant.rows[0] as { registration_status?: string } | undefined)?.registration_status ?? null,
       waitingListPosition:
         (participant.rows[0] as { waiting_list_position?: number | null } | undefined)?.waiting_list_position ?? null,
+      paymentStatus: input.audience === "student" ? (paymentStatus === "paid" ? "paid" : null) : paymentStatus,
       lastResponse: input.audience === "parent" ? (response.rows[0] ?? null) : null,
     },
   };
@@ -347,6 +365,7 @@ export async function studentSignupForActivity(
     registrationStatus: status,
     waitingListPosition,
     source: "student_signup",
+    actorUserId: input.userId,
     confirmedAt: status === "confirmed" ? new Date().toISOString() : null,
   });
   await auditActivity(client, {

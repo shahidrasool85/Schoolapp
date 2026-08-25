@@ -83,7 +83,8 @@ export function pgErrorToAppError(error: unknown): AppError | null {
     message.includes("pastoral_actor_required") ||
     message.includes("safeguarding_actor_required") ||
     message.includes("timetable_actor_required") ||
-    message.includes("activity_actor_required")
+    message.includes("activity_actor_required") ||
+    message.includes("finance_actor_required")
   ) {
     return new AppError(400, "validation_failed", "The request violates a data constraint");
   }

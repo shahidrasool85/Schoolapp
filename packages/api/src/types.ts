@@ -1,6 +1,7 @@
 import type { Hono } from "hono";
 import type { DbPools } from "@schoolapp/db";
 import type { FileScanner, ObjectStoragePort } from "@schoolapp/storage";
+import type { PaymentProvider, PaymentRuntimeConfig } from "@schoolapp/core";
 
 export type ApiConfig = {
   pools: DbPools;
@@ -10,6 +11,8 @@ export type ApiConfig = {
   trustProxy: boolean;
   storage: ObjectStoragePort;
   fileScanner: FileScanner;
+  payments?: PaymentRuntimeConfig;
+  paymentProvider?: PaymentProvider;
 };
 
 export type ApiEnv = {

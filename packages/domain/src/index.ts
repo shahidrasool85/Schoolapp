@@ -146,6 +146,14 @@ export const PERMISSIONS = {
   ACTIVITIES_MEDICAL_SUMMARY_READ: "activities.medical_summary.read",
   ACTIVITIES_READ_OWN_CHILDREN: "activities.read_own_children",
   ACTIVITIES_READ_SELF: "activities.read_self",
+  FINANCE_CHARGES_READ: "finance.charges.read",
+  FINANCE_CHARGES_MANAGE: "finance.charges.manage",
+  FINANCE_TRANSACTIONS_READ: "finance.transactions.read",
+  FINANCE_PAYMENTS_RECORD_OFFLINE: "finance.payments.record_offline",
+  FINANCE_REFUNDS_MANAGE: "finance.refunds.manage",
+  FINANCE_ADJUSTMENTS_MANAGE: "finance.adjustments.manage",
+  FINANCE_REPORTS_READ: "finance.reports.read",
+  FINANCE_READ_OWN_CHILDREN: "finance.read_own_children",
   AUDIT_READ: "audit.read",
 } as const;
 
@@ -317,6 +325,21 @@ export const NOTIFICATION_TYPES = [
   "safeguarding_assigned",
   "pastoral_follow_up",
   "behaviour_follow_up",
+  "activity_published",
+  "activity_updated",
+  "activity_cancelled",
+  "activity_consent_required",
+  "activity_deadline",
+  "activity_place_confirmed",
+  "activity_waitlisted",
+  "activity_promoted",
+  "activity_assignment",
+  "payment_request",
+  "payment_due_soon",
+  "payment_received",
+  "payment_refunded",
+  "payment_activity_required",
+  "payment_refund_failed",
   "general",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
@@ -334,6 +357,8 @@ export const NOTIFICATION_CATEGORIES = [
   "behaviour",
   "pastoral",
   "safeguarding",
+  "activities",
+  "finance",
   "general",
 ] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
@@ -953,3 +978,91 @@ export const SCHOOL_ACTIVITY_DOCUMENT_VISIBILITIES = [
   "staff_parents_and_student",
 ] as const;
 export type SchoolActivityDocumentVisibility = (typeof SCHOOL_ACTIVITY_DOCUMENT_VISIBILITIES)[number];
+
+export const SCHOOL_CHARGE_STATUSES = [
+  "draft",
+  "issued",
+  "partially_paid",
+  "paid",
+  "waived",
+  "cancelled",
+  "refunded",
+] as const;
+export type SchoolChargeStatus = (typeof SCHOOL_CHARGE_STATUSES)[number];
+
+export const SCHOOL_CHARGE_CATEGORY_KEYS = [
+  "trip",
+  "club",
+  "contribution",
+  "music",
+  "examination",
+  "uniform",
+  "lost_item",
+  "meal",
+  "other",
+] as const;
+export type SchoolChargeCategoryKey = (typeof SCHOOL_CHARGE_CATEGORY_KEYS)[number];
+
+export const SCHOOL_CHARGE_SOURCE_KINDS = ["manual", "activity", "bulk", "admissions"] as const;
+export type SchoolChargeSourceKind = (typeof SCHOOL_CHARGE_SOURCE_KINDS)[number];
+
+export const SCHOOL_CHARGE_ADJUSTMENT_KINDS = [
+  "waiver",
+  "reduction",
+  "subsidy",
+  "discount",
+] as const;
+export type SchoolChargeAdjustmentKind = (typeof SCHOOL_CHARGE_ADJUSTMENT_KINDS)[number];
+
+export const SCHOOL_PAYMENT_TRANSACTION_STATUSES = [
+  "pending",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "partially_refunded",
+  "refunded",
+] as const;
+export type SchoolPaymentTransactionStatus = (typeof SCHOOL_PAYMENT_TRANSACTION_STATUSES)[number];
+
+export const SCHOOL_PAYMENT_CHANNELS = ["provider", "offline"] as const;
+export type SchoolPaymentChannel = (typeof SCHOOL_PAYMENT_CHANNELS)[number];
+
+export const SCHOOL_PAYMENT_PROVIDER_KEYS = ["fake", "stripe", "offline"] as const;
+export type SchoolPaymentProviderKey = (typeof SCHOOL_PAYMENT_PROVIDER_KEYS)[number];
+
+export const SCHOOL_OFFLINE_PAYMENT_METHODS = [
+  "cash",
+  "bank_transfer",
+  "cheque",
+  "card_terminal",
+  "other",
+] as const;
+export type SchoolOfflinePaymentMethod = (typeof SCHOOL_OFFLINE_PAYMENT_METHODS)[number];
+
+export const SCHOOL_PAYMENT_REFUND_STATUSES = ["pending", "succeeded", "failed"] as const;
+export type SchoolPaymentRefundStatus = (typeof SCHOOL_PAYMENT_REFUND_STATUSES)[number];
+
+export const SCHOOL_PAYMENT_SESSION_STATUSES = [
+  "open",
+  "completed",
+  "expired",
+  "cancelled",
+  "failed",
+] as const;
+export type SchoolPaymentSessionStatus = (typeof SCHOOL_PAYMENT_SESSION_STATUSES)[number];
+
+export const SCHOOL_ACTIVITY_CHARGE_POLICIES = ["none", "on_confirmed", "on_consent"] as const;
+export type SchoolActivityChargePolicy = (typeof SCHOOL_ACTIVITY_CHARGE_POLICIES)[number];
+
+export const SCHOOL_ACTIVITY_PAYMENT_STATUSES = [
+  "not_required",
+  "not_requested",
+  "outstanding",
+  "paid",
+  "waived",
+  "refunded",
+] as const;
+export type SchoolActivityPaymentStatus = (typeof SCHOOL_ACTIVITY_PAYMENT_STATUSES)[number];
+
+export const ISO_CURRENCY_PATTERN = /^[A-Z]{3}$/;
+export const DEFAULT_CURRENCY = "GBP";

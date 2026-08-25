@@ -151,6 +151,16 @@ async function wipeDemoData(client: pg.Client): Promise<void> {
     );
 
     const tenantDeletes = [
+      "school_payment_receipts",
+      "school_payment_refunds",
+      "school_payment_provider_events",
+      "school_payment_sessions",
+      "school_payment_transactions",
+      "school_charge_adjustments",
+      "school_charges",
+      "school_charge_categories",
+      "school_payment_provider_configs",
+      "school_finance_counters",
       "timetable_covers",
       "timetable_exceptions",
       "timetable_entry_teachers",
@@ -1280,6 +1290,12 @@ async function seedSchoolActivity(
       wording: string;
     }>;
     updates?: Array<{ body: string; parentVisible?: boolean; studentVisible?: boolean }>;
+    priceAmountMinor?: number | null;
+    priceCurrency?: string | null;
+    paymentRequired?: boolean;
+    paymentDeadlineAt?: string | null;
+    paymentInstructions?: string | null;
+    chargePolicy?: "none" | "on_confirmed" | "on_consent";
   },
 ): Promise<string> {
   const typeId = await activityTypeId(client, input.organisationId, input.typeKey);
@@ -1289,9 +1305,11 @@ async function seedSchoolActivity(
        starts_at, ends_at, location, external_address, meeting_point, return_point,
        capacity, response_deadline_at, consent_required, parent_response_required,
        student_signup_enabled, student_visible, parent_visible, occurrence_kind,
-       recurrence_weekdays, recurrence_until, staff_notes, parent_notes, created_by
+       recurrence_weekdays, recurrence_until, staff_notes, parent_notes,
+       price_amount_minor, price_currency, payment_required, payment_deadline_at,
+       payment_instructions, charge_policy, created_by
      ) values (
-       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24
+       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30
      ) returning id`,
     [
       input.organisationId,
@@ -1317,6 +1335,12 @@ async function seedSchoolActivity(
       input.recurrenceUntil ?? null,
       input.staffNotes ?? null,
       input.parentNotes ?? null,
+      input.priceAmountMinor ?? null,
+      input.priceCurrency ?? null,
+      input.paymentRequired ?? false,
+      input.paymentDeadlineAt ?? null,
+      input.paymentInstructions ?? null,
+      input.chargePolicy ?? "on_confirmed",
       input.createdBy,
     ],
   );
@@ -1453,6 +1477,55 @@ async function seedSchoolActivity(
     );
   }
   return activityId;
+}
+
+async function seedCharge(
+  client: pg.Client,
+  input: {
+    organisationId: string;
+    createdBy: string;
+    title: string;
+    categoryKey: string;
+    studentProfileId: string;
+    amountMinor: number;
+    currency?: string;
+    dueAt?: string | null;
+    activityId?: string | null;
+    sourceKind?: "manual" | "activity" | "bulk";
+    parentNote?: string | null;
+    reference: string;
+    status?: "issued" | "paid" | "refunded";
+  },
+): Promise<string> {
+  const category = await client.query<IdRow>(
+    "select id from school_charge_categories where organisation_id = $1 and key = $2",
+    [input.organisationId, input.categoryKey],
+  );
+  const created = await client.query<IdRow>(
+    `insert into school_charges (
+       organisation_id, reference, title, category_id, student_profile_id, activity_id,
+       source_kind, original_amount_minor, amount_due_minor, currency, due_at, status,
+       parent_note, created_by, issued_by, issued_at
+     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14,now())
+     returning id`,
+    [
+      input.organisationId,
+      input.reference,
+      input.title,
+      category.rows[0]!.id,
+      input.studentProfileId,
+      input.activityId ?? null,
+      input.sourceKind ?? "manual",
+      input.amountMinor,
+      input.amountMinor,
+      input.currency ?? "GBP",
+      input.dueAt ?? null,
+      input.status ?? "issued",
+      input.parentNote ?? null,
+      input.createdBy,
+    ],
+  );
+  return created.rows[0]!.id;
 }
 
 async function seedReportingPeriod(
@@ -3415,7 +3488,7 @@ async function seedGreenwood(
   ];
   const museumWording =
     "I give permission for my child to attend the Year 3 Science Museum visit, including coach travel, and confirm that emergency/medical information held by the school is up to date.";
-  await seedSchoolActivity(client, {
+  const museumId = await seedSchoolActivity(client, {
     organisationId: orgId,
     createdBy: adminId,
     title: "Year 3 Science Museum visit",
@@ -3433,6 +3506,12 @@ async function seedGreenwood(
     consentRequired: true,
     parentNotes: "Please return consent by 4 November. Packed lunch and a waterproof coat are required.",
     staffNotes: "Coach booked for 08:45. Internal staffing plan — not visible to parents.",
+    paymentRequired: true,
+    priceAmountMinor: 1250,
+    priceCurrency: "GBP",
+    paymentDeadlineAt: "2026-11-06T16:00:00Z",
+    paymentInstructions: "Museum visit fee covers coach travel. Pay in the parent Payments area.",
+    chargePolicy: "on_confirmed",
     targets: [{ targetType: "class", classId: class3A }],
     staff: [{ staffUserId: teacherId, staffRole: "trip_leader" }],
     clauses: [
@@ -3450,6 +3529,7 @@ async function seedGreenwood(
     eligible: class3APupils,
     participants: [
       { studentProfileId: jack.profileId, registrationStatus: "confirmed", source: "staff_offline" },
+      { studentProfileId: amelia.profileId, registrationStatus: "confirmed", source: "parent_consent" },
     ],
     responses: [
       {
@@ -3459,10 +3539,18 @@ async function seedGreenwood(
         response: "consented",
         wording: museumWording,
       },
+      {
+        studentProfileId: amelia.profileId,
+        actorUserId: parentId,
+        guardianUserId: parentId,
+        channel: "parent_portal",
+        response: "consented",
+        wording: museumWording,
+      },
     ],
     updates: [{ body: "Please bring a waterproof coat. Departure remains 08:45 from the playground." }],
   });
-  await seedSchoolActivity(client, {
+  const chessId = await seedSchoolActivity(client, {
     organisationId: orgId,
     createdBy: adminId,
     title: "Chess Club",
@@ -3477,6 +3565,12 @@ async function seedGreenwood(
     recurrenceWeekdays: [2],
     recurrenceUntil: "2026-12-15",
     parentNotes: "Club runs every Tuesday until 15 December. Places are limited.",
+    paymentRequired: true,
+    priceAmountMinor: 800,
+    priceCurrency: "GBP",
+    paymentDeadlineAt: "2026-09-20T16:00:00Z",
+    paymentInstructions: "Termly chess club fee.",
+    chargePolicy: "on_confirmed",
     targets: [
       { targetType: "student", studentProfileId: amelia.profileId },
       { targetType: "student", studentProfileId: yusuf.profileId },
@@ -3568,6 +3662,149 @@ async function seedGreenwood(
     title: "Consent needed: Year 3 Science Museum visit",
     body: "Please respond for Year 3 Science Museum visit. This is a school consent acknowledgement, not an electronic signature.",
   });
+
+  const museumChargeId = await seedCharge(client, {
+    organisationId: orgId,
+    createdBy: adminId,
+    title: "Year 3 Science Museum visit",
+    categoryKey: "trip",
+    studentProfileId: amelia.profileId,
+    amountMinor: 1250,
+    dueAt: "2026-11-06T16:00:00Z",
+    activityId: museumId,
+    sourceKind: "activity",
+    parentNote: "Museum visit fee covers coach travel.",
+    reference: "CHG-2026-000101",
+  });
+  await seedCharge(client, {
+    organisationId: orgId,
+    createdBy: adminId,
+    title: "Year 3 Science Museum visit",
+    categoryKey: "trip",
+    studentProfileId: jack.profileId,
+    amountMinor: 1250,
+    dueAt: "2026-11-06T16:00:00Z",
+    activityId: museumId,
+    sourceKind: "activity",
+    reference: "CHG-2026-000102",
+  });
+  const chessYusufChargeId = await seedCharge(client, {
+    organisationId: orgId,
+    createdBy: adminId,
+    title: "Chess Club",
+    categoryKey: "club",
+    studentProfileId: yusuf.profileId,
+    amountMinor: 800,
+    dueAt: "2026-09-20T16:00:00Z",
+    activityId: chessId,
+    sourceKind: "activity",
+    reference: "CHG-2026-000103",
+    status: "paid",
+  });
+  await seedCharge(client, {
+    organisationId: orgId,
+    createdBy: adminId,
+    title: "Chess Club",
+    categoryKey: "club",
+    studentProfileId: jack.profileId,
+    amountMinor: 800,
+    dueAt: "2026-09-20T16:00:00Z",
+    activityId: chessId,
+    sourceKind: "activity",
+    reference: "CHG-2026-000104",
+  });
+  const bookChargeId = await seedCharge(client, {
+    organisationId: orgId,
+    createdBy: adminId,
+    title: "Replacement reading book",
+    categoryKey: "lost_item",
+    studentProfileId: amelia.profileId,
+    amountMinor: 800,
+    dueAt: "2026-10-01T16:00:00Z",
+    parentNote: "Lost library copy of The Hodgeheg.",
+    reference: "CHG-2026-000105",
+  });
+  const refundChargeId = await seedCharge(client, {
+    organisationId: orgId,
+    createdBy: adminId,
+    title: "Broken recorder",
+    categoryKey: "lost_item",
+    studentProfileId: jack.profileId,
+    amountMinor: 600,
+    reference: "CHG-2026-000106",
+    status: "refunded",
+  });
+  await client.query(
+    `insert into school_payment_transactions (
+       organisation_id, charge_id, reference, amount_minor, currency, payer_user_id,
+       channel, provider_key, provider_payment_id, status, paid_at
+     ) values ($1,$2,'PAY-2026-000201',800,'GBP',$3,'provider','fake','fake_pay_demo_yusuf','succeeded', now())`,
+    [orgId, chessYusufChargeId, parentId],
+  );
+  const yusufTx = await client.query<IdRow>(
+    "select id from school_payment_transactions where reference = 'PAY-2026-000201' and organisation_id = $1",
+    [orgId],
+  );
+  await client.query(
+    `insert into school_payment_receipts (organisation_id, charge_id, transaction_id, reference, snapshot)
+     values ($1,$2,$3,'RCPT-2026-000201', $4::jsonb)`,
+    [
+      orgId,
+      chessYusufChargeId,
+      yusufTx.rows[0]!.id,
+      JSON.stringify({
+        schoolName: "Greenwood Academy",
+        receiptReference: "RCPT-2026-000201",
+        chargeReference: "CHG-2026-000103",
+        chargeTitle: "Chess Club",
+        pupilName: "Yusuf Khan",
+        payerName: "Aisha Khan",
+        amountMinor: 800,
+        currency: "GBP",
+        formattedAmount: "£8.00",
+        paidAt: "2026-09-02T10:00:00Z",
+        provider: "fake",
+        providerReference: "fake_p…usuf",
+        channel: "provider",
+        status: "succeeded",
+      }),
+    ],
+  );
+  await client.query(
+    `insert into school_payment_transactions (
+       organisation_id, charge_id, reference, amount_minor, currency, payer_user_id,
+       channel, provider_key, status, paid_at, refunded_amount_minor, offline_method, received_by, received_at
+     ) values ($1,$2,'PAY-2026-000202',600,'GBP',$3,'offline','offline','refunded', now(), 600, 'cash', $4, now())`,
+    [orgId, refundChargeId, parentId, adminId],
+  );
+  const refundTx = await client.query<IdRow>(
+    "select id from school_payment_transactions where reference = 'PAY-2026-000202' and organisation_id = $1",
+    [orgId],
+  );
+  await client.query(
+    `insert into school_payment_refunds (
+       organisation_id, charge_id, transaction_id, reference, amount_minor, currency,
+       reason, requested_by, provider_key, provider_refund_id, status, completed_at
+     ) values ($1,$2,$3,'RFD-2026-000201',600,'GBP','Instrument returned',$4,'offline','offline_re_demo','succeeded', now())`,
+    [orgId, refundChargeId, refundTx.rows[0]!.id, adminId],
+  );
+  await client.query(
+    `insert into school_finance_counters (organisation_id, kind, year, last_value)
+     values ($1, 'charge', 2026, 106), ($1, 'payment', 2026, 202), ($1, 'receipt', 2026, 201), ($1, 'refund', 2026, 201)
+     on conflict (organisation_id, kind, year) do update set last_value = excluded.last_value`,
+    [orgId],
+  );
+  await notify(client, {
+    organisationId: orgId,
+    recipientUserId: parentId,
+    createdBy: adminId,
+    type: "payment_request",
+    category: "finance",
+    title: "Payment requested: Year 3 Science Museum visit",
+    body: "A school payment request is ready for Year 3 Science Museum visit. Open Payments to review the amount due.",
+  });
+  void museumChargeId;
+  void bookChargeId;
 
   await notify(client, {
     organisationId: orgId,
@@ -4169,6 +4406,16 @@ async function seedOakAcademy(
     body: "New learning work: Oak comprehension",
   });
 
+  await seedCharge(client, {
+    organisationId: orgId,
+    createdBy: adminId,
+    title: "Oak PE kit replacement",
+    categoryKey: "uniform",
+    studentProfileId: niamh.profileId,
+    amountMinor: 1500,
+    reference: "CHG-2026-000901",
+    parentNote: "Oak-only finance row for isolation testing.",
+  });
   await seedSchoolActivity(client, {
     organisationId: orgId,
     createdBy: adminId,

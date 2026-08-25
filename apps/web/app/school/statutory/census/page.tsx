@@ -52,7 +52,8 @@ export default function CensusListPage() {
     event.preventDefault();
     setError("");
     setMessage("");
-    const form = new FormData(event.currentTarget);
+    const formEl = event.currentTarget;
+    const form = new FormData(formEl);
     try {
       const created = await api<{ censusRun: CensusRun }>("/api/v1/statutory/census", {
         method: "POST",
@@ -62,9 +63,7 @@ export default function CensusListPage() {
           censusDate: form.get("censusDate"),
         }),
       });
-      setMessage("Census run created as a draft.");
-      event.currentTarget.reset();
-      await load();
+      formEl.reset();
       window.location.href = `/school/statutory/census/${created.censusRun.id}`;
     } catch (err) {
       setError(userFacingError(err, "Could not create census run."));

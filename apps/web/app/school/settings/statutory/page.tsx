@@ -10,6 +10,7 @@ import {
 } from "../../../../components/ui";
 import { api } from "../../../../lib/api";
 import { userFacingError } from "../../../../lib/errors";
+import { usePermissions } from "../../../../lib/use-permissions";
 
 type Profile = {
   statutoryName: string | null;
@@ -32,6 +33,7 @@ type Profile = {
 type CodeCat = { catalogue: string; codes: Array<{ code: string; name: string }> };
 
 export default function SchoolStatutorySettingsPage() {
+  const permissions = usePermissions();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [codes, setCodes] = useState<CodeCat[]>([]);
   const [error, setError] = useState("");
@@ -51,6 +53,7 @@ export default function SchoolStatutorySettingsPage() {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!permissions.has("statutory.manage")) return;
     setError("");
     setMessage("");
     const form = new FormData(event.currentTarget);
@@ -179,7 +182,11 @@ export default function SchoolStatutorySettingsPage() {
               <option value="summer">Summer</option>
             </select>
           </label>
-          <button className="button" type="submit">Save profile</button>
+          {permissions.has("statutory.manage") ? (
+            <button className="button" type="submit">Save profile</button>
+          ) : (
+            <p className="muted">You can view this profile. Saving requires statutory.manage.</p>
+          )}
         </form>
       </SectionCard>
     </>

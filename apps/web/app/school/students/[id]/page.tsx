@@ -2,8 +2,19 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { PersonSummary, StatusBadge } from "../../../../components/ui";
+import {
+  Alert,
+  Button,
+  Checkbox,
+  FormField,
+  FormSection,
+  Input,
+  PersonSummary,
+  Select,
+  StatusBadge,
+} from "../../../../components/ui";
 import { api, downloadAuthenticated } from "../../../../lib/api";
+import { usePermissions } from "../../../../lib/use-permissions";
 
 type Detail = {
   student: {
@@ -95,6 +106,7 @@ type AttendanceHistory = {
 
 export default function StudentDetailPage() {
   const params = useParams<{ id: string }>();
+  const permissions = usePermissions();
   const [data, setData] = useState<Detail | null>(null);
   const [attendance, setAttendance] = useState<AttendanceHistory | null>(null);
   const [learning, setLearning] = useState<LearningHistory | null>(null);
@@ -750,99 +762,167 @@ export default function StudentDetailPage() {
         </p>
       ) : null}
       {statutory ? (
-        <section id="statutory" className="card">
-          <h2>Statutory record</h2>
-          <p className="muted">Permission-gated census fields. Preferred name stays operational and is not a substitute for legal name.</p>
-          {statutory.issues.length > 0 ? (
-            <ul>
-              {statutory.issues.map((issue) => (
-                <li key={issue.message}>
-                  <StatusBadge status={issue.severity} /> {issue.message}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="muted">No statutory validation issues for this pupil.</p>
-          )}
-          <form
-            className="form-grid"
-            onSubmit={async (event) => {
-              event.preventDefault();
-              const form = new FormData(event.currentTarget);
-              await api(`/api/v1/students/${params.id}/statutory`, {
-                method: "PATCH",
-                body: JSON.stringify({
-                  upn: form.get("upn") || null,
-                  legalForename: form.get("legalForename") || null,
-                  legalSurname: form.get("legalSurname") || null,
-                  middleNames: form.get("middleNames") || null,
-                  sex: form.get("sex") || null,
-                  ethnicityCode: form.get("ethnicityCode") || null,
-                  languageCode: form.get("languageCode") || null,
-                  enrolmentStatusCode: form.get("enrolmentStatusCode") || null,
-                  dateOfAdmission: form.get("dateOfAdmission") || null,
-                  sendProvisionCode: form.get("sendProvisionCode") || null,
-                  lookedAfterStatus: form.get("lookedAfterStatus") || "none",
-                  serviceChild: form.get("serviceChild") === "on",
-                }),
-              });
-              await load();
-            }}
+        <form
+          id="statutory"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (!permissions.has("pupils.statutory.manage")) return;
+            const form = new FormData(event.currentTarget);
+            await api(`/api/v1/students/${params.id}/statutory`, {
+              method: "PATCH",
+              body: JSON.stringify({
+                upn: form.get("upn") || null,
+                legalForename: form.get("legalForename") || null,
+                legalSurname: form.get("legalSurname") || null,
+                middleNames: form.get("middleNames") || null,
+                sex: form.get("sex") || null,
+                ethnicityCode: form.get("ethnicityCode") || null,
+                languageCode: form.get("languageCode") || null,
+                enrolmentStatusCode: form.get("enrolmentStatusCode") || null,
+                dateOfAdmission: form.get("dateOfAdmission") || null,
+                sendProvisionCode: form.get("sendProvisionCode") || null,
+                lookedAfterStatus: form.get("lookedAfterStatus") || "none",
+                serviceChild: form.get("serviceChild") === "on",
+              }),
+            });
+            await load();
+          }}
+        >
+          <FormSection
+            title="Statutory record"
+            description="Permission-gated census fields. Preferred name stays operational and is not a substitute for legal name."
           >
-            <label>UPN<input name="upn" defaultValue={statutory.statutory.upn ?? ""} /></label>
-            <label>Legal forename<input name="legalForename" defaultValue={statutory.statutory.legalForename ?? ""} /></label>
-            <label>Legal surname<input name="legalSurname" defaultValue={statutory.statutory.legalSurname ?? ""} /></label>
-            <label>Middle names<input name="middleNames" defaultValue={statutory.statutory.middleNames ?? ""} /></label>
-            <label>
-              Sex
-              <select name="sex" defaultValue={statutory.statutory.sex ?? ""}>
+            {statutory.issues.length > 0 ? (
+              <Alert tone="warning">
+                {statutory.issues.map((issue) => (
+                  <p key={issue.message}>
+                    <StatusBadge status={issue.severity} /> {issue.message}
+                  </p>
+                ))}
+              </Alert>
+            ) : (
+              <p className="muted">No statutory validation issues for this pupil.</p>
+            )}
+            <FormField label="UPN">
+              <Input
+                name="upn"
+                defaultValue={statutory.statutory.upn ?? ""}
+                readOnly={!permissions.has("pupils.statutory.manage")}
+              />
+            </FormField>
+            <FormField label="Legal forename">
+              <Input
+                name="legalForename"
+                defaultValue={statutory.statutory.legalForename ?? ""}
+                readOnly={!permissions.has("pupils.statutory.manage")}
+              />
+            </FormField>
+            <FormField label="Legal surname">
+              <Input
+                name="legalSurname"
+                defaultValue={statutory.statutory.legalSurname ?? ""}
+                readOnly={!permissions.has("pupils.statutory.manage")}
+              />
+            </FormField>
+            <FormField label="Middle names">
+              <Input
+                name="middleNames"
+                defaultValue={statutory.statutory.middleNames ?? ""}
+                readOnly={!permissions.has("pupils.statutory.manage")}
+              />
+            </FormField>
+            <FormField label="Sex">
+              <Select
+                name="sex"
+                defaultValue={statutory.statutory.sex ?? ""}
+                disabled={!permissions.has("pupils.statutory.manage")}
+              >
                 <option value="">Select</option>
                 <option value="F">Female</option>
                 <option value="M">Male</option>
-              </select>
-            </label>
-            <label>Ethnicity code<input name="ethnicityCode" defaultValue={statutory.statutory.ethnicityCode ?? ""} /></label>
-            <label>Language code<input name="languageCode" defaultValue={statutory.statutory.languageCode ?? ""} /></label>
-            <label>
-              Enrolment status
-              <select name="enrolmentStatusCode" defaultValue={statutory.statutory.enrolmentStatusCode ?? ""}>
+              </Select>
+            </FormField>
+            <FormField label="Ethnicity code">
+              <Input
+                name="ethnicityCode"
+                defaultValue={statutory.statutory.ethnicityCode ?? ""}
+                readOnly={!permissions.has("pupils.statutory.manage")}
+              />
+            </FormField>
+            <FormField label="Language code">
+              <Input
+                name="languageCode"
+                defaultValue={statutory.statutory.languageCode ?? ""}
+                readOnly={!permissions.has("pupils.statutory.manage")}
+              />
+            </FormField>
+            <FormField label="Enrolment status">
+              <Select
+                name="enrolmentStatusCode"
+                defaultValue={statutory.statutory.enrolmentStatusCode ?? ""}
+                disabled={!permissions.has("pupils.statutory.manage")}
+              >
                 <option value="">Select</option>
                 <option value="C">Current</option>
                 <option value="G">Guest</option>
                 <option value="M">Main dual</option>
                 <option value="S">Subsidiary dual</option>
-              </select>
-            </label>
-            <label>Admission date<input type="date" name="dateOfAdmission" defaultValue={statutory.statutory.dateOfAdmission ?? ""} /></label>
-            <label>
-              SEND provision
-              <select name="sendProvisionCode" defaultValue={statutory.statutory.sendProvisionCode ?? ""}>
+              </Select>
+            </FormField>
+            <FormField label="Admission date">
+              <Input
+                type="date"
+                name="dateOfAdmission"
+                defaultValue={statutory.statutory.dateOfAdmission ?? ""}
+                readOnly={!permissions.has("pupils.statutory.manage")}
+              />
+            </FormField>
+            <FormField label="SEND provision">
+              <Select
+                name="sendProvisionCode"
+                defaultValue={statutory.statutory.sendProvisionCode ?? ""}
+                disabled={!permissions.has("pupils.statutory.manage")}
+              >
                 <option value="">Select</option>
                 <option value="N">None</option>
                 <option value="K">SEN support</option>
                 <option value="E">EHC plan</option>
-              </select>
-            </label>
-            <label>
-              Looked-after status
-              <select name="lookedAfterStatus" defaultValue={statutory.statutory.lookedAfterStatus ?? "none"}>
+              </Select>
+            </FormField>
+            <FormField label="Looked-after status">
+              <Select
+                name="lookedAfterStatus"
+                defaultValue={statutory.statutory.lookedAfterStatus ?? "none"}
+                disabled={!permissions.has("pupils.statutory.manage")}
+              >
                 <option value="none">Not looked after</option>
                 <option value="looked_after">Looked after</option>
                 <option value="previously_looked_after">Previously looked after</option>
-              </select>
-            </label>
-            <label style={{ alignItems: "center" }}>
-              Service child
-              <input name="serviceChild" type="checkbox" defaultChecked={Boolean(statutory.statutory.serviceChild)} />
-            </label>
-            <div><button type="submit">Save statutory record</button></div>
-          </form>
-          <p className="muted">
-            FSM periods: {statutory.statutory.fsmPeriods.length === 0
-              ? "none"
-              : statutory.statutory.fsmPeriods.map((period) => `${period.startedOn}–${period.endedOn ?? "ongoing"}`).join("; ")}
-          </p>
-        </section>
+              </Select>
+            </FormField>
+            <Checkbox
+              name="serviceChild"
+              label="Service child"
+              defaultChecked={Boolean(statutory.statutory.serviceChild)}
+              disabled={!permissions.has("pupils.statutory.manage")}
+            />
+            {permissions.has("pupils.statutory.manage") ? (
+              <div>
+                <Button type="submit">Save statutory record</Button>
+              </div>
+            ) : (
+              <p className="muted">You can view this statutory record. Saving requires pupils.statutory.manage.</p>
+            )}
+            <p className="muted">
+              FSM periods:{" "}
+              {statutory.statutory.fsmPeriods.length === 0
+                ? "none"
+                : statutory.statutory.fsmPeriods
+                    .map((period) => `${period.startedOn}–${period.endedOn ?? "ongoing"}`)
+                    .join("; ")}
+            </p>
+          </FormSection>
+        </form>
       ) : null}
     </>
   );

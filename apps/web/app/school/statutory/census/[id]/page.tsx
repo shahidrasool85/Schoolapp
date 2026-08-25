@@ -15,6 +15,7 @@ import {
 } from "../../../../../components/ui";
 import { api, downloadAuthenticated } from "../../../../../lib/api";
 import { userFacingError } from "../../../../../lib/errors";
+import { usePermissions } from "../../../../../lib/use-permissions";
 
 type CensusDetail = {
   censusRun: {
@@ -40,6 +41,7 @@ type CensusDetail = {
 
 export default function CensusDetailPage() {
   const params = useParams<{ id: string }>();
+  const permissions = usePermissions();
   const [data, setData] = useState<CensusDetail | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -109,6 +111,21 @@ export default function CensusDetailPage() {
     }
   }
 
+  async function exportXml() {
+    setError("");
+    setMessage("");
+    try {
+      await downloadAuthenticated(
+        `/api/v1/statutory/census/${params.id}/export?format=xml`,
+        `census-preview-${params.id}.xml`,
+      );
+      await load();
+      setMessage("Census-ready XML preview downloaded from stored snapshot values. Not a DfE-approved submission.");
+    } catch (err) {
+      setError(userFacingError(err, "Could not export XML preview."));
+    }
+  }
+
   if (error && !data) return <PageError title="Census run unavailable" description={error} />;
   if (!data) return <LoadingState label="Loading census snapshot…" />;
 
@@ -124,18 +141,31 @@ export default function CensusDetailPage() {
         ]}
         actions={
           <>
-            <button className="button secondary" type="button" onClick={() => void snapshot()}>
-              Generate snapshot
-            </button>
-            <button className="button secondary" type="button" onClick={() => void validate()}>
-              Validate snapshot
-            </button>
-            <button className="button" type="button" onClick={() => setConfirm("finalise")}>
-              Finalise
-            </button>
-            <button className="button secondary" type="button" onClick={() => setConfirm("export")}>
-              Export CSV
-            </button>
+            {permissions.has("statutory.census.create") ? (
+              <button className="button secondary" type="button" onClick={() => void snapshot()}>
+                Generate snapshot
+              </button>
+            ) : null}
+            {permissions.has("statutory.validate") || permissions.has("statutory.manage") ? (
+              <button className="button secondary" type="button" onClick={() => void validate()}>
+                Validate snapshot
+              </button>
+            ) : null}
+            {permissions.has("statutory.census.finalise") ? (
+              <button className="button" type="button" onClick={() => setConfirm("finalise")}>
+                Finalise
+              </button>
+            ) : null}
+            {permissions.has("statutory.census.export") ? (
+              <>
+                <button className="button secondary" type="button" onClick={() => setConfirm("export")}>
+                  Export CSV
+                </button>
+                <button className="button secondary" type="button" onClick={() => void exportXml()}>
+                  Export XML preview
+                </button>
+              </>
+            ) : null}
           </>
         }
       />

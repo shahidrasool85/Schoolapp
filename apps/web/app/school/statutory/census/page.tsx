@@ -6,7 +6,6 @@ import {
   Alert,
   DataTable,
   EmptyState,
-  LoadingState,
   PageError,
   PageHeader,
   SectionCard,
@@ -14,6 +13,7 @@ import {
 } from "../../../../components/ui";
 import { api } from "../../../../lib/api";
 import { userFacingError } from "../../../../lib/errors";
+import { usePermissions } from "../../../../lib/use-permissions";
 
 type CensusRun = {
   id: string;
@@ -29,6 +29,7 @@ type CensusRun = {
 type Year = { id: string; name: string; isCurrent?: boolean };
 
 export default function CensusListPage() {
+  const permissions = usePermissions();
   const [runs, setRuns] = useState<CensusRun[]>([]);
   const [years, setYears] = useState<Year[]>([]);
   const [error, setError] = useState("");
@@ -86,11 +87,17 @@ export default function CensusListPage() {
       />
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {message ? <Alert tone="success">{message}</Alert> : null}
+      {permissions.ready && permissions.has("statutory.census.create") ? (
       <SectionCard title="New census run" description="Choose the collection date. A snapshot is generated as a separate step.">
         <form className="form-grid" onSubmit={onSubmit}>
           <label>
             Academic year
-            <select name="academicYearId" required defaultValue={years.find((year) => year.isCurrent)?.id ?? years[0]?.id}>
+            <select
+              name="academicYearId"
+              required
+              key={years.find((year) => year.isCurrent)?.id ?? years[0]?.id ?? "none"}
+              defaultValue={years.find((year) => year.isCurrent)?.id ?? years[0]?.id}
+            >
               {years.map((year) => (
                 <option key={year.id} value={year.id}>
                   {year.name}
@@ -115,6 +122,9 @@ export default function CensusListPage() {
           </button>
         </form>
       </SectionCard>
+      ) : permissions.ready ? (
+        <Alert tone="info">You can inspect census runs. Creating a snapshot requires statutory.census.create.</Alert>
+      ) : null}
       {runs.length === 0 ? (
         <EmptyState title="No census runs yet" description="Create a draft for the current academic year." />
       ) : (

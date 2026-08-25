@@ -17,6 +17,15 @@ import {
   summariseAttendanceMarks,
   isoDate,
   listCalendarActivities,
+  archiveOwnConversation,
+  countUnreadMessages,
+  createParentConversation,
+  listConversationMessages,
+  listConversations,
+  listParentContactPoints,
+  loadConversationDetail,
+  markConversationRead,
+  sendConversationMessage,
 } from "@schoolapp/core";
 import { listPupilTimetable } from "./timetable";
 import { mapTimetableOccurrence } from "../serialize";
@@ -50,6 +59,7 @@ import {
 import { listParentCharges, loadParentCharge, startParentCheckout } from "../payments-portal";
 import { paymentProviderOf, publicOriginFromRequest } from "../payments-context";
 import { z } from "zod";
+import { uploadConversationAttachment } from "./messaging";
 
 export function registerParentRoutes(app: SchoolappApi) {
   app.get("/parent/dashboard", requireUser, async (c) =>
@@ -59,6 +69,7 @@ export function registerParentRoutes(app: SchoolappApi) {
       const childIds = await guardianChildIds(client, userId, orgId);
       const children = await loadPortalStudentsByIds(client, orgId, [...childIds]);
       const unreadCount = await countUnreadNotifications(client, orgId, userId);
+      const messagingUnreadCount = await countUnreadMessages(client, actor);
       const today = isoDate();
       const upcoming = [];
       for (const child of children) {
@@ -76,6 +87,7 @@ export function registerParentRoutes(app: SchoolappApi) {
         upcoming: { available: true, items: upcoming },
         recentActivity: comingLater,
         notifications: { unreadCount, preview: comingLater },
+        messaging: { unreadCount: messagingUnreadCount },
       });
     }),
   );
@@ -499,6 +511,104 @@ export function registerParentRoutes(app: SchoolappApi) {
         cancelUrl: `${origin}/parent/payments/${chargeId}?status=cancelled`,
       });
       return c.json({ checkoutUrl: result.checkoutUrl, sessionId: result.session.id });
+    }),
+  );
+
+  app.get("/parent/messages", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor }) => {
+      assertPermission(actor, PERMISSIONS.MESSAGING_READ_OWN_CHILDREN);
+      return c.json(
+        await listConversations(client, actor, {
+          folder: c.req.query("folder") ?? "inbox",
+          q: c.req.query("q") ?? undefined,
+          pupilId: c.req.query("pupilId") ?? undefined,
+          cursor: c.req.query("cursor") ?? undefined,
+          limit: Number(c.req.query("limit") ?? 30) || 30,
+        }),
+      );
+    }),
+  );
+
+  app.get("/parent/messages/contacts", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor }) => {
+      const studentId = c.req.query("studentId");
+      if (!studentId) throw new AppError(400, "validation_failed", "A child is required");
+      return c.json(await listParentContactPoints(client, actor, studentId));
+    }),
+  );
+
+  app.post("/parent/messages", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor }) => {
+      const parsed = z
+        .object({
+          studentId: z.string().uuid(),
+          contactPoint: z.enum(["class_teacher", "school_office", "admissions"]),
+          subject: z.string().min(1).max(200),
+          body: z.string().min(1).max(8000),
+          teacherUserId: z.string().uuid().nullable().optional(),
+        })
+        .safeParse((await c.req.json().catch(() => null)) ?? {});
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid conversation");
+      const created = await createParentConversation(client, actor, parsed.data);
+      return c.json(created, 201);
+    }),
+  );
+
+  app.get("/parent/messages/:id", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor }) => {
+      assertPermission(actor, PERMISSIONS.MESSAGING_READ_OWN_CHILDREN);
+      return c.json(await loadConversationDetail(client, actor, uuidRouteParam(c, "id")));
+    }),
+  );
+
+  app.get("/parent/messages/:id/messages", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor }) => {
+      assertPermission(actor, PERMISSIONS.MESSAGING_READ_OWN_CHILDREN);
+      return c.json(
+        await listConversationMessages(client, actor, uuidRouteParam(c, "id"), {
+          before: c.req.query("before") ?? undefined,
+          limit: Number(c.req.query("limit") ?? 50) || 50,
+        }),
+      );
+    }),
+  );
+
+  app.post("/parent/messages/:id/messages", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor }) => {
+      assertPermission(actor, PERMISSIONS.MESSAGING_REPLY_OWN);
+      const parsed = z.object({ body: z.string().min(1).max(8000) }).safeParse((await c.req.json().catch(() => null)) ?? {});
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Message text is required");
+      return c.json(await sendConversationMessage(client, actor, uuidRouteParam(c, "id"), parsed.data.body), 201);
+    }),
+  );
+
+  app.post("/parent/messages/:id/read", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor }) => {
+      assertPermission(actor, PERMISSIONS.MESSAGING_READ_OWN_CHILDREN);
+      return c.json(await markConversationRead(client, actor, uuidRouteParam(c, "id")));
+    }),
+  );
+
+  app.post("/parent/messages/:id/archive", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor }) => {
+      assertPermission(actor, PERMISSIONS.MESSAGING_READ_OWN_CHILDREN);
+      const body = (await c.req.json().catch(() => ({}))) as { archived?: boolean };
+      return c.json(await archiveOwnConversation(client, actor, uuidRouteParam(c, "id"), body.archived !== false));
+    }),
+  );
+
+  app.post("/parent/messages/:id/messages/:messageId/attachments", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.MESSAGING_REPLY_OWN);
+      return uploadConversationAttachment(
+        c,
+        client,
+        actor,
+        orgId,
+        userId,
+        uuidRouteParam(c, "id"),
+        uuidRouteParam(c, "messageId"),
+      );
     }),
   );
 }

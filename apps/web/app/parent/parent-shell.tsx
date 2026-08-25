@@ -18,6 +18,7 @@ const LINKS = [
   { href: "/parent", label: "Dashboard" },
   { href: "/parent/children", label: "My Children" },
   { href: "/parent/notices", label: "Notices" },
+  { href: "/parent/messages", label: "Messages" },
   { href: "/parent/calendar", label: "Calendar" },
   { href: "/parent/activities", label: "Activities" },
   { href: "/parent/payments", label: "Payments" },

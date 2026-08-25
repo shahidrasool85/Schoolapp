@@ -198,4 +198,17 @@ Activity keys are assigned-only for teachers. `activities.manage` / `activities.
 
 Finance keys are capability-based. School Admin manages charges, offline payments, refunds, and adjustments. Headteacher has overview/read only. Teachers have no finance browse keys; activity participant lists may show operational `paid` / `outstanding` only. Parents pay and read authorised children after guardianship + `portal_access`. Students and Platform Admin have no school-finance access by default.
 
+| `messaging.read` | — | F | F | — | — | — | — | — |
+| `messaging.read_assigned` | — | — | — | F | — | — | — | — |
+| `messaging.create` | — | F | F | — | — | — | — | — |
+| `messaging.create_assigned` | — | — | — | F | — | — | — | — |
+| `messaging.manage` | — | F | F | — | — | — | — | — |
+| `messaging.moderate` | — | F | F | — | — | — | — | — |
+| `messaging.staff_internal` | — | F | F | F | — | — | — | — |
+| `messaging.admissions` | — | F | F | — | F | — | — | — |
+| `messaging.read_own_children` | — | — | — | — | — | — | F | — |
+| `messaging.reply_own` | — | — | — | — | — | — | F | — |
+
+Messaging keys are capability-based. School Admin and Headteacher oversee parent-facing threads and may redact. Teachers only initiate for currently assigned pupils and only list threads they participate in (or staff-internal threads they joined). Admissions Staff may create/read `admissions` conversations. Parents see only threads they participate in for children with live `portal_access`. Students and Platform Admin have no school messaging browse. See [ADR 0025](./adr/0025-phase16-messaging.md).
+
 Unused module keys are seeded so later phases do not hardcode role names; those modules are not implemented in Phase 1.

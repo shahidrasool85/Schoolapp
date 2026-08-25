@@ -271,6 +271,17 @@ Pupil-owned charges with separate settlement history. See [ADR 0024](./adr/0024-
 
 Parents with guardianship + `portal_access` see and pay authorised children’s charges. Students do not initiate payments. Activity default `charge_policy = on_confirmed` does not charge waitlisted pupils. `source_kind = admissions` is reserved for later application fees.
 
+## School messaging (Phase 16)
+
+Conversational threads, not broadcasts. See [ADR 0025](./adr/0025-phase16-messaging.md).
+
+- `message_conversations` — organisation, `MSG-NNNNNN` reference, type (`parent_teacher` | `parent_school` | `admissions` | `staff_internal`), subject, optional related pupil, optional related domain (`admissions_application`, `school_charge`, `school_activity`, `learning_assignment`, `attendance`), status (`open` | `closed` | `archived`)
+- `message_participants` — explicit staff/parent history, user-level archive, `last_read_at` pointer
+- `messages` — append-only body (plain text, max 8000); `redacted_at` for moderation; original body retained server-side
+- `message_attachments` — Phase 13 `stored_objects` domain `message`; download re-checks conversation access
+
+Parent Portal shows only threads the parent participates in for children with live `portal_access`. Teachers start threads only for currently assigned pupils; they keep read access to threads they already joined after a class move. Staff-internal threads never appear to parents. Students have no messaging in this phase. Messaging is not the safeguarding record.
+
 ## Behaviour, pastoral and safeguarding (Phase 11)
 
 These are related staff workflows but **not** the same data category. Safeguarding never appears on ordinary student-record payloads or parent/student APIs.

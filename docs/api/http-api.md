@@ -553,6 +553,40 @@ POST   /api/v1/payments/demo/checkout/{sessionId}/complete
 
 User-facing errors include `charge_already_paid`, `no_amount_outstanding`, `payment_unavailable`, `payment_failed`, `refund_failed`, `invalid_amount`, `overpayment`, `forbidden`. CSV export omits card data, provider secrets, and unnecessary guardian PII. Activity participant lists may include operational `paymentStatus` (`paid` / `outstanding` / `not_required`) without amounts unless the actor has finance permissions.
 
+## School messaging (Phase 16)
+
+Conversations are participant-based. Unauthorised or cross-tenant IDs return **404**. Message bodies are plain text (sanitised; max 8000). Notifications do not include message text. Email/SMS/push are not sent.
+
+```http
+GET    /api/v1/messages/unread-count
+GET    /api/v1/messages/conversations
+POST   /api/v1/messages/conversations
+GET    /api/v1/messages/conversations/{id}
+GET    /api/v1/messages/conversations/{id}/messages
+POST   /api/v1/messages/conversations/{id}/messages
+POST   /api/v1/messages/conversations/{id}/read
+POST   /api/v1/messages/conversations/{id}/close
+POST   /api/v1/messages/conversations/{id}/reopen
+POST   /api/v1/messages/conversations/{id}/archive
+POST   /api/v1/messages/conversations/{id}/messages/{messageId}/redact
+POST   /api/v1/messages/conversations/{id}/messages/{messageId}/attachments
+GET    /api/v1/messages/pupils/{studentId}/recipients
+GET    /api/v1/students/{studentId}/contact-history
+GET    /api/v1/parent/messages
+GET    /api/v1/parent/messages/contacts?studentId=
+POST   /api/v1/parent/messages
+GET    /api/v1/parent/messages/{id}
+GET    /api/v1/parent/messages/{id}/messages
+POST   /api/v1/parent/messages/{id}/messages
+POST   /api/v1/parent/messages/{id}/read
+POST   /api/v1/parent/messages/{id}/archive
+POST   /api/v1/parent/messages/{id}/messages/{messageId}/attachments
+```
+
+List APIs are cursor-paginated (`cursor` / `before`, `limit`). Parent contact points are `class_teacher`, `school_office`, and `admissions`. Arbitrary staff user IDs are rejected. Attachment download uses `GET /api/v1/files/{storedObjectId}` after a live conversation-access check.
+
+User-facing errors include `conversation_closed`, `recipient_unavailable`, `rate_limited`, `validation_failed`.
+
 ## Files
 
 ```http

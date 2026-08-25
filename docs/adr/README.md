@@ -28,5 +28,6 @@ ADRs capture *why* we chose an approach. The narrative proposal is in [ARCHITECT
 | [0022](./0022-phase13-object-storage.md) | Production object storage, private files, and authorised downloads | Accepted |
 | [0023](./0023-phase14-activities-consents.md) | School activities, consents, and parent responses | Accepted |
 | [0024](./0024-phase15-payments.md) | School charges, provider-neutral payments, and webhook authority | Accepted |
+| [0025](./0025-phase16-messaging.md) | School messaging vs announcements, explicit participants, current-access rules | Accepted |
 
 Convention: one decision per file. If a decision is reversed, mark it **Superseded** and add a new ADR — do not silently edit history.

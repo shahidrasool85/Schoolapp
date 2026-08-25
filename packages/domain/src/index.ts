@@ -154,6 +154,16 @@ export const PERMISSIONS = {
   FINANCE_ADJUSTMENTS_MANAGE: "finance.adjustments.manage",
   FINANCE_REPORTS_READ: "finance.reports.read",
   FINANCE_READ_OWN_CHILDREN: "finance.read_own_children",
+  MESSAGING_READ: "messaging.read",
+  MESSAGING_READ_ASSIGNED: "messaging.read_assigned",
+  MESSAGING_CREATE: "messaging.create",
+  MESSAGING_CREATE_ASSIGNED: "messaging.create_assigned",
+  MESSAGING_MANAGE: "messaging.manage",
+  MESSAGING_MODERATE: "messaging.moderate",
+  MESSAGING_READ_OWN_CHILDREN: "messaging.read_own_children",
+  MESSAGING_REPLY_OWN: "messaging.reply_own",
+  MESSAGING_STAFF_INTERNAL: "messaging.staff_internal",
+  MESSAGING_ADMISSIONS: "messaging.admissions",
   AUDIT_READ: "audit.read",
 } as const;
 
@@ -340,6 +350,7 @@ export const NOTIFICATION_TYPES = [
   "payment_refunded",
   "payment_activity_required",
   "payment_refund_failed",
+  "message_received",
   "general",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
@@ -359,6 +370,7 @@ export const NOTIFICATION_CATEGORIES = [
   "safeguarding",
   "activities",
   "finance",
+  "messaging",
   "general",
 ] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
@@ -1066,3 +1078,42 @@ export type SchoolActivityPaymentStatus = (typeof SCHOOL_ACTIVITY_PAYMENT_STATUS
 
 export const ISO_CURRENCY_PATTERN = /^[A-Z]{3}$/;
 export const DEFAULT_CURRENCY = "GBP";
+
+export const MESSAGE_CONVERSATION_TYPES = [
+  "parent_teacher",
+  "parent_school",
+  "admissions",
+  "staff_internal",
+] as const;
+export type MessageConversationType = (typeof MESSAGE_CONVERSATION_TYPES)[number];
+
+export const MESSAGE_CONVERSATION_STATUSES = ["open", "closed", "archived"] as const;
+export type MessageConversationStatus = (typeof MESSAGE_CONVERSATION_STATUSES)[number];
+
+export const MESSAGE_PARTICIPANT_KINDS = ["staff", "parent"] as const;
+export type MessageParticipantKind = (typeof MESSAGE_PARTICIPANT_KINDS)[number];
+
+export const MESSAGE_TYPES = ["user", "system"] as const;
+export type MessageType = (typeof MESSAGE_TYPES)[number];
+
+export const MESSAGE_RELATED_DOMAINS = [
+  "none",
+  "admissions_application",
+  "school_charge",
+  "school_activity",
+  "learning_assignment",
+  "attendance",
+] as const;
+export type MessageRelatedDomain = (typeof MESSAGE_RELATED_DOMAINS)[number];
+
+export const MESSAGE_PARENT_CONTACT_POINTS = [
+  "class_teacher",
+  "school_office",
+  "admissions",
+] as const;
+export type MessageParentContactPoint = (typeof MESSAGE_PARENT_CONTACT_POINTS)[number];
+
+export const MESSAGE_BODY_MAX_LENGTH = 8000;
+export const MESSAGE_SUBJECT_MAX_LENGTH = 200;
+export const MESSAGE_PREVIEW_MAX_LENGTH = 140;
+export const MESSAGE_REDACTED_PLACEHOLDER = "Message removed by authorised staff";

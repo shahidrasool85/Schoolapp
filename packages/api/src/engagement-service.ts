@@ -196,6 +196,12 @@ export async function evaluateAchievements(input: {
   studentProfileId: string;
   actorUserId: string | null;
 }): Promise<void> {
+  const policy = await loadEffectiveEngagementPolicy(
+    input.client,
+    input.organisationId,
+    await loadPupilYearGroupId(input.client, input.organisationId, input.studentProfileId),
+  );
+  if (!policy.achievementsEnabled) return;
   const progress = await loadAchievementProgress(
     input.client,
     input.organisationId,
@@ -723,7 +729,7 @@ export async function submitPracticeAttempt(input: {
       awardedBy: input.actorUserId,
     });
   }
-  if (completed && policy.grantRewardPointsOnLearning) {
+  if (completed && policy.grantRewardPointsOnLearning && policy.rewardsEnabled) {
     const category = await input.client.query<{ id: string; name: string; default_points: number }>(
       `select id, name, default_points from reward_categories
        where organisation_id = $1 and active = true
@@ -814,21 +820,26 @@ export async function pupilProgressSummary(input: {
       [input.organisationId, input.studentProfileId],
     ),
   ]);
-  const visibleAchievements = achievements.rows.filter((row) =>
-    input.audience === "staff"
-      ? true
-      : input.audience === "student"
-        ? row.student_visible
-        : row.parent_visible,
-  );
+  const visibleAchievements =
+    !input.policy.achievementsEnabled && input.audience !== "staff"
+      ? []
+      : achievements.rows.filter((row) =>
+          input.audience === "staff"
+            ? true
+            : input.audience === "student"
+              ? row.student_visible
+              : row.parent_visible,
+        );
   return {
     xp: input.policy.xpEnabled ? xp : null,
     rewardPoints:
-      input.audience === "staff" ||
-      (input.audience === "student" && input.policy.studentVisiblePoints) ||
-      (input.audience === "parent" && input.policy.parentVisiblePoints)
+      input.audience === "staff"
         ? points
-        : null,
+        : input.policy.rewardsEnabled &&
+            ((input.audience === "student" && input.policy.studentVisiblePoints) ||
+              (input.audience === "parent" && input.policy.parentVisiblePoints))
+          ? points
+          : null,
     activitiesCompleted: Number(activities.rows[0]?.n ?? 0),
     achievements: visibleAchievements.map((row) => mapPupilAchievement(row, input.audience)),
     childFriendlyUi: input.policy.childFriendlyUi,

@@ -540,6 +540,11 @@ export function registerEngagementRoutes(app: SchoolappApi) {
         [parsed.data.definitionId, orgId],
       );
       if (!def.rows[0]) notFound();
+      const yearGroupId = await loadPupilYearGroupId(client, orgId, parsed.data.studentProfileId);
+      const policy = await loadEffectiveEngagementPolicy(client, orgId, yearGroupId);
+      if (!policy.achievementsEnabled) {
+        throw new AppError(403, "forbidden", "Achievements are disabled for this year group");
+      }
       const inserted = await client.query(
         `insert into pupil_achievements (
            organisation_id, student_profile_id, definition_id, awarded_by, source, note

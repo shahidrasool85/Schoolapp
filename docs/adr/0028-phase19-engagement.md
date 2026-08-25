@@ -26,7 +26,7 @@ Houses are reused (`houses.short_code`, `colour`, `active`). House points are de
 ## Consequences
 
 - Teachers award only assigned pupils; school-wide manage is a distinct capability.
-- Parent/student payloads omit internal notes and revoke reasons.
+- Parent/student payloads omit internal notes and revoke reasons. Year-group `rewardsEnabled` / `achievementsEnabled` gate new grants and parent/student visibility; staff can still oversee assigned records.
 - Platform Admin has no school engagement browse.
 - Greenwood demo: house leaderboards on, individual ranking off; Reception–Y2 parent-assisted; Amelia (Y3) uses student practice.
 - Streaks and aggressive loss messaging are out of this phase.

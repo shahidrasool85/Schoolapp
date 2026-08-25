@@ -817,8 +817,27 @@ describe("Phase 19 engagement", () => {
         learningChallengesEnabled: true,
         parentAssistedMode: false,
         childFriendlyUi: false,
+        rewardsEnabled: false,
+        achievementsEnabled: false,
       }),
     });
+    await app.request("/api/v1/engagement/settings", {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ grantRewardPointsOnLearning: true }),
+    });
+    const firstActivity = await app.request("/api/v1/achievements/definitions", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        key: "first_activity",
+        title: "First activity",
+        criteriaType: "learning_activity_count",
+        threshold: 1,
+      }),
+    });
+    expect(firstActivity.status).toBe(201);
+    const firstDef = (await firstActivity.json()) as { definition: { id: string } };
     const counting = await app.request("/api/v1/learning-activities", {
       method: "POST",
       headers: hdrs,
@@ -921,5 +940,79 @@ describe("Phase 19 engagement", () => {
     ).json()) as { practice: unknown[]; parentAssistedMode: boolean };
     expect(parentList.practice).toEqual([]);
     expect(parentList.parentAssistedMode).toBe(false);
+
+    const playable = (await visible.json()) as { items: Array<{ id: string }> };
+    const started = await app.request(`/api/v1/student/practice/${challengeAssigned.assignment.id}/start`, {
+      method: "POST",
+      headers: studentH,
+      body: "{}",
+    });
+    expect(started.status).toBe(201);
+    const attempt = (await started.json()) as { attemptId: string };
+    const submitted = await app.request(`/api/v1/student/practice/attempts/${attempt.attemptId}/submit`, {
+      method: "POST",
+      headers: studentH,
+      body: JSON.stringify({ answers: { [playable.items[0]!.id]: { choiceId: "6" } } }),
+    });
+    expect(submitted.status).toBe(200);
+    await withTenantContext(pools.app, school.adminId, school.orgId, async (client) => {
+      const rewards = await client.query<{ n: string }>(
+        `select count(*)::text as n from pupil_rewards where student_profile_id = $1`,
+        [pupil.student.id],
+      );
+      const badges = await client.query<{ n: string }>(
+        `select count(*)::text as n from pupil_achievements where student_profile_id = $1`,
+        [pupil.student.id],
+      );
+      expect(Number(rewards.rows[0]?.n ?? 0)).toBe(0);
+      expect(Number(badges.rows[0]?.n ?? 0)).toBe(0);
+    });
+    const studentEngagement = (await (await app.request("/api/v1/student/engagement", { headers: studentH })).json()) as {
+      progress: { rewardPoints: number | null; achievements: unknown[] };
+    };
+    expect(studentEngagement.progress.rewardPoints).toBeNull();
+    expect(studentEngagement.progress.achievements).toEqual([]);
+    const blockedAward = await app.request("/api/v1/achievements/award", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ studentProfileId: pupil.student.id, definitionId: firstDef.definition.id }),
+    });
+    expect(blockedAward.status).toBe(403);
+    await app.request(`/api/v1/engagement/year-groups/${structure.year3Id}`, {
+      method: "PUT",
+      headers: hdrs,
+      body: JSON.stringify({
+        earlyLearningEnabled: false,
+        learningChallengesEnabled: true,
+        parentAssistedMode: false,
+        achievementsEnabled: true,
+        rewardsEnabled: false,
+      }),
+    });
+    const awarded = await app.request("/api/v1/achievements/award", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ studentProfileId: pupil.student.id, definitionId: firstDef.definition.id }),
+    });
+    expect(awarded.status).toBe(201);
+    await app.request(`/api/v1/engagement/year-groups/${structure.year3Id}`, {
+      method: "PUT",
+      headers: hdrs,
+      body: JSON.stringify({
+        earlyLearningEnabled: false,
+        learningChallengesEnabled: true,
+        parentAssistedMode: false,
+        achievementsEnabled: false,
+        rewardsEnabled: false,
+      }),
+    });
+    const hiddenBadges = (await (await app.request("/api/v1/student/engagement", { headers: studentH })).json()) as {
+      progress: { achievements: unknown[] };
+    };
+    expect(hiddenBadges.progress.achievements).toEqual([]);
+    const parentHidden = (await (
+      await app.request(`/api/v1/parent/children/${pupil.student.id}/achievements`, { headers: parentH })
+    ).json()) as { achievements: unknown[] };
+    expect(parentHidden.achievements).toEqual([]);
   });
 });

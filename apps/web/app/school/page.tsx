@@ -107,16 +107,18 @@ export default function SchoolDashboardPage() {
         }>("/api/v1/me");
         if (cancelled) return;
         setPersona({ fullName: me.user.fullName, label: staffPersonaLabel(me.roleKeys) });
-        setKind(staffDashboardKind(me.permissions ?? []));
+        const dashboardKind = staffDashboardKind(me.permissions ?? []);
+        setKind(dashboardKind);
         const dashboard = await api<Dashboard>("/api/v1/dashboard");
         if (cancelled) return;
         setData(dashboard);
+        const operational = dashboardKind === "operational";
         const [timetable, unread, admissionsBody, financeBody, learning, marking, inbox, calendar, registerClasses] =
           await Promise.all([
             optionalApi<{ lessons: Lesson[]; coversToday: number }>("/api/v1/dashboard/timetable"),
             optionalApi<{ unreadCount: number }>("/api/v1/messages/unread-count"),
-            optionalApi<AdmissionsDash>("/api/v1/admissions/dashboard"),
-            optionalApi<FinanceOverview>("/api/v1/finance/overview"),
+            operational ? optionalApi<AdmissionsDash>("/api/v1/admissions/dashboard") : Promise.resolve(null),
+            operational ? optionalApi<FinanceOverview>("/api/v1/finance/overview") : Promise.resolve(null),
             optionalApi<{ assignments: Assignment[] }>("/api/v1/learning/dashboard"),
             optionalApi<{ submissions: Submission[] }>("/api/v1/learning/submissions?status=submitted"),
             optionalApi<{ conversations: Conversation[] }>("/api/v1/messages/conversations?folder=inbox"),

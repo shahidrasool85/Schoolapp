@@ -350,12 +350,12 @@ describe("Pupil medication and dietary requirements", () => {
         body: JSON.stringify({ foodsToAvoid: "Peanuts, mixed nuts, nut oils" }),
       },
     );
-    expect(edited.status).toBe(200);
+    expect(edited.status, await edited.clone().text()).toBe(200);
     const stopped = await app.request(
       `/api/v1/students/${pupil.student.id}/dietary-requirements/${body.dietaryRequirement.id}/stop`,
       { method: "POST", headers: hdrs, body: "{}" },
     );
-    expect(stopped.status).toBe(200);
+    expect(stopped.status, await stopped.clone().text()).toBe(200);
     const listed = (await (
       await app.request(`/api/v1/students/${pupil.student.id}/dietary-requirements`, { headers: hdrs })
     ).json()) as {

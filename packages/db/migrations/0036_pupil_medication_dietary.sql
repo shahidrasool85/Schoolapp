@@ -138,7 +138,6 @@ create table student_dietary_requirements (
   updated_at timestamptz not null default now(),
   created_by uuid references users (id),
   updated_by uuid references users (id),
-  check (ended_on is null or ended_on >= coalesce(parent_confirmed_on, ended_on)),
   check (status <> 'inactive' or ended_on is not null)
 );
 

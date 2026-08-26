@@ -468,6 +468,33 @@ describe("pupil record statutory and identity stabilisation", () => {
     });
     expect(same.status).toBe(409);
 
+    if (!year.nurseryId) throw new Error("expected a Nursery year group");
+    const nurseryCreated = await app.request("/api/v1/classes", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        name: "Nursery",
+        academicYearId: year.yearId,
+        yearGroupId: year.nurseryId,
+        classType: "form",
+      }),
+    });
+    expect(nurseryCreated.status).toBe(201);
+    const nurseryClass = (await nurseryCreated.json()) as { class: { id: string } };
+    const staleClass = await app.request(`/api/v1/students/${pupil.student.id}/enrolments`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        academicYearId: year.yearId,
+        yearGroupId: year.year3Id,
+        classId: nurseryClass.class.id,
+        placementKind: "primary",
+      }),
+    });
+    expect(staleClass.status).toBe(400);
+    const staleBody = (await staleClass.json()) as { error: { message: string } };
+    expect(staleBody.error.message).toMatch(/form class must belong/i);
+
     const classes = (await (await app.request("/api/v1/classes", { headers: hdrs })).json()) as {
       classes: Array<{ id: string; yearGroupId: string | null; academicYearId: string; classType: string }>;
     };
@@ -708,6 +735,7 @@ describe("pupil record statutory and identity stabilisation", () => {
     expect((await app.request(`/api/v1/students/${pupil.student.id}/statutory`, { headers: teacherHdrs })).status).toBe(
       403,
     );
+    expect((await app.request(`/api/v1/students/${pupil.student.id}/statutory`, { headers: hdrs })).status).toBe(200);
 
     const parent = await app.request(`/api/v1/students/${pupil.student.id}/guardians`, {
       method: "POST",
@@ -742,6 +770,9 @@ describe("pupil record statutory and identity stabilisation", () => {
         })
       ).status,
     ).toBe(403);
+    expect((await app.request(`/api/v1/students/${pupil.student.id}/statutory`, { headers: parentHdrs })).status).toBe(
+      403,
+    );
 
     const studentToken = await loginAlias(app, school.slug, `freya-${id}`, "student-pass-1");
     const studentHdrs = jsonHeaders(studentToken, school.orgId);
@@ -756,5 +787,8 @@ describe("pupil record statutory and identity stabilisation", () => {
         })
       ).status,
     ).toBe(403);
+    expect((await app.request(`/api/v1/students/${pupil.student.id}/statutory`, { headers: studentHdrs })).status).toBe(
+      403,
+    );
   });
 });

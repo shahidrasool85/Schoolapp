@@ -12,9 +12,12 @@ import {
   portalAccessGranted,
   portalAccessLabel,
   pupilIdentityGaps,
+  resolvePupilRecordTab,
+  selectedEnrolmentClassId,
   sensitiveSelectValue,
   statutoryIssueFix,
   upnValidationMessage,
+  visiblePupilRecordTabs,
 } from "@schoolapp/domain";
 import { validateUpn } from "./upn.js";
 
@@ -65,6 +68,30 @@ describe("pupil record helpers", () => {
     expect(filterFormClasses(classes, { academicYearId: "y1", yearGroupId: "yg3" }).map((row) => row.id)).toEqual([
       "3a",
     ]);
+    expect(selectedEnrolmentClassId("3a", filterFormClasses(classes, { academicYearId: "y1", yearGroupId: "yg3" }))).toBe(
+      "3a",
+    );
+    expect(selectedEnrolmentClassId("3a", filterFormClasses(classes, { academicYearId: "y1", yearGroupId: "ygN" }))).toBe(
+      "",
+    );
+    expect(selectedEnrolmentClassId("3a", filterFormClasses(classes, { academicYearId: "y2", yearGroupId: "yg3" }))).toBe(
+      "",
+    );
+  });
+
+  it("falls back from hidden or unknown pupil-record hash tabs", () => {
+    const adminTabs = visiblePupilRecordTabs({ canViewStatutory: true, canViewPastoral: true });
+    const teacherTabs = visiblePupilRecordTabs({ canViewStatutory: false, canViewPastoral: false });
+    const parentOrStudentTabs = visiblePupilRecordTabs({ canViewStatutory: false, canViewPastoral: false });
+    expect(adminTabs).toContain("statutory");
+    expect(adminTabs).toContain("pastoral");
+    expect(teacherTabs).not.toContain("statutory");
+    expect(parentOrStudentTabs).toEqual(["overview", "attendance", "learning", "academic", "documents"]);
+    expect(resolvePupilRecordTab("#statutory", adminTabs)).toBe("statutory");
+    expect(resolvePupilRecordTab("#statutory", teacherTabs)).toBe("overview");
+    expect(resolvePupilRecordTab("#pastoral", parentOrStudentTabs)).toBe("overview");
+    expect(resolvePupilRecordTab("#does-not-exist", adminTabs)).toBe("overview");
+    expect(resolvePupilRecordTab("", teacherTabs)).toBe("overview");
   });
 
   it("rejects an unchanged primary placement", () => {

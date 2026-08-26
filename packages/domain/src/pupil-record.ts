@@ -117,6 +117,15 @@ export function filterFormClasses<T extends {
   });
 }
 
+/** Keep a selected form class only while it remains in the filtered option list. */
+export function selectedEnrolmentClassId(
+  selectedClassId: string | null | undefined,
+  allowedClasses: Array<{ id: string }>,
+): string {
+  if (!selectedClassId) return "";
+  return allowedClasses.some((row) => row.id === selectedClassId) ? selectedClassId : "";
+}
+
 export function isSamePrimaryPlacement(input: {
   currentAcademicYearId?: string | null;
   currentYearGroupId?: string | null;
@@ -177,6 +186,26 @@ export function portalAccessGranted(value: boolean | null | undefined): boolean 
 export function parsePupilRecordTab(hash: string | null | undefined): PupilRecordTab {
   const key = (hash ?? "").replace(/^#/, "").trim().toLowerCase();
   return (PUPIL_RECORD_TABS as string[]).includes(key) ? (key as PupilRecordTab) : "overview";
+}
+
+export function visiblePupilRecordTabs(input: {
+  canViewStatutory?: boolean;
+  canViewPastoral?: boolean;
+}): PupilRecordTab[] {
+  const tabs: PupilRecordTab[] = ["overview", "attendance", "learning", "academic", "documents"];
+  if (input.canViewStatutory) tabs.push("statutory");
+  if (input.canViewPastoral) tabs.push("pastoral");
+  return tabs;
+}
+
+/** Hash tabs the current viewer cannot see fall back to the first permitted tab. */
+export function resolvePupilRecordTab(
+  hash: string | null | undefined,
+  visibleTabs: readonly PupilRecordTab[],
+): PupilRecordTab {
+  const fallback: PupilRecordTab = visibleTabs[0] ?? "overview";
+  const requested = parsePupilRecordTab(hash);
+  return visibleTabs.includes(requested) ? requested : fallback;
 }
 
 export function statutoryIssueFix(issue: {

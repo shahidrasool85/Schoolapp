@@ -10,11 +10,13 @@ import {
   guardianAccountLabel,
   isSamePrimaryPlacement,
   lookedAfterPersistValue,
-  parsePupilRecordTab,
   portalAccessLabel,
   pupilIdentityGaps,
   resetFormSafely,
+  resolvePupilRecordTab,
+  selectedEnrolmentClassId,
   statutoryIssueFix,
+  visiblePupilRecordTabs,
   type PupilRecordTab,
 } from "@schoolapp/domain";
 import {
@@ -242,6 +244,7 @@ export default function StudentDetailPage() {
   const [upnError, setUpnError] = useState("");
   const [copyState, setCopyState] = useState("");
   const loadSeq = useRef(0);
+  const [sectionsReady, setSectionsReady] = useState(false);
   const canManagePupil = permissions.has("students.profiles.manage");
   const canManageGuardians = permissions.has("guardianships.manage");
   const canManageStatutory = permissions.has("pupils.statutory.manage");
@@ -366,6 +369,8 @@ export default function StudentDetailPage() {
       if (seq !== loadSeq.current) return;
       setStatutory(null);
     }
+    if (seq !== loadSeq.current) return;
+    setSectionsReady(true);
   }
 
   useEffect(() => {
@@ -384,25 +389,45 @@ export default function StudentDetailPage() {
     setInvite(null);
     setEditingIdentity(false);
     setMovingEnrolment(false);
+    setSectionsReady(false);
     load().catch((err: unknown) => setError(actionError(err, "Could not load this pupil record.")));
     return () => {
       loadSeq.current += 1;
     };
   }, [params.id]);
 
-  useEffect(() => {
-    function syncHash() {
-      setTab(parsePupilRecordTab(window.location.hash));
-    }
-    syncHash();
-    window.addEventListener("hashchange", syncHash);
-    return () => window.removeEventListener("hashchange", syncHash);
-  }, []);
-
   const filteredClasses = useMemo(
     () => filterFormClasses(classes, { academicYearId: enrolYearId, yearGroupId: enrolGroupId }),
     [classes, enrolYearId, enrolGroupId],
   );
+  const visibleTabs = useMemo(
+    () =>
+      visiblePupilRecordTabs({
+        canViewStatutory: Boolean(statutory),
+        canViewPastoral: Boolean(data?.behaviourSummary || data?.pastoralSummary || safeguardingLink),
+      }),
+    [statutory, data, safeguardingLink],
+  );
+  const activeTab = visibleTabs.includes(tab) ? tab : (visibleTabs[0] ?? "overview");
+
+  useEffect(() => {
+    setEnrolClassId((current) => selectedEnrolmentClassId(current, filteredClasses));
+  }, [filteredClasses]);
+
+  useEffect(() => {
+    function applyHash() {
+      if (!sectionsReady) return;
+      const next = resolvePupilRecordTab(window.location.hash, visibleTabs);
+      setTab(next);
+      const raw = (window.location.hash ?? "").replace(/^#/, "").trim().toLowerCase();
+      if (raw && raw !== next) {
+        window.history.replaceState(null, "", `#${next}`);
+      }
+    }
+    applyHash();
+    window.addEventListener("hashchange", applyHash);
+    return () => window.removeEventListener("hashchange", applyHash);
+  }, [sectionsReady, visibleTabs]);
 
   async function saveIdentity(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -442,20 +467,21 @@ export default function StudentDetailPage() {
         currentFormClassId: data.student.currentFormClassId,
         academicYearId: enrolYearId,
         yearGroupId: enrolGroupId,
-        classId: enrolClassId || null,
+        classId: selectedEnrolmentClassId(enrolClassId, filteredClasses) || null,
         placementKind: enrolKind,
       })
     ) {
       setActionErrorMessage("The pupil is already in this placement.");
       return;
     }
+    const classId = selectedEnrolmentClassId(enrolClassId, filteredClasses);
     try {
       await api(`/api/v1/students/${params.id}/enrolments`, {
         method: "POST",
         body: JSON.stringify({
           academicYearId: enrolYearId,
           yearGroupId: enrolGroupId,
-          classId: enrolClassId || undefined,
+          classId: classId || undefined,
           placementKind: enrolKind || "primary",
         }),
       });
@@ -577,16 +603,16 @@ export default function StudentDetailPage() {
   const address = formatPupilAddress(data.student);
   const nextYearName = years.find((year) => year.id === enrolYearId)?.name ?? null;
   const nextGroupName = groups.find((group) => group.id === enrolGroupId)?.name ?? null;
-  const nextClassName = filteredClasses.find((row) => row.id === enrolClassId)?.name ?? null;
-  const tabs: Array<{ id: PupilRecordTab; label: string; show: boolean }> = [
-    { id: "overview", label: "Overview", show: true },
-    { id: "attendance", label: "Attendance", show: true },
-    { id: "learning", label: "Learning", show: true },
-    { id: "academic", label: "Academic", show: true },
-    { id: "documents", label: "Documents", show: true },
-    { id: "statutory", label: "Statutory", show: Boolean(statutory) },
-    { id: "pastoral", label: "Pastoral", show: Boolean(data.behaviourSummary || data.pastoralSummary || safeguardingLink) },
-  ];
+  const nextClassName = filteredClasses.find((row) => row.id === selectedEnrolmentClassId(enrolClassId, filteredClasses))?.name ?? null;
+  const tabLabels: Record<PupilRecordTab, string> = {
+    overview: "Overview",
+    attendance: "Attendance",
+    learning: "Learning",
+    academic: "Academic",
+    documents: "Documents",
+    statutory: "Statutory",
+    pastoral: "Pastoral",
+  };
 
   return (
     <>
@@ -610,25 +636,23 @@ export default function StudentDetailPage() {
         <a href="/school/student-portal">Student Portal policy</a>
       </p>
       <Tabs>
-        {tabs
-          .filter((item) => item.show)
-          .map((item) => (
+        {visibleTabs.map((id) => (
             <a
-              key={item.id}
-              href={`#${item.id}`}
-              className={tab === item.id ? "active" : undefined}
-              aria-current={tab === item.id ? "page" : undefined}
+              key={id}
+              href={`#${id}`}
+              className={activeTab === id ? "active" : undefined}
+              aria-current={activeTab === id ? "page" : undefined}
               onClick={(event) => {
                 event.preventDefault();
-                goToTab(item.id);
+                goToTab(id);
               }}
             >
-              {item.label}
+              {tabLabels[id]}
             </a>
           ))}
       </Tabs>
 
-      {tab === "overview" ? (
+      {activeTab === "overview" ? (
         <div className="pupil-tab-panel" id="overview">
           {identityGaps.length > 0 ? (
             <Alert tone="warning">
@@ -755,7 +779,14 @@ export default function StudentDetailPage() {
             {movingEnrolment && canManagePupil ? (
               <form className="form-grid" onSubmit={enrol} style={{ marginTop: "1rem" }}>
                 <FormField label="Academic year">
-                  <Select value={enrolYearId} onChange={(event) => setEnrolYearId(event.target.value)} required>
+                  <Select
+                    value={enrolYearId}
+                    onChange={(event) => {
+                      setEnrolYearId(event.target.value);
+                      setEnrolClassId("");
+                    }}
+                    required
+                  >
                     <option value="">Select…</option>
                     {years.map((year) => (
                       <option key={year.id} value={year.id}>
@@ -765,7 +796,14 @@ export default function StudentDetailPage() {
                   </Select>
                 </FormField>
                 <FormField label="Year group">
-                  <Select value={enrolGroupId} onChange={(event) => setEnrolGroupId(event.target.value)} required>
+                  <Select
+                    value={enrolGroupId}
+                    onChange={(event) => {
+                      setEnrolGroupId(event.target.value);
+                      setEnrolClassId("");
+                    }}
+                    required
+                  >
                     <option value="">Select…</option>
                     {groups.map((group) => (
                       <option key={group.id} value={group.id}>
@@ -775,7 +813,7 @@ export default function StudentDetailPage() {
                   </Select>
                 </FormField>
                 <FormField label="Form class">
-                  <Select value={enrolClassId} onChange={(event) => setEnrolClassId(event.target.value)}>
+                  <Select value={selectedEnrolmentClassId(enrolClassId, filteredClasses)} onChange={(event) => setEnrolClassId(event.target.value)}>
                     <option value="">None</option>
                     {filteredClasses.map((row) => (
                       <option key={row.id} value={row.id}>
@@ -928,7 +966,7 @@ export default function StudentDetailPage() {
         </div>
       ) : null}
 
-      {tab === "attendance" ? (
+      {activeTab === "attendance" ? (
         <div className="pupil-tab-panel" id="attendance">
           {data.attendanceSummary ? (
             <div className="cards">
@@ -966,7 +1004,7 @@ export default function StudentDetailPage() {
         </div>
       ) : null}
 
-      {tab === "learning" ? (
+      {activeTab === "learning" ? (
         <div className="pupil-tab-panel" id="learning">
           <SectionCard title="Learning">
             {learningStatus === "loading" ? (
@@ -1003,7 +1041,7 @@ export default function StudentDetailPage() {
         </div>
       ) : null}
 
-      {tab === "academic" ? (
+      {activeTab === "academic" ? (
         <div className="pupil-tab-panel" id="academic">
           <SectionCard title="Academic / Results">
             {academicStatus === "loading" ? (
@@ -1083,7 +1121,7 @@ export default function StudentDetailPage() {
         </div>
       ) : null}
 
-      {tab === "documents" ? (
+      {activeTab === "documents" ? (
         <div className="pupil-tab-panel" id="documents">
           <SectionCard title="Documents">
             {documents.length === 0 ? (
@@ -1182,7 +1220,7 @@ export default function StudentDetailPage() {
         </div>
       ) : null}
 
-      {tab === "statutory" && statutory ? (
+      {activeTab === "statutory" && statutory ? (
         <form id="statutory" className="pupil-tab-panel" onSubmit={saveStatutory} key={`${statutory.statutory.upn ?? ""}-${statutory.statutory.sex ?? ""}-${statutory.statutory.lookedAfterStatus ?? ""}`}>
           <SectionCard
             title="Statutory record"
@@ -1204,7 +1242,7 @@ export default function StudentDetailPage() {
                           href={fix.href}
                           onClick={(event) => {
                             event.preventDefault();
-                            const next = parsePupilRecordTab(fix.href.split("#")[1]);
+                            const next = resolvePupilRecordTab(fix.href.split("#")[1], visibleTabs);
                             goToTab(next);
                             if (next === "overview") setEditingIdentity(true);
                           }}
@@ -1310,7 +1348,7 @@ export default function StudentDetailPage() {
         </form>
       ) : null}
 
-      {tab === "pastoral" ? (
+      {activeTab === "pastoral" ? (
         <div className="pupil-tab-panel" id="pastoral">
           {data.behaviourSummary ? (
             <div className="cards">

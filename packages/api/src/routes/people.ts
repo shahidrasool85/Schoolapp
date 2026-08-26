@@ -441,6 +441,31 @@ export function registerPeopleRoutes(app: SchoolappApi) {
         [parsed.data.academicYearId, orgId],
       );
       if (!year.rows[0]) throw new AppError(404, "not_found", "Not found");
+      const yearGroup = await client.query("select id from year_groups where id = $1 and organisation_id = $2", [
+        parsed.data.yearGroupId,
+        orgId,
+      ]);
+      if (!yearGroup.rows[0]) throw new AppError(404, "not_found", "Not found");
+      if (parsed.data.classId) {
+        const formClass = await client.query<{
+          academic_year_id: string;
+          year_group_id: string | null;
+          class_type: string;
+        }>(
+          `select academic_year_id, year_group_id, class_type
+           from classes
+           where id = $1 and organisation_id = $2`,
+          [parsed.data.classId, orgId],
+        );
+        if (!formClass.rows[0]) throw new AppError(404, "not_found", "Not found");
+        if (
+          formClass.rows[0].class_type !== "form" ||
+          formClass.rows[0].academic_year_id !== parsed.data.academicYearId ||
+          (formClass.rows[0].year_group_id != null && formClass.rows[0].year_group_id !== parsed.data.yearGroupId)
+        ) {
+          throw new AppError(400, "validation_failed", "Form class must belong to the selected academic year and year group");
+        }
+      }
       const startedOn = parsed.data.startedOn ?? year.rows[0].starts_on;
       const isPrimary = parsed.data.placementKind === "primary";
       const currentPlacement = await client.query<{

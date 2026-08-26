@@ -655,7 +655,7 @@ describe("Pupil medication and dietary requirements", () => {
       yearGroupId: year.year3Id,
       classId: year.classAId,
     });
-    await app.request(`/api/v1/students/${pupil.student.id}/medications`, {
+    const createdMed = await app.request(`/api/v1/students/${pupil.student.id}/medications`, {
       method: "POST",
       headers: hdrs,
       body: JSON.stringify({
@@ -665,7 +665,9 @@ describe("Pupil medication and dietary requirements", () => {
         isPrn: true,
       }),
     });
-    await app.request(`/api/v1/students/${pupil.student.id}/dietary-requirements`, {
+    expect(createdMed.status).toBe(201);
+    const medBody = (await createdMed.json()) as { medication: { id: string } };
+    const createdDiet = await app.request(`/api/v1/students/${pupil.student.id}/dietary-requirements`, {
       method: "POST",
       headers: hdrs,
       body: JSON.stringify({
@@ -674,6 +676,8 @@ describe("Pupil medication and dietary requirements", () => {
         foodsToAvoid: "Peanuts",
       }),
     });
+    expect(createdDiet.status).toBe(201);
+    const dietBody = (await createdDiet.json()) as { dietaryRequirement: { id: string } };
     await pools.owner.query(
       `insert into student_additional_needs (
          organisation_id, student_profile_id, allergies, send_notes
@@ -718,6 +722,31 @@ describe("Pupil medication and dietary requirements", () => {
     });
     expect(teacherSummary.status).toBe(200);
     expect(JSON.stringify(await teacherSummary.json())).not.toContain("CanonicalInhaler");
+
+    await app.request(`/api/v1/students/${pupil.student.id}/medications/${medBody.medication.id}/stop`, {
+      method: "POST",
+      headers: hdrs,
+      body: "{}",
+    });
+    await app.request(
+      `/api/v1/students/${pupil.student.id}/dietary-requirements/${dietBody.dietaryRequirement.id}/stop`,
+      { method: "POST", headers: hdrs, body: "{}" },
+    );
+    await pools.owner.query(
+      `update student_additional_needs
+         set medication = 'LegacyInhalerText', dietary_requirements = 'LegacyDietText'
+       where organisation_id = $1 and student_profile_id = $2`,
+      [school.orgId, pupil.student.id],
+    );
+    const afterStop = await app.request(`/api/v1/activities/${tripBody.activity.id}/safety-summary`, {
+      headers: hdrs,
+    });
+    expect(afterStop.status).toBe(200);
+    const afterStopText = JSON.stringify(await afterStop.json());
+    expect(afterStopText).not.toContain("CanonicalInhaler");
+    expect(afterStopText).not.toContain("Canonical nut-free");
+    expect(afterStopText).not.toContain("LegacyInhalerText");
+    expect(afterStopText).not.toContain("LegacyDietText");
   });
 });
 

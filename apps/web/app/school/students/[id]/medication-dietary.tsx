@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
 import {
   Alert,
   Button,
@@ -77,7 +78,8 @@ export function MedicationDietarySections({
   async function submitMedication(event: FormEvent<HTMLFormElement>, medicationId?: string) {
     event.preventDefault();
     setError("");
-    const form = new FormData(event.currentTarget);
+    const formEl = captureSubmitTarget(event);
+    const form = new FormData(formEl);
     const payload = {
       medicationName: String(form.get("medicationName") ?? ""),
       dosage: String(form.get("dosage") || "") || null,
@@ -105,7 +107,7 @@ export function MedicationDietarySections({
           method: "POST",
           body: JSON.stringify(payload),
         });
-        event.currentTarget.reset();
+        resetFormSafely(formEl);
       }
       await onChanged();
     } catch (err) {
@@ -129,7 +131,8 @@ export function MedicationDietarySections({
   async function submitDietary(event: FormEvent<HTMLFormElement>, dietaryId?: string) {
     event.preventDefault();
     setError("");
-    const form = new FormData(event.currentTarget);
+    const formEl = captureSubmitTarget(event);
+    const form = new FormData(formEl);
     const payload = {
       requirementType: String(form.get("requirementType") || "other"),
       requirement: String(form.get("requirement") ?? ""),
@@ -155,7 +158,7 @@ export function MedicationDietarySections({
           method: "POST",
           body: JSON.stringify(payload),
         });
-        event.currentTarget.reset();
+        resetFormSafely(formEl);
       }
       await onChanged();
     } catch (err) {

@@ -167,11 +167,22 @@ The original application remains after enrolment and records `converted_student_
 
 See [ADR 0018](./adr/0018-phase9-public-admissions-forms.md).
 
-Entities: `admissions_forms`, `admissions_form_sections`, `admissions_form_fields`, `admissions_form_submissions`, `admissions_form_documents`, `admissions_campaigns`, `student_additional_needs`.
+Entities: `admissions_forms`, `admissions_form_sections`, `admissions_form_fields`, `admissions_form_submissions`, `admissions_form_documents`, `admissions_campaigns`, `student_additional_needs`, `student_medications`, `student_dietary_requirements`.
 
 Form types are extensible (`enquiry`, `application`, plus reserved `open_day`, `waiting_list`, `scholarship`, `sixth_form`, `nursery`). Status: `draft | published | unpublished`. Completeness (`draft | submitted | missing_documents | complete`) is stored on the submission and must not be treated as an admissions decision.
 
 Canonical answers map into enquiry/application/contact columns. Custom questions stay on the submission. Conversion copies identity, address, guardians, and additional needs only.
+
+### Medication and dietary requirements
+
+See [ADR 0029](./adr/0029-pupil-medication-dietary.md). These are operational pupil-record facts, not safeguarding and not census SEND.
+
+- `student_medications` — multiple rows per pupil: name, dosage, route, schedule, PRN, start/end, instructions, administration responsibility, parent consent, review date, `active|stopped`, parent-visible flag, internal notes. Actor/timestamps on the row.
+- `student_medication_revisions` — append-only snapshots when a row is changed, stopped, or reactivated
+- `student_dietary_requirements` — multiple rows per pupil: type, requirement, foods to avoid, safe alternatives, religious/cultural flag, allergy relationship, texture/feeding notes, parent-confirmed and review dates, `active|inactive`
+- `student_dietary_requirement_revisions` — same history pattern
+
+Teachers see an operational projection for assigned pupils. Parents see `parent_visible` rows only after guardianship + `portal_access`. The Student Portal does not automatically expose administration details. Activity safety summaries reuse **active** canonical rows.
 
 ## Operations (Phase 6)
 

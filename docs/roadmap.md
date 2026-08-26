@@ -285,6 +285,19 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 **Not in Phase 19:** AI tutoring or question generation, essay grading, student-to-student chat, virtual currency, loot boxes, public worldwide leaderboards, live multiplayer, sockets, native apps.
 
+## Pupil medication and dietary requirements (implemented)
+
+**Outcome:** School Admin maintains structured medication and dietary records on the canonical pupil record. Teachers see operational fields for assigned pupils. Parents may read parent-visible records for authorised children. Student Portal does not automatically show medication administration. See [ADR 0029](./adr/0029-pupil-medication-dietary.md).
+
+- Multiple `student_medications` / `student_dietary_requirements` rows per pupil
+- Stop/change preserves history via status + `ended_on` + revision snapshots
+- Pupil Record Medication and Dietary sections; Parent Portal parent-visible lists
+- Live activity/trip safety summaries reuse active canonical rows
+- FORCE RLS, actor stamps, guardianship + `portal_access` recheck, no clinical text in audit payloads
+- Capability keys: existing `students.additional_needs.*` plus `students.medications.read_operational`, `students.dietary.read_operational`, `students.medications.read_own_children`, `students.dietary.read_own_children`
+
+**Not in this work:** safeguarding mixing, student self-service medication administration, stored trip medical snapshots, parent write-back.
+
 ## Phase 12.5 — AI learning (future)
 
 - `packages/ai` port + one provider

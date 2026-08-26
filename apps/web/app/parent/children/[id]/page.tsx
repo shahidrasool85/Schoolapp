@@ -21,6 +21,36 @@ type DocumentRow = {
   downloadPath: string | null;
 };
 
+type MedicationRow = {
+  id: string;
+  medicationName: string;
+  dosage: string | null;
+  route: string;
+  scheduleText: string | null;
+  isPrn: boolean;
+  instructions: string | null;
+  administrationResponsibility: string;
+  parentConsentStatus: string;
+  status: string;
+  startedOn: string | null;
+  endedOn: string | null;
+  internalNotes?: string | null;
+};
+
+type DietaryRow = {
+  id: string;
+  requirementType: string;
+  requirement: string;
+  foodsToAvoid: string | null;
+  safeAlternatives: string | null;
+  isReligiousOrCultural: boolean;
+  relatedAllergy: string | null;
+  textureFeedingNotes: string | null;
+  status: string;
+  endedOn: string | null;
+  internalNotes?: string | null;
+};
+
 type Attendance = {
   summary: {
     sessionsPossible: number;
@@ -46,6 +76,8 @@ export default function ParentChildDetailPage() {
   const [data, setData] = useState<Detail | null>(null);
   const [attendance, setAttendance] = useState<Attendance | null>(null);
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
+  const [medications, setMedications] = useState<MedicationRow[]>([]);
+  const [dietaryRequirements, setDietaryRequirements] = useState<DietaryRow[]>([]);
   const [error, setError] = useState("");
   const [attendanceError, setAttendanceError] = useState("");
 
@@ -78,6 +110,26 @@ export default function ParentChildDetailPage() {
               .catch(() => {
                 if (!cancelled) setDocuments([]);
               }),
+          )
+          .then(() =>
+            Promise.all([
+              api<{ medications: MedicationRow[] }>(`/api/v1/parent/children/${params.id}/medications`)
+                .then((body) => {
+                  if (!cancelled) setMedications(body.medications);
+                })
+                .catch(() => {
+                  if (!cancelled) setMedications([]);
+                }),
+              api<{ dietaryRequirements: DietaryRow[] }>(
+                `/api/v1/parent/children/${params.id}/dietary-requirements`,
+              )
+                .then((body) => {
+                  if (!cancelled) setDietaryRequirements(body.dietaryRequirements);
+                })
+                .catch(() => {
+                  if (!cancelled) setDietaryRequirements([]);
+                }),
+            ]),
           );
       })
       .catch((err: Error) => {
@@ -109,6 +161,8 @@ export default function ParentChildDetailPage() {
         <Link href={`/parent/children/${id}`} aria-current="page">
           Overview
         </Link>
+        <Link href={`/parent/children/${id}#medication`}>Medication</Link>
+        <Link href={`/parent/children/${id}#dietary`}>Dietary</Link>
         <Link href={`/parent/children/${id}/timetable`}>Timetable</Link>
         <Link href={`/parent/children/${id}/learning`}>Learning</Link>
         <Link href={`/parent/children/${id}/engagement`}>Rewards</Link>
@@ -166,6 +220,57 @@ export default function ParentChildDetailPage() {
           ) : null}
         </dl>
       </div>
+      <h2 id="medication">Medication</h2>
+      {medications.length === 0 ? (
+        <EmptyState
+          title="No medication records"
+          description="Medication the school has marked as parent-visible will appear here."
+        />
+      ) : (
+        <div className="health-records">
+          {medications.map((row) => (
+            <article key={row.id} className="health-record" data-testid="parent-medication">
+              <header>
+                <h3>{row.medicationName}</h3>
+                <StatusBadge status={row.status} />
+              </header>
+              <dl>
+                <div><dt>Dosage</dt><dd>{row.dosage ?? "—"}</dd></div>
+                <div><dt>Route</dt><dd>{row.route}</dd></div>
+                <div><dt>Schedule</dt><dd>{row.isPrn ? `PRN / as required${row.scheduleText ? ` · ${row.scheduleText}` : ""}` : (row.scheduleText ?? "—")}</dd></div>
+                <div><dt>Administered by</dt><dd>{row.administrationResponsibility.replaceAll("_", " ")}</dd></div>
+                <div><dt>Consent</dt><dd>{row.parentConsentStatus.replaceAll("_", " ")}</dd></div>
+              </dl>
+              {row.instructions ? <p>{row.instructions}</p> : null}
+            </article>
+          ))}
+        </div>
+      )}
+      <h2 id="dietary">Dietary requirements</h2>
+      {dietaryRequirements.length === 0 ? (
+        <EmptyState
+          title="No dietary requirements"
+          description="Dietary records the school has marked as parent-visible will appear here."
+        />
+      ) : (
+        <div className="health-records">
+          {dietaryRequirements.map((row) => (
+            <article key={row.id} className="health-record" data-testid="parent-dietary">
+              <header>
+                <h3>{row.requirement}</h3>
+                <StatusBadge status={row.status} />
+              </header>
+              <dl>
+                <div><dt>Type</dt><dd>{row.requirementType}{row.isReligiousOrCultural ? " · religious/cultural" : ""}</dd></div>
+                <div><dt>Foods to avoid</dt><dd>{row.foodsToAvoid ?? "—"}</dd></div>
+                <div><dt>Safe alternatives</dt><dd>{row.safeAlternatives ?? "—"}</dd></div>
+                <div><dt>Allergy link</dt><dd>{row.relatedAllergy ?? "—"}</dd></div>
+                <div><dt>Texture / feeding</dt><dd>{row.textureFeedingNotes ?? "—"}</dd></div>
+              </dl>
+            </article>
+          ))}
+        </div>
+      )}
       <h2>Timetable</h2>
       <p>
         <Link href={`/parent/children/${id}/timetable`}>View this week's lessons</Link>

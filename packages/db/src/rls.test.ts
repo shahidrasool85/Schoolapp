@@ -52,6 +52,8 @@ describe("RLS catalog", () => {
            'admissions_campaigns', 'admissions_forms', 'admissions_form_sections',
            'admissions_form_fields', 'admissions_form_submissions', 'admissions_form_documents',
            'student_additional_needs',
+           'student_medications', 'student_medication_revisions',
+           'student_dietary_requirements', 'student_dietary_requirement_revisions',
            'school_event_types', 'announcements', 'announcement_status_history',
            'announcement_targets', 'announcement_recipients', 'announcement_recipient_subjects',
            'announcement_resources', 'school_events', 'school_event_status_history',
@@ -88,7 +90,7 @@ describe("RLS catalog", () => {
            'learning_activity_answers'
          )`,
     );
-    expect(result.rows.length).toBe(165);
+    expect(result.rows.length).toBe(169);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
     }
@@ -1246,6 +1248,88 @@ describe("RLS catalog", () => {
            organisation_id, student_profile_id, category_id, points, title, awarded_by
          ) values ($1,$2,$3,5,'Cross',$4)`,
         [orgA.rows[0]!.id, pupilB.rows[0]!.id, catA.rows[0]!.id, userA.rows[0]!.id],
+      ),
+    ).rejects.toThrow(/organisation_mismatch/);
+  });
+
+  it("grants the app role DML on medication and dietary tables without delete", async () => {
+    const result = await pools.owner.query<{ table_name: string; can_select: boolean; can_delete: boolean }>(
+      `select t.table_name,
+              has_table_privilege('schoolapp_app', t.table_name, 'SELECT') as can_select,
+              has_table_privilege('schoolapp_app', t.table_name, 'DELETE') as can_delete
+       from unnest(array[
+         'student_medications', 'student_medication_revisions',
+         'student_dietary_requirements', 'student_dietary_requirement_revisions'
+       ]) as t(table_name)`,
+    );
+    expect(result.rows).toHaveLength(4);
+    for (const row of result.rows) {
+      expect(row.can_select, row.table_name).toBe(true);
+      expect(row.can_delete, row.table_name).toBe(false);
+    }
+  });
+
+  it("keeps FORCE RLS from leaking medication and dietary records across tenants", async () => {
+    const id = randomUUID().slice(0, 8);
+    const userA = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Admin A', 'staff', 'active') returning id`,
+      [`rls-med-admin-a-${id}@example.com`],
+    );
+    const userB = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Admin B', 'staff', 'active') returning id`,
+      [`rls-med-admin-b-${id}@example.com`],
+    );
+    const orgA = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-med-iso-a-${id}`, "Med Iso A"],
+    );
+    const orgB = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-med-iso-b-${id}`, "Med Iso B"],
+    );
+    await pools.owner.query(
+      `insert into organisation_memberships (organisation_id, user_id, status)
+       values ($1, $2, 'active'), ($3, $4, 'active')`,
+      [orgA.rows[0]!.id, userA.rows[0]!.id, orgB.rows[0]!.id, userB.rows[0]!.id],
+    );
+    const pupilA = await pools.owner.query<{ id: string }>(
+      "insert into student_profiles (organisation_id, legal_name) values ($1, 'Child A') returning id",
+      [orgA.rows[0]!.id],
+    );
+    const pupilB = await pools.owner.query<{ id: string }>(
+      "insert into student_profiles (organisation_id, legal_name) values ($1, 'Child B') returning id",
+      [orgB.rows[0]!.id],
+    );
+    await pools.owner.query(
+      `insert into student_medications (
+         organisation_id, student_profile_id, medication_name, dosage, route, status, ended_on
+       ) values
+         ($1,$2,'GreenwoodSecretMed','1mg','oral','active', null),
+         ($3,$4,'OakSecretMed','2mg','oral','active', null)`,
+      [orgA.rows[0]!.id, pupilA.rows[0]!.id, orgB.rows[0]!.id, pupilB.rows[0]!.id],
+    );
+    await pools.owner.query(
+      `insert into student_dietary_requirements (
+         organisation_id, student_profile_id, requirement_type, requirement, status, ended_on
+       ) values
+         ($1,$2,'allergy','GreenwoodSecretDiet','active', null),
+         ($3,$4,'allergy','OakSecretDiet','active', null)`,
+      [orgA.rows[0]!.id, pupilA.rows[0]!.id, orgB.rows[0]!.id, pupilB.rows[0]!.id],
+    );
+    await withTenantContext(pools.app, userA.rows[0]!.id, orgA.rows[0]!.id, async (client) => {
+      const meds = await client.query<{ medication_name: string }>("select medication_name from student_medications");
+      expect(meds.rows.map((row) => row.medication_name)).toEqual(["GreenwoodSecretMed"]);
+      const diet = await client.query<{ requirement: string }>("select requirement from student_dietary_requirements");
+      expect(diet.rows.map((row) => row.requirement)).toEqual(["GreenwoodSecretDiet"]);
+    });
+    await expect(
+      pools.owner.query(
+        `insert into student_medications (
+           organisation_id, student_profile_id, medication_name, route, status
+         ) values ($1,$2,'Cross','oral','active')`,
+        [orgA.rows[0]!.id, pupilB.rows[0]!.id],
       ),
     ).rejects.toThrow(/organisation_mismatch/);
   });

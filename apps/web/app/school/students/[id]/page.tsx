@@ -15,6 +15,11 @@ import {
 } from "../../../../components/ui";
 import { api, downloadAuthenticated } from "../../../../lib/api";
 import { usePermissions } from "../../../../lib/use-permissions";
+import {
+  MedicationDietarySections,
+  type DietaryRecord,
+  type MedicationRecord,
+} from "./medication-dietary";
 
 type Detail = {
   student: {
@@ -134,6 +139,9 @@ export default function StudentDetailPage() {
     concerns: Array<{ id: string; concernOn: string; categoryName: string | null; priority: string; status: string; summary: string }>;
   } | null>(null);
   const [safeguardingLink, setSafeguardingLink] = useState(false);
+  const [medicalView, setMedicalView] = useState<"full" | "operational" | "parent" | null>(null);
+  const [medications, setMedications] = useState<MedicationRecord[]>([]);
+  const [dietaryRequirements, setDietaryRequirements] = useState<DietaryRecord[]>([]);
   const [statutory, setStatutory] = useState<{
     statutory: {
       upn: string | null;
@@ -294,6 +302,25 @@ export default function StudentDetailPage() {
       if (seq !== loadSeq.current) return;
       setStatutory(null);
     }
+    try {
+      const [meds, diet] = await Promise.all([
+        api<{ view: "full" | "operational" | "parent"; medications: MedicationRecord[] }>(
+          `/api/v1/students/${studentId}/medications`,
+        ),
+        api<{ view: "full" | "operational" | "parent"; dietaryRequirements: DietaryRecord[] }>(
+          `/api/v1/students/${studentId}/dietary-requirements`,
+        ),
+      ]);
+      if (seq !== loadSeq.current) return;
+      setMedicalView(meds.view);
+      setMedications(meds.medications);
+      setDietaryRequirements(diet.dietaryRequirements);
+    } catch {
+      if (seq !== loadSeq.current) return;
+      setMedicalView(null);
+      setMedications([]);
+      setDietaryRequirements([]);
+    }
   }
 
   useEffect(() => {
@@ -306,6 +333,9 @@ export default function StudentDetailPage() {
     setBehaviour(null);
     setPastoral(null);
     setSafeguardingLink(false);
+    setMedicalView(null);
+    setMedications([]);
+    setDietaryRequirements([]);
     setStatutory(null);
     setError("");
     setInvite("");
@@ -392,6 +422,8 @@ export default function StudentDetailPage() {
         <a href="#learning">Learning</a>
         <a href="#academic">Academic</a>
         <a href="#documents">Documents</a>
+        {medicalView ? <a href="#medication">Medication</a> : null}
+        {medicalView ? <a href="#dietary">Dietary</a> : null}
         {statutory ? <a href="#statutory">Statutory</a> : null}
         {data.behaviourSummary || data.pastoralSummary ? <a href="#pastoral">Pastoral</a> : null}
       </nav>
@@ -760,6 +792,16 @@ export default function StudentDetailPage() {
         <p>
           Invitation token (share once): <code>{invite}</code>
         </p>
+      ) : null}
+      {medicalView ? (
+        <MedicationDietarySections
+          studentId={params.id}
+          view={medicalView}
+          canManage={permissions.has("students.additional_needs.manage")}
+          medications={medications}
+          dietaryRequirements={dietaryRequirements}
+          onChanged={load}
+        />
       ) : null}
       {statutory ? (
         <form

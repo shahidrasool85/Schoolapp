@@ -511,6 +511,49 @@ describe("pupil record statutory and identity stabilisation", () => {
     expect(hashed.rows[0]?.token_hash).toBeTruthy();
     expect(hashed.rows[0]?.token_hash).not.toBe(invitedBody.invitationToken);
 
+    const endedInvite = await app.request(`/api/v1/students/${pupil.student.id}/guardians`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        email: `ended-${id}@example.test`,
+        fullName: "Ended Guardian",
+        relationship: "carer",
+        portalAccess: false,
+      }),
+    });
+    expect(endedInvite.status).toBe(201);
+    const endedInviteBody = (await endedInvite.json()) as {
+      invitationToken: string | null;
+      guardianship: { id: string; endedOn: string | null };
+    };
+    const closed = await app.request(`/api/v1/guardianships/${endedInviteBody.guardianship.id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ endedOn: "2026-08-01" }),
+    });
+    expect(closed.status).toBe(200);
+    const relinked = await app.request(`/api/v1/students/${pupil.student.id}/guardians`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        email: `ended-${id}@example.test`,
+        fullName: "Ended Guardian",
+        relationship: "carer",
+        portalAccess: false,
+      }),
+    });
+    expect(relinked.status).toBe(201);
+    const relinkedBody = (await relinked.json()) as {
+      alreadyLinked: boolean;
+      invitationToken: string | null;
+      guardianship: { id: string; endedOn: string | null };
+    };
+    expect(relinkedBody.alreadyLinked).toBe(false);
+    expect(relinkedBody.guardianship.id).not.toBe(endedInviteBody.guardianship.id);
+    expect(relinkedBody.guardianship.endedOn).toBeNull();
+    expect(relinkedBody.invitationToken).toMatch(/^[a-f0-9]{64}$/);
+    expect(relinkedBody.invitationToken).not.toBe(endedInviteBody.invitationToken);
+
     const existingParent = await insertUser(pools.owner, {
       email: `linked-${id}@example.test`,
       password: "parent-pass-1",

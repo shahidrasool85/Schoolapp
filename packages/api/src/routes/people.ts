@@ -706,7 +706,8 @@ export function registerPeopleRoutes(app: SchoolappApi) {
          join users u on u.id = g.guardian_user_id
          where g.student_profile_id = $1
            and g.organisation_id = $2
-           and u.email = $3`,
+           and u.email = $3
+           and g.ended_on is null`,
         [studentId, orgId, email],
       );
       let invitationToken: string | null = null;

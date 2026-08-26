@@ -310,6 +310,12 @@ export function mapStudent(row: Record<string, unknown>) {
     currentFormClassId: row.form_class_id ?? null,
     currentFormClassName: row.form_class_name ?? null,
     currentAcademicYearId: row.academic_year_id ?? null,
+    currentAcademicYearName: row.academic_year_name ?? null,
+    gender: row.gender ?? null,
+    addressLine1: row.address_line1 ?? null,
+    addressLine2: row.address_line2 ?? null,
+    addressTown: row.address_town ?? null,
+    addressPostcode: row.address_postcode ?? null,
   };
 }
 
@@ -1764,6 +1770,7 @@ export function mapStatutoryIssue(row: {
   metadata: Record<string, unknown>;
   pupilName?: string | null;
   fixPath?: string | null;
+  fixLabel?: string | null;
 }) {
   return {
     ruleKey: row.ruleKey,
@@ -1775,6 +1782,7 @@ export function mapStatutoryIssue(row: {
     metadata: row.metadata,
     pupilName: row.pupilName ?? null,
     fixPath: row.fixPath ?? null,
+    fixLabel: row.fixLabel ?? null,
   };
 }
 

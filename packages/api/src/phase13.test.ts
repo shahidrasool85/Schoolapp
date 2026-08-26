@@ -649,6 +649,7 @@ describe("Phase 13 object storage and documents", () => {
           email: parentEmail,
           fullName: "Pat Parent",
           relationship: "mother",
+          portalAccess: true,
         }),
       })
     ).json()) as { invitationToken: string };
@@ -771,7 +772,12 @@ describe("Phase 13 object storage and documents", () => {
       await app.request(`/api/v1/students/${pupil.student.id}/guardians`, {
         method: "POST",
         headers: hdrs,
-        body: JSON.stringify({ email: parentEmail, fullName: "Doc Parent", relationship: "mother" }),
+        body: JSON.stringify({
+          email: parentEmail,
+          fullName: "Doc Parent",
+          relationship: "mother",
+          portalAccess: true,
+        }),
       })
     ).json()) as { invitationToken: string };
     await app.request("/api/v1/invitations/accept", {
@@ -783,7 +789,12 @@ describe("Phase 13 object storage and documents", () => {
       await app.request(`/api/v1/students/${other.student.id}/guardians`, {
         method: "POST",
         headers: hdrs,
-        body: JSON.stringify({ email: otherParentEmail, fullName: "Other Parent", relationship: "father" }),
+        body: JSON.stringify({
+          email: otherParentEmail,
+          fullName: "Other Parent",
+          relationship: "father",
+          portalAccess: true,
+        }),
       })
     ).json()) as { invitationToken: string };
     await app.request("/api/v1/invitations/accept", {
@@ -886,7 +897,12 @@ describe("Phase 13 object storage and documents", () => {
       await app.request(`/api/v1/students/${pupil.student.id}/guardians`, {
         method: "POST",
         headers: gwH,
-        body: JSON.stringify({ email: parentEmail, fullName: "Pat Parent", relationship: "mother" }),
+        body: JSON.stringify({
+          email: parentEmail,
+          fullName: "Pat Parent",
+          relationship: "mother",
+          portalAccess: true,
+        }),
       })
     ).json()) as { invitationToken: string };
     await app.request("/api/v1/invitations/accept", {

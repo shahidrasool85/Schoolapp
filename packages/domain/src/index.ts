@@ -275,6 +275,31 @@ export {
 
 export { captureSubmitTarget, resetFormSafely } from "./forms.js";
 
+export {
+  PUPIL_RECORD_TABS,
+  describeEnrolmentChange,
+  enrolmentFormInitialState,
+  filterFormClasses,
+  formatPupilAddress,
+  guardianAccountLabel,
+  isSamePrimaryPlacement,
+  lookedAfterPersistValue,
+  mapOperationalGenderToStatutorySex,
+  parsePupilRecordTab,
+  portalAccessGranted,
+  portalAccessLabel,
+  pupilIdentityGaps,
+  resolvePupilRecordTab,
+  selectedEnrolmentClassId,
+  sensitiveSelectValue,
+  statutoryIssueFix,
+  upnValidationMessage,
+  visiblePupilRecordTabs,
+  type LookedAfterPersistValue,
+  type OperationalGender,
+  type PupilRecordTab,
+} from "./pupil-record.js";
+
 export type UserKind = "platform_admin" | "staff" | "parent" | "student";
 
 export type Actor = {

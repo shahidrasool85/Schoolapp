@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@schoolapp/api": "workspace:*",
+    "@schoolapp/core": "workspace:*",
     "@schoolapp/db": "workspace:*",
     "@schoolapp/domain": "workspace:*",
     "@schoolapp/storage": "workspace:*",

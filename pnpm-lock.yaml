@@ -23,6 +23,9 @@ importers:
       '@schoolapp/api':
         specifier: workspace:*
         version: link:../../packages/api
+      '@schoolapp/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@schoolapp/db':
         specifier: workspace:*
         version: link:../../packages/db

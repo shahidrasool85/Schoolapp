@@ -8,6 +8,8 @@ import {
   ENQUIRY_STATUSES,
   OFFER_STATUSES,
   WAITING_LIST_STATUSES,
+  mapOperationalGenderToStatutorySex,
+  portalAccessGranted,
   type ApplicationStatus,
 } from "@schoolapp/domain";
 import {
@@ -162,6 +164,60 @@ async function loadApplication(client: pg.PoolClient, orgId: string, id: string)
   const listed = await client.query(`${APPLICATION_SQL} and a.id = $2`, [orgId, id]);
   if (!listed.rows[0]) throw new AppError(404, "not_found", "Not found");
   return listed.rows[0] as Record<string, unknown>;
+}
+
+async function applyConvertedApplicationCanonicalFields(
+  client: pg.PoolClient,
+  orgId: string,
+  actorUserId: string,
+  studentProfileId: string,
+  application: Record<string, unknown>,
+) {
+  const rawGender = typeof application.gender === "string" ? application.gender.trim().toLowerCase() : "";
+  const operationalGender =
+    rawGender === "male" || rawGender === "female" || rawGender === "prefer_not_to_say" ? rawGender : null;
+  const sex = mapOperationalGenderToStatutorySex(operationalGender);
+  const previousSchool =
+    typeof application.previous_school === "string" && application.previous_school.trim()
+      ? application.previous_school.trim()
+      : null;
+  const addressLine1 =
+    typeof application.address_line1 === "string" && application.address_line1.trim()
+      ? application.address_line1.trim()
+      : null;
+  const addressLine2 =
+    typeof application.address_line2 === "string" && application.address_line2.trim()
+      ? application.address_line2.trim()
+      : null;
+  const addressTown =
+    typeof application.address_town === "string" && application.address_town.trim()
+      ? application.address_town.trim()
+      : null;
+  const addressPostcode =
+    typeof application.address_postcode === "string" && application.address_postcode.trim()
+      ? application.address_postcode.trim()
+      : null;
+  await client.query(
+    `update student_profiles
+     set gender = coalesce(gender, $3),
+         address_line1 = coalesce(address_line1, $4),
+         address_line2 = coalesce(address_line2, $5),
+         address_town = coalesce(address_town, $6),
+         address_postcode = coalesce(address_postcode, $7)
+     where id = $1 and organisation_id = $2`,
+    [studentProfileId, orgId, operationalGender, addressLine1, addressLine2, addressTown, addressPostcode],
+  );
+  if (!sex && !previousSchool) return;
+  await client.query(
+    `insert into student_statutory_profiles (
+       student_profile_id, organisation_id, sex, previous_school_name, looked_after_status, updated_by
+     ) values ($1, $2, $3, $4, 'none', $5)
+     on conflict (student_profile_id) do update set
+       sex = coalesce(student_statutory_profiles.sex, excluded.sex),
+       previous_school_name = coalesce(student_statutory_profiles.previous_school_name, excluded.previous_school_name),
+       updated_by = excluded.updated_by`,
+    [studentProfileId, orgId, sex, previousSchool, actorUserId],
+  );
 }
 
 async function setTransitionReason(client: pg.PoolClient, reason: string | null) {
@@ -1325,7 +1381,7 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
             .array(
               z.object({
                 contactId: z.string().uuid(),
-                portalAccess: z.boolean().optional(),
+                portalAccess: z.boolean().optional().default(false),
               }),
             )
             .optional(),
@@ -1349,12 +1405,19 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
           JSON.stringify(
             (parsed.data.guardianLinks ?? []).map((link) => ({
               contactId: link.contactId,
-              portalAccess: link.portalAccess ?? false,
+              portalAccess: portalAccessGranted(link.portalAccess),
             })),
           ),
         ],
       );
       if (converted.rows[0]!.newly_converted) {
+        await applyConvertedApplicationCanonicalFields(
+          client,
+          orgId,
+          userId,
+          converted.rows[0]!.student_profile_id,
+          application,
+        );
         await notifyApplicationContacts(
           client,
           orgId,

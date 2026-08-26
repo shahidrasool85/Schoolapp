@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { hashPassword } from "@schoolapp/auth";
-import { PERMISSIONS } from "@schoolapp/domain";
+import { PERMISSIONS, isSamePrimaryPlacement, portalAccessGranted } from "@schoolapp/domain";
 import {
   AppError,
   assertAnyPermission,
@@ -70,7 +70,7 @@ const guardianSchema = z.object({
   hasParentalResponsibility: z.boolean().optional(),
   isEmergencyContact: z.boolean().optional(),
   livesWithStudent: z.boolean().optional(),
-  portalAccess: z.boolean().optional(),
+  portalAccess: z.boolean().optional().default(false),
   priority: z.number().int().min(1).max(9).optional(),
 });
 
@@ -83,7 +83,13 @@ const STUDENT_LIST_SQL = `
     u.date_of_birth::text,
     sp.admission_number,
     sp.enrolment_status,
+    sp.gender,
+    sp.address_line1,
+    sp.address_line2,
+    sp.address_town,
+    sp.address_postcode,
     se.academic_year_id,
+    ay.name as academic_year_name,
     se.year_group_id,
     yg.name as year_group_name,
     form.id as form_class_id,
@@ -329,38 +335,76 @@ export function registerPeopleRoutes(app: SchoolappApi) {
       const parsed = z
         .object({
           legalName: z.string().min(1).max(120).optional(),
+          preferredName: z.string().max(80).nullable().optional(),
           admissionNumber: z.string().max(40).nullable().optional(),
           enrolmentStatus: z.enum(["prospective", "admitted", "enrolled", "left", "alumni"]).optional(),
+          dateOfBirth: z.string().date().nullable().optional(),
+          gender: z.enum(["male", "female", "prefer_not_to_say"]).nullable().optional(),
+          addressLine1: z.string().max(120).nullable().optional(),
+          addressLine2: z.string().max(120).nullable().optional(),
+          addressTown: z.string().max(80).nullable().optional(),
+          addressPostcode: z.string().max(16).nullable().optional(),
         })
         .safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid student payload");
       const existing = await client.query(
-        `select id, legal_name, admission_number, enrolment_status
-         from student_profiles where id = $1 and organisation_id = $2`,
+        `select sp.id, sp.user_id, sp.legal_name, sp.admission_number, sp.enrolment_status,
+                sp.gender, sp.address_line1, sp.address_line2, sp.address_town, sp.address_postcode,
+                u.preferred_name, u.date_of_birth::text as date_of_birth
+         from student_profiles sp
+         left join users u on u.id = sp.user_id
+         where sp.id = $1 and sp.organisation_id = $2`,
         [c.req.param("id"), orgId],
       );
       if (!existing.rows[0]) throw new AppError(404, "not_found", "Not found");
+      const data = parsed.data;
       const updated = await client.query(
         `update student_profiles
          set legal_name = coalesce($3, legal_name),
              admission_number = case when $4::boolean then $5::text else admission_number end,
-             enrolment_status = coalesce($6, enrolment_status)
+             enrolment_status = coalesce($6, enrolment_status),
+             gender = case when $7::boolean then $8::text else gender end,
+             address_line1 = case when $9::boolean then $10::text else address_line1 end,
+             address_line2 = case when $11::boolean then $12::text else address_line2 end,
+             address_town = case when $13::boolean then $14::text else address_town end,
+             address_postcode = case when $15::boolean then $16::text else address_postcode end
          where id = $1 and organisation_id = $2
-         returning id`,
+         returning id, user_id`,
         [
           c.req.param("id"),
           orgId,
-          parsed.data.legalName ?? null,
-          parsed.data.admissionNumber !== undefined,
-          parsed.data.admissionNumber ?? null,
-          parsed.data.enrolmentStatus ?? null,
+          data.legalName ?? null,
+          data.admissionNumber !== undefined,
+          data.admissionNumber ?? null,
+          data.enrolmentStatus ?? null,
+          data.gender !== undefined,
+          data.gender ?? null,
+          data.addressLine1 !== undefined,
+          data.addressLine1 ?? null,
+          data.addressLine2 !== undefined,
+          data.addressLine2 ?? null,
+          data.addressTown !== undefined,
+          data.addressTown ?? null,
+          data.addressPostcode !== undefined,
+          data.addressPostcode ?? null,
         ],
       );
-      if (parsed.data.legalName) {
+      const profile = updated.rows[0]!;
+      if (profile.user_id && (data.legalName || data.preferredName !== undefined || data.dateOfBirth !== undefined)) {
+        // users_update_self only allows a user to update their own row. School
+        // Admin writes pupil identity through this SECURITY DEFINER helper.
         await client.query(
-          `update users set full_name = $2
-           where id = (select user_id from student_profiles where id = $1)`,
-          [c.req.param("id"), parsed.data.legalName],
+          `select update_student_user_identity($1, $2, $3, $4, $5, $6, $7, $8::date)`,
+          [
+            userId,
+            orgId,
+            profile.id,
+            data.legalName ?? null,
+            data.preferredName !== undefined,
+            data.preferredName ?? null,
+            data.dateOfBirth !== undefined,
+            data.dateOfBirth ?? null,
+          ],
         );
       }
       await writeAudit(client, {
@@ -370,11 +414,11 @@ export function registerPeopleRoutes(app: SchoolappApi) {
         entityType: "student_profile",
         entityId: c.req.param("id"),
         before: existing.rows[0],
-        after: { ...existing.rows[0], ...parsed.data },
+        after: { ...existing.rows[0], ...data },
       });
       const listed = await client.query(`${STUDENT_LIST_SQL} and sp.id = $2`, [
         orgId,
-        updated.rows[0]!.id,
+        profile.id,
       ]);
       return c.json({ student: mapStudent(listed.rows[0]!) });
     }),
@@ -397,8 +441,73 @@ export function registerPeopleRoutes(app: SchoolappApi) {
         [parsed.data.academicYearId, orgId],
       );
       if (!year.rows[0]) throw new AppError(404, "not_found", "Not found");
+      const yearGroup = await client.query("select id from year_groups where id = $1 and organisation_id = $2", [
+        parsed.data.yearGroupId,
+        orgId,
+      ]);
+      if (!yearGroup.rows[0]) throw new AppError(404, "not_found", "Not found");
+      if (parsed.data.classId) {
+        const formClass = await client.query<{
+          academic_year_id: string;
+          year_group_id: string | null;
+          class_type: string;
+        }>(
+          `select academic_year_id, year_group_id, class_type
+           from classes
+           where id = $1 and organisation_id = $2`,
+          [parsed.data.classId, orgId],
+        );
+        if (!formClass.rows[0]) throw new AppError(404, "not_found", "Not found");
+        if (
+          formClass.rows[0].class_type !== "form" ||
+          formClass.rows[0].academic_year_id !== parsed.data.academicYearId ||
+          (formClass.rows[0].year_group_id != null && formClass.rows[0].year_group_id !== parsed.data.yearGroupId)
+        ) {
+          throw new AppError(400, "validation_failed", "Form class must belong to the selected academic year and year group");
+        }
+      }
       const startedOn = parsed.data.startedOn ?? year.rows[0].starts_on;
       const isPrimary = parsed.data.placementKind === "primary";
+      const currentPlacement = await client.query<{
+        academic_year_id: string;
+        year_group_id: string;
+        form_class_id: string | null;
+      }>(
+        `select se.academic_year_id, se.year_group_id, form.id as form_class_id
+         from student_enrolments se
+         left join lateral (
+           select c.id
+           from class_memberships cm
+           join classes c on c.id = cm.class_id
+           where cm.student_profile_id = se.student_profile_id
+             and cm.academic_year_id = se.academic_year_id
+             and cm.ended_on is null
+             and c.class_type = 'form'
+           limit 1
+         ) form on true
+         where se.student_profile_id = $1
+           and se.organisation_id = $2
+           and se.is_primary
+           and se.ended_on is null
+         order by se.started_on desc
+         limit 1`,
+        [studentId, orgId],
+      );
+      const current = currentPlacement.rows[0];
+      if (
+        current &&
+        isSamePrimaryPlacement({
+          currentAcademicYearId: current.academic_year_id,
+          currentYearGroupId: current.year_group_id,
+          currentFormClassId: current.form_class_id,
+          academicYearId: parsed.data.academicYearId,
+          yearGroupId: parsed.data.yearGroupId,
+          classId: parsed.data.classId ?? null,
+          placementKind: parsed.data.placementKind,
+        })
+      ) {
+        throw new AppError(409, "conflict", "The pupil is already in this placement.");
+      }
 
       if (isPrimary) {
         await client.query(
@@ -609,36 +718,86 @@ export function registerPeopleRoutes(app: SchoolappApi) {
       assertPermission(actor, PERMISSIONS.GUARDIANSHIPS_MANAGE);
       const parsed = guardianSchema.safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid guardian payload");
-      const created = await client.query(
-        `select * from link_guardian($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-        [
-          userId,
-          orgId,
-          c.req.param("id"),
-          parsed.data.email.toLowerCase(),
-          parsed.data.fullName ?? null,
-          parsed.data.relationship,
-          parsed.data.hasParentalResponsibility ?? false,
-          parsed.data.isEmergencyContact ?? false,
-          parsed.data.livesWithStudent ?? false,
-          parsed.data.portalAccess ?? true,
-          parsed.data.priority ?? 1,
-        ],
+      const studentId = c.req.param("id");
+      const student = await client.query("select id from student_profiles where id = $1 and organisation_id = $2", [
+        studentId,
+        orgId,
+      ]);
+      if (!student.rows[0]) throw new AppError(404, "not_found", "Not found");
+      const email = parsed.data.email.toLowerCase();
+      const existing = await client.query(
+        `select g.id
+         from guardianships g
+         join users u on u.id = g.guardian_user_id
+         where g.student_profile_id = $1
+           and g.organisation_id = $2
+           and u.email = $3
+           and g.ended_on is null`,
+        [studentId, orgId, email],
       );
-      const row = created.rows[0] as {
-        guardianship_id: string;
-        invitation_id: string | null;
-        invitation_token: string | null;
-        created_user_id: string;
-      };
+      let invitationToken: string | null = null;
+      let guardianshipId: string;
+      let invitationId: string | null = null;
+      let guardianUserId: string;
+      if (existing.rows[0]) {
+        guardianshipId = existing.rows[0].id as string;
+        const linked = await client.query<{ guardian_user_id: string }>(
+          `select guardian_user_id from guardianships where id = $1 and organisation_id = $2`,
+          [guardianshipId, orgId],
+        );
+        guardianUserId = linked.rows[0]!.guardian_user_id;
+      } else {
+        const created = await client.query(
+          `select * from link_guardian($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+          [
+            userId,
+            orgId,
+            studentId,
+            email,
+            parsed.data.fullName ?? null,
+            parsed.data.relationship,
+            parsed.data.hasParentalResponsibility ?? false,
+            parsed.data.isEmergencyContact ?? false,
+            parsed.data.livesWithStudent ?? false,
+            portalAccessGranted(parsed.data.portalAccess),
+            parsed.data.priority ?? 1,
+          ],
+        );
+        const row = created.rows[0] as {
+          guardianship_id: string;
+          invitation_id: string | null;
+          invitation_token: string | null;
+          created_user_id: string;
+        };
+        guardianshipId = row.guardianship_id;
+        invitationId = row.invitation_id;
+        invitationToken = row.invitation_token;
+        guardianUserId = row.created_user_id;
+      }
+      const listed = await client.query(
+        `select g.id, g.student_profile_id, g.guardian_user_id, u.full_name, u.email,
+                g.relationship, g.has_parental_responsibility, g.is_emergency_contact,
+                g.lives_with_student, g.portal_access, g.priority,
+                g.started_on::text, g.ended_on::text, m.status as membership_status
+         from guardianships g
+         join users u on u.id = g.guardian_user_id
+         left join organisation_memberships m
+           on m.user_id = u.id
+          and m.organisation_id = g.organisation_id
+          and m.ended_at is null
+         where g.id = $1 and g.organisation_id = $2`,
+        [guardianshipId, orgId],
+      );
       return c.json(
         {
-          guardianshipId: row.guardianship_id,
-          invitationId: row.invitation_id,
-          invitationToken: row.invitation_token,
-          guardianUserId: row.created_user_id,
+          guardianshipId,
+          invitationId,
+          invitationToken,
+          guardianUserId,
+          alreadyLinked: Boolean(existing.rows[0]),
+          guardianship: listed.rows[0] ? mapGuardianship(listed.rows[0]) : null,
         },
-        201,
+        existing.rows[0] ? 200 : 201,
       );
     }),
   );

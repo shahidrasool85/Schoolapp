@@ -700,6 +700,13 @@ describe("Pupil medication and dietary requirements", () => {
       headers: hdrs,
       body: "{}",
     });
+    const added = await app.request(`/api/v1/activities/${tripBody.activity.id}/participants`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ studentProfileId: pupil.student.id }),
+    });
+    expect(added.status, await added.clone().text()).toBe(201);
+    expect(((await added.json()) as { registrationStatus: string }).registrationStatus).toBe("confirmed");
     const summary = await app.request(`/api/v1/activities/${tripBody.activity.id}/safety-summary`, { headers: hdrs });
     expect(summary.status).toBe(200);
     const summaryBody = await summary.json();

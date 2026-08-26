@@ -3250,7 +3250,10 @@ async function seedGreenwood(
         '2027-03-01','active', null, true, null),
        ($1,$2,'Amoxicillin','250mg','oral','Three times daily for 7 days', false,
         '2026-01-10','2026-01-17','Completed course — historical only','parent','granted','2026-01-10',
-        null,'stopped', 'Course completed', true, 'Do not restart without GP advice (demo)')`,
+        null,'stopped', 'Course completed', true, 'Do not restart without GP advice (demo)'),
+       ($1,$2,'Barrier cream','thin layer','topical','After first aid only', true,
+        '2026-09-01', null,'Staff-administered after playground first aid','school_staff','not_required', null,
+        null,'active', null, false, 'Not parent-visible — first-aid cupboard (demo)')`,
     [orgId, amelia.profileId],
   );
   await client.query(

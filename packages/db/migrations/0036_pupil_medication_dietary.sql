@@ -255,26 +255,26 @@ begin
     return new;
   end if;
   if tg_table_name = 'student_medications' then
-    if old.medication_name is distinct from new.medication_name then v_fields := v_fields || 'medication_name'; end if;
-    if old.dosage is distinct from new.dosage then v_fields := v_fields || 'dosage'; end if;
-    if old.route is distinct from new.route then v_fields := v_fields || 'route'; end if;
-    if old.schedule_text is distinct from new.schedule_text then v_fields := v_fields || 'schedule_text'; end if;
-    if old.is_prn is distinct from new.is_prn then v_fields := v_fields || 'is_prn'; end if;
-    if old.started_on is distinct from new.started_on then v_fields := v_fields || 'started_on'; end if;
-    if old.ended_on is distinct from new.ended_on then v_fields := v_fields || 'ended_on'; end if;
-    if old.instructions is distinct from new.instructions then v_fields := v_fields || 'instructions'; end if;
+    if old.medication_name is distinct from new.medication_name then v_fields := array_append(v_fields, 'medication_name'); end if;
+    if old.dosage is distinct from new.dosage then v_fields := array_append(v_fields, 'dosage'); end if;
+    if old.route is distinct from new.route then v_fields := array_append(v_fields, 'route'); end if;
+    if old.schedule_text is distinct from new.schedule_text then v_fields := array_append(v_fields, 'schedule_text'); end if;
+    if old.is_prn is distinct from new.is_prn then v_fields := array_append(v_fields, 'is_prn'); end if;
+    if old.started_on is distinct from new.started_on then v_fields := array_append(v_fields, 'started_on'); end if;
+    if old.ended_on is distinct from new.ended_on then v_fields := array_append(v_fields, 'ended_on'); end if;
+    if old.instructions is distinct from new.instructions then v_fields := array_append(v_fields, 'instructions'); end if;
     if old.administration_responsibility is distinct from new.administration_responsibility then
-      v_fields := v_fields || 'administration_responsibility';
+      v_fields := array_append(v_fields, 'administration_responsibility');
     end if;
     if old.parent_consent_status is distinct from new.parent_consent_status then
-      v_fields := v_fields || 'parent_consent_status';
+      v_fields := array_append(v_fields, 'parent_consent_status');
     end if;
-    if old.parent_consent_on is distinct from new.parent_consent_on then v_fields := v_fields || 'parent_consent_on'; end if;
-    if old.review_on is distinct from new.review_on then v_fields := v_fields || 'review_on'; end if;
-    if old.status is distinct from new.status then v_fields := v_fields || 'status'; end if;
-    if old.stopped_reason is distinct from new.stopped_reason then v_fields := v_fields || 'stopped_reason'; end if;
-    if old.internal_notes is distinct from new.internal_notes then v_fields := v_fields || 'internal_notes'; end if;
-    if old.parent_visible is distinct from new.parent_visible then v_fields := v_fields || 'parent_visible'; end if;
+    if old.parent_consent_on is distinct from new.parent_consent_on then v_fields := array_append(v_fields, 'parent_consent_on'); end if;
+    if old.review_on is distinct from new.review_on then v_fields := array_append(v_fields, 'review_on'); end if;
+    if old.status is distinct from new.status then v_fields := array_append(v_fields, 'status'); end if;
+    if old.stopped_reason is distinct from new.stopped_reason then v_fields := array_append(v_fields, 'stopped_reason'); end if;
+    if old.internal_notes is distinct from new.internal_notes then v_fields := array_append(v_fields, 'internal_notes'); end if;
+    if old.parent_visible is distinct from new.parent_visible then v_fields := array_append(v_fields, 'parent_visible'); end if;
     if old.status = 'active' and new.status = 'stopped' then
       v_kind := 'stopped';
     elsif old.status = 'stopped' and new.status = 'active' then
@@ -307,25 +307,25 @@ begin
       new.organisation_id, new.id, app_current_user_id(), v_kind, v_fields, v_prev
     );
   elsif tg_table_name = 'student_dietary_requirements' then
-    if old.requirement_type is distinct from new.requirement_type then v_fields := v_fields || 'requirement_type'; end if;
-    if old.requirement is distinct from new.requirement then v_fields := v_fields || 'requirement'; end if;
-    if old.foods_to_avoid is distinct from new.foods_to_avoid then v_fields := v_fields || 'foods_to_avoid'; end if;
-    if old.safe_alternatives is distinct from new.safe_alternatives then v_fields := v_fields || 'safe_alternatives'; end if;
+    if old.requirement_type is distinct from new.requirement_type then v_fields := array_append(v_fields, 'requirement_type'); end if;
+    if old.requirement is distinct from new.requirement then v_fields := array_append(v_fields, 'requirement'); end if;
+    if old.foods_to_avoid is distinct from new.foods_to_avoid then v_fields := array_append(v_fields, 'foods_to_avoid'); end if;
+    if old.safe_alternatives is distinct from new.safe_alternatives then v_fields := array_append(v_fields, 'safe_alternatives'); end if;
     if old.is_religious_or_cultural is distinct from new.is_religious_or_cultural then
-      v_fields := v_fields || 'is_religious_or_cultural';
+      v_fields := array_append(v_fields, 'is_religious_or_cultural');
     end if;
-    if old.related_allergy is distinct from new.related_allergy then v_fields := v_fields || 'related_allergy'; end if;
+    if old.related_allergy is distinct from new.related_allergy then v_fields := array_append(v_fields, 'related_allergy'); end if;
     if old.texture_feeding_notes is distinct from new.texture_feeding_notes then
-      v_fields := v_fields || 'texture_feeding_notes';
+      v_fields := array_append(v_fields, 'texture_feeding_notes');
     end if;
     if old.parent_confirmed_on is distinct from new.parent_confirmed_on then
-      v_fields := v_fields || 'parent_confirmed_on';
+      v_fields := array_append(v_fields, 'parent_confirmed_on');
     end if;
-    if old.review_on is distinct from new.review_on then v_fields := v_fields || 'review_on'; end if;
-    if old.status is distinct from new.status then v_fields := v_fields || 'status'; end if;
-    if old.ended_on is distinct from new.ended_on then v_fields := v_fields || 'ended_on'; end if;
-    if old.internal_notes is distinct from new.internal_notes then v_fields := v_fields || 'internal_notes'; end if;
-    if old.parent_visible is distinct from new.parent_visible then v_fields := v_fields || 'parent_visible'; end if;
+    if old.review_on is distinct from new.review_on then v_fields := array_append(v_fields, 'review_on'); end if;
+    if old.status is distinct from new.status then v_fields := array_append(v_fields, 'status'); end if;
+    if old.ended_on is distinct from new.ended_on then v_fields := array_append(v_fields, 'ended_on'); end if;
+    if old.internal_notes is distinct from new.internal_notes then v_fields := array_append(v_fields, 'internal_notes'); end if;
+    if old.parent_visible is distinct from new.parent_visible then v_fields := array_append(v_fields, 'parent_visible'); end if;
     if old.status = 'active' and new.status = 'inactive' then
       v_kind := 'stopped';
     elsif old.status = 'inactive' and new.status = 'active' then

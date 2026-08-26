@@ -172,13 +172,40 @@ async function applyConvertedApplicationCanonicalFields(
   studentProfileId: string,
   application: Record<string, unknown>,
 ) {
-  const sex = mapOperationalGenderToStatutorySex(
-    typeof application.gender === "string" ? application.gender : null,
-  );
+  const rawGender = typeof application.gender === "string" ? application.gender.trim().toLowerCase() : "";
+  const operationalGender =
+    rawGender === "male" || rawGender === "female" || rawGender === "prefer_not_to_say" ? rawGender : null;
+  const sex = mapOperationalGenderToStatutorySex(operationalGender);
   const previousSchool =
     typeof application.previous_school === "string" && application.previous_school.trim()
       ? application.previous_school.trim()
       : null;
+  const addressLine1 =
+    typeof application.address_line1 === "string" && application.address_line1.trim()
+      ? application.address_line1.trim()
+      : null;
+  const addressLine2 =
+    typeof application.address_line2 === "string" && application.address_line2.trim()
+      ? application.address_line2.trim()
+      : null;
+  const addressTown =
+    typeof application.address_town === "string" && application.address_town.trim()
+      ? application.address_town.trim()
+      : null;
+  const addressPostcode =
+    typeof application.address_postcode === "string" && application.address_postcode.trim()
+      ? application.address_postcode.trim()
+      : null;
+  await client.query(
+    `update student_profiles
+     set gender = coalesce(gender, $3),
+         address_line1 = coalesce(address_line1, $4),
+         address_line2 = coalesce(address_line2, $5),
+         address_town = coalesce(address_town, $6),
+         address_postcode = coalesce(address_postcode, $7)
+     where id = $1 and organisation_id = $2`,
+    [studentProfileId, orgId, operationalGender, addressLine1, addressLine2, addressTown, addressPostcode],
+  );
   if (!sex && !previousSchool) return;
   await client.query(
     `insert into student_statutory_profiles (

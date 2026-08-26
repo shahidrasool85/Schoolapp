@@ -132,6 +132,9 @@ export function pgErrorToAppError(error: unknown): AppError | null {
   if (message.includes("year_group_code_invalid")) {
     return new AppError(400, "validation_failed", "Year group code is invalid");
   }
+  if (message.includes("student_name_required")) {
+    return new AppError(400, "validation_failed", "A legal name is required");
+  }
   if (message.includes("student_invite_not_supported") || message.includes("invalid_role_key")) {
     return new AppError(400, "validation_failed", "One or more role keys are invalid");
   }

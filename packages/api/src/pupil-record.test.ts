@@ -197,14 +197,32 @@ describe("pupil record statutory and identity stabilisation", () => {
     expect(body.student.gender).toBe("female");
     expect(body.student.addressLine1).toBe("1 High Street");
 
-    const stored = await pools.owner.query<{ date_of_birth: string | null }>(
-      `select u.date_of_birth::text
+    const stored = await pools.owner.query<{
+      date_of_birth: string | null;
+      preferred_name: string | null;
+      user_kind: string;
+      email: string | null;
+    }>(
+      `select u.date_of_birth::text, u.preferred_name, u.user_kind, u.email
        from student_profiles sp
        join users u on u.id = sp.user_id
        where sp.id = $1`,
       [pupil.student.id],
     );
     expect(stored.rows[0]?.date_of_birth).toBe("2018-04-12");
+    expect(stored.rows[0]?.preferred_name).toBe("Freya");
+    expect(stored.rows[0]?.user_kind).toBe("student");
+    expect(stored.rows[0]?.email).toBeNull();
+
+    const keepDob = await app.request(`/api/v1/students/${pupil.student.id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ admissionNumber: "ADM-FREYA" }),
+    });
+    expect(keepDob.status).toBe(200);
+    const kept = (await keepDob.json()) as { student: { dateOfBirth: string | null; admissionNumber: string | null } };
+    expect(kept.student.dateOfBirth).toBe("2018-04-12");
+    expect(kept.student.admissionNumber).toBe("ADM-FREYA");
 
     const after = (await (
       await app.request(`/api/v1/students/${pupil.student.id}/statutory`, { headers: hdrs })
@@ -234,16 +252,34 @@ describe("pupil record statutory and identity stabilisation", () => {
     });
     expect(withDob.status).toBe(201);
     const withDobBody = (await withDob.json()) as { application: { id: string } };
-    await pools.owner.query(`update admissions_applications set gender = 'male' where id = $1`, [
-      withDobBody.application.id,
-    ]);
+    await pools.owner.query(
+      `update admissions_applications
+       set gender = 'male',
+           address_line1 = '12 Oak Road',
+           address_town = 'Leeds',
+           address_postcode = 'LS2 2BB'
+       where id = $1`,
+      [withDobBody.application.id],
+    );
     const enrolledWith = await acceptAndEnrol(app, hdrs, withDobBody.application.id, year);
     const copied = (await (
       await app.request(`/api/v1/students/${enrolledWith.studentProfileId}`, { headers: hdrs })
-    ).json()) as { student: { dateOfBirth: string | null; preferredName: string | null; gender: string | null } };
+    ).json()) as {
+      student: {
+        dateOfBirth: string | null;
+        preferredName: string | null;
+        gender: string | null;
+        addressLine1: string | null;
+        addressTown: string | null;
+        addressPostcode: string | null;
+      };
+    };
     expect(copied.student.dateOfBirth).toBe("2018-03-04");
     expect(copied.student.preferredName).toBe("Noah");
     expect(copied.student.gender).toBe("male");
+    expect(copied.student.addressLine1).toBe("12 Oak Road");
+    expect(copied.student.addressTown).toBe("Leeds");
+    expect(copied.student.addressPostcode).toBe("LS2 2BB");
     const statutory = (await (
       await app.request(`/api/v1/students/${enrolledWith.studentProfileId}/statutory`, { headers: hdrs })
     ).json()) as { statutory: { sex: string | null; previousSchoolName: string | null; lookedAfterStatus: string | null } };
@@ -352,6 +388,21 @@ describe("pupil record statutory and identity stabilisation", () => {
       body: JSON.stringify({ upn, sex: "F" }),
     });
     expect(isolated.status).toBe(200);
+
+    const crossIdentity = await app.request(`/api/v1/students/${a.student.id}`, {
+      method: "PATCH",
+      headers: oakHdrs,
+      body: JSON.stringify({ dateOfBirth: "2010-01-01" }),
+    });
+    expect(crossIdentity.status).toBe(404);
+    const still = await pools.owner.query<{ date_of_birth: string | null }>(
+      `select u.date_of_birth::text
+       from student_profiles sp
+       join users u on u.id = sp.user_id
+       where sp.id = $1`,
+      [a.student.id],
+    );
+    expect(still.rows[0]?.date_of_birth).toBe("2018-04-12");
   });
 
   it("does not persist looked-after from an omitted sensitive default and rejects overlapping placement", async () => {

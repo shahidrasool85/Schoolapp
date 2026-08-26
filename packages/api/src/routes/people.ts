@@ -391,14 +391,14 @@ export function registerPeopleRoutes(app: SchoolappApi) {
       );
       const profile = updated.rows[0]!;
       if (profile.user_id && (data.legalName || data.preferredName !== undefined || data.dateOfBirth !== undefined)) {
+        // users_update_self only allows a user to update their own row. School
+        // Admin writes pupil identity through this SECURITY DEFINER helper.
         await client.query(
-          `update users
-           set full_name = coalesce($2, full_name),
-               preferred_name = case when $3::boolean then $4::text else preferred_name end,
-               date_of_birth = case when $5::boolean then $6::date else date_of_birth end
-           where id = $1`,
+          `select update_student_user_identity($1, $2, $3, $4, $5, $6, $7, $8::date)`,
           [
-            profile.user_id,
+            userId,
+            orgId,
+            profile.id,
             data.legalName ?? null,
             data.preferredName !== undefined,
             data.preferredName ?? null,

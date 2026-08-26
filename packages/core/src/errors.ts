@@ -254,6 +254,12 @@ export function pgErrorToAppError(error: unknown): AppError | null {
     if (message.includes("student_profiles_org_admission_number_idx")) {
       return new AppError(409, "conflict", "That admission number is already in use at this school.");
     }
+    if (message.includes("student_statutory_profiles_upn_idx")) {
+      return new AppError(409, "conflict", "That UPN is already in use at this school.", { fieldKey: "upn" });
+    }
+    if (message.includes("guardianships_student_profile_id_guardian_user_id_key")) {
+      return new AppError(409, "conflict", "That parent is already linked to this pupil.");
+    }
     return new AppError(409, "conflict", "Resource already exists");
   }
   if (code === "23514" || code === "23503") {

@@ -1,33 +1,80 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import {
+  describeEnrolmentChange,
+  enrolmentFormInitialState,
+  filterFormClasses,
+  formatPupilAddress,
+  guardianAccountLabel,
+  isSamePrimaryPlacement,
+  lookedAfterPersistValue,
+  parsePupilRecordTab,
+  portalAccessLabel,
+  pupilIdentityGaps,
+  resetFormSafely,
+  statutoryIssueFix,
+  type PupilRecordTab,
+} from "@schoolapp/domain";
 import {
   Alert,
   Button,
   Checkbox,
+  DataTable,
+  Dialog,
   FormField,
-  FormSection,
   Input,
+  LoadingState,
+  PageError,
   PersonSummary,
+  SectionCard,
   Select,
+  StatCard,
   StatusBadge,
+  Tabs,
 } from "../../../../components/ui";
 import { api, downloadAuthenticated } from "../../../../lib/api";
+import { userFacingError } from "../../../../lib/errors";
+import { clientUpnError } from "../../../../lib/upn";
 import { usePermissions } from "../../../../lib/use-permissions";
+
+type Guardian = {
+  id: string;
+  guardianFullName: string | null;
+  guardianEmail: string | null;
+  relationship: string;
+  hasParentalResponsibility: boolean;
+  portalAccess: boolean;
+  membershipStatus: string | null;
+  endedOn: string | null;
+};
 
 type Detail = {
   student: {
     id: string;
     legalName: string;
+    preferredName: string | null;
     admissionNumber: string | null;
     enrolmentStatus: string;
+    dateOfBirth: string | null;
+    gender: string | null;
+    addressLine1: string | null;
+    addressLine2: string | null;
+    addressTown: string | null;
+    addressPostcode: string | null;
+    currentYearGroupId: string | null;
     currentYearGroupName: string | null;
+    currentFormClassId: string | null;
     currentFormClassName: string | null;
+    currentAcademicYearId: string | null;
+    currentAcademicYearName: string | null;
   };
   enrolments: Array<{
     id: string;
+    academicYearId: string;
     academicYearName: string | null;
+    yearGroupId: string;
     yearGroupName: string | null;
     status: string;
     isPrimary: boolean;
@@ -42,16 +89,7 @@ type Detail = {
     startedOn: string;
     endedOn: string | null;
   }>;
-  guardians: Array<{
-    id: string;
-    guardianFullName: string | null;
-    guardianEmail: string | null;
-    relationship: string;
-    hasParentalResponsibility: boolean;
-    portalAccess: boolean;
-    membershipStatus: string | null;
-    endedOn: string | null;
-  }>;
+  guardians: Guardian[];
   attendanceSummary: {
     sessionsPossible: number;
     sessionsPresent: number;
@@ -70,7 +108,8 @@ type Detail = {
   pastoralSummary: { openCount: number; latestPriority: string | null } | null;
 };
 
-type Option = { id: string; name: string };
+type Option = { id: string; name: string; isCurrent?: boolean; code?: string };
+type ClassOption = Option & { classType?: string; academicYearId?: string; yearGroupId?: string | null };
 
 type LearningHistory = {
   items: Array<{
@@ -104,10 +143,51 @@ type AttendanceHistory = {
   }>;
 };
 
+type StatutoryRecord = {
+  statutory: {
+    upn: string | null;
+    legalForename: string | null;
+    legalSurname: string | null;
+    middleNames: string | null;
+    sex: string | null;
+    ethnicityCode: string | null;
+    languageCode: string | null;
+    enrolmentStatusCode: string | null;
+    dateOfAdmission: string | null;
+    dateOfLeaving: string | null;
+    sendProvisionCode: string | null;
+    lookedAfterStatus: string | null;
+    serviceChild: boolean | null;
+    previousSchoolName: string | null;
+    fsmPeriods: Array<{ startedOn: string; endedOn: string | null }>;
+  };
+  issues: Array<{
+    severity: string;
+    message: string;
+    ruleKey?: string;
+    field?: string | null;
+    entityId?: string | null;
+    fixPath?: string | null;
+    fixLabel?: string | null;
+  }>;
+};
+
+type InviteCreated = {
+  name: string;
+  email: string;
+  relationship: string;
+  token: string;
+};
+
+function actionError(err: unknown, fallback: string): string {
+  return userFacingError(err, fallback);
+}
+
 export default function StudentDetailPage() {
   const params = useParams<{ id: string }>();
   const permissions = usePermissions();
   const [data, setData] = useState<Detail | null>(null);
+  const [tab, setTab] = useState<PupilRecordTab>("overview");
   const [attendance, setAttendance] = useState<AttendanceHistory | null>(null);
   const [learning, setLearning] = useState<LearningHistory | null>(null);
   const [learningStatus, setLearningStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -134,25 +214,7 @@ export default function StudentDetailPage() {
     concerns: Array<{ id: string; concernOn: string; categoryName: string | null; priority: string; status: string; summary: string }>;
   } | null>(null);
   const [safeguardingLink, setSafeguardingLink] = useState(false);
-  const [statutory, setStatutory] = useState<{
-    statutory: {
-      upn: string | null;
-      legalForename: string | null;
-      legalSurname: string | null;
-      middleNames: string | null;
-      sex: string | null;
-      ethnicityCode: string | null;
-      languageCode: string | null;
-      enrolmentStatusCode: string | null;
-      dateOfAdmission: string | null;
-      dateOfLeaving: string | null;
-      sendProvisionCode: string | null;
-      lookedAfterStatus: string | null;
-      serviceChild: boolean | null;
-      fsmPeriods: Array<{ startedOn: string; endedOn: string | null }>;
-    };
-    issues: Array<{ severity: string; message: string }>;
-  } | null>(null);
+  const [statutory, setStatutory] = useState<StatutoryRecord | null>(null);
   const [documents, setDocuments] = useState<Array<{
     id: string;
     title: string;
@@ -165,27 +227,55 @@ export default function StudentDetailPage() {
     fileStatus: string | null;
   }>>([]);
   const [uploadState, setUploadState] = useState("");
-  const [years, setYears] = useState<Option[]>([]);
+  const [years, setYears] = useState<Array<Option & { isCurrent?: boolean }>>([]);
   const [groups, setGroups] = useState<Option[]>([]);
-  const [classes, setClasses] = useState<Option[]>([]);
+  const [classes, setClasses] = useState<ClassOption[]>([]);
   const [error, setError] = useState("");
-  const [invite, setInvite] = useState("");
+  const [actionErrorMessage, setActionErrorMessage] = useState("");
+  const [invite, setInvite] = useState<InviteCreated | null>(null);
+  const [editingIdentity, setEditingIdentity] = useState(false);
+  const [movingEnrolment, setMovingEnrolment] = useState(false);
+  const [enrolYearId, setEnrolYearId] = useState("");
+  const [enrolGroupId, setEnrolGroupId] = useState("");
+  const [enrolClassId, setEnrolClassId] = useState("");
+  const [enrolKind, setEnrolKind] = useState("primary");
+  const [upnError, setUpnError] = useState("");
+  const [copyState, setCopyState] = useState("");
   const loadSeq = useRef(0);
+  const canManagePupil = permissions.has("students.profiles.manage");
+  const canManageGuardians = permissions.has("guardianships.manage");
+  const canManageStatutory = permissions.has("pupils.statutory.manage");
+
+  function goToTab(next: PupilRecordTab) {
+    setTab(next);
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", `#${next}`);
+    }
+  }
 
   async function load() {
     const seq = ++loadSeq.current;
     const studentId = params.id;
     const [detail, yr, yg, cl] = await Promise.all([
       api<Detail>(`/api/v1/students/${studentId}`),
-      api<{ academicYears: Option[] }>("/api/v1/academic-years"),
+      api<{ academicYears: Array<Option & { isCurrent?: boolean }> }>("/api/v1/academic-years"),
       api<{ yearGroups: Option[] }>("/api/v1/year-groups"),
-      api<{ classes: Option[] }>("/api/v1/classes"),
+      api<{ classes: ClassOption[] }>("/api/v1/classes"),
     ]);
     if (seq !== loadSeq.current) return;
     setData(detail);
     setYears(yr.academicYears);
     setGroups(yg.yearGroups);
     setClasses(cl.classes);
+    const initial = enrolmentFormInitialState({
+      currentAcademicYearId: detail.student.currentAcademicYearId,
+      currentYearGroupId: detail.student.currentYearGroupId,
+      currentFormClassId: detail.student.currentFormClassId,
+      academicYears: yr.academicYears,
+    });
+    setEnrolYearId(initial.academicYearId);
+    setEnrolGroupId(initial.yearGroupId);
+    setEnrolClassId(initial.classId);
     if (detail.attendanceSummary) {
       try {
         const history = await api<AttendanceHistory>(`/api/v1/attendance/students/${studentId}`);
@@ -269,25 +359,7 @@ export default function StudentDetailPage() {
       setAcademicStatus("error");
     }
     try {
-      const statutoryRecord = await api<{
-        statutory: {
-          upn: string | null;
-          legalForename: string | null;
-          legalSurname: string | null;
-          middleNames: string | null;
-          sex: string | null;
-          ethnicityCode: string | null;
-          languageCode: string | null;
-          enrolmentStatusCode: string | null;
-          dateOfAdmission: string | null;
-          dateOfLeaving: string | null;
-          sendProvisionCode: string | null;
-          lookedAfterStatus: string | null;
-          serviceChild: boolean | null;
-          fsmPeriods: Array<{ startedOn: string; endedOn: string | null }>;
-        };
-        issues: Array<{ severity: string; message: string }>;
-      }>(`/api/v1/students/${studentId}/statutory`);
+      const statutoryRecord = await api<StatutoryRecord>(`/api/v1/students/${studentId}/statutory`);
       if (seq !== loadSeq.current) return;
       setStatutory(statutoryRecord);
     } catch {
@@ -308,30 +380,94 @@ export default function StudentDetailPage() {
     setSafeguardingLink(false);
     setStatutory(null);
     setError("");
-    setInvite("");
-    load().catch((err: Error) => setError(err.message));
+    setActionErrorMessage("");
+    setInvite(null);
+    setEditingIdentity(false);
+    setMovingEnrolment(false);
+    load().catch((err: unknown) => setError(actionError(err, "Could not load this pupil record.")));
     return () => {
       loadSeq.current += 1;
     };
   }, [params.id]);
 
+  useEffect(() => {
+    function syncHash() {
+      setTab(parsePupilRecordTab(window.location.hash));
+    }
+    syncHash();
+    window.addEventListener("hashchange", syncHash);
+    return () => window.removeEventListener("hashchange", syncHash);
+  }, []);
+
+  const filteredClasses = useMemo(
+    () => filterFormClasses(classes, { academicYearId: enrolYearId, yearGroupId: enrolGroupId }),
+    [classes, enrolYearId, enrolGroupId],
+  );
+
+  async function saveIdentity(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canManagePupil) return;
+    const form = new FormData(event.currentTarget);
+    setActionErrorMessage("");
+    try {
+      await api(`/api/v1/students/${params.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          legalName: form.get("legalName"),
+          preferredName: form.get("preferredName") || null,
+          admissionNumber: form.get("admissionNumber") || null,
+          dateOfBirth: form.get("dateOfBirth") || null,
+          gender: form.get("gender") || null,
+          addressLine1: form.get("addressLine1") || null,
+          addressLine2: form.get("addressLine2") || null,
+          addressTown: form.get("addressTown") || null,
+          addressPostcode: form.get("addressPostcode") || null,
+        }),
+      });
+      setEditingIdentity(false);
+      await load();
+    } catch (err) {
+      setActionErrorMessage(actionError(err, "Could not save pupil details."));
+    }
+  }
+
   async function enrol(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await api(`/api/v1/students/${params.id}/enrolments`, {
-      method: "POST",
-      body: JSON.stringify({
-        academicYearId: form.get("academicYearId"),
-        yearGroupId: form.get("yearGroupId"),
-        classId: form.get("classId") || undefined,
-        placementKind: form.get("placementKind") || "primary",
-      }),
-    });
-    await load();
+    if (!canManagePupil || !data) return;
+    setActionErrorMessage("");
+    if (
+      isSamePrimaryPlacement({
+        currentAcademicYearId: data.student.currentAcademicYearId,
+        currentYearGroupId: data.student.currentYearGroupId,
+        currentFormClassId: data.student.currentFormClassId,
+        academicYearId: enrolYearId,
+        yearGroupId: enrolGroupId,
+        classId: enrolClassId || null,
+        placementKind: enrolKind,
+      })
+    ) {
+      setActionErrorMessage("The pupil is already in this placement.");
+      return;
+    }
+    try {
+      await api(`/api/v1/students/${params.id}/enrolments`, {
+        method: "POST",
+        body: JSON.stringify({
+          academicYearId: enrolYearId,
+          yearGroupId: enrolGroupId,
+          classId: enrolClassId || undefined,
+          placementKind: enrolKind || "primary",
+        }),
+      });
+      setMovingEnrolment(false);
+      await load();
+    } catch (err) {
+      setActionErrorMessage(actionError(err, "Could not update enrolment."));
+    }
   }
 
   async function togglePortal(guardianId: string, portalAccess: boolean) {
-    setError("");
+    setActionErrorMessage("");
     try {
       await api(`/api/v1/guardianships/${guardianId}`, {
         method: "PATCH",
@@ -339,43 +475,130 @@ export default function StudentDetailPage() {
       });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not update parent portal access");
+      setActionErrorMessage(actionError(err, "Could not update parent portal access."));
     }
   }
 
   async function addGuardian(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const created = await api<{ invitationToken?: string | null }>(
-      `/api/v1/students/${params.id}/guardians`,
-      {
+    if (!canManageGuardians) return;
+    const form = event.currentTarget;
+    const payload = new FormData(form);
+    const name = String(payload.get("fullName") ?? "");
+    const email = String(payload.get("email") ?? "");
+    const relationship = String(payload.get("relationship") || "other");
+    setActionErrorMessage("");
+    try {
+      const created = await api<{
+        invitationToken?: string | null;
+        alreadyLinked?: boolean;
+        guardianship: Guardian | null;
+      }>(`/api/v1/students/${params.id}/guardians`, {
         method: "POST",
         body: JSON.stringify({
-          email: form.get("email"),
-          fullName: form.get("fullName"),
-          relationship: form.get("relationship") || "other",
-          hasParentalResponsibility: form.get("hasParentalResponsibility") === "on",
+          email,
+          fullName: name,
+          relationship,
+          hasParentalResponsibility: payload.get("hasParentalResponsibility") === "on",
+          portalAccess: payload.get("portalAccess") === "on",
         }),
-      },
-    );
-    setInvite(created.invitationToken ?? "");
-    event.currentTarget.reset();
-    await load();
+      });
+      if (created.guardianship) {
+        setData((current) =>
+          current
+            ? {
+                ...current,
+                guardians: current.guardians.some((row) => row.id === created.guardianship?.id)
+                  ? current.guardians
+                  : [...current.guardians, created.guardianship!],
+              }
+            : current,
+        );
+      }
+      if (created.invitationToken) {
+        setInvite({ name, email, relationship, token: created.invitationToken });
+      } else {
+        setInvite(null);
+      }
+      resetFormSafely(form);
+      await load();
+    } catch (err) {
+      setActionErrorMessage(actionError(err, "Could not invite or link this parent."));
+    }
   }
 
-  if (error && !data) return <p className="error">{error}</p>;
-  if (!data) return <p>Loading…</p>;
+  async function saveStatutory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canManageStatutory) return;
+    const form = new FormData(event.currentTarget);
+    const upn = String(form.get("upn") ?? "");
+    const clientError = clientUpnError(upn);
+    setUpnError(clientError ?? "");
+    setActionErrorMessage("");
+    if (clientError) return;
+    try {
+      await api(`/api/v1/students/${params.id}/statutory`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          upn: upn || null,
+          legalForename: form.get("legalForename") || null,
+          legalSurname: form.get("legalSurname") || null,
+          middleNames: form.get("middleNames") || null,
+          sex: form.get("sex") || null,
+          ethnicityCode: form.get("ethnicityCode") || null,
+          languageCode: form.get("languageCode") || null,
+          enrolmentStatusCode: form.get("enrolmentStatusCode") || null,
+          dateOfAdmission: form.get("dateOfAdmission") || null,
+          sendProvisionCode: form.get("sendProvisionCode") || null,
+          previousSchoolName: form.get("previousSchoolName") || null,
+          lookedAfterStatus: lookedAfterPersistValue(String(form.get("lookedAfterStatus") ?? "")),
+          serviceChild: form.get("serviceChild") === "on",
+        }),
+      });
+      await load();
+    } catch (err) {
+      const message = actionError(err, "Could not save the statutory record.");
+      setActionErrorMessage(message);
+      if (/UPN/i.test(message)) setUpnError(message);
+    }
+  }
+
+  if (error && !data) {
+    return <PageError title="Could not open pupil record" description={error} />;
+  }
+  if (!data) return <LoadingState label="Loading pupil record…" />;
+
+  const identityGaps = pupilIdentityGaps({
+    legalName: data.student.legalName,
+    dateOfBirth: data.student.dateOfBirth,
+    gender: data.student.gender,
+    sex: statutory?.statutory.sex ?? null,
+  });
+  const address = formatPupilAddress(data.student);
+  const nextYearName = years.find((year) => year.id === enrolYearId)?.name ?? null;
+  const nextGroupName = groups.find((group) => group.id === enrolGroupId)?.name ?? null;
+  const nextClassName = filteredClasses.find((row) => row.id === enrolClassId)?.name ?? null;
+  const tabs: Array<{ id: PupilRecordTab; label: string; show: boolean }> = [
+    { id: "overview", label: "Overview", show: true },
+    { id: "attendance", label: "Attendance", show: true },
+    { id: "learning", label: "Learning", show: true },
+    { id: "academic", label: "Academic", show: true },
+    { id: "documents", label: "Documents", show: true },
+    { id: "statutory", label: "Statutory", show: Boolean(statutory) },
+    { id: "pastoral", label: "Pastoral", show: Boolean(data.behaviourSummary || data.pastoralSummary || safeguardingLink) },
+  ];
 
   return (
     <>
-      {error ? <p className="error">{error}</p> : null}
+      {actionErrorMessage ? <Alert tone="danger">{actionErrorMessage}</Alert> : null}
       <PersonSummary
-        name={data.student.legalName}
+        name={data.student.preferredName || data.student.legalName}
         meta={
           <>
             {data.student.currentYearGroupName ?? "No current year group"}
             {data.student.currentFormClassName ? ` · ${data.student.currentFormClassName}` : ""}
             {data.student.admissionNumber ? ` · ${data.student.admissionNumber}` : ""}
+            {` · ${data.student.enrolmentStatus}`}
           </>
         }
         actions={<StatusBadge status={data.student.enrolmentStatus} />}
@@ -386,527 +609,691 @@ export default function StudentDetailPage() {
         {" · "}
         <a href="/school/student-portal">Student Portal policy</a>
       </p>
-      <nav className="tabs" aria-label="Pupil record">
-        <a href="#overview">Overview</a>
-        <a href="#attendance">Attendance</a>
-        <a href="#learning">Learning</a>
-        <a href="#academic">Academic</a>
-        <a href="#documents">Documents</a>
-        {statutory ? <a href="#statutory">Statutory</a> : null}
-        {data.behaviourSummary || data.pastoralSummary ? <a href="#pastoral">Pastoral</a> : null}
-      </nav>
-      <div id="overview" />
-      {data.attendanceSummary ? (
-        <div className="cards">
-          <div className="card"><span>Attendance</span><strong>{data.attendanceSummary.attendancePercentage ?? "—"}{data.attendanceSummary.attendancePercentage != null ? "%" : ""}</strong></div>
-          <div className="card"><span>Possible sessions</span><strong>{data.attendanceSummary.sessionsPossible}</strong></div>
-          <div className="card"><span>Present</span><strong>{data.attendanceSummary.sessionsPresent}</strong></div>
-          <div className="card"><span>Unauthorised</span><strong>{data.attendanceSummary.unauthorisedAbsence}</strong></div>
-        </div>
-      ) : null}
-      {attendance && attendance.marks.length > 0 ? (
-        <>
-          <h2 id="attendance">Attendance history</h2>
-          <table>
-            <thead>
-              <tr><th>Date</th><th>Session</th><th>Mark</th><th>Class</th></tr>
-            </thead>
-            <tbody>
-              {attendance.marks.slice(0, 24).map((row) => (
-                <tr key={row.id}>
-                  <td>{row.date}</td>
-                  <td>{row.sessionName}</td>
-                  <td>{row.codeName}</td>
-                  <td>{row.className ?? "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      ) : null}
+      <Tabs>
+        {tabs
+          .filter((item) => item.show)
+          .map((item) => (
+            <a
+              key={item.id}
+              href={`#${item.id}`}
+              className={tab === item.id ? "active" : undefined}
+              aria-current={tab === item.id ? "page" : undefined}
+              onClick={(event) => {
+                event.preventDefault();
+                goToTab(item.id);
+              }}
+            >
+              {item.label}
+            </a>
+          ))}
+      </Tabs>
 
-      <h2 id="learning">Learning</h2>
-      {learningStatus === "loading" ? (
-        <p className="muted">Loading learning history…</p>
-      ) : learningStatus === "error" ? (
-        <p className="muted">Unable to load learning history.</p>
-      ) : learning && learning.items.length > 0 ? (
-        <table>
-          <thead>
-            <tr><th>Work</th><th>Due</th><th>Status</th><th>Feedback</th></tr>
-          </thead>
-          <tbody>
-            {learning.items.map((row) => (
-              <tr key={row.assignmentId}>
-                <td>
-                  {row.title}
-                  <div className="muted">{row.subjectName ?? row.workTypeName}</div>
-                </td>
-                <td>{row.dueAt ? new Date(row.dueAt).toLocaleString() : "—"}</td>
-                <td>{row.submissionStatus.replaceAll("_", " ")}</td>
-                <td>{row.mark?.score != null ? String(row.mark.score) : row.mark?.feedback ? "Feedback" : "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <p className="muted">No assigned learning work recorded for this pupil.</p>
-      )}
-
-      <h2 id="academic">Academic / Results</h2>
-      {academicStatus === "loading" ? (
-        <p className="muted">Loading formal assessment history…</p>
-      ) : academicStatus === "error" ? (
-        <p className="muted">Unable to load formal assessment history.</p>
-      ) : academic && academic.results.length > 0 ? (
-        <table>
-          <thead>
-            <tr><th>Assessment</th><th>Date</th><th>Result</th><th>Release</th></tr>
-          </thead>
-          <tbody>
-            {academic.results.map((row, index) => (
-              <tr key={`${row.assessmentTitle}-${index}`}>
-                <td>
-                  {row.assessmentTitle}
-                  <div className="muted">{row.subjectName}</div>
-                </td>
-                <td>{row.assessmentDate ?? "—"}</td>
-                <td>
-                  {row.gradeLabel ?? row.teacherJudgement ?? (row.percentage != null ? `${row.percentage}%` : "—")}
-                </td>
-                <td>
-                  {row.releasedToStudent ? "student" : "—"}
-                  {row.releasedToParent ? " / parent" : ""}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <p className="muted">No formal assessment results recorded for this pupil.</p>
-      )}
-      {data.behaviourSummary ? (
-        <div className="cards">
-          <div className="card"><span>Behaviour incidents</span><strong>{data.behaviourSummary.incidentCount}</strong></div>
-          <div className="card"><span>Open incidents</span><strong>{data.behaviourSummary.openIncidents}</strong></div>
-          <div className="card"><span>Achievements</span><strong>{data.behaviourSummary.positiveCount}</strong></div>
-        </div>
-      ) : null}
-      {behaviour && (behaviour.incidents.length > 0 || behaviour.positives.length > 0) ? (
-        <>
-          <h2>Behaviour</h2>
-          <table>
-            <thead>
-              <tr><th>When</th><th>Category</th><th>Severity</th><th>Status</th></tr>
-            </thead>
-            <tbody>
-              {behaviour.incidents.slice(0, 12).map((row) => (
-                <tr key={row.id}>
-                  <td>{new Date(row.occurredAt).toLocaleString()}</td>
-                  <td>{row.categoryName}</td>
-                  <td>{row.severity}</td>
-                  <td>{row.status}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      ) : null}
-      {data.pastoralSummary ? (
-        <>
-          <h2 id="pastoral">Pastoral</h2>
-          <p className="muted">
-            Open concerns: {data.pastoralSummary.openCount}
-            {data.pastoralSummary.latestPriority ? ` · latest priority ${data.pastoralSummary.latestPriority}` : ""}
-          </p>
-          {pastoral && pastoral.concerns.length > 0 ? (
-            <ul>
-              {pastoral.concerns.map((row) => (
-                <li key={row.id}>
-                  {row.concernOn} · {row.categoryName} · {row.priority} · {row.status} — {row.summary}
-                </li>
-              ))}
-            </ul>
+      {tab === "overview" ? (
+        <div className="pupil-tab-panel" id="overview">
+          {identityGaps.length > 0 ? (
+            <Alert tone="warning">
+              Complete pupil details: {identityGaps.join(", ")}.
+              {canManagePupil ? (
+                <>
+                  {" "}
+                  <Button type="button" variant="secondary" onClick={() => setEditingIdentity(true)}>
+                    Edit pupil details
+                  </Button>
+                </>
+              ) : null}
+            </Alert>
           ) : null}
-        </>
-      ) : null}
-      {safeguardingLink ? (
-        <p>
-          <a href={`/school/safeguarding?studentId=${data.student.id}`}>Open safeguarding records</a>
-        </p>
-      ) : null}
+          <SectionCard
+            title="Personal details"
+            description="Canonical pupil identity. Date of birth is stored on the pupil user record, not the census form."
+            actions={
+              canManagePupil ? (
+                <Button type="button" variant="secondary" onClick={() => setEditingIdentity((open) => !open)}>
+                  {editingIdentity ? "Cancel" : "Edit"}
+                </Button>
+              ) : null
+            }
+          >
+            <div id="pupil-details">
+              {editingIdentity && canManagePupil ? (
+                <form className="form-grid" onSubmit={saveIdentity}>
+                  <FormField label="Legal name">
+                    <Input name="legalName" defaultValue={data.student.legalName} required />
+                  </FormField>
+                  <FormField label="Preferred name">
+                    <Input name="preferredName" defaultValue={data.student.preferredName ?? ""} />
+                  </FormField>
+                  <FormField label="Date of birth">
+                    <Input type="date" name="dateOfBirth" defaultValue={data.student.dateOfBirth ?? ""} />
+                  </FormField>
+                  <FormField label="Sex / gender" hint="Operational value from admissions. Statutory sex (M/F) is edited on the Statutory tab.">
+                    <Select name="gender" defaultValue={data.student.gender ?? ""}>
+                      <option value="">Not recorded</option>
+                      <option value="female">Female</option>
+                      <option value="male">Male</option>
+                      <option value="prefer_not_to_say">Prefer not to say</option>
+                    </Select>
+                  </FormField>
+                  <FormField label="Admission number">
+                    <Input name="admissionNumber" defaultValue={data.student.admissionNumber ?? ""} />
+                  </FormField>
+                  <FormField label="Address line 1">
+                    <Input name="addressLine1" defaultValue={data.student.addressLine1 ?? ""} />
+                  </FormField>
+                  <FormField label="Address line 2">
+                    <Input name="addressLine2" defaultValue={data.student.addressLine2 ?? ""} />
+                  </FormField>
+                  <FormField label="Town">
+                    <Input name="addressTown" defaultValue={data.student.addressTown ?? ""} />
+                  </FormField>
+                  <FormField label="Postcode">
+                    <Input name="addressPostcode" defaultValue={data.student.addressPostcode ?? ""} />
+                  </FormField>
+                  <div>
+                    <Button type="submit">Save pupil details</Button>
+                  </div>
+                </form>
+              ) : (
+                <dl className="profile-list">
+                  <div>
+                    <dt>Legal name</dt>
+                    <dd>{data.student.legalName}</dd>
+                  </div>
+                  <div>
+                    <dt>Preferred name</dt>
+                    <dd>{data.student.preferredName || "Not provided"}</dd>
+                  </div>
+                  <div>
+                    <dt>Date of birth</dt>
+                    <dd>{data.student.dateOfBirth || "Not provided"}</dd>
+                  </div>
+                  <div>
+                    <dt>Sex / gender</dt>
+                    <dd>{data.student.gender || "Not provided"}</dd>
+                  </div>
+                  <div>
+                    <dt>Admission number</dt>
+                    <dd>{data.student.admissionNumber || "Not provided"}</dd>
+                  </div>
+                  <div>
+                    <dt>Address</dt>
+                    <dd>{address || "Not provided"}</dd>
+                  </div>
+                </dl>
+              )}
+            </div>
+          </SectionCard>
 
-      <h2 id="documents">Documents</h2>
-      {documents.length === 0 ? <p className="muted">No pupil documents yet.</p> : (
-        <table>
-          <thead>
-            <tr><th>Title</th><th>Type</th><th>Visibility</th><th>File</th><th></th></tr>
-          </thead>
-          <tbody>
-            {documents.map((doc) => (
-              <tr key={doc.id}>
-                <td>{doc.title}</td>
-                <td>{doc.documentType}</td>
-                <td>{doc.visibility.replaceAll("_", " ")}</td>
-                <td>{doc.originalFilename ?? "Metadata only"}{doc.byteSize ? ` · ${Math.round(doc.byteSize / 1024)} KB` : ""}</td>
-                <td>
-                  {doc.downloadPath ? (
-                    <button type="button" className="secondary" onClick={() => downloadAuthenticated(doc.downloadPath!, doc.originalFilename ?? "document").catch((err: Error) => setError(err.message))}>
-                      Download
-                    </button>
-                  ) : "—"}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      <form
-        className="card form-grid"
-        onSubmit={async (event) => {
-          event.preventDefault();
-          const form = event.currentTarget;
-          const payload = new FormData(form);
-          setUploadState("Uploading…");
-          setError("");
-          try {
-            await api(`/api/v1/students/${params.id}/documents`, { method: "POST", body: payload });
-            form.reset();
-            setUploadState("Uploaded");
-            const docs = await api<{ documents: typeof documents }>(`/api/v1/students/${params.id}/documents`);
-            setDocuments(docs.documents);
-          } catch (err) {
-            setUploadState("");
-            setError(err instanceof Error ? err.message : "Upload failed");
-          }
-        }}
-      >
-        <label>Title<input name="title" required /></label>
-        <label>
-          Type
-          <select name="documentType">
-            <option value="report">Report</option>
-            <option value="letter">Letter</option>
-            <option value="consent">Consent</option>
-            <option value="support">Support</option>
-            <option value="school_record">School record</option>
-            <option value="other">Other</option>
-          </select>
-        </label>
-        <label>
-          Visibility
-          <select name="visibility">
-            <option value="staff">Staff only</option>
-            <option value="staff_and_parents">Staff and parents</option>
-            <option value="staff_parents_and_student">Staff, parents and pupil</option>
-          </select>
-        </label>
-        <label>File<input name="file" type="file" required accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt" /></label>
-        <div><button type="submit">Upload document</button></div>
-        {uploadState ? <p className="muted">{uploadState}</p> : null}
-      </form>
+          <SectionCard
+            title="Current placement"
+            actions={
+              canManagePupil ? (
+                <Button type="button" variant="secondary" onClick={() => setMovingEnrolment((open) => !open)}>
+                  {movingEnrolment ? "Close" : "Add / move enrolment"}
+                </Button>
+              ) : null
+            }
+          >
+            <dl className="profile-list">
+              <div>
+                <dt>Academic year</dt>
+                <dd>{data.student.currentAcademicYearName || "Not enrolled"}</dd>
+              </div>
+              <div>
+                <dt>Year group</dt>
+                <dd>{data.student.currentYearGroupName || "Not provided"}</dd>
+              </div>
+              <div>
+                <dt>Form class</dt>
+                <dd>{data.student.currentFormClassName || "None"}</dd>
+              </div>
+              <div>
+                <dt>Enrolment status</dt>
+                <dd>{data.student.enrolmentStatus}</dd>
+              </div>
+            </dl>
+            {movingEnrolment && canManagePupil ? (
+              <form className="form-grid" onSubmit={enrol} style={{ marginTop: "1rem" }}>
+                <FormField label="Academic year">
+                  <Select value={enrolYearId} onChange={(event) => setEnrolYearId(event.target.value)} required>
+                    <option value="">Select…</option>
+                    {years.map((year) => (
+                      <option key={year.id} value={year.id}>
+                        {year.name}
+                      </option>
+                    ))}
+                  </Select>
+                </FormField>
+                <FormField label="Year group">
+                  <Select value={enrolGroupId} onChange={(event) => setEnrolGroupId(event.target.value)} required>
+                    <option value="">Select…</option>
+                    {groups.map((group) => (
+                      <option key={group.id} value={group.id}>
+                        {group.name}
+                      </option>
+                    ))}
+                  </Select>
+                </FormField>
+                <FormField label="Form class">
+                  <Select value={enrolClassId} onChange={(event) => setEnrolClassId(event.target.value)}>
+                    <option value="">None</option>
+                    {filteredClasses.map((row) => (
+                      <option key={row.id} value={row.id}>
+                        {row.name}
+                      </option>
+                    ))}
+                  </Select>
+                </FormField>
+                <FormField label="Placement">
+                  <Select value={enrolKind} onChange={(event) => setEnrolKind(event.target.value)}>
+                    <option value="primary">Primary</option>
+                    <option value="secondary">Secondary</option>
+                    <option value="exceptional">Exceptional</option>
+                  </Select>
+                </FormField>
+                {enrolYearId && enrolGroupId ? (
+                  <p className="muted">
+                    {describeEnrolmentChange({
+                      currentAcademicYearName: data.student.currentAcademicYearName,
+                      currentYearGroupName: data.student.currentYearGroupName,
+                      currentFormClassName: data.student.currentFormClassName,
+                      nextAcademicYearName: nextYearName,
+                      nextYearGroupName: nextGroupName,
+                      nextFormClassName: nextClassName,
+                      placementKind: enrolKind,
+                    })}
+                  </p>
+                ) : (
+                  <p className="muted">Choose an academic year and year group. The form does not default to Nursery or the first catalogue row.</p>
+                )}
+                <div>
+                  <Button type="submit">Save enrolment change</Button>
+                </div>
+              </form>
+            ) : null}
+          </SectionCard>
 
-      {academic && academic.targets.length > 0 ? (
-        <>
-          <h3>Targets</h3>
-          <table>
-            <thead>
-              <tr><th>Subject</th><th>Target</th><th>Baseline</th></tr>
-            </thead>
-            <tbody>
-              {academic.targets.map((row, index) => (
-                <tr key={`${row.subjectName}-${index}`}>
-                  <td>{row.subjectName}</td>
-                  <td>{row.targetLabel ?? "—"}</td>
-                  <td>{row.baselineLabel ?? "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      ) : null}
-      {academic && academic.reports.length > 0 ? (
-        <>
-          <h3>Reports</h3>
-          <table>
-            <thead>
-              <tr><th>Period</th><th>Status</th></tr>
-            </thead>
-            <tbody>
-              {academic.reports.map((row, index) => (
-                <tr key={`${row.reportingPeriodName}-${index}`}>
-                  <td>{row.reportingPeriodName}</td>
+          <SectionCard title="Parents / guardians">
+            {data.guardians.length === 0 ? (
+              <p className="muted">No guardians linked yet.</p>
+            ) : (
+              <DataTable
+                headers={
+                  <>
+                    <th>Name</th>
+                    <th>Relationship</th>
+                    <th>Account</th>
+                    <th>Portal</th>
+                    <th>PR</th>
+                    <th>Status</th>
+                  </>
+                }
+              >
+                {data.guardians.map((row) => (
+                  <tr key={row.id}>
+                    <td>
+                      {row.guardianFullName}
+                      <div className="muted">{row.guardianEmail}</div>
+                    </td>
+                    <td>{row.relationship}</td>
+                    <td>{guardianAccountLabel(row.membershipStatus)}</td>
+                    <td>
+                      {row.endedOn || !canManageGuardians ? (
+                        portalAccessLabel(row.portalAccess)
+                      ) : (
+                        <Button type="button" variant="secondary" onClick={() => togglePortal(row.id, !row.portalAccess)}>
+                          {portalAccessLabel(row.portalAccess)}
+                        </Button>
+                      )}
+                    </td>
+                    <td>{row.hasParentalResponsibility ? "Yes" : "No"}</td>
+                    <td>{row.endedOn ?? "current"}</td>
+                  </tr>
+                ))}
+              </DataTable>
+            )}
+            {canManageGuardians ? (
+              <form className="form-grid" onSubmit={addGuardian} style={{ marginTop: "1rem" }}>
+                <FormField label="Name">
+                  <Input name="fullName" required />
+                </FormField>
+                <FormField label="Email">
+                  <Input name="email" type="email" required />
+                </FormField>
+                <FormField label="Relationship">
+                  <Select name="relationship" defaultValue="mother">
+                    <option value="mother">Mother</option>
+                    <option value="father">Father</option>
+                    <option value="carer">Carer</option>
+                    <option value="other">Other</option>
+                  </Select>
+                </FormField>
+                <Checkbox name="hasParentalResponsibility" label="Parental responsibility" />
+                <Checkbox name="portalAccess" label="Enable parent portal access" />
+                <div>
+                  <Button type="submit">Invite / link parent</Button>
+                </div>
+              </form>
+            ) : null}
+          </SectionCard>
+
+          <SectionCard title="Enrolment history">
+            <DataTable
+              headers={
+                <>
+                  <th>Year</th>
+                  <th>Year group</th>
+                  <th>Kind</th>
+                  <th>From</th>
+                  <th>To</th>
+                  <th>Status</th>
+                </>
+              }
+            >
+              {data.enrolments.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.academicYearName}</td>
+                  <td>{row.yearGroupName}</td>
+                  <td>
+                    {row.placementKind}
+                    {row.isPrimary ? " (primary)" : ""}
+                  </td>
+                  <td>{row.startedOn}</td>
+                  <td>{row.endedOn ?? "current"}</td>
                   <td>{row.status}</td>
                 </tr>
               ))}
-            </tbody>
-          </table>
-        </>
+            </DataTable>
+            <h3>Class memberships</h3>
+            <DataTable
+              headers={
+                <>
+                  <th>Class</th>
+                  <th>Type</th>
+                  <th>From</th>
+                  <th>To</th>
+                </>
+              }
+            >
+              {data.classMemberships.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.className}</td>
+                  <td>{row.classType}</td>
+                  <td>{row.startedOn}</td>
+                  <td>{row.endedOn ?? "current"}</td>
+                </tr>
+              ))}
+            </DataTable>
+          </SectionCard>
+        </div>
       ) : null}
 
-      <h2>Enrolment history</h2>
-      <table>
-        <thead>
-          <tr><th>Year</th><th>Year group</th><th>Kind</th><th>From</th><th>To</th><th>Status</th></tr>
-        </thead>
-        <tbody>
-          {data.enrolments.map((row) => (
-            <tr key={row.id}>
-              <td>{row.academicYearName}</td>
-              <td>{row.yearGroupName}</td>
-              <td>{row.placementKind}{row.isPrimary ? " (primary)" : ""}</td>
-              <td>{row.startedOn}</td>
-              <td>{row.endedOn ?? "current"}</td>
-              <td>{row.status}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <form className="card form-grid" onSubmit={enrol}>
-        <label>
-          Academic year
-          <select name="academicYearId" required>
-            {years.map((y) => <option key={y.id} value={y.id}>{y.name}</option>)}
-          </select>
-        </label>
-        <label>
-          Year group
-          <select name="yearGroupId" required>
-            {groups.map((y) => <option key={y.id} value={y.id}>{y.name}</option>)}
-          </select>
-        </label>
-        <label>
-          Form class
-          <select name="classId">
-            <option value="">None</option>
-            {classes.map((y) => <option key={y.id} value={y.id}>{y.name}</option>)}
-          </select>
-        </label>
-        <label>
-          Placement
-          <select name="placementKind">
-            <option value="primary">Primary</option>
-            <option value="secondary">Secondary</option>
-            <option value="exceptional">Exceptional</option>
-          </select>
-        </label>
-        <div><button type="submit">Add / move enrolment</button></div>
-      </form>
-
-      <h2>Class memberships</h2>
-      <table>
-        <thead>
-          <tr><th>Class</th><th>Type</th><th>From</th><th>To</th></tr>
-        </thead>
-        <tbody>
-          {data.classMemberships.map((row) => (
-            <tr key={row.id}>
-              <td>{row.className}</td>
-              <td>{row.classType}</td>
-              <td>{row.startedOn}</td>
-              <td>{row.endedOn ?? "current"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <h2>Parents / guardians</h2>
-      <table>
-        <thead>
-          <tr><th>Name</th><th>Email</th><th>Relationship</th><th>PR</th><th>Parent portal</th><th>Account</th><th>Status</th></tr>
-        </thead>
-        <tbody>
-          {data.guardians.map((row) => (
-            <tr key={row.id}>
-              <td>{row.guardianFullName}</td>
-              <td>{row.guardianEmail}</td>
-              <td>{row.relationship}</td>
-              <td>{row.hasParentalResponsibility ? "Yes" : "No"}</td>
-              <td>
-                {row.endedOn ? "—" : (
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => togglePortal(row.id, !row.portalAccess)}
-                  >
-                    {row.portalAccess ? "Enabled" : "Off"}
-                  </button>
-                )}
-              </td>
-              <td>
-                {row.membershipStatus === "invited"
-                  ? "Invite pending"
-                  : row.membershipStatus === "active"
-                    ? "Account active"
-                    : "—"}
-              </td>
-              <td>{row.endedOn ?? "current"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <form className="card form-grid" onSubmit={addGuardian}>
-        <label>Name<input name="fullName" required /></label>
-        <label>Email<input name="email" type="email" required /></label>
-        <label>Relationship<input name="relationship" defaultValue="mother" /></label>
-        <label style={{ alignItems: "center" }}>
-          Parental responsibility
-          <input name="hasParentalResponsibility" type="checkbox" />
-        </label>
-        <div><button type="submit">Invite / link parent</button></div>
-      </form>
-      {invite ? (
-        <p>
-          Invitation token (share once): <code>{invite}</code>
-        </p>
+      {tab === "attendance" ? (
+        <div className="pupil-tab-panel" id="attendance">
+          {data.attendanceSummary ? (
+            <div className="cards">
+              <StatCard label="Attendance" value={`${data.attendanceSummary.attendancePercentage ?? "—"}${data.attendanceSummary.attendancePercentage != null ? "%" : ""}`} />
+              <StatCard label="Possible sessions" value={data.attendanceSummary.sessionsPossible} />
+              <StatCard label="Present" value={data.attendanceSummary.sessionsPresent} />
+              <StatCard label="Unauthorised" value={data.attendanceSummary.unauthorisedAbsence} />
+            </div>
+          ) : (
+            <p className="muted">No attendance summary is available for this pupil.</p>
+          )}
+          {attendance && attendance.marks.length > 0 ? (
+            <SectionCard title="Attendance history">
+              <DataTable
+                headers={
+                  <>
+                    <th>Date</th>
+                    <th>Session</th>
+                    <th>Mark</th>
+                    <th>Class</th>
+                  </>
+                }
+              >
+                {attendance.marks.slice(0, 24).map((row) => (
+                  <tr key={row.id}>
+                    <td>{row.date}</td>
+                    <td>{row.sessionName}</td>
+                    <td>{row.codeName}</td>
+                    <td>{row.className ?? "—"}</td>
+                  </tr>
+                ))}
+              </DataTable>
+            </SectionCard>
+          ) : null}
+        </div>
       ) : null}
-      {statutory ? (
-        <form
-          id="statutory"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            if (!permissions.has("pupils.statutory.manage")) return;
-            const form = new FormData(event.currentTarget);
-            await api(`/api/v1/students/${params.id}/statutory`, {
-              method: "PATCH",
-              body: JSON.stringify({
-                upn: form.get("upn") || null,
-                legalForename: form.get("legalForename") || null,
-                legalSurname: form.get("legalSurname") || null,
-                middleNames: form.get("middleNames") || null,
-                sex: form.get("sex") || null,
-                ethnicityCode: form.get("ethnicityCode") || null,
-                languageCode: form.get("languageCode") || null,
-                enrolmentStatusCode: form.get("enrolmentStatusCode") || null,
-                dateOfAdmission: form.get("dateOfAdmission") || null,
-                sendProvisionCode: form.get("sendProvisionCode") || null,
-                lookedAfterStatus: form.get("lookedAfterStatus") || "none",
-                serviceChild: form.get("serviceChild") === "on",
-              }),
-            });
-            await load();
-          }}
-        >
-          <FormSection
+
+      {tab === "learning" ? (
+        <div className="pupil-tab-panel" id="learning">
+          <SectionCard title="Learning">
+            {learningStatus === "loading" ? (
+              <p className="muted">Loading learning history…</p>
+            ) : learningStatus === "error" ? (
+              <p className="muted">Unable to load learning history.</p>
+            ) : learning && learning.items.length > 0 ? (
+              <DataTable
+                headers={
+                  <>
+                    <th>Work</th>
+                    <th>Due</th>
+                    <th>Status</th>
+                    <th>Feedback</th>
+                  </>
+                }
+              >
+                {learning.items.map((row) => (
+                  <tr key={row.assignmentId}>
+                    <td>
+                      {row.title}
+                      <div className="muted">{row.subjectName ?? row.workTypeName}</div>
+                    </td>
+                    <td>{row.dueAt ? new Date(row.dueAt).toLocaleString() : "—"}</td>
+                    <td>{row.submissionStatus.replaceAll("_", " ")}</td>
+                    <td>{row.mark?.score != null ? String(row.mark.score) : row.mark?.feedback ? "Feedback" : "—"}</td>
+                  </tr>
+                ))}
+              </DataTable>
+            ) : (
+              <p className="muted">No assigned learning work recorded for this pupil.</p>
+            )}
+          </SectionCard>
+        </div>
+      ) : null}
+
+      {tab === "academic" ? (
+        <div className="pupil-tab-panel" id="academic">
+          <SectionCard title="Academic / Results">
+            {academicStatus === "loading" ? (
+              <p className="muted">Loading formal assessment history…</p>
+            ) : academicStatus === "error" ? (
+              <p className="muted">Unable to load formal assessment history.</p>
+            ) : academic && academic.results.length > 0 ? (
+              <DataTable
+                headers={
+                  <>
+                    <th>Assessment</th>
+                    <th>Date</th>
+                    <th>Result</th>
+                    <th>Release</th>
+                  </>
+                }
+              >
+                {academic.results.map((row, index) => (
+                  <tr key={`${row.assessmentTitle}-${index}`}>
+                    <td>
+                      {row.assessmentTitle}
+                      <div className="muted">{row.subjectName}</div>
+                    </td>
+                    <td>{row.assessmentDate ?? "—"}</td>
+                    <td>{row.gradeLabel ?? row.teacherJudgement ?? (row.percentage != null ? `${row.percentage}%` : "—")}</td>
+                    <td>
+                      {row.releasedToStudent ? "student" : "—"}
+                      {row.releasedToParent ? " / parent" : ""}
+                    </td>
+                  </tr>
+                ))}
+              </DataTable>
+            ) : (
+              <p className="muted">No formal assessment results recorded for this pupil.</p>
+            )}
+          </SectionCard>
+          {academic && academic.targets.length > 0 ? (
+            <SectionCard title="Targets">
+              <DataTable
+                headers={
+                  <>
+                    <th>Subject</th>
+                    <th>Target</th>
+                    <th>Baseline</th>
+                  </>
+                }
+              >
+                {academic.targets.map((row, index) => (
+                  <tr key={`${row.subjectName}-${index}`}>
+                    <td>{row.subjectName}</td>
+                    <td>{row.targetLabel ?? "—"}</td>
+                    <td>{row.baselineLabel ?? "—"}</td>
+                  </tr>
+                ))}
+              </DataTable>
+            </SectionCard>
+          ) : null}
+          {academic && academic.reports.length > 0 ? (
+            <SectionCard title="Reports">
+              <DataTable
+                headers={
+                  <>
+                    <th>Period</th>
+                    <th>Status</th>
+                  </>
+                }
+              >
+                {academic.reports.map((row, index) => (
+                  <tr key={`${row.reportingPeriodName}-${index}`}>
+                    <td>{row.reportingPeriodName}</td>
+                    <td>{row.status}</td>
+                  </tr>
+                ))}
+              </DataTable>
+            </SectionCard>
+          ) : null}
+        </div>
+      ) : null}
+
+      {tab === "documents" ? (
+        <div className="pupil-tab-panel" id="documents">
+          <SectionCard title="Documents">
+            {documents.length === 0 ? (
+              <p className="muted">No pupil documents yet.</p>
+            ) : (
+              <DataTable
+                headers={
+                  <>
+                    <th>Title</th>
+                    <th>Type</th>
+                    <th>Visibility</th>
+                    <th>File</th>
+                    <th></th>
+                  </>
+                }
+              >
+                {documents.map((doc) => (
+                  <tr key={doc.id}>
+                    <td>{doc.title}</td>
+                    <td>{doc.documentType}</td>
+                    <td>{doc.visibility.replaceAll("_", " ")}</td>
+                    <td>
+                      {doc.originalFilename ?? "Metadata only"}
+                      {doc.byteSize ? ` · ${Math.round(doc.byteSize / 1024)} KB` : ""}
+                    </td>
+                    <td>
+                      {doc.downloadPath ? (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() =>
+                            downloadAuthenticated(doc.downloadPath!, doc.originalFilename ?? "document").catch((err: unknown) =>
+                              setActionErrorMessage(actionError(err, "Download failed.")),
+                            )
+                          }
+                        >
+                          Download
+                        </Button>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </DataTable>
+            )}
+            <form
+              className="form-grid"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                const form = event.currentTarget;
+                const payload = new FormData(form);
+                setUploadState("Uploading…");
+                setActionErrorMessage("");
+                try {
+                  await api(`/api/v1/students/${params.id}/documents`, { method: "POST", body: payload });
+                  form.reset();
+                  setUploadState("Uploaded");
+                  const docs = await api<{ documents: typeof documents }>(`/api/v1/students/${params.id}/documents`);
+                  setDocuments(docs.documents);
+                } catch (err) {
+                  setUploadState("");
+                  setActionErrorMessage(actionError(err, "Upload failed."));
+                }
+              }}
+            >
+              <FormField label="Title">
+                <Input name="title" required />
+              </FormField>
+              <FormField label="Type">
+                <Select name="documentType" defaultValue="report">
+                  <option value="report">Report</option>
+                  <option value="letter">Letter</option>
+                  <option value="consent">Consent</option>
+                  <option value="support">Support</option>
+                  <option value="school_record">School record</option>
+                  <option value="other">Other</option>
+                </Select>
+              </FormField>
+              <FormField label="Visibility">
+                <Select name="visibility" defaultValue="staff">
+                  <option value="staff">Staff only</option>
+                  <option value="staff_and_parents">Staff and parents</option>
+                  <option value="staff_parents_and_student">Staff, parents and pupil</option>
+                </Select>
+              </FormField>
+              <FormField label="File">
+                <Input name="file" type="file" required accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt" />
+              </FormField>
+              <div>
+                <Button type="submit">Upload document</Button>
+              </div>
+              {uploadState ? <p className="muted">{uploadState}</p> : null}
+            </form>
+          </SectionCard>
+        </div>
+      ) : null}
+
+      {tab === "statutory" && statutory ? (
+        <form id="statutory" className="pupil-tab-panel" onSubmit={saveStatutory} key={`${statutory.statutory.upn ?? ""}-${statutory.statutory.sex ?? ""}-${statutory.statutory.lookedAfterStatus ?? ""}`}>
+          <SectionCard
             title="Statutory record"
-            description="Permission-gated census fields. Preferred name stays operational and is not a substitute for legal name."
+            description="Permission-gated census fields. Preferred name stays operational and is not a substitute for legal name. Date of birth is edited in Personal details."
           >
             {statutory.issues.length > 0 ? (
               <Alert tone="warning">
-                {statutory.issues.map((issue) => (
-                  <p key={issue.message}>
-                    <StatusBadge status={issue.severity} /> {issue.message}
-                  </p>
-                ))}
+                {statutory.issues.map((issue) => {
+                  const fix = statutoryIssueFix({
+                    ruleKey: issue.ruleKey,
+                    field: issue.field,
+                    entityId: issue.entityId ?? params.id,
+                  });
+                  return (
+                    <p key={`${issue.ruleKey}-${issue.message}`}>
+                      <StatusBadge status={issue.severity} /> {issue.message}{" "}
+                      {fix ? (
+                        <a
+                          href={fix.href}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            const next = parsePupilRecordTab(fix.href.split("#")[1]);
+                            goToTab(next);
+                            if (next === "overview") setEditingIdentity(true);
+                          }}
+                        >
+                          {issue.fixLabel ?? fix.label}
+                        </a>
+                      ) : null}
+                    </p>
+                  );
+                })}
               </Alert>
             ) : (
               <p className="muted">No statutory validation issues for this pupil.</p>
             )}
-            <FormField label="UPN">
-              <Input
-                name="upn"
-                defaultValue={statutory.statutory.upn ?? ""}
-                readOnly={!permissions.has("pupils.statutory.manage")}
+            <div className="form-grid">
+              <FormField label="UPN" error={upnError || undefined}>
+                <Input
+                  name="upn"
+                  defaultValue={statutory.statutory.upn ?? ""}
+                  readOnly={!canManageStatutory}
+                  onChange={() => setUpnError("")}
+                />
+              </FormField>
+              <FormField label="Legal forename">
+                <Input name="legalForename" defaultValue={statutory.statutory.legalForename ?? ""} readOnly={!canManageStatutory} />
+              </FormField>
+              <FormField label="Legal surname">
+                <Input name="legalSurname" defaultValue={statutory.statutory.legalSurname ?? ""} readOnly={!canManageStatutory} />
+              </FormField>
+              <FormField label="Middle names">
+                <Input name="middleNames" defaultValue={statutory.statutory.middleNames ?? ""} readOnly={!canManageStatutory} />
+              </FormField>
+              <FormField label="Sex" hint="Census sex (M/F). This is not filled from an untouched default.">
+                <Select id="statutory-sex" name="sex" defaultValue={statutory.statutory.sex ?? ""} disabled={!canManageStatutory}>
+                  <option value="">Select…</option>
+                  <option value="F">Female</option>
+                  <option value="M">Male</option>
+                </Select>
+              </FormField>
+              <FormField label="Ethnicity code">
+                <Input name="ethnicityCode" defaultValue={statutory.statutory.ethnicityCode ?? ""} readOnly={!canManageStatutory} />
+              </FormField>
+              <FormField label="Language code">
+                <Input name="languageCode" defaultValue={statutory.statutory.languageCode ?? ""} readOnly={!canManageStatutory} />
+              </FormField>
+              <FormField label="Enrolment status">
+                <Select name="enrolmentStatusCode" defaultValue={statutory.statutory.enrolmentStatusCode ?? ""} disabled={!canManageStatutory}>
+                  <option value="">Select…</option>
+                  <option value="C">Current</option>
+                  <option value="G">Guest</option>
+                  <option value="M">Main dual</option>
+                  <option value="S">Subsidiary dual</option>
+                  <option value="F">FE</option>
+                </Select>
+              </FormField>
+              <FormField label="Admission date">
+                <Input type="date" name="dateOfAdmission" defaultValue={statutory.statutory.dateOfAdmission ?? ""} readOnly={!canManageStatutory} />
+              </FormField>
+              <FormField label="SEND provision">
+                <Select name="sendProvisionCode" defaultValue={statutory.statutory.sendProvisionCode ?? ""} disabled={!canManageStatutory}>
+                  <option value="">Not recorded</option>
+                  <option value="N">None</option>
+                  <option value="K">SEN support</option>
+                  <option value="E">EHC plan</option>
+                </Select>
+              </FormField>
+              <FormField label="Looked-after status" hint="Never inferred from the first option. Not recorded saves as none.">
+                <Select
+                  name="lookedAfterStatus"
+                  defaultValue={statutory.statutory.lookedAfterStatus && statutory.statutory.lookedAfterStatus !== "none" ? statutory.statutory.lookedAfterStatus : statutory.statutory.lookedAfterStatus === "none" ? "none" : ""}
+                  disabled={!canManageStatutory}
+                >
+                  <option value="">Not recorded</option>
+                  <option value="none">Not looked after</option>
+                  <option value="looked_after">Looked after</option>
+                  <option value="previously_looked_after">Previously looked after</option>
+                </Select>
+              </FormField>
+              <FormField label="Previous school">
+                <Input name="previousSchoolName" defaultValue={statutory.statutory.previousSchoolName ?? ""} readOnly={!canManageStatutory} />
+              </FormField>
+              <Checkbox
+                name="serviceChild"
+                label="Service child"
+                defaultChecked={Boolean(statutory.statutory.serviceChild)}
+                disabled={!canManageStatutory}
               />
-            </FormField>
-            <FormField label="Legal forename">
-              <Input
-                name="legalForename"
-                defaultValue={statutory.statutory.legalForename ?? ""}
-                readOnly={!permissions.has("pupils.statutory.manage")}
-              />
-            </FormField>
-            <FormField label="Legal surname">
-              <Input
-                name="legalSurname"
-                defaultValue={statutory.statutory.legalSurname ?? ""}
-                readOnly={!permissions.has("pupils.statutory.manage")}
-              />
-            </FormField>
-            <FormField label="Middle names">
-              <Input
-                name="middleNames"
-                defaultValue={statutory.statutory.middleNames ?? ""}
-                readOnly={!permissions.has("pupils.statutory.manage")}
-              />
-            </FormField>
-            <FormField label="Sex">
-              <Select
-                name="sex"
-                defaultValue={statutory.statutory.sex ?? ""}
-                disabled={!permissions.has("pupils.statutory.manage")}
-              >
-                <option value="">Select</option>
-                <option value="F">Female</option>
-                <option value="M">Male</option>
-              </Select>
-            </FormField>
-            <FormField label="Ethnicity code">
-              <Input
-                name="ethnicityCode"
-                defaultValue={statutory.statutory.ethnicityCode ?? ""}
-                readOnly={!permissions.has("pupils.statutory.manage")}
-              />
-            </FormField>
-            <FormField label="Language code">
-              <Input
-                name="languageCode"
-                defaultValue={statutory.statutory.languageCode ?? ""}
-                readOnly={!permissions.has("pupils.statutory.manage")}
-              />
-            </FormField>
-            <FormField label="Enrolment status">
-              <Select
-                name="enrolmentStatusCode"
-                defaultValue={statutory.statutory.enrolmentStatusCode ?? ""}
-                disabled={!permissions.has("pupils.statutory.manage")}
-              >
-                <option value="">Select</option>
-                <option value="C">Current</option>
-                <option value="G">Guest</option>
-                <option value="M">Main dual</option>
-                <option value="S">Subsidiary dual</option>
-              </Select>
-            </FormField>
-            <FormField label="Admission date">
-              <Input
-                type="date"
-                name="dateOfAdmission"
-                defaultValue={statutory.statutory.dateOfAdmission ?? ""}
-                readOnly={!permissions.has("pupils.statutory.manage")}
-              />
-            </FormField>
-            <FormField label="SEND provision">
-              <Select
-                name="sendProvisionCode"
-                defaultValue={statutory.statutory.sendProvisionCode ?? ""}
-                disabled={!permissions.has("pupils.statutory.manage")}
-              >
-                <option value="">Select</option>
-                <option value="N">None</option>
-                <option value="K">SEN support</option>
-                <option value="E">EHC plan</option>
-              </Select>
-            </FormField>
-            <FormField label="Looked-after status">
-              <Select
-                name="lookedAfterStatus"
-                defaultValue={statutory.statutory.lookedAfterStatus ?? "none"}
-                disabled={!permissions.has("pupils.statutory.manage")}
-              >
-                <option value="none">Not looked after</option>
-                <option value="looked_after">Looked after</option>
-                <option value="previously_looked_after">Previously looked after</option>
-              </Select>
-            </FormField>
-            <Checkbox
-              name="serviceChild"
-              label="Service child"
-              defaultChecked={Boolean(statutory.statutory.serviceChild)}
-              disabled={!permissions.has("pupils.statutory.manage")}
-            />
-            {permissions.has("pupils.statutory.manage") ? (
+            </div>
+            {canManageStatutory ? (
               <div>
                 <Button type="submit">Save statutory record</Button>
               </div>
@@ -917,13 +1304,126 @@ export default function StudentDetailPage() {
               FSM periods:{" "}
               {statutory.statutory.fsmPeriods.length === 0
                 ? "none"
-                : statutory.statutory.fsmPeriods
-                    .map((period) => `${period.startedOn}–${period.endedOn ?? "ongoing"}`)
-                    .join("; ")}
+                : statutory.statutory.fsmPeriods.map((period) => `${period.startedOn}–${period.endedOn ?? "ongoing"}`).join("; ")}
             </p>
-          </FormSection>
+          </SectionCard>
         </form>
       ) : null}
+
+      {tab === "pastoral" ? (
+        <div className="pupil-tab-panel" id="pastoral">
+          {data.behaviourSummary ? (
+            <div className="cards">
+              <StatCard label="Behaviour incidents" value={data.behaviourSummary.incidentCount} />
+              <StatCard label="Open incidents" value={data.behaviourSummary.openIncidents} />
+              <StatCard label="Achievements" value={data.behaviourSummary.positiveCount} />
+            </div>
+          ) : null}
+          {behaviour && (behaviour.incidents.length > 0 || behaviour.positives.length > 0) ? (
+            <SectionCard title="Behaviour">
+              <DataTable
+                headers={
+                  <>
+                    <th>When</th>
+                    <th>Category</th>
+                    <th>Severity</th>
+                    <th>Status</th>
+                  </>
+                }
+              >
+                {behaviour.incidents.slice(0, 12).map((row) => (
+                  <tr key={row.id}>
+                    <td>{new Date(row.occurredAt).toLocaleString()}</td>
+                    <td>{row.categoryName}</td>
+                    <td>{row.severity}</td>
+                    <td>{row.status}</td>
+                  </tr>
+                ))}
+              </DataTable>
+            </SectionCard>
+          ) : null}
+          {data.pastoralSummary ? (
+            <SectionCard title="Pastoral">
+              <p className="muted">
+                Open concerns: {data.pastoralSummary.openCount}
+                {data.pastoralSummary.latestPriority ? ` · latest priority ${data.pastoralSummary.latestPriority}` : ""}
+              </p>
+              {pastoral && pastoral.concerns.length > 0 ? (
+                <ul>
+                  {pastoral.concerns.map((row) => (
+                    <li key={row.id}>
+                      {row.concernOn} · {row.categoryName} · {row.priority} · {row.status} — {row.summary}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </SectionCard>
+          ) : null}
+          {safeguardingLink ? (
+            <p>
+              <a href={`/school/safeguarding?studentId=${data.student.id}`}>Open safeguarding records</a>
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      <Dialog
+        open={Boolean(invite)}
+        title="Parent invitation created"
+        description="Copy this invitation now. For security it will not be shown again."
+        onClose={() => {
+          setInvite(null);
+          setCopyState("");
+        }}
+      >
+        {invite ? (
+          <div className="invite-token-panel">
+            <dl className="profile-list">
+              <div>
+                <dt>Name</dt>
+                <dd>{invite.name}</dd>
+              </div>
+              <div>
+                <dt>Email</dt>
+                <dd>{invite.email}</dd>
+              </div>
+              <div>
+                <dt>Relationship</dt>
+                <dd>{invite.relationship}</dd>
+              </div>
+            </dl>
+            <p className="muted">Invitation token / link</p>
+            <code>{invite.token}</code>
+            <Alert tone="warning">Copy this invitation now. For security it will not be shown again.</Alert>
+            <div className="dialog-actions">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(invite.token);
+                    setCopyState("Copied");
+                  } catch {
+                    setCopyState("Copy failed — select the token manually");
+                  }
+                }}
+              >
+                Copy
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  setInvite(null);
+                  setCopyState("");
+                }}
+              >
+                Done
+              </Button>
+            </div>
+            {copyState ? <p className="muted">{copyState}</p> : null}
+          </div>
+        ) : null}
+      </Dialog>
     </>
   );
 }

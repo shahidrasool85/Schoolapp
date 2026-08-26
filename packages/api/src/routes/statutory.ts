@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PERMISSIONS } from "@schoolapp/domain";
+import { PERMISSIONS, statutoryIssueFix, lookedAfterPersistValue } from "@schoolapp/domain";
 import {
   AppError,
   ADMISSIONS_ENROLMENT_COLUMNS,
@@ -135,14 +135,14 @@ function wantsCsv(c: { req: { query: (name: string) => string | undefined } }) {
   return (c.req.query("format") ?? "").toLowerCase() === "csv";
 }
 
-function issueFixPath(issue: StatutoryIssue): string | null {
-  if (issue.entityType === "school" || issue.entityType === "attendance") {
-    return "/school/settings/statutory";
-  }
-  if (issue.entityId) {
-    return `/school/students/${issue.entityId}#statutory`;
-  }
-  return "/school/statutory/data-quality";
+function withIssueFix(issue: StatutoryIssue, extra?: { pupilName?: string | null }) {
+  const fix = statutoryIssueFix(issue);
+  return mapStatutoryIssue({
+    ...issue,
+    pupilName: extra?.pupilName ?? null,
+    fixPath: fix?.href ?? "/school/statutory/data-quality",
+    fixLabel: fix?.label ?? null,
+  });
 }
 
 function mapPupilStatutory(pupil: PupilStatutoryRecord, asOf: string) {
@@ -461,11 +461,7 @@ export function registerStatutoryRoutes(app: SchoolappApi) {
         asOf,
         counts: countIssues(issues),
         issues: issues.map((issue) =>
-          mapStatutoryIssue({
-            ...issue,
-            pupilName: issue.entityId ? byId.get(issue.entityId) ?? null : null,
-            fixPath: issueFixPath(issue),
-          }),
+          withIssueFix(issue, { pupilName: issue.entityId ? byId.get(issue.entityId) ?? null : null }),
         ),
       });
     }),
@@ -521,7 +517,7 @@ export function registerStatutoryRoutes(app: SchoolappApi) {
       }).filter((issue) => issue.entityId === id);
       return c.json({
         statutory: mapPupilStatutory(pupil, asOf),
-        issues: issues.map((issue) => mapStatutoryIssue({ ...issue, fixPath: issueFixPath(issue) })),
+        issues: issues.map((issue) => withIssueFix({ ...issue, entityId: issue.entityId ?? id })),
       });
     }),
   );
@@ -540,12 +536,12 @@ export function registerStatutoryRoutes(app: SchoolappApi) {
       const data = parsed.data;
       if (data.upn) {
         if (!validateUpn(data.upn).ok) {
-          throw new AppError(400, "validation_failed", "UPN format is invalid");
+          throw new AppError(400, "validation_failed", "UPN format is invalid", { fieldKey: "upn" });
         }
       }
       if (data.formerUpn) {
         if (!validateUpn(data.formerUpn).ok) {
-          throw new AppError(400, "validation_failed", "Former UPN format is invalid");
+          throw new AppError(400, "validation_failed", "Former UPN format is invalid", { fieldKey: "formerUpn" });
         }
       }
       const current = await client.query<{ legal_name: string }>(
@@ -575,7 +571,7 @@ export function registerStatutoryRoutes(app: SchoolappApi) {
            leaving_reason_code = coalesce(excluded.leaving_reason_code, student_statutory_profiles.leaving_reason_code),
            previous_school_name = coalesce(excluded.previous_school_name, student_statutory_profiles.previous_school_name),
            send_provision_code = coalesce(excluded.send_provision_code, student_statutory_profiles.send_provision_code),
-           looked_after_status = coalesce(excluded.looked_after_status, student_statutory_profiles.looked_after_status),
+           looked_after_status = case when $22 then excluded.looked_after_status else student_statutory_profiles.looked_after_status end,
            service_child = coalesce(excluded.service_child, student_statutory_profiles.service_child),
            updated_by = excluded.updated_by`,
         [
@@ -595,11 +591,12 @@ export function registerStatutoryRoutes(app: SchoolappApi) {
           data.leavingReasonCode ?? null,
           data.previousSchoolName ?? null,
           data.sendProvisionCode ?? null,
-          data.lookedAfterStatus ?? "none",
+          data.lookedAfterStatus !== undefined ? lookedAfterPersistValue(data.lookedAfterStatus) : "none",
           data.serviceChild ?? null,
           userId,
           data.upn !== undefined,
           data.dateOfLeaving !== undefined,
+          data.lookedAfterStatus !== undefined,
         ],
       );
       await writeAudit(client, {

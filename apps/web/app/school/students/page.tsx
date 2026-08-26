@@ -56,6 +56,7 @@ export default function StudentsPage() {
         method: "POST",
         body: JSON.stringify({
           legalName: payload.get("legalName"),
+          dateOfBirth: payload.get("dateOfBirth") || undefined,
           admissionNumber: payload.get("admissionNumber") || undefined,
           academicYearId: payload.get("academicYearId") || undefined,
           yearGroupId: payload.get("yearGroupId") || undefined,
@@ -81,6 +82,9 @@ export default function StudentsPage() {
       <form className="card form-grid" onSubmit={onSubmit}>
         <FormField label="Legal name" htmlFor="legalName">
           <Input id="legalName" name="legalName" required />
+        </FormField>
+        <FormField label="Date of birth" htmlFor="dateOfBirth">
+          <Input id="dateOfBirth" name="dateOfBirth" type="date" />
         </FormField>
         <FormField label="Admission number" htmlFor="admissionNumber">
           <Input id="admissionNumber" name="admissionNumber" />

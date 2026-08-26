@@ -8,6 +8,7 @@ import {
   ENQUIRY_STATUSES,
   OFFER_STATUSES,
   WAITING_LIST_STATUSES,
+  mapOperationalGenderToStatutorySex,
   type ApplicationStatus,
 } from "@schoolapp/domain";
 import {
@@ -162,6 +163,33 @@ async function loadApplication(client: pg.PoolClient, orgId: string, id: string)
   const listed = await client.query(`${APPLICATION_SQL} and a.id = $2`, [orgId, id]);
   if (!listed.rows[0]) throw new AppError(404, "not_found", "Not found");
   return listed.rows[0] as Record<string, unknown>;
+}
+
+async function applyConvertedApplicationCanonicalFields(
+  client: pg.PoolClient,
+  orgId: string,
+  actorUserId: string,
+  studentProfileId: string,
+  application: Record<string, unknown>,
+) {
+  const sex = mapOperationalGenderToStatutorySex(
+    typeof application.gender === "string" ? application.gender : null,
+  );
+  const previousSchool =
+    typeof application.previous_school === "string" && application.previous_school.trim()
+      ? application.previous_school.trim()
+      : null;
+  if (!sex && !previousSchool) return;
+  await client.query(
+    `insert into student_statutory_profiles (
+       student_profile_id, organisation_id, sex, previous_school_name, looked_after_status, updated_by
+     ) values ($1, $2, $3, $4, 'none', $5)
+     on conflict (student_profile_id) do update set
+       sex = coalesce(student_statutory_profiles.sex, excluded.sex),
+       previous_school_name = coalesce(student_statutory_profiles.previous_school_name, excluded.previous_school_name),
+       updated_by = excluded.updated_by`,
+    [studentProfileId, orgId, sex, previousSchool, actorUserId],
+  );
 }
 
 async function setTransitionReason(client: pg.PoolClient, reason: string | null) {
@@ -1355,6 +1383,13 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
         ],
       );
       if (converted.rows[0]!.newly_converted) {
+        await applyConvertedApplicationCanonicalFields(
+          client,
+          orgId,
+          userId,
+          converted.rows[0]!.student_profile_id,
+          application,
+        );
         await notifyApplicationContacts(
           client,
           orgId,

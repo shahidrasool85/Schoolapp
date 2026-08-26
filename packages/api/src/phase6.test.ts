@@ -399,6 +399,7 @@ describe("Phase 6 attendance and student record", () => {
           fullName: "Pat Parent",
           relationship: "mother",
           hasParentalResponsibility: true,
+          portalAccess: true,
         }),
       })
     ).json()) as { invitationToken: string };
@@ -858,6 +859,7 @@ describe("Phase 6 attendance and student record", () => {
           email: `doc-parent-${id}@example.com`,
           fullName: "Doc Parent",
           relationship: "mother",
+          portalAccess: true,
         }),
       })
     ).json()) as { invitationToken: string };

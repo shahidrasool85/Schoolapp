@@ -286,6 +286,7 @@ export {
   lookedAfterPersistValue,
   mapOperationalGenderToStatutorySex,
   parsePupilRecordTab,
+  portalAccessGranted,
   portalAccessLabel,
   pupilIdentityGaps,
   sensitiveSelectValue,

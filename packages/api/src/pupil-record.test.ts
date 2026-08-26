@@ -99,6 +99,33 @@ async function createStudent(
   return (await created.json()) as { student: { id: string; dateOfBirth: string | null } };
 }
 
+type GuardianCreateBody = {
+  invitationToken: string | null;
+  alreadyLinked: boolean;
+  guardianUserId: string;
+  guardianship: {
+    id: string;
+    membershipStatus: string | null;
+    portalAccess: boolean;
+    guardianEmail: string | null;
+    endedOn: string | null;
+  };
+};
+
+async function postGuardian(
+  app: ReturnType<typeof testApp>,
+  hdrs: ReturnType<typeof jsonHeaders>,
+  studentId: string,
+  body: Record<string, unknown>,
+) {
+  const res = await app.request(`/api/v1/students/${studentId}/guardians`, {
+    method: "POST",
+    headers: hdrs,
+    body: JSON.stringify(body),
+  });
+  return { status: res.status, body: (await res.json()) as GuardianCreateBody };
+}
+
 async function acceptAndEnrol(
   app: ReturnType<typeof testApp>,
   hdrs: ReturnType<typeof jsonHeaders>,
@@ -469,90 +496,109 @@ describe("pupil record statutory and identity stabilisation", () => {
       yearGroupId: oakYear.year3Id,
     });
 
-    const invited = await app.request(`/api/v1/students/${pupil.student.id}/guardians`, {
-      method: "POST",
-      headers: hdrs,
-      body: JSON.stringify({
-        email: `siobhan-${id}@example.test`,
-        fullName: "Siobhan Walsh",
-        relationship: "mother",
-        portalAccess: false,
-      }),
+    const omittedInvite = await postGuardian(app, hdrs, pupil.student.id, {
+      email: `omitted-${id}@example.test`,
+      fullName: "Omitted Portal",
+      relationship: "mother",
     });
-    expect(invited.status).toBe(201);
-    const invitedBody = (await invited.json()) as {
-      invitationToken: string | null;
-      alreadyLinked: boolean;
-      guardianship: { membershipStatus: string | null; portalAccess: boolean; guardianEmail: string | null };
-    };
-    expect(invitedBody.alreadyLinked).toBe(false);
-    expect(invitedBody.invitationToken).toMatch(/^[a-f0-9]{64}$/);
-    expect(invitedBody.guardianship.membershipStatus).toBe("invited");
-    expect(invitedBody.guardianship.portalAccess).toBe(false);
+    expect(omittedInvite.status).toBe(201);
+    expect(omittedInvite.body.alreadyLinked).toBe(false);
+    expect(omittedInvite.body.invitationToken).toMatch(/^[a-f0-9]{64}$/);
+    expect(omittedInvite.body.guardianship.membershipStatus).toBe("invited");
+    expect(omittedInvite.body.guardianship.portalAccess).toBe(false);
 
-    const again = await app.request(`/api/v1/students/${pupil.student.id}/guardians`, {
-      method: "POST",
-      headers: hdrs,
-      body: JSON.stringify({
-        email: `siobhan-${id}@example.test`,
-        fullName: "Siobhan Walsh",
-        relationship: "mother",
-      }),
+    const omittedAgain = await postGuardian(app, hdrs, pupil.student.id, {
+      email: `omitted-${id}@example.test`,
+      fullName: "Omitted Portal",
+      relationship: "mother",
+    });
+    expect(omittedAgain.status).toBe(200);
+    expect(omittedAgain.body.alreadyLinked).toBe(true);
+    expect(omittedAgain.body.invitationToken).toBeNull();
+    expect(omittedAgain.body.guardianship.portalAccess).toBe(false);
+
+    const explicitFalse = await postGuardian(app, hdrs, pupil.student.id, {
+      email: `siobhan-${id}@example.test`,
+      fullName: "Siobhan Walsh",
+      relationship: "mother",
+      portalAccess: false,
+    });
+    expect(explicitFalse.status).toBe(201);
+    expect(explicitFalse.body.alreadyLinked).toBe(false);
+    expect(explicitFalse.body.invitationToken).toMatch(/^[a-f0-9]{64}$/);
+    expect(explicitFalse.body.guardianship.membershipStatus).toBe("invited");
+    expect(explicitFalse.body.guardianship.portalAccess).toBe(false);
+
+    const again = await postGuardian(app, hdrs, pupil.student.id, {
+      email: `siobhan-${id}@example.test`,
+      fullName: "Siobhan Walsh",
+      relationship: "mother",
     });
     expect(again.status).toBe(200);
-    const againBody = (await again.json()) as { invitationToken: string | null; alreadyLinked: boolean };
-    expect(againBody.alreadyLinked).toBe(true);
-    expect(againBody.invitationToken).toBeNull();
+    expect(again.body.alreadyLinked).toBe(true);
+    expect(again.body.invitationToken).toBeNull();
+    expect(again.body.guardianship.portalAccess).toBe(false);
 
     const hashed = await pools.owner.query<{ token_hash: string | null }>(
       `select token_hash from invitations where organisation_id = $1 and email = $2`,
       [school.orgId, `siobhan-${id}@example.test`],
     );
     expect(hashed.rows[0]?.token_hash).toBeTruthy();
-    expect(hashed.rows[0]?.token_hash).not.toBe(invitedBody.invitationToken);
+    expect(hashed.rows[0]?.token_hash).not.toBe(explicitFalse.body.invitationToken);
 
-    const endedInvite = await app.request(`/api/v1/students/${pupil.student.id}/guardians`, {
-      method: "POST",
-      headers: hdrs,
-      body: JSON.stringify({
-        email: `ended-${id}@example.test`,
-        fullName: "Ended Guardian",
-        relationship: "carer",
-        portalAccess: false,
-      }),
+    const explicitTrue = await postGuardian(app, hdrs, pupil.student.id, {
+      email: `enabled-${id}@example.test`,
+      fullName: "Enabled Portal",
+      relationship: "father",
+      portalAccess: true,
+    });
+    expect(explicitTrue.status).toBe(201);
+    expect(explicitTrue.body.invitationToken).toMatch(/^[a-f0-9]{64}$/);
+    expect(explicitTrue.body.guardianship.portalAccess).toBe(true);
+
+    const endedInvite = await postGuardian(app, hdrs, pupil.student.id, {
+      email: `ended-${id}@example.test`,
+      fullName: "Ended Guardian",
+      relationship: "carer",
+      portalAccess: true,
     });
     expect(endedInvite.status).toBe(201);
-    const endedInviteBody = (await endedInvite.json()) as {
-      invitationToken: string | null;
-      guardianship: { id: string; endedOn: string | null };
-    };
-    const closed = await app.request(`/api/v1/guardianships/${endedInviteBody.guardianship.id}`, {
+    expect(endedInvite.body.guardianship.portalAccess).toBe(true);
+    const closed = await app.request(`/api/v1/guardianships/${endedInvite.body.guardianship.id}`, {
       method: "PATCH",
       headers: hdrs,
       body: JSON.stringify({ endedOn: "2026-08-01" }),
     });
     expect(closed.status).toBe(200);
-    const relinked = await app.request(`/api/v1/students/${pupil.student.id}/guardians`, {
-      method: "POST",
-      headers: hdrs,
-      body: JSON.stringify({
-        email: `ended-${id}@example.test`,
-        fullName: "Ended Guardian",
-        relationship: "carer",
-        portalAccess: false,
-      }),
+    const relinkedOmitted = await postGuardian(app, hdrs, pupil.student.id, {
+      email: `ended-${id}@example.test`,
+      fullName: "Ended Guardian",
+      relationship: "carer",
     });
-    expect(relinked.status).toBe(201);
-    const relinkedBody = (await relinked.json()) as {
-      alreadyLinked: boolean;
-      invitationToken: string | null;
-      guardianship: { id: string; endedOn: string | null };
-    };
-    expect(relinkedBody.alreadyLinked).toBe(false);
-    expect(relinkedBody.guardianship.id).not.toBe(endedInviteBody.guardianship.id);
-    expect(relinkedBody.guardianship.endedOn).toBeNull();
-    expect(relinkedBody.invitationToken).toMatch(/^[a-f0-9]{64}$/);
-    expect(relinkedBody.invitationToken).not.toBe(endedInviteBody.invitationToken);
+    expect(relinkedOmitted.status).toBe(201);
+    expect(relinkedOmitted.body.alreadyLinked).toBe(false);
+    expect(relinkedOmitted.body.guardianship.id).not.toBe(endedInvite.body.guardianship.id);
+    expect(relinkedOmitted.body.guardianship.endedOn).toBeNull();
+    expect(relinkedOmitted.body.guardianship.portalAccess).toBe(false);
+    expect(relinkedOmitted.body.invitationToken).toMatch(/^[a-f0-9]{64}$/);
+    expect(relinkedOmitted.body.invitationToken).not.toBe(endedInvite.body.invitationToken);
+
+    const existingOmitted = await insertUser(pools.owner, {
+      email: `linked-off-${id}@example.test`,
+      password: "parent-pass-1",
+      fullName: "Existing Parent Off",
+      kind: "parent",
+    });
+    await addMembership(pools.owner, school.orgId, existingOmitted, "school.parent");
+    const linkedOmitted = await postGuardian(app, hdrs, pupil.student.id, {
+      email: `linked-off-${id}@example.test`,
+      fullName: "Existing Parent Off",
+      relationship: "father",
+    });
+    expect(linkedOmitted.status).toBe(201);
+    expect(linkedOmitted.body.invitationToken).toBeNull();
+    expect(linkedOmitted.body.guardianUserId).toBe(existingOmitted);
+    expect(linkedOmitted.body.guardianship.portalAccess).toBe(false);
 
     const existingParent = await insertUser(pools.owner, {
       email: `linked-${id}@example.test`,
@@ -561,46 +607,58 @@ describe("pupil record statutory and identity stabilisation", () => {
       kind: "parent",
     });
     await addMembership(pools.owner, school.orgId, existingParent, "school.parent");
-    const linked = await app.request(`/api/v1/students/${pupil.student.id}/guardians`, {
-      method: "POST",
-      headers: hdrs,
-      body: JSON.stringify({
-        email: `linked-${id}@example.test`,
-        fullName: "Existing Parent",
-        relationship: "father",
-        portalAccess: true,
-      }),
+    const linked = await postGuardian(app, hdrs, pupil.student.id, {
+      email: `linked-${id}@example.test`,
+      fullName: "Existing Parent",
+      relationship: "father",
+      portalAccess: true,
     });
     expect(linked.status).toBe(201);
-    const linkedBody = (await linked.json()) as {
-      invitationToken: string | null;
-      guardianUserId: string;
-      guardianship: { portalAccess: boolean };
-    };
-    expect(linkedBody.invitationToken).toBeNull();
-    expect(linkedBody.guardianUserId).toBe(existingParent);
-    expect(linkedBody.guardianship.portalAccess).toBe(true);
+    expect(linked.body.invitationToken).toBeNull();
+    expect(linked.body.guardianUserId).toBe(existingParent);
+    expect(linked.body.guardianship.portalAccess).toBe(true);
 
-    const oakInvite = await app.request(`/api/v1/students/${oakPupil.student.id}/guardians`, {
-      method: "POST",
-      headers: oakHdrs,
-      body: JSON.stringify({
-        email: `siobhan-${id}@example.test`,
-        fullName: "Siobhan Walsh",
-        portalAccess: true,
-      }),
+    const crossTenant = await postGuardian(app, hdrs, oakPupil.student.id, {
+      email: `cross-${id}@example.test`,
+      fullName: "Cross Tenant",
+      portalAccess: true,
+    });
+    expect(crossTenant.status).toBe(404);
+    const oakGuardiansBefore = (await (
+      await app.request(`/api/v1/students/${oakPupil.student.id}`, { headers: oakHdrs })
+    ).json()) as { guardians: Array<{ guardianEmail: string | null }> };
+    expect(oakGuardiansBefore.guardians.some((row) => row.guardianEmail === `cross-${id}@example.test`)).toBe(false);
+
+    const oakInvite = await postGuardian(app, oakHdrs, oakPupil.student.id, {
+      email: `siobhan-${id}@example.test`,
+      fullName: "Siobhan Walsh",
+      portalAccess: true,
     });
     expect(oakInvite.status).toBe(201);
+    expect(oakInvite.body.guardianship.portalAccess).toBe(true);
     const greenwood = (await (
       await app.request(`/api/v1/students/${pupil.student.id}`, { headers: hdrs })
     ).json()) as { guardians: Array<{ guardianEmail: string | null; portalAccess: boolean }> };
-    expect(greenwood.guardians.some((row) => row.guardianEmail === `siobhan-${id}@example.test` && row.portalAccess === false)).toBe(
-      true,
-    );
+    expect(
+      greenwood.guardians.some(
+        (row) => row.guardianEmail === `siobhan-${id}@example.test` && row.portalAccess === false,
+      ),
+    ).toBe(true);
+    expect(
+      greenwood.guardians.some(
+        (row) => row.guardianEmail === `omitted-${id}@example.test` && row.portalAccess === false,
+      ),
+    ).toBe(true);
     const oakDetail = (await (
       await app.request(`/api/v1/students/${oakPupil.student.id}`, { headers: oakHdrs })
-    ).json()) as { guardians: Array<{ portalAccess: boolean }> };
-    expect(oakDetail.guardians.some((row) => row.portalAccess)).toBe(true);
+    ).json()) as { guardians: Array<{ guardianEmail: string | null; portalAccess: boolean }> };
+    expect(
+      oakDetail.guardians.some(
+        (row) => row.guardianEmail === `siobhan-${id}@example.test` && row.portalAccess === true,
+      ),
+    ).toBe(true);
+    const oakSeesGreenwood = await app.request(`/api/v1/students/${pupil.student.id}`, { headers: oakHdrs });
+    expect(oakSeesGreenwood.status).toBe(404);
   });
 
   it("keeps identity edits and statutory data off teacher, parent and student mutation paths", async () => {

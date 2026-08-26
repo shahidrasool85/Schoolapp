@@ -9,6 +9,7 @@ import {
   lookedAfterPersistValue,
   mapOperationalGenderToStatutorySex,
   parsePupilRecordTab,
+  portalAccessGranted,
   portalAccessLabel,
   pupilIdentityGaps,
   sensitiveSelectValue,
@@ -110,6 +111,10 @@ describe("pupil record helpers", () => {
     expect(guardianAccountLabel(null)).toBe("No account");
     expect(portalAccessLabel(true)).toBe("Enabled");
     expect(portalAccessLabel(false)).toBe("Off");
+    expect(portalAccessGranted(undefined)).toBe(false);
+    expect(portalAccessGranted(null)).toBe(false);
+    expect(portalAccessGranted(false)).toBe(false);
+    expect(portalAccessGranted(true)).toBe(true);
   });
 
   it("links identity warnings to pupil details and statutory warnings to the statutory record", () => {

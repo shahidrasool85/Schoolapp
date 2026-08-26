@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { hashPassword } from "@schoolapp/auth";
-import { PERMISSIONS, isSamePrimaryPlacement } from "@schoolapp/domain";
+import { PERMISSIONS, isSamePrimaryPlacement, portalAccessGranted } from "@schoolapp/domain";
 import {
   AppError,
   assertAnyPermission,
@@ -70,7 +70,7 @@ const guardianSchema = z.object({
   hasParentalResponsibility: z.boolean().optional(),
   isEmergencyContact: z.boolean().optional(),
   livesWithStudent: z.boolean().optional(),
-  portalAccess: z.boolean().optional(),
+  portalAccess: z.boolean().optional().default(false),
   priority: z.number().int().min(1).max(9).optional(),
 });
 
@@ -734,7 +734,7 @@ export function registerPeopleRoutes(app: SchoolappApi) {
             parsed.data.hasParentalResponsibility ?? false,
             parsed.data.isEmergencyContact ?? false,
             parsed.data.livesWithStudent ?? false,
-            parsed.data.portalAccess ?? true,
+            portalAccessGranted(parsed.data.portalAccess),
             parsed.data.priority ?? 1,
           ],
         );

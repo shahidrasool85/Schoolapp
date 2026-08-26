@@ -9,6 +9,7 @@ import {
   OFFER_STATUSES,
   WAITING_LIST_STATUSES,
   mapOperationalGenderToStatutorySex,
+  portalAccessGranted,
   type ApplicationStatus,
 } from "@schoolapp/domain";
 import {
@@ -1380,7 +1381,7 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
             .array(
               z.object({
                 contactId: z.string().uuid(),
-                portalAccess: z.boolean().optional(),
+                portalAccess: z.boolean().optional().default(false),
               }),
             )
             .optional(),
@@ -1404,7 +1405,7 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
           JSON.stringify(
             (parsed.data.guardianLinks ?? []).map((link) => ({
               contactId: link.contactId,
-              portalAccess: link.portalAccess ?? false,
+              portalAccess: portalAccessGranted(link.portalAccess),
             })),
           ),
         ],

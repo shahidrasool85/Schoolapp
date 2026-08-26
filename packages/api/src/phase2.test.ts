@@ -162,6 +162,7 @@ describe("Phase 2 people and school structure", () => {
         fullName: "Pat Parent",
         relationship: "mother",
         hasParentalResponsibility: true,
+        portalAccess: true,
       }),
     });
     expect(guardian.status).toBe(201);
@@ -335,6 +336,7 @@ describe("Phase 2 people and school structure", () => {
           email: `p-${id}@example.com`,
           fullName: "Parent One",
           relationship: "father",
+          portalAccess: true,
         }),
       })
     ).json()) as { invitationToken: string };
@@ -523,6 +525,7 @@ describe("Phase 2 people and school structure", () => {
           email: `multi-${id}@example.com`,
           fullName: "Multi Parent",
           relationship: "mother",
+          portalAccess: true,
         }),
       })
     ).json()) as { invitationToken: string };
@@ -542,6 +545,7 @@ describe("Phase 2 people and school structure", () => {
         email: `multi-${id}@example.com`,
         fullName: "Multi Parent",
         relationship: "mother",
+        portalAccess: true,
       }),
     });
 
@@ -846,6 +850,7 @@ describe("Phase 2 people and school structure", () => {
         email: `late-${id}@example.com`,
         fullName: "Late Parent",
         relationship: "mother",
+        portalAccess: true,
       }),
     });
     const inviteB = (await (
@@ -856,6 +861,7 @@ describe("Phase 2 people and school structure", () => {
           email: `late-${id}@example.com`,
           fullName: "Late Parent",
           relationship: "mother",
+          portalAccess: true,
         }),
       })
     ).json()) as { invitationToken: string };
@@ -877,6 +883,7 @@ describe("Phase 2 people and school structure", () => {
         email: `late-${id}@example.com`,
         fullName: "Late Parent",
         relationship: "mother",
+        portalAccess: true,
       }),
     });
     expect(secondLink.status).toBe(201);

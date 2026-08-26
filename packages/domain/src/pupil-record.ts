@@ -169,6 +169,11 @@ export function portalAccessLabel(portalAccess: boolean | null | undefined): str
   return portalAccess ? "Enabled" : "Off";
 }
 
+/** Parent Portal access is explicit opt-in. Omitted or null values never enable it. */
+export function portalAccessGranted(value: boolean | null | undefined): boolean {
+  return value === true;
+}
+
 export function parsePupilRecordTab(hash: string | null | undefined): PupilRecordTab {
   const key = (hash ?? "").replace(/^#/, "").trim().toLowerCase();
   return (PUPIL_RECORD_TABS as string[]).includes(key) ? (key as PupilRecordTab) : "overview";

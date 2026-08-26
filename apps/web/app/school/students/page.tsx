@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
-import { Alert, DataTable, EmptyState, PageHeader, StatusBadge } from "../../../components/ui";
+import { Alert, Button, DataTable, EmptyState, FormField, Input, PageHeader, Select, StatusBadge } from "../../../components/ui";
+import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
 import { api } from "../../../lib/api";
 import { userFacingError } from "../../../lib/errors";
 
@@ -24,6 +25,7 @@ export default function StudentsPage() {
   const [classes, setClasses] = useState<Option[]>([]);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
 
   async function load() {
     const [stu, yr, yg, cl] = await Promise.all([
@@ -39,30 +41,34 @@ export default function StudentsPage() {
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(userFacingError(err, "Could not load pupils.")));
+    load().catch((err: unknown) => setError(userFacingError(err, "Could not load pupils.")));
   }, []);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const form = captureSubmitTarget(event);
+    const payload = new FormData(form);
     setError("");
     setMessage("");
-    const form = new FormData(event.currentTarget);
+    setBusy(true);
     try {
       await api("/api/v1/students", {
         method: "POST",
         body: JSON.stringify({
-          legalName: form.get("legalName"),
-          admissionNumber: form.get("admissionNumber") || undefined,
-          academicYearId: form.get("academicYearId") || undefined,
-          yearGroupId: form.get("yearGroupId") || undefined,
-          classId: form.get("classId") || undefined,
+          legalName: payload.get("legalName"),
+          admissionNumber: payload.get("admissionNumber") || undefined,
+          academicYearId: payload.get("academicYearId") || undefined,
+          yearGroupId: payload.get("yearGroupId") || undefined,
+          classId: payload.get("classId") || undefined,
         }),
       });
-      event.currentTarget.reset();
+      resetFormSafely(form);
       setMessage("Pupil created.");
       await load();
     } catch (err) {
       setError(userFacingError(err, "Could not create student"));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -73,36 +79,49 @@ export default function StudentsPage() {
         description="Current year group and form class are derived from enrolments and dated class memberships. Moving a pupil keeps the previous records."
       />
       <form className="card form-grid" onSubmit={onSubmit}>
-        <label>Legal name<input name="legalName" required /></label>
-        <label>Admission number<input name="admissionNumber" /></label>
-        <label>
-          Academic year
-          <select name="academicYearId">
+        <FormField label="Legal name" htmlFor="legalName">
+          <Input id="legalName" name="legalName" required />
+        </FormField>
+        <FormField label="Admission number" htmlFor="admissionNumber">
+          <Input id="admissionNumber" name="admissionNumber" />
+        </FormField>
+        <FormField label="Academic year" htmlFor="academicYearId">
+          <Select id="academicYearId" name="academicYearId">
             <option value="">Not enrolled yet</option>
-            {years.map((y) => <option key={y.id} value={y.id}>{y.name}</option>)}
-          </select>
-        </label>
-        <label>
-          Year group
-          <select name="yearGroupId">
+            {years.map((y) => (
+              <option key={y.id} value={y.id}>
+                {y.name}
+              </option>
+            ))}
+          </Select>
+        </FormField>
+        <FormField label="Year group" htmlFor="yearGroupId">
+          <Select id="yearGroupId" name="yearGroupId">
             <option value="">Select</option>
-            {groups.map((y) => <option key={y.id} value={y.id}>{y.name}</option>)}
-          </select>
-        </label>
-        <label>
-          Form class
-          <select name="classId">
+            {groups.map((y) => (
+              <option key={y.id} value={y.id}>
+                {y.name}
+              </option>
+            ))}
+          </Select>
+        </FormField>
+        <FormField label="Form class" htmlFor="classId">
+          <Select id="classId" name="classId">
             <option value="">None</option>
-            {classes.map((y) => <option key={y.id} value={y.id}>{y.name}</option>)}
-          </select>
-        </label>
-        <div><button type="submit">Add student</button></div>
+            {classes.map((y) => (
+              <option key={y.id} value={y.id}>
+                {y.name}
+              </option>
+            ))}
+          </Select>
+        </FormField>
+        <div className="form-control-action">
+          <Button type="submit" disabled={busy}>
+            {busy ? "Adding…" : "Add student"}
+          </Button>
+        </div>
       </form>
-      {message ? (
-        <p className="alert alert-success" role="status">
-          {message}
-        </p>
-      ) : null}
+      {message ? <Alert tone="success">{message}</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {students.length === 0 ? (
         <EmptyState title="No pupils yet" description="Add a pupil above, or wait for an admitted application to enrol." />
@@ -123,9 +142,9 @@ export default function StudentsPage() {
               <td>
                 <Link href={`/school/students/${s.id}`}>{s.legalName}</Link>
               </td>
-              <td>{s.admissionNumber ?? "—"}</td>
-              <td>{s.currentYearGroupName ?? "—"}</td>
-              <td>{s.currentFormClassName ?? "—"}</td>
+              <td>{s.admissionNumber ?? "Not provided"}</td>
+              <td>{s.currentYearGroupName ?? "Not provided"}</td>
+              <td>{s.currentFormClassName ?? "Not provided"}</td>
               <td>
                 <StatusBadge status={s.enrolmentStatus} />
               </td>

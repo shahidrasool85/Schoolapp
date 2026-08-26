@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
+import { Alert, StatusBadge } from "../../../../components/ui";
 import { api } from "../../../../lib/api";
+import { formatDateTime } from "../../../../lib/dates";
+import { userFacingError } from "../../../../lib/errors";
 
 type Assessment = {
   id: string;
@@ -30,21 +33,27 @@ export default function AssessmentsPage() {
     const params = new URLSearchParams(window.location.search);
     const initial = params.get("status") ?? "scheduled";
     setStatus(initial);
-    load(initial).catch((err: Error) => setError(err.message));
+    load(initial).catch((err: unknown) => setError(userFacingError(err, "Could not load assessments.")));
   }, []);
 
   async function complete(event: FormEvent<HTMLFormElement>, id: string) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    await api(`/api/v1/admissions/assessments/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        status: "completed",
-        outcome: form.get("outcome") || undefined,
-        recommendation: form.get("recommendation") || undefined,
-      }),
-    });
-    await load();
+    setError("");
+    const form = event.currentTarget;
+    const payload = new FormData(form);
+    try {
+      await api(`/api/v1/admissions/assessments/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          status: "completed",
+          outcome: payload.get("outcome") || undefined,
+          recommendation: payload.get("recommendation") || undefined,
+        }),
+      });
+      await load();
+    } catch (err) {
+      setError(userFacingError(err, "Could not complete that assessment."));
+    }
   }
 
   return (
@@ -55,7 +64,7 @@ export default function AssessmentsPage() {
           value={status}
           onChange={(e) => {
             setStatus(e.target.value);
-            load(e.target.value).catch((err: Error) => setError(err.message));
+            load(e.target.value).catch((err: unknown) => setError(userFacingError(err, "Could not load assessments.")));
           }}
         >
           <option value="">All</option>
@@ -64,7 +73,7 @@ export default function AssessmentsPage() {
           ))}
         </select>
       </div>
-      {error ? <p className="error">{error}</p> : null}
+      {error ? <Alert tone="danger">{error}</Alert> : null}
       <table>
         <thead>
           <tr>
@@ -86,11 +95,11 @@ export default function AssessmentsPage() {
               </td>
               <td>{item.pupilLegalName}</td>
               <td>{item.assessmentType.replaceAll("_", " ")}</td>
-              <td>{item.scheduledAt ?? "—"}</td>
-              <td>{item.status}</td>
+              <td>{formatDateTime(item.scheduledAt) || "Not scheduled"}</td>
+              <td><StatusBadge status={item.status} /></td>
               <td>
                 {item.status === "scheduled" ? (
-                  <form className="form-grid" onSubmit={(e) => complete(e, item.id).catch((err: Error) => setError(err.message))}>
+                  <form className="form-grid" onSubmit={(e) => complete(e, item.id)}>
                     <input name="outcome" placeholder="Outcome" />
                     <select name="recommendation">
                       <option value="">Recommendation</option>

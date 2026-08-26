@@ -97,10 +97,12 @@ describe("statusTone", () => {
   it("maps common school statuses without relying on colour alone", () => {
     expect(statusTone("paid")).toBe("success");
     expect(statusTone("published")).toBe("success");
-    expect(statusTone("under_review")).toBe("warning");
+    expect(statusTone("under_review")).toBe("info");
     expect(statusTone("overdue")).toBe("danger");
     expect(statusTone("rejected")).toBe("danger");
-    expect(statusTone("draft")).toBe("warning");
+    expect(statusTone("draft")).toBe("neutral");
+    expect(statusTone("submitted")).toBe("info");
+    expect(statusTone("waiting_list")).toBe("warning");
     expect(statusTone("archived")).toBe("neutral");
     expect(statusTone("open")).toBe("info");
     expect(formatStatusLabel("under_review")).toBe("Under review");

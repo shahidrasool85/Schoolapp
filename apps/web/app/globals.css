@@ -619,9 +619,121 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   margin: 1rem 0;
   max-width: 56rem;
+  align-items: end;
 }
 
 .form-grid .span-2 { grid-column: 1 / -1; }
+
+.form-grid .form-control-action {
+  display: flex;
+  align-items: flex-end;
+  min-height: var(--control-height);
+}
+
+.form-grid .form-control-action > button,
+.form-grid .form-control-action > .button {
+  width: 100%;
+}
+
+.record-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 22.5rem);
+  gap: 1.15rem;
+  align-items: start;
+}
+
+.record-main,
+.record-sidebar {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.record-sidebar {
+  position: sticky;
+  top: 1rem;
+}
+
+.header-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.85rem;
+  color: var(--muted);
+  font-size: var(--text-helper);
+}
+
+.header-meta span {
+  position: relative;
+}
+
+.header-meta span:not(:last-child)::after {
+  content: "·";
+  position: absolute;
+  right: -0.55rem;
+  color: var(--line-strong);
+}
+
+.summary-empty {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.person-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.65rem 0.85rem;
+  align-items: start;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.person-card:last-child { border-bottom: 0; padding-bottom: 0; }
+.person-card:first-child { padding-top: 0; }
+
+.person-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.65rem;
+  margin: 0.2rem 0 0;
+}
+
+.workflow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.workflow-actions button {
+  flex: 1 1 auto;
+}
+
+.offer-summary {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0.8rem;
+  margin: 0 0 0.85rem;
+  background: #fbfcfd;
+}
+
+.workflow-panel .form-grid {
+  margin: 0.75rem 0 0;
+  max-width: none;
+}
+
+.sensitive-note {
+  font-size: var(--text-helper);
+  margin: 0 0 0.75rem;
+}
+
+.section-card .table-wrap,
+.section-card table {
+  margin: 0;
+}
+
+.dialog .form-grid { margin-top: 0.35rem; max-width: none; }
+.dialog .dialog-actions { margin-top: 1rem; }
+
+.page-header-copy p .header-meta { margin: 0; }
 
 .toolbar,
 .filter-bar {
@@ -814,7 +926,9 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 }
 
 .dialog {
-  width: min(28rem, 100%);
+  width: min(34rem, 100%);
+  max-height: min(90vh, 46rem);
+  overflow: auto;
   background: white;
   border-radius: var(--radius-lg);
   border: 1px solid var(--line);
@@ -1211,6 +1325,8 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   .dash-grid,
   .inbox-layout { grid-template-columns: 1fr; }
   .lesson-card { grid-template-columns: 1fr; }
+  .record-layout { grid-template-columns: 1fr; }
+  .record-sidebar { position: static; }
 }
 
 @media (max-width: 899px) {
@@ -1279,6 +1395,8 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   .page-header-actions { width: 100%; }
   .form-actions { justify-content: stretch; }
   .form-actions button, .form-actions .button { flex: 1 1 auto; }
+  .record-layout { grid-template-columns: 1fr; }
+  .record-sidebar { position: static; }
 }
 
 @media (max-width: 420px) {

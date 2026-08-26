@@ -871,6 +871,9 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
         })
         .safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid assessment payload");
+      if (!parsed.data.scheduledAt && (parsed.data.status ?? "scheduled") === "scheduled") {
+        throw new AppError(400, "validation_failed", "Choose a date and time to schedule this assessment");
+      }
       const inserted = await client.query(
         `insert into admissions_assessments (
            organisation_id, application_id, assessment_type, status, scheduled_at,
@@ -1133,6 +1136,18 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
         .safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid offer payload");
       assertApplicationStatusTransition(actor, application.status as ApplicationStatus, "offer_made");
+      const openOffer = await client.query(
+        `select id from admissions_offers
+         where application_id = $1 and organisation_id = $2 and status = 'made'`,
+        [id, orgId],
+      );
+      if (openOffer.rows[0]) {
+        throw new AppError(
+          409,
+          "conflict",
+          "This application already has an open offer. Record a decision on that offer before making another.",
+        );
+      }
       const inserted = await client.query(
         `insert into admissions_offers (
            organisation_id, application_id, status, offered_academic_year_id, offered_year_group_id,

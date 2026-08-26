@@ -107,7 +107,6 @@ const SUCCESS_STATUSES = new Set([
   "released",
   "resolved",
   "success",
-  "submitted",
   "waived",
   "exported",
 ]);
@@ -116,7 +115,6 @@ const WARNING_STATUSES = new Set([
   "assessment_pending",
   "awaiting_marking",
   "awaiting_review",
-  "draft",
   "information_required",
   "in_progress",
   "late",
@@ -125,7 +123,6 @@ const WARNING_STATUSES = new Set([
   "review",
   "scheduled",
   "submitted_pending",
-  "under_review",
   "waiting",
   "waiting_list",
   "validating",
@@ -151,11 +148,14 @@ const INFO_STATUSES = new Set([
   "processing",
   "reopened",
   "information",
+  "submitted",
+  "under_review",
 ]);
 
 const NEUTRAL_STATUSES = new Set([
   "archived",
   "closed",
+  "draft",
   "enquiry",
   "inactive",
   "not_marked",

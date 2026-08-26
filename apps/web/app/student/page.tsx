@@ -2,11 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ComingLaterCard } from "../../components/coming-later";
 import { EmptyState, LoadingState, PageError, PageHeader, SectionCard, StatCard } from "../../components/ui";
 import { api } from "../../lib/api";
 import { optionalApi, userFacingError } from "../../lib/errors";
-import type { ComingLater, PortalChild, PortalSchool } from "../../lib/portal";
+import type { PortalChild, PortalSchool } from "../../lib/portal";
 
 type Lesson = {
   startsAt: string;
@@ -31,15 +30,20 @@ type Dashboard = {
   student: PortalChild;
   school: PortalSchool;
   welcome: { title: string; message: string };
-  sections: Record<string, ComingLater>;
   timetable?: { today: Lesson[]; nextLesson: Lesson | null };
   notifications: { unreadCount: number };
+};
+
+type Engagement = {
+  progress: { xp: number | null; rewardPoints: number | null; activitiesCompleted: number; rewardsEnabled: boolean };
+  practice: Array<{ assignmentId: string; title: string }>;
 };
 
 export default function StudentHomePage() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [assignments, setAssignments] = useState<Assignment[] | null>(null);
   const [notices, setNotices] = useState<Notice[] | null>(null);
+  const [engagement, setEngagement] = useState<Engagement | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -52,6 +56,9 @@ export default function StudentHomePage() {
     optionalApi<{ announcements: Notice[] }>("/api/v1/student/announcements")
       .then((body) => setNotices(body?.announcements ?? []))
       .catch(() => setNotices([]));
+    optionalApi<Engagement>("/api/v1/student/engagement")
+      .then(setEngagement)
+      .catch(() => setEngagement(null));
   }, []);
 
   if (error) return <PageError title="Home unavailable" description={error} />;
@@ -164,7 +171,24 @@ export default function StudentHomePage() {
           <strong>Calendar</strong>
           <p className="muted">Your school events.</p>
         </Link>
-        <ComingLaterCard title="Challenges" message={data.sections.challenges?.message} />
+        <Link className="card" href="/student/play">
+          <strong>Play & learn</strong>
+          <p className="muted">
+            {engagement?.practice.length
+              ? `${engagement.practice.length} practice ${engagement.practice.length === 1 ? "activity" : "activities"}`
+              : "Teacher-assigned practice and challenges."}
+          </p>
+        </Link>
+        <Link className="card" href="/student/rewards">
+          <strong>Rewards</strong>
+          <p className="muted">
+            {engagement?.progress.xp != null ? `${engagement.progress.xp} XP` : "Recognition and achievements"}
+          </p>
+        </Link>
+        <Link className="card" href="/student/competitions">
+          <strong>Competitions</strong>
+          <p className="muted">House and class challenges, if your school shows them.</p>
+        </Link>
       </div>
     </>
   );

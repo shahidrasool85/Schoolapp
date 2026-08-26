@@ -167,6 +167,10 @@ export default function ParentDashboardPage() {
                   <strong>Learning</strong>
                   <p className="muted">Homework and assignments</p>
                 </Link>
+                <Link className="card" href={`/parent/children/${selected.id}/engagement`}>
+                  <strong>Rewards</strong>
+                  <p className="muted">Recognition, achievements and practice</p>
+                </Link>
                 <Link className="card" href={`/parent/children/${selected.id}/results`}>
                   <strong>Results</strong>
                   <p className="muted">Released assessments</p>

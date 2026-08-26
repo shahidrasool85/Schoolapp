@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, ApiError, downloadAuthenticated } from "../../../../lib/api";
-import { ComingLaterCard } from "../../../../components/coming-later";
 import { Alert, DataTable, EmptyState, LoadingState, PageError, PersonSummary, StatCard, StatusBadge, Tabs } from "../../../../components/ui";
 import { userFacingError } from "../../../../lib/errors";
 import type { ComingLater, PortalChild } from "../../../../lib/portal";
@@ -41,12 +40,6 @@ type Attendance = {
     parentNote: string | null;
   }>;
 };
-
-const SECTION_LABELS: Array<{ key: string; title: string }> = [
-  { key: "attendance", title: "Attendance" },
-  { key: "achievements", title: "Achievements" },
-  { key: "competitions", title: "Competitions" },
-];
 
 export default function ParentChildDetailPage() {
   const params = useParams<{ id: string }>();
@@ -118,6 +111,8 @@ export default function ParentChildDetailPage() {
         </Link>
         <Link href={`/parent/children/${id}/timetable`}>Timetable</Link>
         <Link href={`/parent/children/${id}/learning`}>Learning</Link>
+        <Link href={`/parent/children/${id}/engagement`}>Rewards</Link>
+        <Link href={`/parent/children/${id}/competitions`}>Competitions</Link>
         <Link href={`/parent/children/${id}/results`}>Results</Link>
         <Link href={`/parent/children/${id}/reports`}>Reports</Link>
         <Link href="/parent/activities">Activities</Link>
@@ -220,6 +215,8 @@ export default function ParentChildDetailPage() {
       <h2>Learning</h2>
       <p>
         <Link href={`/parent/children/${id}/learning`}>View assignments and homework</Link>
+        {" · "}
+        <Link href={`/parent/children/${id}/engagement`}>Rewards, achievements and practice</Link>
       </p>
       <h2>Activities</h2>
       <p>
@@ -260,16 +257,6 @@ export default function ParentChildDetailPage() {
         {" · "}
         <Link href={`/parent/children/${id}/reports`}>Published reports</Link>
       </p>
-      <h2>Coming later</h2>
-      <div className="cards">
-        {SECTION_LABELS.filter((section) => section.key !== "attendance").map((section) => (
-          <ComingLaterCard
-            key={section.key}
-            title={section.title}
-            message={data.sections[section.key]?.message ?? "Coming in a later phase."}
-          />
-        ))}
-      </div>
     </>
   );
 }

@@ -309,17 +309,19 @@ These are related staff workflows but **not** the same data category. Safeguardi
 - `pastoral_concerns` / `pastoral_interventions` — distinct from incidents; optional attendance date-range reference (does not duplicate marks)
 - `safeguarding_concerns` / `safeguarding_chronology_entries` / `safeguarding_attachments` — separate architecture; chronology is append-only (amendments supersede, they do not overwrite)
 
-## AI learning and gamification (Phase 12–13)
+## Student engagement, rewards, competitions, and early learning (Phase 19)
 
-- `learning_activities` — type (quiz, flashcards, timed challenge, puzzle, …), year group, subject, difficulty, `status`
-- `activity_items` — questions/cards; versioned so attempts stay consistent
-- `activity_reviews` — reviewer, decision, comments
-- `activity_attempts` — student, scores, timestamps (feeds personalisation later)
-- `competitions` — scope `students | classes | houses | school` (school-vs-school **not** implemented; see governance placeholders)
-- `points_ledger` / `xp_ledger` — append-only; never “set points =”
-- `badge_definitions` + `badge_awards`
-- `streaks` — per student per activity type
-- Leaderboards: **computed views** from ledgers, filtered by organisation and feature flags (`show_names`, `opt_in`, `disabled`)
+Positive recognition and practice, not a social network. See [ADR 0028](./adr/0028-phase19-engagement.md). Distinct from Phase 11 `positive_behaviour_records`. Practice scores are not Phase 8 formal results. Student Portal on/off remains Phase 6 policy.
+
+- `engagement_settings` / `engagement_year_group_policies` — school defaults and year-group overlays (early learning, parent-assisted, child-friendly UI, competitions, leaderboards)
+- `houses` — reused; `short_code`, `colour`, `active`. House points derived from authorised `pupil_rewards`
+- `reward_categories` / `pupil_rewards` — organisation catalogue; server-stamped `awarded_by`; non-negative integer points; revoke/correct rather than silent delete
+- `pupil_xp_events` — append-only learning XP, idempotent on source; compensating `reversal` rows when a reward that granted XP is revoked; not the same number as reward points
+- `achievement_definitions` / `pupil_achievements` — controlled criteria types only; unique unless the definition allows repeats
+- `competitions` / `competition_targets` / `competition_manual_scores` / `competition_results` — statuses include draft → published → active → completed; completing freezes results
+- `learning_activity_definitions` / `_items` / `_assignments` / `_targets` / `_recipients` / `_attempts` / `_answers` — deterministic item types; server scores; `channel` is `student` or `parent_assisted`
+
+Leaderboards default off. Individual named ranking is off unless the school enables it. Display names follow school policy. Parent-assisted attempts require guardianship + `portal_access` and do not impersonate the student. Future AI generation is out of this phase; generated content must start as `draft`.
 
 ## Notification inbox (Phase 3)
 

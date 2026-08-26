@@ -179,6 +179,9 @@ export default function SchoolDashboardPage() {
               <Link className="button secondary" href="/school/timetable/mine">
                 My timetable
               </Link>
+              <Link className="button secondary" href="/school/engagement/rewards">
+                Award reward
+              </Link>
             </>
           }
         />
@@ -308,6 +311,14 @@ export default function SchoolDashboardPage() {
                 ))}
               </ul>
             )}
+            <p style={{ marginTop: "0.75rem" }}>
+              <Link className="button secondary" href="/school/engagement/rewards">
+                Award reward
+              </Link>{" "}
+              <Link className="button secondary" href="/school/engagement/learning">
+                Early learning
+              </Link>
+            </p>
           </SectionCard>
         </div>
       </>
@@ -342,6 +353,9 @@ export default function SchoolDashboardPage() {
                 Messages
               </Link>
             ) : null}
+            <Link className="button secondary" href="/school/engagement">
+              Engagement
+            </Link>
           </>
         }
       />

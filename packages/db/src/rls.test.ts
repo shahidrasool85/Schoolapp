@@ -79,10 +79,16 @@ describe("RLS catalog", () => {
            'message_attachments',
            'organisation_statutory_profiles', 'student_statutory_profiles', 'student_fsm_periods',
            'census_runs', 'census_snapshot_schools', 'census_snapshot_pupils',
-           'census_validation_issues', 'data_exports'
+           'census_validation_issues', 'data_exports',
+           'engagement_settings', 'engagement_year_group_policies', 'reward_categories', 'pupil_rewards',
+           'pupil_xp_events', 'achievement_definitions', 'pupil_achievements', 'competitions',
+           'competition_targets', 'competition_manual_scores', 'competition_results',
+           'learning_activity_definitions', 'learning_activity_items', 'learning_activity_assignments',
+           'learning_activity_targets', 'learning_activity_recipients', 'learning_activity_attempts',
+           'learning_activity_answers'
          )`,
     );
-    expect(result.rows.length).toBe(147);
+    expect(result.rows.length).toBe(165);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
     }
@@ -1177,6 +1183,69 @@ describe("RLS catalog", () => {
            student_profile_id, organisation_id, legal_forename, legal_surname, sex
          ) values ($1,$2,'Cross','Tenant','F')`,
         [pupilB.rows[0]!.id, orgA.rows[0]!.id],
+      ),
+    ).rejects.toThrow(/organisation_mismatch/);
+  });
+
+  it("keeps FORCE RLS from leaking engagement rewards across tenants", async () => {
+    const id = randomUUID().slice(0, 8);
+    const userA = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Admin A', 'staff', 'active') returning id`,
+      [`rls-eng-admin-a-${id}@example.com`],
+    );
+    const userB = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Admin B', 'staff', 'active') returning id`,
+      [`rls-eng-admin-b-${id}@example.com`],
+    );
+    const orgA = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-eng-iso-a-${id}`, "Eng Iso A"],
+    );
+    const orgB = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-eng-iso-b-${id}`, "Eng Iso B"],
+    );
+    await pools.owner.query(
+      `insert into organisation_memberships (organisation_id, user_id, status)
+       values ($1, $2, 'active'), ($3, $4, 'active')`,
+      [orgA.rows[0]!.id, userA.rows[0]!.id, orgB.rows[0]!.id, userB.rows[0]!.id],
+    );
+    const pupilA = await pools.owner.query<{ id: string }>(
+      "insert into student_profiles (organisation_id, legal_name) values ($1, 'Child A') returning id",
+      [orgA.rows[0]!.id],
+    );
+    const pupilB = await pools.owner.query<{ id: string }>(
+      "insert into student_profiles (organisation_id, legal_name) values ($1, 'Child B') returning id",
+      [orgB.rows[0]!.id],
+    );
+    await pools.owner.query("select ensure_organisation_phase19_defaults($1)", [orgA.rows[0]!.id]);
+    await pools.owner.query("select ensure_organisation_phase19_defaults($1)", [orgB.rows[0]!.id]);
+    const catA = await pools.owner.query<{ id: string }>(
+      "select id from reward_categories where organisation_id = $1 limit 1",
+      [orgA.rows[0]!.id],
+    );
+    await pools.owner.query(
+      `insert into pupil_rewards (
+         organisation_id, student_profile_id, category_id, points, title, awarded_by
+       ) values ($1,$2,$3,5,'Kindness',$4)`,
+      [orgA.rows[0]!.id, pupilA.rows[0]!.id, catA.rows[0]!.id, userA.rows[0]!.id],
+    );
+    await withTenantContext(pools.app, userA.rows[0]!.id, orgA.rows[0]!.id, async (client) => {
+      const seen = await client.query("select title from pupil_rewards");
+      expect(seen.rows.map((row) => row.title)).toEqual(["Kindness"]);
+    });
+    await withTenantContext(pools.app, userB.rows[0]!.id, orgB.rows[0]!.id, async (client) => {
+      const hidden = await client.query("select title from pupil_rewards");
+      expect(hidden.rowCount).toBe(0);
+    });
+    await expect(
+      pools.owner.query(
+        `insert into pupil_rewards (
+           organisation_id, student_profile_id, category_id, points, title, awarded_by
+         ) values ($1,$2,$3,5,'Cross',$4)`,
+        [orgA.rows[0]!.id, pupilB.rows[0]!.id, catA.rows[0]!.id, userA.rows[0]!.id],
       ),
     ).rejects.toThrow(/organisation_mismatch/);
   });

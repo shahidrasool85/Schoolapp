@@ -227,4 +227,36 @@ Messaging keys are capability-based. School Admin and Headteacher oversee parent
 
 Statutory and reporting keys are capability-based. School Admin has full census/reporting management. Headteacher can read, validate, report, and export, but cannot create or finalise census runs or edit statutory pupil fields. Teachers have no school-wide statutory or census export access. Admissions Staff may read pupil-roll and admissions reports only. `reports.send.read` also requires `students.additional_needs.read`. Parent, student, and Platform Admin roles receive none of these keys. See [ADR 0027](./adr/0027-phase18-statutory-census.md).
 
+| `engagement.settings.read` | — | F | F | — | — | — | — | — |
+| `engagement.settings.manage` | — | F | — | — | — | — | — | — |
+| `rewards.read` | — | F | F | — | — | — | — | — |
+| `rewards.read_assigned` | — | — | — | F | — | — | — | — |
+| `rewards.award` | — | F | F | — | — | — | — | — |
+| `rewards.award_assigned` | — | — | — | F | — | — | — | — |
+| `rewards.manage` | — | F | F | — | — | — | — | — |
+| `rewards.read_self` | — | — | — | — | — | — | — | F |
+| `rewards.read_own_children` | — | — | — | — | — | — | F | — |
+| `achievements.read` | — | F | F | — | — | — | — | — |
+| `achievements.read_assigned` | — | — | — | F | — | — | — | — |
+| `achievements.manage` | — | F | F | — | — | — | — | — |
+| `achievements.award_assigned` | — | — | — | F | — | — | — | — |
+| `achievements.read_self` | — | — | — | — | — | — | — | F |
+| `achievements.read_own_children` | — | — | — | — | — | — | F | — |
+| `competitions.read` | — | F | F | — | — | — | — | — |
+| `competitions.read_assigned` | — | — | — | F | — | — | — | — |
+| `competitions.manage` | — | F | F | — | — | — | — | — |
+| `competitions.manage_school` | — | F | F | — | — | — | — | — |
+| `competitions.read_self` | — | — | — | — | — | — | — | F |
+| `competitions.read_own_children` | — | — | — | — | — | — | F | — |
+| `learning.practice.read` | — | F | F | — | — | — | — | — |
+| `learning.practice.read_assigned` | — | — | — | F | — | — | — | — |
+| `learning.practice.manage` | — | F | F | — | — | — | — | — |
+| `learning.practice.manage_assigned` | — | — | — | F | — | — | — | — |
+| `learning.practice.submit_self` | — | — | — | — | — | — | — | F |
+| `learning.practice.read_self` | — | — | — | — | — | — | — | F |
+| `learning.practice.read_own_children` | — | — | — | — | — | — | F | — |
+| `learning.practice.submit_own_children` | — | — | — | — | — | — | F | — |
+
+Engagement keys are capability-based. School Admin manages settings, catalogues, and school-wide competitions. Headteacher has school-wide educational oversight/manage for rewards, achievements, competitions, and practice, but not `engagement.settings.manage`. Teachers award and assign only to currently assigned pupils/classes. Year-group targeting of practice requires school-wide `learning.practice.manage`. Parent keys require live guardianship + `portal_access`. Student keys require current enrolment and Student Portal policy. Platform Admin has no school engagement browse. See [ADR 0028](./adr/0028-phase19-engagement.md).
+
 Unused module keys are seeded so later phases do not hardcode role names; those modules are not implemented in Phase 1.

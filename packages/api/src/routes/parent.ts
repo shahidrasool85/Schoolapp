@@ -26,6 +26,8 @@ import {
   loadConversationDetail,
   markConversationRead,
   sendConversationMessage,
+  loadEffectiveEngagementPolicy,
+  loadPupilYearGroupId,
 } from "@schoolapp/core";
 import { listPupilTimetable } from "./timetable";
 import { mapTimetableOccurrence } from "../serialize";
@@ -60,6 +62,17 @@ import { listParentCharges, loadParentCharge, startParentCheckout } from "../pay
 import { paymentProviderOf, publicOriginFromRequest } from "../payments-context";
 import { z } from "zod";
 import { uploadConversationAttachment } from "./messaging";
+import {
+  buildLeaderboard,
+  listPracticeForPupil,
+  listRewardsForStudent,
+  loadPlayableActivity,
+  pupilProgressSummary,
+  startPracticeAttempt,
+  submitPracticeAttempt,
+  competitionTargetStudentIds,
+} from "../engagement-service";
+import { mapCompetition } from "../serialize";
 
 export function registerParentRoutes(app: SchoolappApi) {
   app.get("/parent/dashboard", requireUser, async (c) =>
@@ -128,6 +141,10 @@ export function registerParentRoutes(app: SchoolappApi) {
           teacherFeedback: { available: true },
           timetable: { available: true },
           payments: { available: true },
+          achievements: { available: true },
+          competitions: { available: true },
+          rewards: { available: true },
+          practice: { available: true },
         },
       });
     }),
@@ -609,6 +626,203 @@ export function registerParentRoutes(app: SchoolappApi) {
         uuidRouteParam(c, "id"),
         uuidRouteParam(c, "messageId"),
       );
+    }),
+  );
+
+  app.get("/parent/children/:studentId/engagement", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.REWARDS_READ_OWN_CHILDREN);
+      const studentId = uuidRouteParam(c, "studentId");
+      await requireLinkedChild(client, userId, orgId, studentId);
+      const yearGroupId = await loadPupilYearGroupId(client, orgId, studentId);
+      const policy = await loadEffectiveEngagementPolicy(client, orgId, yearGroupId);
+      const progress = await pupilProgressSummary({
+        client,
+        organisationId: orgId,
+        studentProfileId: studentId,
+        audience: "parent",
+        policy,
+      });
+      const practice = policy.parentAssistedMode
+        ? await listPracticeForPupil({ client, organisationId: orgId, studentProfileId: studentId, policy })
+        : [];
+      const rewards = await listRewardsForStudent({
+        client,
+        organisationId: orgId,
+        studentProfileId: studentId,
+        audience: "parent",
+        policy,
+      });
+      return c.json({ progress, practice, rewards, parentAssistedMode: policy.parentAssistedMode });
+    }),
+  );
+
+  app.get("/parent/children/:studentId/rewards", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.REWARDS_READ_OWN_CHILDREN);
+      const studentId = uuidRouteParam(c, "studentId");
+      await requireLinkedChild(client, userId, orgId, studentId);
+      const yearGroupId = await loadPupilYearGroupId(client, orgId, studentId);
+      const policy = await loadEffectiveEngagementPolicy(client, orgId, yearGroupId);
+      const rewards = await listRewardsForStudent({
+        client,
+        organisationId: orgId,
+        studentProfileId: studentId,
+        audience: "parent",
+        policy,
+      });
+      return c.json({ rewards });
+    }),
+  );
+
+  app.get("/parent/children/:studentId/achievements", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACHIEVEMENTS_READ_OWN_CHILDREN);
+      const studentId = uuidRouteParam(c, "studentId");
+      await requireLinkedChild(client, userId, orgId, studentId);
+      const yearGroupId = await loadPupilYearGroupId(client, orgId, studentId);
+      const policy = await loadEffectiveEngagementPolicy(client, orgId, yearGroupId);
+      const progress = await pupilProgressSummary({
+        client,
+        organisationId: orgId,
+        studentProfileId: studentId,
+        audience: "parent",
+        policy,
+      });
+      return c.json({ achievements: progress.achievements, xp: progress.xp, rewardPoints: progress.rewardPoints });
+    }),
+  );
+
+  app.get("/parent/children/:studentId/competitions", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.COMPETITIONS_READ_OWN_CHILDREN);
+      const studentId = uuidRouteParam(c, "studentId");
+      await requireLinkedChild(client, userId, orgId, studentId);
+      const yearGroupId = await loadPupilYearGroupId(client, orgId, studentId);
+      const policy = await loadEffectiveEngagementPolicy(client, orgId, yearGroupId);
+      if (!policy.competitionsEnabled) return c.json({ competitions: [] });
+      const rows = await client.query(
+        `select * from competitions
+         where organisation_id = $1
+           and parent_visible = true
+           and staff_only = false
+           and status in ('published', 'active', 'completed')
+         order by starts_at nulls last, title`,
+        [orgId],
+      );
+      const visible = [];
+      for (const row of rows.rows) {
+        const targetIds = await competitionTargetStudentIds(client, orgId, row.id);
+        if (!targetIds || targetIds.has(studentId)) visible.push(row);
+      }
+      return c.json({ competitions: visible.map(mapCompetition) });
+    }),
+  );
+
+  app.get("/parent/children/:studentId/competitions/:id/leaderboard", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.COMPETITIONS_READ_OWN_CHILDREN);
+      const studentId = uuidRouteParam(c, "studentId");
+      await requireLinkedChild(client, userId, orgId, studentId);
+      const yearGroupId = await loadPupilYearGroupId(client, orgId, studentId);
+      const policy = await loadEffectiveEngagementPolicy(client, orgId, yearGroupId);
+      const board = await buildLeaderboard({
+        client,
+        organisationId: orgId,
+        competitionId: uuidRouteParam(c, "id"),
+        audience: "parent",
+        policy,
+        requestedScope: c.req.query("scope"),
+        viewerStudentId: studentId,
+      });
+      return c.json(board);
+    }),
+  );
+
+  app.get("/parent/children/:studentId/practice", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.LEARNING_PRACTICE_READ_OWN_CHILDREN);
+      const studentId = uuidRouteParam(c, "studentId");
+      await requireLinkedChild(client, userId, orgId, studentId);
+      const yearGroupId = await loadPupilYearGroupId(client, orgId, studentId);
+      const policy = await loadEffectiveEngagementPolicy(client, orgId, yearGroupId);
+      if (!policy.parentAssistedMode) {
+        return c.json({ practice: [], parentAssistedMode: false, childFriendlyUi: policy.childFriendlyUi });
+      }
+      const practice = await listPracticeForPupil({
+        client,
+        organisationId: orgId,
+        studentProfileId: studentId,
+        policy,
+      });
+      return c.json({ practice, parentAssistedMode: policy.parentAssistedMode, childFriendlyUi: policy.childFriendlyUi });
+    }),
+  );
+
+  app.get("/parent/children/:studentId/practice/:assignmentId", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.LEARNING_PRACTICE_READ_OWN_CHILDREN);
+      const studentId = uuidRouteParam(c, "studentId");
+      await requireLinkedChild(client, userId, orgId, studentId);
+      const yearGroupId = await loadPupilYearGroupId(client, orgId, studentId);
+      const policy = await loadEffectiveEngagementPolicy(client, orgId, yearGroupId);
+      if (!policy.parentAssistedMode) {
+        throw new AppError(403, "forbidden", "Parent-assisted learning is not enabled for this year group");
+      }
+      const playable = await loadPlayableActivity({
+        client,
+        organisationId: orgId,
+        assignmentId: uuidRouteParam(c, "assignmentId"),
+        studentProfileId: studentId,
+        includeAnswers: false,
+      });
+      return c.json(playable);
+    }),
+  );
+
+  app.post("/parent/children/:studentId/practice/:assignmentId/start", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.LEARNING_PRACTICE_SUBMIT_OWN_CHILDREN);
+      const studentId = uuidRouteParam(c, "studentId");
+      await requireLinkedChild(client, userId, orgId, studentId);
+      const yearGroupId = await loadPupilYearGroupId(client, orgId, studentId);
+      const policy = await loadEffectiveEngagementPolicy(client, orgId, yearGroupId);
+      if (!policy.parentAssistedMode) {
+        throw new AppError(403, "forbidden", "Parent-assisted learning is not enabled for this year group");
+      }
+      const started = await startPracticeAttempt({
+        client,
+        organisationId: orgId,
+        assignmentId: uuidRouteParam(c, "assignmentId"),
+        studentProfileId: studentId,
+        actorUserId: userId,
+        channel: "parent_assisted",
+      });
+      return c.json(started, 201);
+    }),
+  );
+
+  app.post("/parent/children/:studentId/practice/attempts/:attemptId/submit", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.LEARNING_PRACTICE_SUBMIT_OWN_CHILDREN);
+      const studentId = uuidRouteParam(c, "studentId");
+      await requireLinkedChild(client, userId, orgId, studentId);
+      const yearGroupId = await loadPupilYearGroupId(client, orgId, studentId);
+      const policy = await loadEffectiveEngagementPolicy(client, orgId, yearGroupId);
+      if (!policy.parentAssistedMode) {
+        throw new AppError(403, "forbidden", "Parent-assisted learning is not enabled for this year group");
+      }
+      const body = (await c.req.json().catch(() => ({}))) as { answers?: Record<string, unknown> };
+      const result = await submitPracticeAttempt({
+        client,
+        organisationId: orgId,
+        attemptId: uuidRouteParam(c, "attemptId"),
+        studentProfileId: studentId,
+        answers: body.answers ?? {},
+        actorUserId: userId,
+        expectedChannel: "parent_assisted",
+      });
+      return c.json(result);
     }),
   );
 }

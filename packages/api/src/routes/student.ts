@@ -14,9 +14,21 @@ import {
   summariseAttendanceMarks,
   isoDate,
   listCalendarActivities,
+  loadEffectiveEngagementPolicy,
+  loadPupilYearGroupId,
 } from "@schoolapp/core";
+import {
+  buildLeaderboard,
+  competitionTargetStudentIds,
+  listPracticeForPupil,
+  listRewardsForStudent,
+  loadPlayableActivity,
+  pupilProgressSummary,
+  startPracticeAttempt,
+  submitPracticeAttempt,
+} from "../engagement-service";
 import { listPupilTimetable } from "./timetable";
-import { mapTimetableOccurrence } from "../serialize";
+import { mapTimetableOccurrence, mapCompetition } from "../serialize";
 import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
 import { uuidRouteParam, withSchoolActor } from "../school-context";
@@ -97,6 +109,9 @@ export function registerStudentRoutes(app: SchoolappApi) {
           homework: { available: true },
           results: { available: true },
           timetable: { available: true },
+          challenges: { available: true },
+          achievements: { available: true },
+          rewards: { available: true },
         },
         timetable: {
           today: todayLessons.map((item) => mapTimetableOccurrence(item, { includeInternal: false })),
@@ -602,6 +617,177 @@ export function registerStudentRoutes(app: SchoolappApi) {
       await requireStudentPortalEnabled(client, orgId, userId);
       const activityId = uuidRouteParam(c, "activityId");
       const result = await studentSignupForActivity(client, { orgId, userId, activityId, withdraw: true });
+      return c.json(result);
+    }),
+  );
+
+  app.get("/student/engagement", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.REWARDS_READ_SELF);
+      const studentProfileId = await requireStudentPortalEnabled(client, orgId, userId);
+      const yearGroupId = await loadPupilYearGroupId(client, orgId, studentProfileId);
+      const policy = await loadEffectiveEngagementPolicy(client, orgId, yearGroupId);
+      const progress = await pupilProgressSummary({
+        client,
+        organisationId: orgId,
+        studentProfileId,
+        audience: "student",
+        policy,
+      });
+      const practice = await listPracticeForPupil({
+        client,
+        organisationId: orgId,
+        studentProfileId,
+        policy,
+      });
+      return c.json({ progress, practice });
+    }),
+  );
+
+  app.get("/student/rewards", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.REWARDS_READ_SELF);
+      const studentProfileId = await requireStudentPortalEnabled(client, orgId, userId);
+      const yearGroupId = await loadPupilYearGroupId(client, orgId, studentProfileId);
+      const policy = await loadEffectiveEngagementPolicy(client, orgId, yearGroupId);
+      const rewards = await listRewardsForStudent({
+        client,
+        organisationId: orgId,
+        studentProfileId,
+        audience: "student",
+        policy,
+      });
+      return c.json({ rewards });
+    }),
+  );
+
+  app.get("/student/achievements", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACHIEVEMENTS_READ_SELF);
+      const studentProfileId = await requireStudentPortalEnabled(client, orgId, userId);
+      const yearGroupId = await loadPupilYearGroupId(client, orgId, studentProfileId);
+      const policy = await loadEffectiveEngagementPolicy(client, orgId, yearGroupId);
+      const progress = await pupilProgressSummary({
+        client,
+        organisationId: orgId,
+        studentProfileId,
+        audience: "student",
+        policy,
+      });
+      return c.json({ achievements: progress.achievements, xp: progress.xp });
+    }),
+  );
+
+  app.get("/student/competitions", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.COMPETITIONS_READ_SELF);
+      const studentProfileId = await requireStudentPortalEnabled(client, orgId, userId);
+      const yearGroupId = await loadPupilYearGroupId(client, orgId, studentProfileId);
+      const policy = await loadEffectiveEngagementPolicy(client, orgId, yearGroupId);
+      if (!policy.competitionsEnabled) return c.json({ competitions: [] });
+      const rows = await client.query(
+        `select * from competitions
+         where organisation_id = $1
+           and student_visible = true
+           and staff_only = false
+           and status in ('published', 'active', 'completed')
+         order by starts_at nulls last, title`,
+        [orgId],
+      );
+      const visible = [];
+      for (const row of rows.rows) {
+        const targetIds = await competitionTargetStudentIds(client, orgId, row.id);
+        if (!targetIds || targetIds.has(studentProfileId)) visible.push(row);
+      }
+      return c.json({ competitions: visible.map(mapCompetition) });
+    }),
+  );
+
+  app.get("/student/competitions/:id/leaderboard", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.COMPETITIONS_READ_SELF);
+      const studentProfileId = await requireStudentPortalEnabled(client, orgId, userId);
+      const yearGroupId = await loadPupilYearGroupId(client, orgId, studentProfileId);
+      const policy = await loadEffectiveEngagementPolicy(client, orgId, yearGroupId);
+      const board = await buildLeaderboard({
+        client,
+        organisationId: orgId,
+        competitionId: uuidRouteParam(c, "id"),
+        audience: "student",
+        policy,
+        requestedScope: c.req.query("scope"),
+        viewerStudentId: studentProfileId,
+      });
+      return c.json(board);
+    }),
+  );
+
+  app.get("/student/practice", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.LEARNING_PRACTICE_READ_SELF);
+      const studentProfileId = await requireStudentPortalEnabled(client, orgId, userId);
+      const yearGroupId = await loadPupilYearGroupId(client, orgId, studentProfileId);
+      const policy = await loadEffectiveEngagementPolicy(client, orgId, yearGroupId);
+      const practice = await listPracticeForPupil({
+        client,
+        organisationId: orgId,
+        studentProfileId,
+        policy,
+      });
+      return c.json({ practice, childFriendlyUi: policy.childFriendlyUi });
+    }),
+  );
+
+  app.get("/student/practice/:assignmentId", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.LEARNING_PRACTICE_READ_SELF);
+      const studentProfileId = await requireStudentPortalEnabled(client, orgId, userId);
+      const playable = await loadPlayableActivity({
+        client,
+        organisationId: orgId,
+        assignmentId: uuidRouteParam(c, "assignmentId"),
+        studentProfileId,
+        includeAnswers: false,
+      });
+      return c.json(playable);
+    }),
+  );
+
+  app.post("/student/practice/:assignmentId/start", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.LEARNING_PRACTICE_SUBMIT_SELF);
+      const studentProfileId = await requireStudentPortalEnabled(client, orgId, userId);
+      const started = await startPracticeAttempt({
+        client,
+        organisationId: orgId,
+        assignmentId: uuidRouteParam(c, "assignmentId"),
+        studentProfileId,
+        actorUserId: userId,
+        channel: "student",
+      });
+      return c.json(started, 201);
+    }),
+  );
+
+  app.post("/student/practice/attempts/:attemptId/submit", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.LEARNING_PRACTICE_SUBMIT_SELF);
+      const studentProfileId = await requireStudentPortalEnabled(client, orgId, userId);
+      const body = (await c.req.json().catch(() => ({}))) as {
+        answers?: Record<string, unknown>;
+        xpAwarded?: unknown;
+        rewardPoints?: unknown;
+        score?: unknown;
+      };
+      const result = await submitPracticeAttempt({
+        client,
+        organisationId: orgId,
+        attemptId: uuidRouteParam(c, "attemptId"),
+        studentProfileId,
+        answers: body.answers ?? {},
+        actorUserId: userId,
+        expectedChannel: "student",
+      });
       return c.json(result);
     }),
   );

@@ -1,6 +1,6 @@
 # Schoolapp — Platform Architecture
 
-**Status:** Phases 1–18 implemented (foundation through UK statutory data / census readiness). Later modules (AI, mobile) are not built.  
+**Status:** Phases 1–19 implemented (foundation through student engagement, rewards, competitions, and early learning). Later modules (AI generation, native mobile) are not built.  
 **Audience:** Product owner and engineering.  
 **Scope:** Multi-tenant UK school SaaS (SIS + LMS + AI learning), web first, mobile-ready.
 
@@ -543,11 +543,25 @@ Messaging is conversational and participant-based. Phase 10 announcements remain
 
 Live pupil/enrolment/attendance/SEND notes remain canonical. Snapshots store census-relevant values so a later operational edit does not rewrite history. Validation is a core engine, not UI-only. CSV/XML exports are census-ready / preview — not DfE COLLECT submissions. See [ADR 0027](./adr/0027-phase18-statutory-census.md).
 
+### 6.2i Student engagement, rewards, competitions, and early learning (Phase 19)
+
+- Settings: `engagement_settings` (school defaults) and `engagement_year_group_policies` (nullable overlays). Student Portal on/off remains Phase 6 policy.
+- Houses: existing `houses` plus `short_code`, `colour`, `active`. House points are derived from authorised `pupil_rewards`, not a separate counter.
+- Rewards: `reward_categories`, `pupil_rewards` (server-stamped `awarded_by`; revoke is a state, not a silent delete). Distinct from Phase 11 behaviour positives.
+- XP: `pupil_xp_events` append-only with idempotent source keys. Reward revocation inserts a compensating `reversal` row. XP is not reward points.
+- Achievements: `achievement_definitions` with controlled criteria types; `pupil_achievements` unique per definition unless repeats are allowed.
+- Competitions: `competitions`, `competition_targets`, `competition_manual_scores`, frozen `competition_results`.
+- Practice: `learning_activity_definitions` / `_items` / `_assignments` / `_targets` / `_recipients` / `_attempts` / `_answers`. Deterministic item schema only. Scores are not Phase 8 results.
+- Parent-assisted attempts use `channel = parent_assisted`; parents do not impersonate students.
+
+See [ADR 0028](./adr/0028-phase19-engagement.md). Leaderboards default off; individual named ranking is off unless the school enables it. Platform Admin has no school engagement browse. No LLM calls and no student-to-student messaging in this phase.
+
 ### 6.3 Later entities (do not implement now; reserved names)
 
 - Admissions: `admissions_enquiries`, `admissions_applications`, `admissions_application_contacts`, `admissions_application_status_history`, `admissions_assessments`, `admissions_waiting_list_entries`, `admissions_offers`, `admissions_documents` (metadata only)
 - LMS later: `timetable_entries`
-- Learning: `learning_activities`, `activity_items`, `activity_reviews`, `activity_attempts`, `competitions`, `points_ledger`, `badge_definitions`, `streaks`
+- Future AI drafts: generated `learning_activity_definitions` still begin as `draft` (ADR 0028); no generation in Phase 19
+- Inter-school competition network tables remain governance placeholders
 
 ### 6.4 Critical lifecycle: applicant → student
 
@@ -717,8 +731,8 @@ Detail: [roadmap.md](./roadmap.md).
 | **7 — LMS core** | Assignments, submissions, resources, marking | **Implemented** |
 | **8 — Assessment & reports** | Formal assessments, results, reporting periods, targets, progress reports | **Implemented** |
 | **9 — Public admissions forms** | Configurable enquiry/application forms, embeds, QR, campaigns | **Implemented** |
-| **10 — AI learning** | Provider port, drafts, teacher approval, attempts | Yes |
-| **11 — Gamification** | Points, badges, streaks, configurable leaderboards | Yes |
+| **10 — AI learning** | Provider port, drafts, teacher approval, attempts | Reserved (Phase 19 schema only) |
+| **11 — Gamification** | Points, badges, streaks, configurable leaderboards | **Phase 19 implemented** a safe subset; no shop/social |
 | **12 — Mobile** | Expo parent app, then student | New clients only |
 | **13 — Integrations** | MIS, CTF, census, SSO | Later |
 
@@ -747,6 +761,7 @@ Each phase ships behind feature flags per organisation. Mobile starts only when 
 15. SaaS hostname tenancy: one shared application; school slug subdomains; apex is platform context; `X-Organisation-Id` is never authority; unverified custom domains do not resolve (ADR 0014).
 16. School payments: integer minor units; charge vs transaction; provider port; webhook authority; no card data (ADR 0024).
 17. School messaging: explicit participants; current access vs history; assigned-only teacher initiation; no student chat; immutable messages with moderation redaction (ADR 0025).
+18. School engagement: rewards separate from behaviour; XP separate from reward points; server-authoritative scoring; Children’s Code leaderboard defaults; parent-assisted is not impersonation (ADR 0028).
 
 ### Product-owner Phase 1 decisions (ADR 0011)
 

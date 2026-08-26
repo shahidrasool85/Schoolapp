@@ -32,6 +32,7 @@ import { registerFinanceRoutes } from "./routes/finance";
 import { registerPaymentWebhookRoutes } from "./routes/webhooks-payments";
 import { registerMessagingRoutes } from "./routes/messaging";
 import { registerStatutoryRoutes } from "./routes/statutory";
+import { registerEngagementRoutes } from "./routes/engagement";
 
 export type { ApiConfig, ApiEnv, SchoolappApi } from "./types";
 
@@ -93,6 +94,7 @@ export function createApiApp(config: ApiConfig) {
   registerFileRoutes(app);
   registerLearningRoutes(app);
   registerStatutoryRoutes(app);
+  registerEngagementRoutes(app);
   registerAssessmentRoutes(app);
   registerCommunicationRoutes(app);
   registerBehaviourRoutes(app);

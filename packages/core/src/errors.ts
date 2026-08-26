@@ -87,9 +87,19 @@ export function pgErrorToAppError(error: unknown): AppError | null {
     message.includes("activity_actor_required") ||
     message.includes("finance_actor_required") ||
     message.includes("messaging_actor_required") ||
-    message.includes("statutory_actor_required")
+    message.includes("statutory_actor_required") ||
+    message.includes("engagement_actor_required")
   ) {
     return new AppError(400, "validation_failed", "The request violates a data constraint");
+  }
+  if (message.includes("engagement_xp_immutable") || message.includes("competition_results_frozen")) {
+    return new AppError(409, "conflict", "This record can no longer be changed");
+  }
+  if (message.includes("learning_attempt_completed")) {
+    return new AppError(409, "conflict", "This activity has already been submitted");
+  }
+  if (message.includes("engagement_revoke_reason_required")) {
+    return new AppError(400, "validation_failed", "A correction reason is required");
   }
   if (message.includes("assignment_not_assigned") || message.includes("assessment_pupil_not_included")) {
     return new AppError(404, "not_found", "Not found");

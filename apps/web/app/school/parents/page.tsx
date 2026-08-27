@@ -7,6 +7,7 @@ import {
   Button,
   DataTable,
   EmptyState,
+  InviteTokenAlert,
   PageHeader,
   StatusBadge,
 } from "../../../components/ui";
@@ -87,11 +88,7 @@ export default function ParentsPage() {
         title="Parents / Guardians"
         description="Portal access is off unless explicitly enabled. Matching emails are never linked across organisations."
       />
-      {inviteToken ? (
-        <Alert tone="info">
-          One-time invitation (copy now): <code>{inviteToken}</code>
-        </Alert>
-      ) : null}
+      {inviteToken ? <InviteTokenAlert token={inviteToken} /> : null}
       {notice ? <Alert tone="success">{notice}</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {guardians.length === 0 ? (

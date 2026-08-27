@@ -185,7 +185,7 @@ export function registerAuthRoutes(app: SchoolappApi) {
       }>("select * from lookup_invitation_for_accept($1)", [parsed.data.token]);
       const invite = preview.rows[0];
       if (!invite) {
-        throw new AppError(404, "not_found", "Not found");
+        throw new AppError(404, "not_found", "This link is invalid or has expired");
       }
 
       let passwordHash = "";

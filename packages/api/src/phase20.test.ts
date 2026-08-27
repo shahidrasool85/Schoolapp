@@ -227,6 +227,20 @@ describe("Phase 20 onboarding and account lifecycle", () => {
     });
     expect([400, 404]).toContain(reuse.status);
 
+    const missing = await app.request("/api/v1/invitations/accept", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        fullName: "Nobody",
+        password: "teacher-pass-1",
+      }),
+    });
+    expect(missing.status).toBe(404);
+    expect(((await missing.json()) as { error: { message: string } }).error.message).toBe(
+      "This link is invalid or has expired",
+    );
+
     const teacherToken = await login(app, `teacher-${id}@example.com`, "teacher-pass-1");
     const teacherHdrs = jsonHeaders(teacherToken, school.orgId);
     const teacherMe = (await (await app.request("/api/v1/me", { headers: teacherHdrs })).json()) as {

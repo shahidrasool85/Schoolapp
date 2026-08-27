@@ -28,6 +28,7 @@ import {
   Dialog,
   FormField,
   Input,
+  InviteTokenAlert,
   LoadingState,
   PageError,
   PersonSummary,
@@ -760,13 +761,7 @@ export default function StudentDetailPage() {
         {" · "}
         <a href="/school/student-portal">Student Portal policy</a>
       </p>
-      {studentLoginToken ? (
-        <Alert tone="info">
-          One-time activation token (copy now): <code>{studentLoginToken}</code>
-          {" · "}
-          <a href={`/activate?token=${encodeURIComponent(studentLoginToken)}`}>Activation link</a>
-        </Alert>
-      ) : null}
+      {studentLoginToken ? <InviteTokenAlert token={studentLoginToken} kind="activation" /> : null}
       {canManagePortal ? (
         <SectionCard title="Student Portal account" description="Policy is rechecked on every request. Passwords are never shown after this one-time token.">
           {data.portalAccess.hasLoginAlias ? (
@@ -1633,6 +1628,9 @@ export default function StudentDetailPage() {
               </div>
             </dl>
             <p className="muted">Invitation token / link</p>
+            <p>
+              <a href={`/invite?token=${encodeURIComponent(invite.token)}`}>Open invitation link</a>
+            </p>
             <code>{invite.token}</code>
             <Alert tone="warning">Copy this invitation now. For security it will not be shown again.</Alert>
             <div className="dialog-actions">

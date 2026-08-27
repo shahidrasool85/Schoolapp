@@ -9,6 +9,7 @@ import {
   EmptyState,
   FormField,
   Input,
+  InviteTokenAlert,
   PageHeader,
   Select,
   StatusBadge,
@@ -96,11 +97,7 @@ export default function StaffPage() {
           <Button type="submit">Create and invite</Button>
         </div>
       </form>
-      {inviteToken ? (
-        <Alert tone="info">
-          One-time invitation (copy now): <code>{inviteToken}</code>
-        </Alert>
-      ) : null}
+      {inviteToken ? <InviteTokenAlert token={inviteToken} /> : null}
       {notice ? <Alert tone="success">{notice}</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {staff.length === 0 ? (

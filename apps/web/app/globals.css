@@ -838,6 +838,14 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .alert-success { background: var(--ok-soft); border-color: #abefc6; color: var(--ok); }
 .alert-info { background: var(--info-soft); border-color: #b2ccff; color: var(--info); }
 
+.alert code,
+.invite-token {
+  display: block;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  margin-top: 0.45rem;
+}
+
 .button-row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 .stack { display: grid; gap: 0.85rem; }
 

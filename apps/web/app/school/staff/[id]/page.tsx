@@ -9,6 +9,7 @@ import {
   Checkbox,
   FormField,
   Input,
+  InviteTokenAlert,
   LoadingState,
   PageError,
   PageHeader,
@@ -151,11 +152,7 @@ export default function StaffDetailPage() {
         meta={<>{staff.jobTitle ?? "Staff"} · {staff.email}</>}
         actions={<StatusBadge status={staff.accountStatus} />}
       />
-      {inviteToken ? (
-        <Alert tone="info">
-          One-time invitation (copy now): <code>{inviteToken}</code>
-        </Alert>
-      ) : null}
+      {inviteToken ? <InviteTokenAlert token={inviteToken} /> : null}
       {notice ? <Alert tone="success">{notice}</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
 

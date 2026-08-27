@@ -45,7 +45,11 @@ function InviteForm() {
       });
       router.push("/login");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "This link is invalid or has expired");
+      setError(
+        err instanceof Error && err.message && err.message !== "Not found"
+          ? err.message
+          : "This link is invalid or has expired",
+      );
     }
   }
 

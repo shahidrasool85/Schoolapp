@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
 import { useRouter } from "next/navigation";
-import { Alert, EmptyState, FormField, Input, LoadingState, PageError, PageHeader, SectionCard } from "../../components/ui";
+import { Alert, EmptyState, FormField, Input, InviteTokenAlert, LoadingState, PageError, PageHeader, SectionCard } from "../../components/ui";
 import { Button } from "../../components/ui/button";
 import { api, getToken, setOrgId, setToken } from "../../lib/api";
 import { userFacingError } from "../../lib/errors";
@@ -142,13 +142,10 @@ export default function PlatformPage() {
             </form>
           </SectionCard>
           {inviteToken ? (
-            <Alert tone="info">
-              One-time School Admin invitation (copy now): <code>{inviteToken}</code>
-              {" · "}
-              <a href={`${schoolOrigin(inviteSlug, platformDomain)}/invite?token=${encodeURIComponent(inviteToken)}`}>
-                Activation link
-              </a>
-            </Alert>
+            <InviteTokenAlert
+              token={inviteToken}
+              href={`${schoolOrigin(inviteSlug, platformDomain)}/invite?token=${encodeURIComponent(inviteToken)}`}
+            />
           ) : null}
           {notice ? <Alert tone="success">{notice}</Alert> : null}
           <h2>Schools</h2>

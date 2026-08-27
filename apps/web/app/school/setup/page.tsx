@@ -9,6 +9,7 @@ import {
   EmptyState,
   FormField,
   Input,
+  InviteTokenAlert,
   LoadingState,
   PageError,
   PageHeader,
@@ -411,7 +412,7 @@ function StaffStep() {
         {error ? <Alert tone="danger">{error}</Alert> : null}
         <div><Button type="submit">Invite staff</Button></div>
       </form>
-      {token ? <Alert>Copy this one-time invite: <code>{token}</code></Alert> : null}
+      {token ? <InviteTokenAlert token={token} /> : null}
       <p className="muted"><Link href="/school/staff">Open staff</Link> · <Link href="/school/imports">Bulk import</Link></p>
     </WizardPanel>
   );
@@ -430,12 +431,16 @@ function PupilsStep() {
 
 function PortalsStep() {
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   async function enableStudentPortal() {
+    setError("");
+    setNotice("");
     try {
       await api("/api/v1/student-portal-policy", {
         method: "PATCH",
         body: JSON.stringify({ defaultEnabled: true }),
       });
+      setNotice("School-wide Student Portal default is now enabled.");
     } catch (err) {
       setError(userFacingError(err, "Could not update Student Portal policy."));
     }
@@ -444,6 +449,7 @@ function PortalsStep() {
     <WizardPanel title="Portal configuration" description="Parent Portal access stays off until you enable it on a guardianship. Student Portal uses the existing year/policy rules.">
       <p className="muted">Parent Portal: omitted or unchecked portal access remains false. Enable it from Parents / Guardians or a pupil record.</p>
       <div><Button type="button" onClick={() => void enableStudentPortal()}>Enable school-wide Student Portal default</Button></div>
+      {notice ? <Alert tone="success">{notice}</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
       <p className="muted"><Link href="/school/student-portal">Student Portal policy</Link> · <Link href="/school/parents">Parents</Link></p>
     </WizardPanel>

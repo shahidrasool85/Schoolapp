@@ -404,7 +404,7 @@ async function evaluateRow(
   }
   const issues = validateGuardianImportRow(payload);
   if (payload.email) {
-    const existing = await client.query<{ id: string }>(
+    const existing = await client.query(
       `select u.id
        from users u
        join organisation_memberships m on m.user_id = u.id and m.organisation_id = $1
@@ -414,17 +414,17 @@ async function evaluateRow(
     );
     if (existing.rows[0]) {
       const pupil = payload.admission_number
-        ? await client.query<{ id: string }>(
-            `select id from student_profiles where organisation_id = $1 and admission_number = $2 limit 1`,
+        ? await client.query(
+            `select id from student_profiles where organisation_id = $1 and lower(admission_number) = lower($2) limit 1`,
             [orgId, payload.admission_number],
           )
         : payload.pupil_legal_name
-          ? await client.query<{ id: string }>(
+          ? await client.query(
               `select id from student_profiles where organisation_id = $1 and lower(legal_name) = lower($2) limit 1`,
               [orgId, payload.pupil_legal_name],
             )
-          : { rows: [] as Array<{ id: string }> };
-      const pupilId = pupil.rows[0]?.id;
+          : { rows: [] as Array<Record<string, unknown>> };
+      const pupilId = pupil.rows[0]?.id as string | undefined;
       if (pupilId) {
         const linked = await client.query(
           `select 1 from guardianships
@@ -523,7 +523,7 @@ async function importValidRow(
           [input.orgId, input.payload.form_class],
         )
       : { rows: [] as Array<Record<string, unknown>> };
-    const created = await client.query<{ provision_student: string }>(
+    const created = await client.query(
       "select provision_student($1,$2,$3,$4,$5,$6::date,$7,$8,$9,$10,$11,$12)",
       [
         input.userId,
@@ -540,7 +540,7 @@ async function importValidRow(
         null,
       ],
     );
-    const studentId = created.rows[0]?.provision_student;
+    const studentId = created.rows[0]?.provision_student as string | undefined;
     if (!studentId) throw new AppError(400, "validation_failed", "The pupil could not be created");
     if (input.payload.address_line1 || input.payload.address_town || input.payload.address_postcode) {
       await client.query(
@@ -563,7 +563,7 @@ async function importValidRow(
 
   const pupil = input.payload.admission_number
     ? await client.query(
-        `select id from student_profiles where organisation_id = $1 and admission_number = $2 limit 1`,
+        `select id from student_profiles where organisation_id = $1 and lower(admission_number) = lower($2) limit 1`,
         [input.orgId, input.payload.admission_number],
       )
     : await client.query(

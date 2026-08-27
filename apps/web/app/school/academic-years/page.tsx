@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
 import { EmptyState } from "../../../components/ui";
 import { api } from "../../../lib/api";
 
@@ -27,7 +28,8 @@ export default function AcademicYearsPage() {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formEl = captureSubmitTarget(event);
+    const form = new FormData(formEl);
     await api("/api/v1/academic-years", {
       method: "POST",
       body: JSON.stringify({
@@ -37,7 +39,7 @@ export default function AcademicYearsPage() {
         isCurrent: form.get("isCurrent") === "on",
       }),
     });
-    event.currentTarget.reset();
+    resetFormSafely(formEl);
     await load();
   }
 

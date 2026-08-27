@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
 import { EmptyState } from "../../../components/ui";
 import { api } from "../../../lib/api";
 
@@ -21,14 +22,15 @@ export default function SubjectsPage() {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formEl = captureSubmitTarget(event);
+    const form = new FormData(formEl);
     const name = String(form.get("name") ?? "");
     const key = String(form.get("key") || name.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
     await api("/api/v1/subjects", {
       method: "POST",
       body: JSON.stringify({ key, name }),
     });
-    event.currentTarget.reset();
+    resetFormSafely(formEl);
     await load();
   }
 

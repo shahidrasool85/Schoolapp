@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
 import { EmptyState } from "../../../components/ui";
 import { api } from "../../../lib/api";
 
@@ -48,7 +49,8 @@ export default function ClassesPage() {
 
   async function createClass(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formEl = captureSubmitTarget(event);
+    const form = new FormData(formEl);
     await api("/api/v1/classes", {
       method: "POST",
       body: JSON.stringify({
@@ -58,7 +60,7 @@ export default function ClassesPage() {
         classType: form.get("classType"),
       }),
     });
-    event.currentTarget.reset();
+    resetFormSafely(formEl);
     await load();
   }
 

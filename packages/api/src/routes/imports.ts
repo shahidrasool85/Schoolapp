@@ -483,7 +483,7 @@ async function importValidRow(
           [input.orgId, input.payload.form_class],
         )
       : { rows: [] as Array<Record<string, unknown>> };
-    await client.query(
+    const created = await client.query<{ provision_student: string }>(
       "select provision_student($1,$2,$3,$4,$5,$6::date,$7,$8,$9,$10,$11,$12)",
       [
         input.userId,
@@ -500,22 +500,21 @@ async function importValidRow(
         null,
       ],
     );
+    const studentId = created.rows[0]?.provision_student;
+    if (!studentId) throw new AppError(400, "validation_failed", "The pupil could not be created");
     if (input.payload.address_line1 || input.payload.address_town || input.payload.address_postcode) {
       await client.query(
         `update student_profiles
          set address_line1 = coalesce($3, address_line1),
              address_town = coalesce($4, address_town),
              address_postcode = coalesce($5, address_postcode)
-         where organisation_id = $1 and legal_name = $2
-           and ($6::text is null or admission_number = $6)
-         and updated_at >= now() - interval '5 seconds'`,
+         where id = $1 and organisation_id = $2`,
         [
+          studentId,
           input.orgId,
-          input.payload.legal_name,
           input.payload.address_line1 || null,
           input.payload.address_town || null,
           input.payload.address_postcode || null,
-          input.payload.admission_number || null,
         ],
       );
     }

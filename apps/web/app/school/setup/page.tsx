@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ONBOARDING_STEPS, type OnboardingStep, captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
 import {
   Alert,
@@ -68,6 +68,7 @@ export default function SchoolSetupPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
+  const loadSeq = useRef(0);
 
   const step = STEP_META[index]!.key;
 
@@ -82,7 +83,8 @@ export default function SchoolSetupPage() {
     });
   }
 
-  async function load() {
+  async function load(options?: { syncStep?: boolean }) {
+    const seq = ++loadSeq.current;
     const [onboarding, body] = await Promise.all([
       api<{
         progress: { currentStep: string };
@@ -90,15 +92,18 @@ export default function SchoolSetupPage() {
       }>("/api/v1/onboarding"),
       api<{ profile: Profile }>("/api/v1/onboarding/profile"),
     ]);
+    if (seq !== loadSeq.current) return;
     setProfile(body.profile);
     setReadiness(onboarding.readiness.items);
     setReady(onboarding.readiness.ready);
-    const found = STEP_META.findIndex((item) => item.key === onboarding.progress.currentStep);
-    if (found >= 0) setIndex(found);
+    if (options?.syncStep) {
+      const found = STEP_META.findIndex((item) => item.key === onboarding.progress.currentStep);
+      if (found >= 0) setIndex(found);
+    }
   }
 
   useEffect(() => {
-    load()
+    load({ syncStep: true })
       .catch((err: Error) => setError(userFacingError(err, "Could not load school setup.")))
       .finally(() => setLoading(false));
   }, []);

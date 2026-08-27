@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
+import { EmptyState } from "../../../../components/ui";
 import { api } from "../../../../lib/api";
 
 type Period = {
@@ -128,7 +129,12 @@ export default function SchoolDayPage() {
           <button type="submit">Add school-day profile</button>
         </div>
       </form>
-      {profiles.length === 0 ? <p>No school-day profiles yet.</p> : null}
+      {profiles.length === 0 ? (
+        <EmptyState
+          title="No school-day profiles yet"
+          description="Add a weekday profile with start and end times, then define periods for lessons and breaks."
+        />
+      ) : null}
       {profiles.map((profile) => (
         <section className="card" key={profile.id}>
           <h2>{profile.name}</h2>

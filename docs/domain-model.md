@@ -182,7 +182,7 @@ See [ADR 0029](./adr/0029-pupil-medication-dietary.md). These are operational pu
 - `student_dietary_requirements` — multiple rows per pupil: type, requirement, foods to avoid, safe alternatives, religious/cultural flag, allergy relationship, texture/feeding notes, parent-confirmed and review dates, `active|inactive`
 - `student_dietary_requirement_revisions` — same history pattern
 
-Teachers see an operational projection for assigned pupils. Parents see `parent_visible` rows only after guardianship + `portal_access`. The Student Portal does not automatically expose administration details. Activity safety summaries reuse **active** canonical rows.
+Teachers see an operational projection for assigned pupils. Parents see `parent_visible` rows only after guardianship + `portal_access`. Parent visibility is fail-closed: omitted or non-true create values store `false`; staff must explicitly opt a record in. The Student Portal does not automatically expose administration details. Activity safety summaries reuse **active** canonical rows.
 
 ## Operations (Phase 6)
 

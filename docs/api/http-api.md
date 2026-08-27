@@ -155,7 +155,7 @@ GET  /api/v1/parent/children/{studentId}/activities/{activityId}
 POST /api/v1/parent/children/{studentId}/activities/{activityId}/respond
 ```
 
-Phase 3 implements dashboard, children list, and child overview (profile + school/year/form + viewer guardianship). Phase 6 implements child attendance (parent-visible notes only). Phase 8 implements released formal results, subject progress, and published report snapshots. Phase 10 implements family notices and calendar (authorised children only; no staff-only rows; no actor/storage-key fields). Parent-visible medication and dietary records require live guardianship + `portal_access` and the matching `*.read_own_children` keys; internal notes are omitted. Responses never include `restricted_contact`, admin notes, billing, moderation notes, or other organisations' children.
+Phase 3 implements dashboard, children list, and child overview (profile + school/year/form + viewer guardianship). Phase 6 implements child attendance (parent-visible notes only). Phase 8 implements released formal results, subject progress, and published report snapshots. Phase 10 implements family notices and calendar (authorised children only; no staff-only rows; no actor/storage-key fields). Parent-visible medication and dietary records require live guardianship + `portal_access` and the matching `*.read_own_children` keys; internal notes are omitted. Creates fail closed (`parentVisible` omitted or non-true stores false; staff must explicitly opt in). Responses never include `restricted_contact`, admin notes, billing, moderation notes, or other organisations' children.
 
 ## Student portal
 

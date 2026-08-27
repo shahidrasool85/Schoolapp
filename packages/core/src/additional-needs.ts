@@ -51,6 +51,11 @@ export function isPupilMedicalView(value: string): value is PupilMedicalView {
   return (PUPIL_MEDICAL_VIEWS as readonly string[]).includes(value);
 }
 
+/** Parent Portal visibility is explicit opt-in. Omitted or non-true values stay staff-only. */
+export function parentVisibleGranted(value: boolean | null | undefined): boolean {
+  return value === true;
+}
+
 export type MedicationRevisionView = {
   id: string;
   changeKind: string;

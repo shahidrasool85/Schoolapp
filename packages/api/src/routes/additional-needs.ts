@@ -9,6 +9,7 @@ import {
   mapDietaryRevision,
   mapMedicationRecord,
   mapMedicationRevision,
+  parentVisibleGranted,
   requireLinkedChild,
   resolveDietaryView,
   resolveMedicationView,
@@ -207,7 +208,7 @@ export function registerAdditionalNeedsRoutes(app: SchoolappApi) {
           status,
           data.stoppedReason ?? null,
           data.internalNotes ?? null,
-          data.parentVisible ?? true,
+          parentVisibleGranted(data.parentVisible),
         ],
       );
       const row = inserted.rows[0]!;
@@ -450,7 +451,7 @@ export function registerAdditionalNeedsRoutes(app: SchoolappApi) {
           status,
           endedOn,
           data.internalNotes ?? null,
-          data.parentVisible ?? true,
+          parentVisibleGranted(data.parentVisible),
         ],
       );
       const row = inserted.rows[0]!;

@@ -5,6 +5,8 @@
 -- safeguarding capabilities, break-glass, or audit.
 -- Treats migrations 0001–0037 as immutable.
 -- Operational medical/dietary records are not safeguarding and are not SEND notes.
+-- parent_visible fails closed (default false). Staff must explicitly opt a
+-- record into the Parent Portal. Existing rows are not rewritten here.
 
 -- ---------------------------------------------------------------------------
 -- Permissions
@@ -73,7 +75,7 @@ create table student_medications (
   status text not null default 'active' check (status in ('active', 'stopped')),
   stopped_reason text check (stopped_reason is null or char_length(stopped_reason) <= 500),
   internal_notes text check (internal_notes is null or char_length(internal_notes) <= 4000),
-  parent_visible boolean not null default true,
+  parent_visible boolean not null default false,
   source_application_id uuid references admissions_applications (id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -132,7 +134,7 @@ create table student_dietary_requirements (
   status text not null default 'active' check (status in ('active', 'inactive')),
   ended_on date,
   internal_notes text check (internal_notes is null or char_length(internal_notes) <= 4000),
-  parent_visible boolean not null default true,
+  parent_visible boolean not null default false,
   source_application_id uuid references admissions_applications (id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -423,7 +425,7 @@ begin
       'school_staff',
       'pending',
       'active',
-      true,
+      false,
       p_application_id
     );
   end if;
@@ -446,7 +448,7 @@ begin
       v_dietary,
       false,
       'active',
-      true,
+      false,
       p_application_id
     );
   end if;

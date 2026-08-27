@@ -5,6 +5,7 @@ import {
   isDietaryRecordStatus,
   isMedicationRecordStatus,
   isMedicationRoute,
+  parentVisibleGranted,
   summariseActiveDietary,
   summariseActiveMedications,
 } from "./additional-needs.js";
@@ -15,6 +16,13 @@ describe("additional needs helpers", () => {
     expect(isMedicationRoute("intravenous")).toBe(false);
     expect(isMedicationRecordStatus("stopped")).toBe(true);
     expect(isDietaryRecordStatus("inactive")).toBe(true);
+  });
+
+  it("fails closed unless parentVisible is explicitly true", () => {
+    expect(parentVisibleGranted(undefined)).toBe(false);
+    expect(parentVisibleGranted(null)).toBe(false);
+    expect(parentVisibleGranted(false)).toBe(false);
+    expect(parentVisibleGranted(true)).toBe(true);
   });
 
   it("keeps audit payloads free of clinical text", () => {

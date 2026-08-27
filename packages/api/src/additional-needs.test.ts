@@ -282,11 +282,16 @@ describe("Pupil medication and dietary requirements", () => {
 
     const listed = (await (
       await app.request(`/api/v1/students/${pupil.student.id}/medications`, { headers: hdrs })
-    ).json()) as { view: string; medications: Array<{ medicationName: string; status: string; internalNotes?: string }> };
+    ).json()) as {
+      view: string;
+      medications: Array<{ medicationName: string; status: string; internalNotes?: string; parentVisible?: boolean }>;
+    };
     expect(listed.view).toBe("full");
     expect(listed.medications).toHaveLength(2);
     expect(listed.medications.map((row) => row.medicationName).sort()).toEqual(["Cetirizine", "Salbutamol inhaler"]);
     expect(listed.medications.find((row) => row.medicationName === "Cetirizine")?.status).toBe("stopped");
+    expect(listed.medications.find((row) => row.medicationName === "Cetirizine")?.parentVisible).toBe(true);
+    expect(listed.medications.find((row) => row.medicationName === "Salbutamol inhaler")?.parentVisible).toBe(false);
     expect(listed.medications.some((row) => row.internalNotes === "INTERNAL-MED-NOTE-SECRET")).toBe(true);
 
     const audits = await pools.owner.query<{ action: string; after_data: Record<string, unknown> }>(
@@ -552,6 +557,159 @@ describe("Pupil medication and dietary requirements", () => {
       headers: parentHdrs,
     });
     expect(ended.status).toBe(404);
+  });
+
+  it("fails closed on parentVisible for medication and dietary creates", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = jsonHeaders(token, school.orgId);
+    const year = await seedYear(app, hdrs);
+    const teacher = await inviteTeacher(app, hdrs, id, year.classAId);
+    const child = await createStudent(app, hdrs, {
+      legalName: "Amelia Khan",
+      academicYearId: year.yearId,
+      yearGroupId: year.year3Id,
+      classId: year.classAId,
+    });
+    await inviteParent(app, hdrs, child.student.id, `parent-${id}@example.com`, true);
+
+    const omittedMed = await app.request(`/api/v1/students/${child.student.id}/medications`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        medicationName: "Omitted visibility inhaler",
+        route: "inhaled",
+        internalNotes: "INTERNAL-OMITTED-MED",
+      }),
+    });
+    expect(omittedMed.status).toBe(201);
+    const omittedMedBody = (await omittedMed.json()) as { medication: { id: string; parentVisible: boolean } };
+    expect(omittedMedBody.medication.parentVisible).toBe(false);
+
+    const falseMed = await app.request(`/api/v1/students/${child.student.id}/medications`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        medicationName: "Explicit staff-only cream",
+        route: "topical",
+        parentVisible: false,
+        internalNotes: "INTERNAL-FALSE-MED",
+      }),
+    });
+    expect(falseMed.status).toBe(201);
+    const falseMedBody = (await falseMed.json()) as { medication: { parentVisible: boolean } };
+    expect(falseMedBody.medication.parentVisible).toBe(false);
+
+    const trueMed = await app.request(`/api/v1/students/${child.student.id}/medications`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        medicationName: "Explicit parent Cetirizine",
+        route: "oral",
+        parentVisible: true,
+        internalNotes: "INTERNAL-TRUE-MED",
+      }),
+    });
+    expect(trueMed.status).toBe(201);
+    const trueMedBody = (await trueMed.json()) as { medication: { id: string; parentVisible: boolean } };
+    expect(trueMedBody.medication.parentVisible).toBe(true);
+
+    const omittedDiet = await app.request(`/api/v1/students/${child.student.id}/dietary-requirements`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        requirementType: "preference",
+        requirement: "Omitted visibility snack",
+        internalNotes: "INTERNAL-OMITTED-DIET",
+      }),
+    });
+    expect(omittedDiet.status).toBe(201);
+    const omittedDietBody = (await omittedDiet.json()) as {
+      dietaryRequirement: { parentVisible: boolean };
+    };
+    expect(omittedDietBody.dietaryRequirement.parentVisible).toBe(false);
+
+    const falseDiet = await app.request(`/api/v1/students/${child.student.id}/dietary-requirements`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        requirementType: "preference",
+        requirement: "Explicit staff-only texture",
+        parentVisible: false,
+        internalNotes: "INTERNAL-FALSE-DIET",
+      }),
+    });
+    expect(falseDiet.status).toBe(201);
+    const falseDietBody = (await falseDiet.json()) as { dietaryRequirement: { parentVisible: boolean } };
+    expect(falseDietBody.dietaryRequirement.parentVisible).toBe(false);
+
+    const trueDiet = await app.request(`/api/v1/students/${child.student.id}/dietary-requirements`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        requirementType: "religious",
+        requirement: "Explicit parent Halal",
+        parentVisible: true,
+        internalNotes: "INTERNAL-TRUE-DIET",
+      }),
+    });
+    expect(trueDiet.status).toBe(201);
+    const trueDietBody = (await trueDiet.json()) as { dietaryRequirement: { parentVisible: boolean } };
+    expect(trueDietBody.dietaryRequirement.parentVisible).toBe(true);
+
+    const patched = await app.request(`/api/v1/students/${child.student.id}/medications/${trueMedBody.medication.id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ dosage: "5mg" }),
+    });
+    expect(patched.status).toBe(200);
+    const patchedBody = (await patched.json()) as { medication: { parentVisible: boolean; dosage: string } };
+    expect(patchedBody.medication.dosage).toBe("5mg");
+    expect(patchedBody.medication.parentVisible).toBe(true);
+
+    const parentHdrs = jsonHeaders(await login(app, `parent-${id}@example.com`, "parent-pass-1"), school.orgId);
+    const parentMeds = (await (
+      await app.request(`/api/v1/parent/children/${child.student.id}/medications`, { headers: parentHdrs })
+    ).json()) as { medications: Array<{ medicationName: string; internalNotes?: string }> };
+    expect(parentMeds.medications.map((row) => row.medicationName)).toEqual(["Explicit parent Cetirizine"]);
+    expect(JSON.stringify(parentMeds)).not.toContain("Omitted visibility");
+    expect(JSON.stringify(parentMeds)).not.toContain("Explicit staff-only");
+    expect(JSON.stringify(parentMeds)).not.toContain("INTERNAL-TRUE-MED");
+
+    const parentDiet = (await (
+      await app.request(`/api/v1/parent/children/${child.student.id}/dietary-requirements`, { headers: parentHdrs })
+    ).json()) as { dietaryRequirements: Array<{ requirement: string; internalNotes?: string }> };
+    expect(parentDiet.dietaryRequirements.map((row) => row.requirement)).toEqual(["Explicit parent Halal"]);
+    expect(JSON.stringify(parentDiet)).not.toContain("Omitted visibility");
+    expect(JSON.stringify(parentDiet)).not.toContain("Explicit staff-only");
+    expect(JSON.stringify(parentDiet)).not.toContain("INTERNAL-TRUE-DIET");
+
+    const teacherHdrs = jsonHeaders(await login(app, teacher.email, "teacher-pass-1"), school.orgId);
+    const teacherMeds = (await (
+      await app.request(`/api/v1/students/${child.student.id}/medications`, { headers: teacherHdrs })
+    ).json()) as { view: string; medications: Array<Record<string, unknown>> };
+    expect(teacherMeds.view).toBe("operational");
+    expect(teacherMeds.medications.map((row) => row.medicationName).sort()).toEqual([
+      "Explicit parent Cetirizine",
+      "Explicit staff-only cream",
+      "Omitted visibility inhaler",
+    ]);
+    expect(teacherMeds.medications.every((row) => row.parentVisible === undefined)).toBe(true);
+    expect(teacherMeds.medications.every((row) => row.internalNotes === undefined)).toBe(true);
+    expect(JSON.stringify(teacherMeds)).not.toContain("INTERNAL-");
+
+    const teacherDiet = (await (
+      await app.request(`/api/v1/students/${child.student.id}/dietary-requirements`, { headers: teacherHdrs })
+    ).json()) as { view: string; dietaryRequirements: Array<Record<string, unknown>> };
+    expect(teacherDiet.view).toBe("operational");
+    expect(teacherDiet.dietaryRequirements.map((row) => row.requirement).sort()).toEqual([
+      "Explicit parent Halal",
+      "Explicit staff-only texture",
+      "Omitted visibility snack",
+    ]);
+    expect(teacherDiet.dietaryRequirements.every((row) => row.parentVisible === undefined)).toBe(true);
+    expect(JSON.stringify(teacherDiet)).not.toContain("INTERNAL-");
   });
 
   it("does not expose medication administration on the student portal", async () => {

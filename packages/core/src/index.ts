@@ -365,6 +365,7 @@ export {
   isParentConsentStatus,
   isPupilMedicalChangeKind,
   isPupilMedicalView,
+  parentVisibleGranted,
   mapDietaryRecord,
   mapDietaryRevision,
   mapMedicationRecord,

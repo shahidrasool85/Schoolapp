@@ -410,7 +410,7 @@ function MedicationForm({
           <FormField label="Internal notes">
             <Textarea name="internalNotes" rows={2} defaultValue={record?.internalNotes ?? ""} />
           </FormField>
-          <Checkbox name="parentVisible" label="Visible on Parent Portal" defaultChecked={record?.parentVisible ?? true} />
+          <Checkbox name="parentVisible" label="Visible on Parent Portal" defaultChecked={record?.parentVisible ?? false} />
         </>
       ) : null}
       <div className="health-record-actions">
@@ -483,7 +483,7 @@ function DietaryForm({
           <FormField label="Internal notes">
             <Textarea name="internalNotes" rows={2} defaultValue={record?.internalNotes ?? ""} />
           </FormField>
-          <Checkbox name="parentVisible" label="Visible on Parent Portal" defaultChecked={record?.parentVisible ?? true} />
+          <Checkbox name="parentVisible" label="Visible on Parent Portal" defaultChecked={record?.parentVisible ?? false} />
         </>
       ) : null}
       <div className="health-record-actions">

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { ONBOARDING_STEPS, type OnboardingStep } from "@schoolapp/domain";
+import { ONBOARDING_STEPS, type OnboardingStep, captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
 import {
   Alert,
   Button,
@@ -338,7 +338,8 @@ function RoomsStep() {
   const [error, setError] = useState("");
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formEl = captureSubmitTarget(event);
+    const form = new FormData(formEl);
     try {
       await api("/api/v1/timetable/rooms", {
         method: "POST",
@@ -347,7 +348,7 @@ function RoomsStep() {
           shortCode: form.get("code") || String(form.get("name")).slice(0, 12),
         }),
       });
-      event.currentTarget.reset();
+      resetFormSafely(formEl);
     } catch (err) {
       setError(userFacingError(err, "Could not create a room."));
     }
@@ -370,7 +371,8 @@ function StaffStep() {
   const [error, setError] = useState("");
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formEl = captureSubmitTarget(event);
+    const form = new FormData(formEl);
     try {
       const created = await api<{ invitationToken: string }>("/api/v1/staff", {
         method: "POST",
@@ -382,7 +384,7 @@ function StaffStep() {
         }),
       });
       setToken(created.invitationToken);
-      event.currentTarget.reset();
+      resetFormSafely(formEl);
     } catch (err) {
       setError(userFacingError(err, "Could not invite staff."));
     }

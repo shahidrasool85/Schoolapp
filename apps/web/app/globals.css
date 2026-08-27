@@ -839,6 +839,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .alert-info { background: var(--info-soft); border-color: #b2ccff; color: var(--info); }
 
 .button-row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.stack { display: grid; gap: 0.85rem; }
 
 .profile-list {
   display: grid;

@@ -13,6 +13,7 @@ import {
   Select,
   StatusBadge,
 } from "../../../components/ui";
+import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
 import { api } from "../../../lib/api";
 import { userFacingError } from "../../../lib/errors";
 
@@ -43,7 +44,8 @@ export default function StaffPage() {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formEl = captureSubmitTarget(event);
+    const form = new FormData(formEl);
     setError("");
     setNotice("");
     try {
@@ -58,7 +60,7 @@ export default function StaffPage() {
       });
       setInviteToken(created.invitationToken);
       setNotice("Staff created. Copy the one-time invitation now — it will not be shown again.");
-      event.currentTarget.reset();
+      resetFormSafely(formEl);
       await load();
     } catch (err) {
       setError(userFacingError(err, "Could not create staff."));

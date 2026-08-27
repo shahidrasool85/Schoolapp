@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
 import { useRouter } from "next/navigation";
 import { Alert, EmptyState, FormField, Input, LoadingState, PageError, PageHeader, SectionCard } from "../../components/ui";
 import { Button } from "../../components/ui/button";
@@ -76,7 +77,8 @@ export default function PlatformPage() {
 
   async function createSchool(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formEl = captureSubmitTarget(event);
+    const form = new FormData(formEl);
     setError("");
     setNotice("");
     try {
@@ -96,7 +98,7 @@ export default function PlatformPage() {
       setInviteToken(created.invitationToken);
       setInviteSlug(created.slug);
       setNotice("School created. Copy the one-time School Admin invitation now — it will not be shown again.");
-      event.currentTarget.reset();
+      resetFormSafely(formEl);
       const body = await api<{ organisations: Organisation[] }>("/api/v1/platform/organisations", { orgId: null });
       setOrganisations(body.organisations);
     } catch (err) {

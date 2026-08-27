@@ -87,6 +87,7 @@ export function registerPlatformRoutes(app: SchoolappApi) {
           organisationId: row.organisation_id,
           invitationId: row.invitation_id,
           invitationToken: row.invitation_token,
+          slug: slug.slug,
         },
         201,
       );

@@ -23,6 +23,7 @@ export default function PlatformPage() {
   const [ready, setReady] = useState(false);
   const [userName, setUserName] = useState<string | null>(null);
   const [inviteToken, setInviteToken] = useState("");
+  const [inviteSlug, setInviteSlug] = useState("");
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
@@ -79,17 +80,21 @@ export default function PlatformPage() {
     setError("");
     setNotice("");
     try {
-      const created = await api<{ invitationToken: string; organisationId: string }>("/api/v1/platform/organisations", {
-        method: "POST",
-        orgId: null,
-        body: JSON.stringify({
-          name: form.get("name"),
-          slug: form.get("slug"),
-          adminEmail: form.get("adminEmail"),
-          adminFullName: form.get("adminFullName"),
-        }),
-      });
+      const created = await api<{ invitationToken: string; organisationId: string; slug: string }>(
+        "/api/v1/platform/organisations",
+        {
+          method: "POST",
+          orgId: null,
+          body: JSON.stringify({
+            name: form.get("name"),
+            slug: form.get("slug"),
+            adminEmail: form.get("adminEmail"),
+            adminFullName: form.get("adminFullName"),
+          }),
+        },
+      );
       setInviteToken(created.invitationToken);
+      setInviteSlug(created.slug);
       setNotice("School created. Copy the one-time School Admin invitation now — it will not be shown again.");
       event.currentTarget.reset();
       const body = await api<{ organisations: Organisation[] }>("/api/v1/platform/organisations", { orgId: null });
@@ -138,7 +143,9 @@ export default function PlatformPage() {
             <Alert tone="info">
               One-time School Admin invitation (copy now): <code>{inviteToken}</code>
               {" · "}
-              <a href={`/invite?token=${encodeURIComponent(inviteToken)}`}>Activation link</a>
+              <a href={`${schoolOrigin(inviteSlug, platformDomain)}/invite?token=${encodeURIComponent(inviteToken)}`}>
+                Activation link
+              </a>
             </Alert>
           ) : null}
           {notice ? <Alert tone="success">{notice}</Alert> : null}

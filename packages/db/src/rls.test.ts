@@ -15,7 +15,7 @@ describe("RLS catalog", () => {
 
   beforeAll(async () => {
     await migrate(ownerUrl);
-  });
+  }, 60_000);
 
   afterAll(async () => {
     await closePools(pools);

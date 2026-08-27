@@ -439,12 +439,14 @@ async function importValidRow(
   if (input.kind === "staff") {
     const { roleKey } = validateStaffImportRow(input.payload);
     if (!roleKey) throw new AppError(400, "validation_failed", "Invalid staff role");
+    const email = input.payload.email?.toLowerCase();
+    if (!email) throw new AppError(400, "validation_failed", "A valid email is required");
     const created = await client.query(
       "select * from provision_staff($1, $2, $3, $4, $5, $6, $7, $8::date)",
       [
         input.userId,
         input.orgId,
-        input.payload.email.toLowerCase(),
+        email,
         input.payload.full_name,
         input.payload.job_title || null,
         null,
@@ -455,7 +457,7 @@ async function importValidRow(
     const row = created.rows[0] as { invitation_token?: string };
     return {
       invitationToken: row.invitation_token,
-      email: input.payload.email.toLowerCase(),
+      email,
       name: input.payload.full_name,
     };
   }
@@ -531,6 +533,8 @@ async function importValidRow(
       );
   const studentId = pupil.rows[0]?.id as string | undefined;
   if (!studentId) throw new AppError(400, "validation_failed", "The linked pupil was not found");
+  const email = input.payload.email?.toLowerCase();
+  if (!email) throw new AppError(400, "validation_failed", "A valid email is required");
   const parental = ["true", "yes", "1", "y"].includes(
     (input.payload.parental_responsibility ?? "").trim().toLowerCase(),
   );
@@ -540,7 +544,7 @@ async function importValidRow(
       input.userId,
       input.orgId,
       studentId,
-      input.payload.email.toLowerCase(),
+      email,
       input.payload.guardian_name,
       input.payload.relationship || "other",
       parental,
@@ -553,7 +557,7 @@ async function importValidRow(
   const row = created.rows[0] as { invitation_token?: string | null };
   return {
     invitationToken: row.invitation_token ?? undefined,
-    email: input.payload.email.toLowerCase(),
+    email,
     name: input.payload.guardian_name,
   };
 }

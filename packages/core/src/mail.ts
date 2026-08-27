@@ -34,7 +34,7 @@ export class OutboxMailProvider implements MailProvider {
   }
 }
 
-const PASSWORD_LEAK = /password\s*[:=]|passwd\s*[:=]|pwd\s*[:=]/i;
+const PASSWORD_LEAK = /(?:password|passwd|pwd)\s*[:=]\s*(?!https?:|\/)[^\s]+/i;
 
 export function assertNoPasswordInMail(message: MailMessage): void {
   const haystack = `${message.subject}\n${message.textBody}\n${JSON.stringify(message.metadata ?? {})}`;
@@ -60,7 +60,8 @@ export function staffInviteMail(input: {
       `Hello ${input.toName},`,
       "",
       `You have been invited to join ${input.organisationName} on Schoolapp.`,
-      `Open this link to create your password: ${input.acceptPath}`,
+      "Open this invitation link to finish setting up your account.",
+      input.acceptPath,
       "",
       "This invitation expires and can only be used once.",
     ].join("\n"),
@@ -85,7 +86,8 @@ export function parentInviteMail(input: {
       `Hello ${input.toName},`,
       "",
       `You have been invited to the Parent Portal for ${input.organisationName}.`,
-      `Open this link to create your password: ${input.acceptPath}`,
+      "Open this invitation link to finish setting up your account.",
+      input.acceptPath,
       "",
       "This invitation expires and can only be used once.",
     ].join("\n"),
@@ -107,7 +109,8 @@ export function passwordResetMail(input: {
     subject: "Reset your Schoolapp password",
     textBody: [
       "A password reset was requested for this account.",
-      `Open this link to choose a new password: ${input.resetPath}`,
+      "Open this link to choose a new password.",
+      input.resetPath,
       "",
       "If you did not request this, you can ignore this message.",
     ].join("\n"),

@@ -222,7 +222,7 @@ export function registerPeopleRoutes(app: SchoolappApi) {
                     g.relationship, g.has_parental_responsibility, g.is_emergency_contact,
                     g.lives_with_student, g.portal_access, g.priority,
                     g.started_on::text, g.ended_on::text, m.status as membership_status,
-                    exists(select 1 from user_credentials c where c.user_id = u.id) as has_credentials,
+                    user_has_local_credentials(u.id) as has_credentials,
                     exists(
                       select 1 from invitations i
                       where i.organisation_id = g.organisation_id
@@ -303,9 +303,9 @@ export function registerPeopleRoutes(app: SchoolappApi) {
       const credentials = actor.permissions.has(PERMISSIONS.STUDENTS_PORTAL_ACCESS_MANAGE)
         ? await client.query(
             `select 1
-             from user_credentials c
-             join student_profiles sp on sp.user_id = c.user_id
-             where sp.id = $1 and sp.organisation_id = $2`,
+             from student_profiles sp
+             where sp.id = $1 and sp.organisation_id = $2
+               and user_has_local_credentials(sp.user_id)`,
             [id, orgId],
           )
         : { rows: [] as unknown[] };
@@ -906,7 +906,7 @@ export function registerPeopleRoutes(app: SchoolappApi) {
                 g.has_parental_responsibility, g.is_emergency_contact, g.lives_with_student,
                 g.portal_access, g.priority, g.started_on::text, g.ended_on::text,
                 m.status as membership_status,
-                exists(select 1 from user_credentials c where c.user_id = u.id) as has_credentials,
+                user_has_local_credentials(u.id) as has_credentials,
                 exists(
                   select 1 from invitations i
                   where i.organisation_id = g.organisation_id
@@ -934,7 +934,7 @@ export function registerPeopleRoutes(app: SchoolappApi) {
       const rows = await client.query(
         `select sp.id, sp.user_id, u.full_name, u.email, sp.job_title, sp.employee_number,
                 sp.started_on::text, m.status as membership_status,
-                exists(select 1 from user_credentials c where c.user_id = u.id) as has_credentials,
+                user_has_local_credentials(u.id) as has_credentials,
                 exists(
                   select 1 from invitations i
                   where i.organisation_id = sp.organisation_id
@@ -1011,7 +1011,7 @@ export function registerPeopleRoutes(app: SchoolappApi) {
       const rows = await client.query(
         `select sp.id, sp.user_id, u.full_name, u.email, sp.job_title, sp.employee_number,
                 sp.started_on::text, m.status as membership_status,
-                exists(select 1 from user_credentials c where c.user_id = u.id) as has_credentials,
+                user_has_local_credentials(u.id) as has_credentials,
                 exists(
                   select 1 from invitations i
                   where i.organisation_id = sp.organisation_id
@@ -1204,7 +1204,7 @@ export function registerPeopleRoutes(app: SchoolappApi) {
       assertPermission(actor, PERMISSIONS.GUARDIANSHIPS_MANAGE);
       const guardian = await client.query<{ email: string; full_name: string; has_credentials: boolean }>(
         `select u.email, u.full_name,
-                exists(select 1 from user_credentials c where c.user_id = u.id) as has_credentials
+                user_has_local_credentials(u.id) as has_credentials
          from guardianships g
          join users u on u.id = g.guardian_user_id
          where g.id = $1 and g.organisation_id = $2`,

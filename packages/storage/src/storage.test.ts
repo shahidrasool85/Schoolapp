@@ -262,5 +262,6 @@ function fileLimitsStub() {
     safeguarding: 15 * 1024 * 1024,
     activity: 10 * 1024 * 1024,
     message: 10 * 1024 * 1024,
+    branding: 5 * 1024 * 1024,
   };
 }

@@ -258,15 +258,30 @@ describe("Phase 20 onboarding and account lifecycle", () => {
     });
     expect(adminRoles.status).toBe(200);
 
+    const beforeSuspend = await app.request(`/api/v1/staff/${createdBody.staffProfileId}`, { headers: hdrs });
+    expect(beforeSuspend.status).toBe(200);
+
     const suspend = await app.request(`/api/v1/staff/${createdBody.staffProfileId}/suspend`, {
       method: "POST",
       headers: hdrs,
     });
     expect(suspend.status).toBe(200);
-    const afterSuspend = (await (await app.request(`/api/v1/staff/${createdBody.staffProfileId}`, { headers: hdrs })).json()) as {
+    const afterSuspendRes = await app.request(`/api/v1/staff/${createdBody.staffProfileId}`, { headers: hdrs });
+    expect(afterSuspendRes.status).toBe(200);
+    const afterSuspend = (await afterSuspendRes.json()) as {
       staff: { accountStatus: string };
     };
-    expect(afterSuspend.staff.accountStatus).toBe("suspended");
+    expect(afterSuspend.staff?.accountStatus).toBe("suspended");
+
+    const listedAfter = (await (await app.request("/api/v1/staff", { headers: hdrs })).json()) as {
+      staff: Array<{ id: string; accountStatus: string }>;
+    };
+    expect(listedAfter.staff.find((item) => item.id === createdBody.staffProfileId)?.accountStatus).toBe(
+      "suspended",
+    );
+
+    const teacherAfterSuspend = await app.request("/api/v1/me", { headers: teacherHdrs });
+    expect([401, 403]).toContain(teacherAfterSuspend.status);
 
     const reactivate = await app.request(`/api/v1/staff/${createdBody.staffProfileId}/reactivate`, {
       method: "POST",

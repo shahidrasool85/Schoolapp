@@ -86,6 +86,72 @@ alter table organisation_settings
   add constraint organisation_settings_hero_object_id_fkey
   foreign key (hero_object_id) references stored_objects (id);
 
+-- Boolean-only credential probe. Never returns password hashes (FORCE RLS denies
+-- direct SELECT on user_credentials for schoolapp_app).
+create or replace function user_has_local_credentials(p_user_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = pg_catalog, public
+as $$
+  select exists(select 1 from user_credentials where user_id = p_user_id);
+$$;
+
+revoke all on function user_has_local_credentials(uuid) from public;
+grant execute on function user_has_local_credentials(uuid) to schoolapp_app;
+
+-- School Admin / Headteacher / Admissions with org.members.read must still see
+-- suspended staff and parents after membership status changes. Phase 11.5 only
+-- exposed active + invited members (ended_at is null). Suspended memberships
+-- keep a row (status = 'suspended', ended_at set) so they can be reactivated
+-- without leaking those identities to teachers.
+drop policy if exists users_self_or_current_tenant on users;
+
+create policy users_self_or_current_tenant on users
+  for select
+  using (
+    id = app_current_user_id()
+    or exists (
+      select 1
+      from organisation_memberships m
+      where m.user_id = users.id
+        and m.organisation_id = app_current_organisation_id()
+        and m.status = 'active'
+    )
+    or (
+      actor_has_permission(
+        app_current_user_id(),
+        app_current_organisation_id(),
+        'guardianships.manage'
+      )
+      and exists (
+        select 1
+        from guardianships g
+        where g.guardian_user_id = users.id
+          and g.organisation_id = app_current_organisation_id()
+          and g.ended_on is null
+      )
+    )
+    or (
+      actor_has_permission(
+        app_current_user_id(),
+        app_current_organisation_id(),
+        'org.members.read'
+      )
+      and exists (
+        select 1
+        from organisation_memberships m
+        where m.user_id = users.id
+          and m.organisation_id = app_current_organisation_id()
+          and (
+            (m.status in ('active', 'invited') and m.ended_at is null)
+            or m.status = 'suspended'
+          )
+      )
+    )
+  );
+
 -- ---------------------------------------------------------------------------
 -- Setup progress (resumable wizard)
 -- ---------------------------------------------------------------------------
@@ -419,6 +485,19 @@ begin
        )
        and accepted_at is null
        and revoked_at is null;
+
+    if not exists (
+      select 1
+      from organisation_memberships m
+      where m.user_id = p_user_id
+        and m.status = 'active'
+        and m.ended_at is null
+    ) then
+      update auth_sessions
+         set revoked_at = now()
+       where user_id = p_user_id
+         and revoked_at is null;
+    end if;
   end if;
 
   insert into audit_events (

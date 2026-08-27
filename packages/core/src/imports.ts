@@ -80,10 +80,11 @@ export function parseCsvText(text: string): { headers: string[]; rows: string[][
     const ch = normalised[i]!;
     if (ch === '"') {
       if (inQuotes && normalised[i + 1] === '"') {
-        current += '"';
+        current += '""';
         i += 1;
       } else {
         inQuotes = !inQuotes;
+        current += '"';
       }
       continue;
     }

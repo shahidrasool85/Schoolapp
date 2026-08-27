@@ -305,6 +305,66 @@ function mapImport(row: Record<string, unknown>) {
   };
 }
 
+async function resolveImportPupil(
+  client: {
+    query: (sql: string, params?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }>;
+  },
+  orgId: string,
+  payload: Record<string, string>,
+): Promise<{ id?: string; issue?: { field: string; message: string; code: string } }> {
+  if (payload.admission_number) {
+    const found = await client.query(
+      `select id from student_profiles
+       where organisation_id = $1 and lower(admission_number) = lower($2)
+       limit 2`,
+      [orgId, payload.admission_number],
+    );
+    if (!found.rows[0]) {
+      return {
+        issue: {
+          field: "admission_number",
+          message: "No pupil with this admission number exists in this school",
+          code: "pupil_not_found",
+        },
+      };
+    }
+    return { id: found.rows[0].id as string };
+  }
+  if (!payload.pupil_legal_name) {
+    return {
+      issue: {
+        field: "admission_number",
+        message: "Admission number or pupil legal name is required",
+        code: "required",
+      },
+    };
+  }
+  const matches = await client.query(
+    `select id from student_profiles
+     where organisation_id = $1 and lower(legal_name) = lower($2)`,
+    [orgId, payload.pupil_legal_name],
+  );
+  if (matches.rows.length === 0) {
+    return {
+      issue: {
+        field: "pupil_legal_name",
+        message: "No pupil with this legal name exists in this school",
+        code: "pupil_not_found",
+      },
+    };
+  }
+  if (matches.rows.length > 1) {
+    return {
+      issue: {
+        field: "admission_number",
+        message: "More than one pupil matches this legal name. Provide an admission number.",
+        code: "ambiguous_pupil",
+      },
+    };
+  }
+  return { id: matches.rows[0]!.id as string };
+}
+
 async function evaluateRow(
   client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }> },
   orgId: string,
@@ -403,7 +463,9 @@ async function evaluateRow(
     };
   }
   const issues = validateGuardianImportRow(payload);
-  if (payload.email) {
+  const pupil = await resolveImportPupil(client, orgId, payload);
+  if (pupil.issue) issues.push(pupil.issue);
+  if (payload.email && pupil.id) {
     const existing = await client.query(
       `select u.id
        from users u
@@ -413,41 +475,27 @@ async function evaluateRow(
       [orgId, payload.email],
     );
     if (existing.rows[0]) {
-      const pupil = payload.admission_number
-        ? await client.query(
-            `select id from student_profiles where organisation_id = $1 and lower(admission_number) = lower($2) limit 1`,
-            [orgId, payload.admission_number],
-          )
-        : payload.pupil_legal_name
-          ? await client.query(
-              `select id from student_profiles where organisation_id = $1 and lower(legal_name) = lower($2) limit 1`,
-              [orgId, payload.pupil_legal_name],
-            )
-          : { rows: [] as Array<Record<string, unknown>> };
-      const pupilId = pupil.rows[0]?.id as string | undefined;
-      if (pupilId) {
-        const linked = await client.query(
-          `select 1 from guardianships
-           where organisation_id = $1
-             and student_profile_id = $2
-             and guardian_user_id = $3
-             and ended_on is null`,
-          [orgId, pupilId, existing.rows[0].id],
-        );
-        if (linked.rows[0]) {
-          return {
-            status: "duplicate" as const,
-            issues: [
-              {
-                field: "email",
-                message: "This parent is already linked to this pupil in this school",
-                code: "duplicate_guardianship",
-              },
-            ],
-            matchKind: "parent_email",
-            matchLabel: "Existing guardianship in this school",
-          };
-        }
+      const linked = await client.query(
+        `select 1 from guardianships
+         where organisation_id = $1
+           and student_profile_id = $2
+           and guardian_user_id = $3
+           and ended_on is null`,
+        [orgId, pupil.id, existing.rows[0].id],
+      );
+      if (linked.rows[0]) {
+        return {
+          status: "duplicate" as const,
+          issues: [
+            {
+              field: "email",
+              message: "This parent is already linked to this pupil in this school",
+              code: "duplicate_guardianship",
+            },
+          ],
+          matchKind: "parent_email",
+          matchLabel: "Existing guardianship in this school",
+        };
       }
       return {
         status: issues.length ? ("error" as const) : ("valid" as const),
@@ -561,17 +609,11 @@ async function importValidRow(
     return null;
   }
 
-  const pupil = input.payload.admission_number
-    ? await client.query(
-        `select id from student_profiles where organisation_id = $1 and lower(admission_number) = lower($2) limit 1`,
-        [input.orgId, input.payload.admission_number],
-      )
-    : await client.query(
-        `select id from student_profiles where organisation_id = $1 and lower(legal_name) = lower($2) limit 1`,
-        [input.orgId, input.payload.pupil_legal_name],
-      );
-  const studentId = pupil.rows[0]?.id as string | undefined;
-  if (!studentId) throw new AppError(400, "validation_failed", "The linked pupil was not found");
+  const pupil = await resolveImportPupil(client, input.orgId, input.payload);
+  const studentId = pupil.id;
+  if (!studentId) {
+    throw new AppError(400, "validation_failed", pupil.issue?.message ?? "The linked pupil was not found");
+  }
   const email = input.payload.email?.toLowerCase();
   if (!email) throw new AppError(400, "validation_failed", "A valid email is required");
   const parental = ["true", "yes", "1", "y"].includes(

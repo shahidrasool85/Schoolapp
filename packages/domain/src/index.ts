@@ -293,6 +293,7 @@ export {
   portalAccessGranted,
   portalAccessLabel,
   pupilIdentityGaps,
+  pupilRecordHashCanonicalize,
   resolvePupilRecordTab,
   selectedEnrolmentClassId,
   sensitiveSelectValue,

@@ -12,6 +12,7 @@ import {
   lookedAfterPersistValue,
   portalAccessLabel,
   pupilIdentityGaps,
+  pupilRecordHashCanonicalize,
   resetFormSafely,
   resolvePupilRecordTab,
   selectedEnrolmentClassId,
@@ -448,11 +449,10 @@ export default function StudentDetailPage() {
   useEffect(() => {
     function applyHash() {
       if (!sectionsReady) return;
-      const next = resolvePupilRecordTab(window.location.hash, visibleTabs);
+      const { tab: next, nextHash } = pupilRecordHashCanonicalize(window.location.hash, visibleTabs);
       setTab(next);
-      const raw = (window.location.hash ?? "").replace(/^#/, "").trim().toLowerCase();
-      if (raw && raw !== next) {
-        window.history.replaceState(null, "", `#${next}`);
+      if (nextHash) {
+        window.history.replaceState(null, "", `#${nextHash}`);
       }
     }
     applyHash();

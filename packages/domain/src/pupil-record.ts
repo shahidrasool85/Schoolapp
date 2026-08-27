@@ -213,6 +213,23 @@ export function resolvePupilRecordTab(
   return visibleTabs.includes(requested) ? requested : fallback;
 }
 
+/**
+ * Apply a pupil-record hash. Aliases such as #medication canonicalize to #health
+ * only when that tab is actually visible. Hidden or not-yet-loaded gated tabs
+ * keep the original hash so a later permission load can still land on them.
+ */
+export function pupilRecordHashCanonicalize(
+  hash: string | null | undefined,
+  visibleTabs: readonly PupilRecordTab[],
+): { tab: PupilRecordTab; nextHash: string | null } {
+  const raw = (hash ?? "").replace(/^#/, "").trim().toLowerCase();
+  const requested = parsePupilRecordTab(hash);
+  if (visibleTabs.includes(requested)) {
+    return { tab: requested, nextHash: raw && raw !== requested ? requested : null };
+  }
+  return { tab: visibleTabs[0] ?? "overview", nextHash: null };
+}
+
 export function statutoryIssueFix(issue: {
   ruleKey?: string | null;
   field?: string | null;

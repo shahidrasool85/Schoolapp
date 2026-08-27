@@ -235,10 +235,14 @@ export function registerImportRoutes(app: SchoolappApi) {
                     toName: result.name ?? result.email,
                     acceptPath: inviteAcceptPath(result.invitationToken),
                   });
-            await mail.send(message);
+            try {
+              await mail.send(message);
+            } catch {
+              report[report.length - 1]!.detail = "imported; invitation mail not sent";
+            }
           }
         } catch (error) {
-          await client.query("rollback to savepoint import_row");
+          await client.query("rollback to savepoint import_row").catch(() => undefined);
           failed += 1;
           await client.query(
             `update data_import_rows
@@ -400,7 +404,7 @@ async function evaluateRow(
   }
   const issues = validateGuardianImportRow(payload);
   if (payload.email) {
-    const existing = await client.query(
+    const existing = await client.query<{ id: string }>(
       `select u.id
        from users u
        join organisation_memberships m on m.user_id = u.id and m.organisation_id = $1
@@ -409,6 +413,42 @@ async function evaluateRow(
       [orgId, payload.email],
     );
     if (existing.rows[0]) {
+      const pupil = payload.admission_number
+        ? await client.query<{ id: string }>(
+            `select id from student_profiles where organisation_id = $1 and admission_number = $2 limit 1`,
+            [orgId, payload.admission_number],
+          )
+        : payload.pupil_legal_name
+          ? await client.query<{ id: string }>(
+              `select id from student_profiles where organisation_id = $1 and lower(legal_name) = lower($2) limit 1`,
+              [orgId, payload.pupil_legal_name],
+            )
+          : { rows: [] as Array<{ id: string }> };
+      const pupilId = pupil.rows[0]?.id;
+      if (pupilId) {
+        const linked = await client.query(
+          `select 1 from guardianships
+           where organisation_id = $1
+             and student_profile_id = $2
+             and guardian_user_id = $3
+             and ended_on is null`,
+          [orgId, pupilId, existing.rows[0].id],
+        );
+        if (linked.rows[0]) {
+          return {
+            status: "duplicate" as const,
+            issues: [
+              {
+                field: "email",
+                message: "This parent is already linked to this pupil in this school",
+                code: "duplicate_guardianship",
+              },
+            ],
+            matchKind: "parent_email",
+            matchLabel: "Existing guardianship in this school",
+          };
+        }
+      }
       return {
         status: issues.length ? ("error" as const) : ("valid" as const),
         issues,

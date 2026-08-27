@@ -3,7 +3,7 @@
 -- membership revalidation, teacher assigned-only access, guardianship /
 -- portal_access, student self-only access, student portal policy,
 -- safeguarding capabilities, break-glass, or audit.
--- Treats migrations 0001–0035 as immutable.
+-- Treats migrations 0001–0037 as immutable.
 -- Operational medical/dietary records are not safeguarding and are not SEND notes.
 
 -- ---------------------------------------------------------------------------

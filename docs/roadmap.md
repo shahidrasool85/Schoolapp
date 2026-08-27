@@ -291,7 +291,7 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 - Multiple `student_medications` / `student_dietary_requirements` rows per pupil
 - Stop/change preserves history via status + `ended_on` + revision snapshots
-- Pupil Record Medication and Dietary sections; Parent Portal parent-visible lists
+- Pupil Record **Medication & dietary** tab (hashes `#health`, `#medication`, `#dietary`); Parent Portal parent-visible lists
 - Live activity/trip safety summaries reuse active canonical rows
 - FORCE RLS, actor stamps, guardianship + `portal_access` recheck, no clinical text in audit payloads
 - Capability keys: existing `students.additional_needs.*` plus `students.medications.read_operational`, `students.dietary.read_operational`, `students.medications.read_own_children`, `students.dietary.read_own_children`

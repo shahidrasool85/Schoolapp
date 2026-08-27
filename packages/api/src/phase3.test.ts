@@ -143,6 +143,7 @@ describe("Phase 3 parent and student portals", () => {
           fullName: "Pat Parent",
           relationship: "mother",
           hasParentalResponsibility: true,
+          portalAccess: true,
         }),
       })
     ).json()) as { invitationToken: string };
@@ -172,6 +173,7 @@ describe("Phase 3 parent and student portals", () => {
         email: `parent-${id}@example.com`,
         fullName: "Pat Parent",
         relationship: "mother",
+        portalAccess: true,
       }),
     });
 

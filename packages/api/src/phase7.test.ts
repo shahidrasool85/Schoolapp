@@ -503,6 +503,7 @@ describe("Phase 7 teaching and learning", () => {
           email: `parent-${id}@example.com`,
           fullName: "Pat Parent",
           relationship: "mother",
+          portalAccess: true,
         }),
       })
     ).json()) as { invitationToken: string };

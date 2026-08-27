@@ -850,6 +850,17 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .profile-list dt { font-size: var(--text-caption); color: var(--muted); font-weight: 650; }
 .profile-list dd { margin: 0.15rem 0 0; font-weight: 600; overflow-wrap: anywhere; }
 
+.invite-token-panel code {
+  display: block;
+  word-break: break-all;
+  margin: 0.4rem 0 0.75rem;
+  padding: 0.55rem 0.7rem;
+  background: var(--surface-2, #f8fafc);
+  border-radius: var(--radius-sm);
+}
+
+.pupil-tab-panel { display: grid; gap: 1rem; }
+
 .child-card, .student-tiles .card, a.card {
   text-decoration: none;
   color: inherit;

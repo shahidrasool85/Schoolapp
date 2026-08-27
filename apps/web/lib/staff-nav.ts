@@ -378,7 +378,7 @@ export const STAFF_NAV_SECTIONS: StaffNavSection[] = [
         href: "/school/setup",
         label: "School setup",
         icon: "layers",
-        permissions: ["onboarding.manage", "org.settings.manage"],
+        permissions: ["onboarding.manage"],
       },
       {
         href: "/school/settings",

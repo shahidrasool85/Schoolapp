@@ -258,6 +258,16 @@ describe("Phase 20 onboarding and account lifecycle", () => {
     });
     expect(teacherImport.status).toBe(403);
 
+    const teacherProgress = await app.request("/api/v1/onboarding/progress", {
+      method: "PATCH",
+      headers: teacherHdrs,
+      body: JSON.stringify({ currentStep: "completion", markComplete: true }),
+    });
+    expect(teacherProgress.status).toBe(403);
+
+    const teacherTemplate = await app.request("/api/v1/imports/templates/pupils", { headers: teacherHdrs });
+    expect(teacherTemplate.status).toBe(403);
+
     const teacherRoles = await app.request(`/api/v1/staff/${createdBody.staffProfileId}/roles`, {
       method: "PATCH",
       headers: teacherHdrs,

@@ -20,6 +20,7 @@ import {
   WizardPanel,
   WizardProgress,
 } from "../../../components/ui";
+import { RequirePermission } from "../../../components/require-permission";
 import { api } from "../../../lib/api";
 import { userFacingError } from "../../../lib/errors";
 
@@ -62,6 +63,14 @@ type Profile = {
 };
 
 export default function SchoolSetupPage() {
+  return (
+    <RequirePermission anyOf={["onboarding.manage"]}>
+      <SchoolSetupWizard />
+    </RequirePermission>
+  );
+}
+
+function SchoolSetupWizard() {
   const [index, setIndex] = useState(0);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [readiness, setReadiness] = useState<ReadinessItem[]>([]);

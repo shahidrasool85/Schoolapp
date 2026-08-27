@@ -16,6 +16,7 @@ import {
 } from "../../../components/ui";
 import { api } from "../../../lib/api";
 import { userFacingError } from "../../../lib/errors";
+import { usePermissions } from "../../../lib/use-permissions";
 
 type Profile = {
   name: string;
@@ -50,6 +51,7 @@ type ReadinessItem = {
 };
 
 export default function SchoolSettingsPage() {
+  const permissions = usePermissions();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [items, setItems] = useState<ReadinessItem[]>([]);
   const [ready, setReady] = useState(false);
@@ -146,9 +148,11 @@ export default function SchoolSettingsPage() {
         title="School settings"
         description="School identity and branding. Academic years, classes, timetable and portals stay on their own pages."
         actions={
-          <Link href="/school/setup" className="button secondary">
-            School setup wizard
-          </Link>
+          permissions.has("onboarding.manage") ? (
+            <Link href="/school/setup" className="button secondary">
+              School setup wizard
+            </Link>
+          ) : undefined
         }
       />
       {notice ? <Alert tone="success">{notice}</Alert> : null}

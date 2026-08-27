@@ -13,6 +13,7 @@ import {
   StatusBadge,
   Textarea,
 } from "../../../components/ui";
+import { RequirePermission } from "../../../components/require-permission";
 import { api, downloadAuthenticated } from "../../../lib/api";
 import { userFacingError } from "../../../lib/errors";
 
@@ -45,6 +46,14 @@ type Report = {
 };
 
 export default function ImportsPage() {
+  return (
+    <RequirePermission anyOf={["imports.manage"]}>
+      <ImportsWorkspace />
+    </RequirePermission>
+  );
+}
+
+function ImportsWorkspace() {
   const [kind, setKind] = useState<ImportKind>("pupils");
   const [csv, setCsv] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);

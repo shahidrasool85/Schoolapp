@@ -257,6 +257,10 @@ async function wipeDemoData(client: pg.Client): Promise<void> {
       "school_events",
       "school_event_types",
       "admissions_form_documents",
+      "student_medication_revisions",
+      "student_medications",
+      "student_dietary_requirement_revisions",
+      "student_dietary_requirements",
       "student_additional_needs",
       "admissions_form_submissions",
       "admissions_form_fields",
@@ -3231,6 +3235,42 @@ async function seedGreenwood(
       "Mild asthma — inhaler as needed (demo)",
       "EHCP for speech and language support (synthetic demo)",
     ],
+  );
+  await client.query(
+    `insert into student_medications (
+       organisation_id, student_profile_id, medication_name, dosage, route, schedule_text, is_prn,
+       started_on, ended_on, instructions, administration_responsibility, parent_consent_status,
+       parent_consent_on, review_on, status, stopped_reason, parent_visible, internal_notes
+     ) values
+       ($1,$2,'Cetirizine','5mg','oral','Once daily during hay-fever season', false,
+        '2026-04-01', null,'Give with water after lunch','school_staff','granted','2026-04-01',
+        '2027-04-01','active', null, true, 'Internal nurse cupboard location: shelf A (demo)'),
+       ($1,$2,'Salbutamol inhaler','2 puffs','inhaled','As required for wheeze', true,
+        '2026-09-01', null,'Supervise inhaler technique; send spare with trips','school_staff','granted','2026-09-01',
+        '2027-03-01','active', null, true, null),
+       ($1,$2,'Amoxicillin','250mg','oral','Three times daily for 7 days', false,
+        '2026-01-10','2026-01-17','Completed course — historical only','parent','granted','2026-01-10',
+        null,'stopped', 'Course completed', true, 'Do not restart without GP advice (demo)'),
+       ($1,$2,'Barrier cream','thin layer','topical','After first aid only', true,
+        '2026-09-01', null,'Staff-administered after playground first aid','school_staff','not_required', null,
+        null,'active', null, false, 'Not parent-visible — first-aid cupboard (demo)')`,
+    [orgId, amelia.profileId],
+  );
+  await client.query(
+    `insert into student_dietary_requirements (
+       organisation_id, student_profile_id, requirement_type, requirement, foods_to_avoid,
+       safe_alternatives, is_religious_or_cultural, related_allergy, texture_feeding_notes,
+       parent_confirmed_on, review_on, status, parent_visible, internal_notes
+     ) values
+       ($1,$2,'allergy','Nut-free diet','Peanuts, mixed nuts, nut oils',
+        'Use school nut-free packed lunch alternatives', false,
+        'Linked to recorded peanut allergy', null,
+        '2026-09-01','2027-09-01','active', true, 'Kitchen allergen matrix row 12 (demo)'),
+       ($1,$2,'religious','Halal meat only','Non-halal meat and gelatine',
+        'Vegetarian option when halal is unavailable', true,
+        null, null,
+        '2026-09-01','2027-09-01','active', true, null)`,
+    [orgId, amelia.profileId],
   );
 
   await seedStatutoryProfile(client, {

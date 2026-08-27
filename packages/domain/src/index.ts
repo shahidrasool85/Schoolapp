@@ -39,6 +39,10 @@ export const PERMISSIONS = {
   ADMISSIONS_PUBLIC_SUBMISSIONS_READ: "admissions.public_submissions.read",
   STUDENTS_ADDITIONAL_NEEDS_READ: "students.additional_needs.read",
   STUDENTS_ADDITIONAL_NEEDS_MANAGE: "students.additional_needs.manage",
+  STUDENTS_MEDICATIONS_READ_OPERATIONAL: "students.medications.read_operational",
+  STUDENTS_DIETARY_READ_OPERATIONAL: "students.dietary.read_operational",
+  STUDENTS_MEDICATIONS_READ_OWN_CHILDREN: "students.medications.read_own_children",
+  STUDENTS_DIETARY_READ_OWN_CHILDREN: "students.dietary.read_own_children",
   STUDENTS_PROFILES_READ: "students.profiles.read",
   STUDENTS_PROFILES_READ_ASSIGNED: "students.profiles.read_assigned",
   STUDENTS_PROFILES_MANAGE: "students.profiles.manage",
@@ -289,6 +293,7 @@ export {
   portalAccessGranted,
   portalAccessLabel,
   pupilIdentityGaps,
+  pupilRecordHashCanonicalize,
   resolvePupilRecordTab,
   selectedEnrolmentClassId,
   sensitiveSelectValue,
@@ -1271,3 +1276,42 @@ export const STATUTORY_ATTENDANCE_CATEGORIES = [
   "not_required",
 ] as const;
 export type StatutoryAttendanceCategory = (typeof STATUTORY_ATTENDANCE_CATEGORIES)[number];
+
+export const MEDICATION_ROUTES = ["oral", "inhaled", "topical", "injection", "buccal", "other"] as const;
+export type MedicationRoute = (typeof MEDICATION_ROUTES)[number];
+
+export const MEDICATION_ADMINISTRATION_RESPONSIBILITIES = [
+  "school_staff",
+  "parent",
+  "pupil",
+  "shared",
+  "other",
+] as const;
+export type MedicationAdministrationResponsibility = (typeof MEDICATION_ADMINISTRATION_RESPONSIBILITIES)[number];
+
+export const PARENT_CONSENT_STATUSES = ["pending", "granted", "declined", "not_required"] as const;
+export type ParentConsentStatus = (typeof PARENT_CONSENT_STATUSES)[number];
+
+export const MEDICATION_RECORD_STATUSES = ["active", "stopped"] as const;
+export type MedicationRecordStatus = (typeof MEDICATION_RECORD_STATUSES)[number];
+
+export const DIETARY_REQUIREMENT_TYPES = [
+  "allergy",
+  "intolerance",
+  "religious",
+  "cultural",
+  "medical",
+  "preference",
+  "texture",
+  "other",
+] as const;
+export type DietaryRequirementType = (typeof DIETARY_REQUIREMENT_TYPES)[number];
+
+export const DIETARY_RECORD_STATUSES = ["active", "inactive"] as const;
+export type DietaryRecordStatus = (typeof DIETARY_RECORD_STATUSES)[number];
+
+export const PUPIL_MEDICAL_CHANGE_KINDS = ["updated", "stopped", "reactivated"] as const;
+export type PupilMedicalChangeKind = (typeof PUPIL_MEDICAL_CHANGE_KINDS)[number];
+
+export const PUPIL_MEDICAL_VIEWS = ["full", "operational", "parent"] as const;
+export type PupilMedicalView = (typeof PUPIL_MEDICAL_VIEWS)[number];

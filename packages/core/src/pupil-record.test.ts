@@ -12,6 +12,7 @@ import {
   portalAccessGranted,
   portalAccessLabel,
   pupilIdentityGaps,
+  pupilRecordHashCanonicalize,
   resolvePupilRecordTab,
   selectedEnrolmentClassId,
   sensitiveSelectValue,
@@ -87,6 +88,18 @@ describe("pupil record helpers", () => {
     expect(adminTabs).toContain("pastoral");
     expect(teacherTabs).not.toContain("statutory");
     expect(parentOrStudentTabs).toEqual(["overview", "attendance", "learning", "academic", "documents"]);
+    const healthTabs = visiblePupilRecordTabs({ canViewHealth: true });
+    expect(healthTabs).toContain("health");
+    expect(healthTabs).not.toContain("statutory");
+    expect(resolvePupilRecordTab("#medication", healthTabs)).toBe("health");
+    expect(resolvePupilRecordTab("#dietary", healthTabs)).toBe("health");
+    expect(resolvePupilRecordTab("#health", teacherTabs)).toBe("overview");
+    expect(pupilRecordHashCanonicalize("#medication", healthTabs)).toEqual({ tab: "health", nextHash: "health" });
+    expect(pupilRecordHashCanonicalize("#dietary", healthTabs)).toEqual({ tab: "health", nextHash: "health" });
+    expect(pupilRecordHashCanonicalize("#medications", healthTabs)).toEqual({ tab: "health", nextHash: "health" });
+    expect(pupilRecordHashCanonicalize("#health", healthTabs)).toEqual({ tab: "health", nextHash: null });
+    expect(pupilRecordHashCanonicalize("#medication", teacherTabs)).toEqual({ tab: "overview", nextHash: null });
+    expect(pupilRecordHashCanonicalize("#health", teacherTabs)).toEqual({ tab: "overview", nextHash: null });
     expect(resolvePupilRecordTab("#statutory", adminTabs)).toBe("statutory");
     expect(resolvePupilRecordTab("#statutory", teacherTabs)).toBe("overview");
     expect(resolvePupilRecordTab("#pastoral", parentOrStudentTabs)).toBe("overview");

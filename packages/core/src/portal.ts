@@ -244,6 +244,8 @@ export const PARENT_CHILD_SECTIONS = Object.freeze({
   competitions: { available: true as const },
   rewards: { available: true as const },
   practice: { available: true as const },
+  medication: { available: true as const },
+  dietary: { available: true as const },
 });
 
 export const STUDENT_DASHBOARD_SECTIONS = Object.freeze({

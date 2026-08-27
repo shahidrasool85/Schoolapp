@@ -355,6 +355,42 @@ export {
 } from "./communications-access.js";
 
 export {
+  auditSafeDietaryAfter,
+  auditSafeMedicationAfter,
+  isDietaryRecordStatus,
+  isDietaryRequirementType,
+  isMedicationAdministrationResponsibility,
+  isMedicationRecordStatus,
+  isMedicationRoute,
+  isParentConsentStatus,
+  isPupilMedicalChangeKind,
+  isPupilMedicalView,
+  parentVisibleGranted,
+  mapDietaryRecord,
+  mapDietaryRevision,
+  mapMedicationRecord,
+  mapMedicationRevision,
+  summariseActiveDietary,
+  summariseActiveMedications,
+  type DietaryRecordView,
+  type DietaryRevisionView,
+  type MedicationRecordView,
+  type MedicationRevisionView,
+} from "./additional-needs.js";
+
+export {
+  assertCanManagePupilAdditionalNeeds,
+  canManageAdditionalNeeds,
+  canReadFullAdditionalNeeds,
+  canReadOperationalDietary,
+  canReadOperationalMedications,
+  canReadParentDietary,
+  canReadParentMedications,
+  resolveDietaryView,
+  resolveMedicationView,
+} from "./additional-needs-access.js";
+
+export {
   isBehaviourIncidentStatus,
   isBehaviourSeverity,
   isBehaviourActionStatus,

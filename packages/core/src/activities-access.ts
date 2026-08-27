@@ -1117,7 +1117,47 @@ export async function loadActivitySafetySummaries(
         medical_conditions: string | null;
       }>(
         `select sp.id, sp.legal_name,
-                n.allergies, n.medication, n.dietary_requirements, n.medical_conditions
+                n.allergies,
+                case
+                  when exists (
+                    select 1 from student_medications m
+                    where m.student_profile_id = sp.id
+                      and m.organisation_id = sp.organisation_id
+                  ) then (
+                    select string_agg(
+                      trim(concat_ws(
+                        ' — ',
+                        m.medication_name,
+                        m.dosage,
+                        case when m.is_prn then 'PRN' else m.schedule_text end
+                      )),
+                      '; ' order by m.medication_name
+                    )
+                    from student_medications m
+                    where m.student_profile_id = sp.id
+                      and m.organisation_id = sp.organisation_id
+                      and m.status = 'active'
+                  )
+                  else n.medication
+                end as medication,
+                case
+                  when exists (
+                    select 1 from student_dietary_requirements d
+                    where d.student_profile_id = sp.id
+                      and d.organisation_id = sp.organisation_id
+                  ) then (
+                    select string_agg(
+                      trim(concat_ws(' — ', d.requirement, d.foods_to_avoid)),
+                      '; ' order by d.requirement
+                    )
+                    from student_dietary_requirements d
+                    where d.student_profile_id = sp.id
+                      and d.organisation_id = sp.organisation_id
+                      and d.status = 'active'
+                  )
+                  else n.dietary_requirements
+                end as dietary_requirements,
+                n.medical_conditions
          from student_profiles sp
          left join student_additional_needs n
            on n.student_profile_id = sp.id and n.organisation_id = sp.organisation_id

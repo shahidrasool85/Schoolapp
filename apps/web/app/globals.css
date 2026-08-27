@@ -624,6 +624,70 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 .form-grid .span-2 { grid-column: 1 / -1; }
 
+.health-records {
+  display: grid;
+  gap: var(--space-4);
+  width: 100%;
+}
+
+.health-record {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+  background: var(--surface);
+}
+
+.health-record header {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.health-record h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.health-record dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin: var(--space-3) 0 0;
+}
+
+.health-record dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.health-record dd { margin: 0; }
+
+.health-record-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.health-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.health-form .health-record-actions,
+.health-form textarea {
+  grid-column: 1 / -1;
+}
+
+.health-history h3 {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
 .form-grid .form-control-action {
   display: flex;
   align-items: flex-end;
@@ -1402,6 +1466,8 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   .app-topbar { padding: 0.65rem 0.9rem; }
 
   .form-grid { grid-template-columns: 1fr; }
+  .health-record dl,
+  .health-form { grid-template-columns: 1fr; }
   .filter-bar label { min-width: 100%; }
   .page-header-actions { width: 100%; }
   .form-actions { justify-content: stretch; }

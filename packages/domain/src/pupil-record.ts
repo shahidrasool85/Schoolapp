@@ -8,6 +8,7 @@ export type PupilRecordTab =
   | "learning"
   | "academic"
   | "documents"
+  | "health"
   | "statutory"
   | "pastoral";
 
@@ -17,6 +18,7 @@ export const PUPIL_RECORD_TABS: PupilRecordTab[] = [
   "learning",
   "academic",
   "documents",
+  "health",
   "statutory",
   "pastoral",
 ];
@@ -185,14 +187,17 @@ export function portalAccessGranted(value: boolean | null | undefined): boolean 
 
 export function parsePupilRecordTab(hash: string | null | undefined): PupilRecordTab {
   const key = (hash ?? "").replace(/^#/, "").trim().toLowerCase();
+  if (key === "medication" || key === "medications" || key === "dietary") return "health";
   return (PUPIL_RECORD_TABS as string[]).includes(key) ? (key as PupilRecordTab) : "overview";
 }
 
 export function visiblePupilRecordTabs(input: {
   canViewStatutory?: boolean;
   canViewPastoral?: boolean;
+  canViewHealth?: boolean;
 }): PupilRecordTab[] {
   const tabs: PupilRecordTab[] = ["overview", "attendance", "learning", "academic", "documents"];
+  if (input.canViewHealth) tabs.push("health");
   if (input.canViewStatutory) tabs.push("statutory");
   if (input.canViewPastoral) tabs.push("pastoral");
   return tabs;
@@ -206,6 +211,23 @@ export function resolvePupilRecordTab(
   const fallback: PupilRecordTab = visibleTabs[0] ?? "overview";
   const requested = parsePupilRecordTab(hash);
   return visibleTabs.includes(requested) ? requested : fallback;
+}
+
+/**
+ * Apply a pupil-record hash. Aliases such as #medication canonicalize to #health
+ * only when that tab is actually visible. Hidden or not-yet-loaded gated tabs
+ * keep the original hash so a later permission load can still land on them.
+ */
+export function pupilRecordHashCanonicalize(
+  hash: string | null | undefined,
+  visibleTabs: readonly PupilRecordTab[],
+): { tab: PupilRecordTab; nextHash: string | null } {
+  const raw = (hash ?? "").replace(/^#/, "").trim().toLowerCase();
+  const requested = parsePupilRecordTab(hash);
+  if (visibleTabs.includes(requested)) {
+    return { tab: requested, nextHash: raw && raw !== requested ? requested : null };
+  }
+  return { tab: visibleTabs[0] ?? "overview", nextHash: null };
 }
 
 export function statutoryIssueFix(issue: {

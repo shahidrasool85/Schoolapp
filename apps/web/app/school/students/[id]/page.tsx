@@ -12,6 +12,7 @@ import {
   lookedAfterPersistValue,
   portalAccessLabel,
   pupilIdentityGaps,
+  pupilRecordHashCanonicalize,
   resetFormSafely,
   resolvePupilRecordTab,
   selectedEnrolmentClassId,
@@ -40,6 +41,11 @@ import { api, downloadAuthenticated } from "../../../../lib/api";
 import { userFacingError } from "../../../../lib/errors";
 import { clientUpnError } from "../../../../lib/upn";
 import { usePermissions } from "../../../../lib/use-permissions";
+import {
+  MedicationDietarySections,
+  type DietaryRecord,
+  type MedicationRecord,
+} from "./medication-dietary";
 
 type Guardian = {
   id: string;
@@ -217,6 +223,9 @@ export default function StudentDetailPage() {
   } | null>(null);
   const [safeguardingLink, setSafeguardingLink] = useState(false);
   const [statutory, setStatutory] = useState<StatutoryRecord | null>(null);
+  const [medicalView, setMedicalView] = useState<"full" | "operational" | "parent" | null>(null);
+  const [medications, setMedications] = useState<MedicationRecord[]>([]);
+  const [dietaryRequirements, setDietaryRequirements] = useState<DietaryRecord[]>([]);
   const [documents, setDocuments] = useState<Array<{
     id: string;
     title: string;
@@ -369,6 +378,25 @@ export default function StudentDetailPage() {
       if (seq !== loadSeq.current) return;
       setStatutory(null);
     }
+    try {
+      const [meds, diet] = await Promise.all([
+        api<{ view: "full" | "operational" | "parent"; medications: MedicationRecord[] }>(
+          `/api/v1/students/${studentId}/medications`,
+        ),
+        api<{ view: "full" | "operational" | "parent"; dietaryRequirements: DietaryRecord[] }>(
+          `/api/v1/students/${studentId}/dietary-requirements`,
+        ),
+      ]);
+      if (seq !== loadSeq.current) return;
+      setMedicalView(meds.view);
+      setMedications(meds.medications);
+      setDietaryRequirements(diet.dietaryRequirements);
+    } catch {
+      if (seq !== loadSeq.current) return;
+      setMedicalView(null);
+      setMedications([]);
+      setDietaryRequirements([]);
+    }
     if (seq !== loadSeq.current) return;
     setSectionsReady(true);
   }
@@ -384,6 +412,9 @@ export default function StudentDetailPage() {
     setPastoral(null);
     setSafeguardingLink(false);
     setStatutory(null);
+    setMedicalView(null);
+    setMedications([]);
+    setDietaryRequirements([]);
     setError("");
     setActionErrorMessage("");
     setInvite(null);
@@ -403,10 +434,11 @@ export default function StudentDetailPage() {
   const visibleTabs = useMemo(
     () =>
       visiblePupilRecordTabs({
+        canViewHealth: Boolean(medicalView),
         canViewStatutory: Boolean(statutory),
         canViewPastoral: Boolean(data?.behaviourSummary || data?.pastoralSummary || safeguardingLink),
       }),
-    [statutory, data, safeguardingLink],
+    [medicalView, statutory, data, safeguardingLink],
   );
   const activeTab = visibleTabs.includes(tab) ? tab : (visibleTabs[0] ?? "overview");
 
@@ -417,11 +449,10 @@ export default function StudentDetailPage() {
   useEffect(() => {
     function applyHash() {
       if (!sectionsReady) return;
-      const next = resolvePupilRecordTab(window.location.hash, visibleTabs);
+      const { tab: next, nextHash } = pupilRecordHashCanonicalize(window.location.hash, visibleTabs);
       setTab(next);
-      const raw = (window.location.hash ?? "").replace(/^#/, "").trim().toLowerCase();
-      if (raw && raw !== next) {
-        window.history.replaceState(null, "", `#${next}`);
+      if (nextHash) {
+        window.history.replaceState(null, "", `#${nextHash}`);
       }
     }
     applyHash();
@@ -610,6 +641,7 @@ export default function StudentDetailPage() {
     learning: "Learning",
     academic: "Academic",
     documents: "Documents",
+    health: "Medication & dietary",
     statutory: "Statutory",
     pastoral: "Pastoral",
   };
@@ -1217,6 +1249,19 @@ export default function StudentDetailPage() {
               {uploadState ? <p className="muted">{uploadState}</p> : null}
             </form>
           </SectionCard>
+        </div>
+      ) : null}
+
+      {activeTab === "health" && medicalView ? (
+        <div className="pupil-tab-panel" id="health">
+          <MedicationDietarySections
+            studentId={params.id}
+            view={medicalView}
+            canManage={permissions.has("students.additional_needs.manage")}
+            medications={medications}
+            dietaryRequirements={dietaryRequirements}
+            onChanged={load}
+          />
         </div>
       ) : null}
 

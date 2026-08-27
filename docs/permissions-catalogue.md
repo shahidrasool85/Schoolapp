@@ -35,6 +35,10 @@ Platform Super Admin does **not** silently receive pupil read. Tenant data requi
 | `admissions.public_submissions.read` | — | F | F | — | F | — | — | — |
 | `students.additional_needs.read` | — | F | F | — | F | — | — | — |
 | `students.additional_needs.manage` | — | F | — | — | F | — | — | — |
+| `students.medications.read_operational` | — | — | — | F | — | — | — | — |
+| `students.dietary.read_operational` | — | — | — | F | — | — | — | — |
+| `students.medications.read_own_children` | — | — | — | — | — | — | F | — |
+| `students.dietary.read_own_children` | — | — | — | — | — | — | F | — |
 | `students.profiles.read` | — | F | F | — | R | — | — | — |
 | `students.profiles.read_assigned` | — | — | — | F | — | — | — | — |
 | `students.profiles.manage` | — | F | — | — | F (pre-enrol) | — | — | — |
@@ -153,7 +157,7 @@ Platform Super Admin does **not** silently receive pupil read. Tenant data requi
 
 `admissions.convert` is the only path that creates the canonical student/enrolment from an accepted application. Teachers do not receive admissions keys. Parents and students never receive School Admin admissions access.
 
-Public form configuration uses `admissions.forms.*` and `admissions.campaigns.*`. Submitted answers (including medical/custom questions) require `admissions.public_submissions.read` or `admissions.read`. `students.additional_needs.*` gates the post-enrolment medical/additional-needs record; it is not granted to teachers, parents, or students.
+Public form configuration uses `admissions.forms.*` and `admissions.campaigns.*`. Submitted answers (including medical/custom questions) require `admissions.public_submissions.read` or `admissions.read`. `students.additional_needs.*` gates the post-enrolment medical/additional-needs record, including full medication and dietary rows; it is not granted to teachers, parents, or students. Teachers see assigned operational medication/dietary fields only (`students.medications.read_operational`, `students.dietary.read_operational`). Parents see parent-visible records for authorised children after guardianship + `portal_access` (`students.medications.read_own_children`, `students.dietary.read_own_children`). The Student Portal does not automatically receive medication administration details.
 
 `students.restricted_contact.read` is **not** granted to Teacher, Parent, or Student. No Phase 1–4 API exposes the column to those roles.
 

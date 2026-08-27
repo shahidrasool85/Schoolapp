@@ -87,10 +87,12 @@ describe("RLS catalog", () => {
            'competition_targets', 'competition_manual_scores', 'competition_results',
            'learning_activity_definitions', 'learning_activity_items', 'learning_activity_assignments',
            'learning_activity_targets', 'learning_activity_recipients', 'learning_activity_attempts',
-           'learning_activity_answers'
+           'learning_activity_answers',
+           'organisation_setup_progress', 'account_tokens', 'mail_outbox',
+           'data_imports', 'data_import_rows'
          )`,
     );
-    expect(result.rows.length).toBe(169);
+    expect(result.rows.length).toBe(174);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
     }

@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { EmptyState } from "../../../components/ui";
 import { api } from "../../../lib/api";
 
 type Year = {
@@ -67,6 +68,12 @@ export default function AcademicYearsPage() {
         <div><button type="submit">Add academic year</button></div>
       </form>
       {error ? <p className="error">{error}</p> : null}
+      {years.length === 0 ? (
+        <EmptyState
+          title="No academic years yet"
+          description="Create the current academic year to unlock classes, enrolments and the timetable."
+        />
+      ) : (
       <table>
         <thead>
           <tr><th>Name</th><th>Starts</th><th>Ends</th><th>Current</th><th></th></tr>
@@ -89,6 +96,7 @@ export default function AcademicYearsPage() {
           ))}
         </tbody>
       </table>
+      )}
     </>
   );
 }

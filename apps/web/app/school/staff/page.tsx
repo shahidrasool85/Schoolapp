@@ -1,7 +1,20 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
+import {
+  Alert,
+  Button,
+  DataTable,
+  EmptyState,
+  FormField,
+  Input,
+  PageHeader,
+  Select,
+  StatusBadge,
+} from "../../../components/ui";
 import { api } from "../../../lib/api";
+import { userFacingError } from "../../../lib/errors";
 
 type Staff = {
   id: string;
@@ -9,13 +22,15 @@ type Staff = {
   email: string | null;
   jobTitle: string | null;
   membershipStatus: string | null;
+  accountStatus: string;
   roleKeys: string[];
 };
 
 export default function StaffPage() {
   const [staff, setStaff] = useState<Staff[]>([]);
-  const [invite, setInvite] = useState("");
+  const [inviteToken, setInviteToken] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   async function load() {
     const body = await api<{ staff: Staff[] }>("/api/v1/staff");
@@ -23,63 +38,106 @@ export default function StaffPage() {
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    load().catch((err: Error) => setError(userFacingError(err, "Could not load staff.")));
   }, []);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const created = await api<{ invitationToken: string }>("/api/v1/staff", {
-      method: "POST",
-      body: JSON.stringify({
-        email: form.get("email"),
-        fullName: form.get("fullName"),
-        jobTitle: form.get("jobTitle") || undefined,
-        roleKeys: [String(form.get("roleKey") || "school.teacher")],
-      }),
-    });
-    setInvite(created.invitationToken);
-    event.currentTarget.reset();
-    await load();
+    setError("");
+    setNotice("");
+    try {
+      const created = await api<{ invitationToken: string }>("/api/v1/staff", {
+        method: "POST",
+        body: JSON.stringify({
+          email: form.get("email"),
+          fullName: form.get("fullName"),
+          jobTitle: form.get("jobTitle") || undefined,
+          roleKeys: [String(form.get("roleKey") || "school.teacher")],
+        }),
+      });
+      setInviteToken(created.invitationToken);
+      setNotice("Staff created. Copy the one-time invitation now — it will not be shown again.");
+      event.currentTarget.reset();
+      await load();
+    } catch (err) {
+      setError(userFacingError(err, "Could not create staff."));
+    }
   }
 
   return (
     <>
-      <h1>Staff / Teachers</h1>
+      <PageHeader
+        title="Staff"
+        description="Create staff, assign roles, and manage invitations. Teachers cannot manage school-wide accounts."
+      />
       <form className="card form-grid" onSubmit={onSubmit}>
-        <label>Full name<input name="fullName" required /></label>
-        <label>Email<input name="email" type="email" required /></label>
-        <label>Job title<input name="jobTitle" /></label>
-        <label>
-          Role
-          <select name="roleKey" defaultValue="school.teacher">
+        <FormField label="Full name">
+          <Input name="fullName" required />
+        </FormField>
+        <FormField label="Email">
+          <Input name="email" type="email" required />
+        </FormField>
+        <FormField label="Job title">
+          <Input name="jobTitle" />
+        </FormField>
+        <FormField label="Role">
+          <Select name="roleKey" defaultValue="school.teacher">
             <option value="school.teacher">Teacher</option>
             <option value="school.headteacher">Headteacher</option>
             <option value="school.admin">School Admin</option>
             <option value="school.admissions">Admissions</option>
             <option value="school.staff">Staff</option>
-          </select>
-        </label>
-        <div><button type="submit">Invite staff</button></div>
+          </Select>
+        </FormField>
+        <div>
+          <Button type="submit">Create and invite</Button>
+        </div>
       </form>
-      {invite ? <p>Invitation token: <code>{invite}</code></p> : null}
-      {error ? <p className="error">{error}</p> : null}
-      <table>
-        <thead>
-          <tr><th>Name</th><th>Email</th><th>Job title</th><th>Roles</th><th>Status</th></tr>
-        </thead>
-        <tbody>
+      {inviteToken ? (
+        <Alert tone="info">
+          One-time invitation (copy now): <code>{inviteToken}</code>
+        </Alert>
+      ) : null}
+      {notice ? <Alert tone="success">{notice}</Alert> : null}
+      {error ? <Alert tone="danger">{error}</Alert> : null}
+      {staff.length === 0 ? (
+        <EmptyState
+          title="No staff yet"
+          description="Add the first staff member above, or import a CSV from Bulk import."
+          action={
+            <Link href="/school/imports" className="button secondary">
+              Bulk import
+            </Link>
+          }
+        />
+      ) : (
+        <DataTable
+          headers={
+            <>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Job title</th>
+              <th>Roles</th>
+              <th>Account</th>
+            </>
+          }
+        >
           {staff.map((row) => (
             <tr key={row.id}>
-              <td>{row.fullName}</td>
+              <td>
+                <Link href={`/school/staff/${row.id}`}>{row.fullName}</Link>
+              </td>
               <td>{row.email}</td>
               <td>{row.jobTitle ?? "—"}</td>
               <td>{row.roleKeys.join(", ")}</td>
-              <td>{row.membershipStatus}</td>
+              <td>
+                <StatusBadge status={row.accountStatus} />
+              </td>
             </tr>
           ))}
-        </tbody>
-      </table>
+        </DataTable>
+      )}
     </>
   );
 }

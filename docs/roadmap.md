@@ -298,6 +298,22 @@ Do **not** implement the whole product in one operation. Each phase has an exit 
 
 **Not in this work:** safeguarding mixing, student self-service medication administration, stored trip medical snapshots, parent write-back.
 
+## Phase 20 — Production school onboarding, setup, and account lifecycle (implemented)
+
+**Outcome:** a newly created school can go from an empty organisation to a functioning tenant through the UI, without Greenwood/Oak seed data or database intervention.
+
+- Platform Admin creates the organisation, slug/host, and first School Admin invitation
+- Resumable `/school/setup` wizard orchestrating existing academic, people, timetable, and portal APIs
+- School branding (logo, colours, hero, tagline) on login and staff/parent/student shells
+- Staff, parent, and student account lifecycle (invite, status, revoke, suspend/reactivate, Student Portal alias)
+- Forgot password / reset / activation with hashed, single-use, expiring tokens
+- Mail delivery port with inspectable local outbox; passwords never in email
+- Preview-then-confirm CSV import for staff, pupils, and guardians, with same-org duplicate detection
+- School readiness checklist; empty-tenant EmptyStates
+- Capability keys: `onboarding.read`, `onboarding.manage`, `imports.manage` plus existing `org.settings.*` / `org.members.*` / `org.roles.manage` / `guardianships.manage` / `students.portal_access.manage`
+
+**Not in Phase 20:** production SMTP/SES wiring, automated DNS/TLS for custom domains, merging uncertain identities, platform admin pupil browse.
+
 ## Phase 12.5 — AI learning (future)
 
 - `packages/ai` port + one provider

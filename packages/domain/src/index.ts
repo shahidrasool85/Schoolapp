@@ -24,6 +24,9 @@ export const PERMISSIONS = {
   ORG_ROLES_MANAGE: "org.roles.manage",
   ORG_SUPPORT_ACCESS_READ: "org.support_access.read",
   ORG_BILLING_READ: "org.billing.read",
+  ONBOARDING_READ: "onboarding.read",
+  ONBOARDING_MANAGE: "onboarding.manage",
+  IMPORTS_MANAGE: "imports.manage",
   ACADEMIC_STRUCTURE_READ: "academic.structure.read",
   ACADEMIC_STRUCTURE_MANAGE: "academic.structure.manage",
   ADMISSIONS_READ: "admissions.read",
@@ -304,6 +307,38 @@ export {
   type OperationalGender,
   type PupilRecordTab,
 } from "./pupil-record.js";
+
+export {
+  ACCOUNT_STATUSES,
+  ACCOUNT_TOKEN_PURPOSES,
+  DEFAULT_BRAND_ACCENT,
+  DEFAULT_BRAND_PRIMARY,
+  FORGOT_PASSWORD_COPY,
+  HEX_COLOR_PATTERN,
+  IMPORTABLE_STAFF_ROLE_KEYS,
+  IMPORT_KINDS,
+  MAIL_PURPOSES,
+  ONBOARDING_STEPS,
+  PUBLIC_BRANDING_PATHS,
+  READINESS_ITEMS,
+  READINESS_ITEM_KEYS,
+  accountStatusLabel,
+  deriveAccountStatus,
+  isOnboardingStep,
+  mapImportedStaffRole,
+  readinessStatus,
+  safeBrandColor,
+  schoolIsReady,
+  type AccountStatus,
+  type AccountTokenPurpose,
+  type ImportKind,
+  type ImportableStaffRoleKey,
+  type MailPurpose,
+  type OnboardingStep,
+  type ReadinessItemDefinition,
+  type ReadinessItemKey,
+  type ReadinessStatus,
+} from "./onboarding.js";
 
 export type UserKind = "platform_admin" | "staff" | "parent" | "student";
 

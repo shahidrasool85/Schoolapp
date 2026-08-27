@@ -34,6 +34,9 @@ import { registerPaymentWebhookRoutes } from "./routes/webhooks-payments";
 import { registerMessagingRoutes } from "./routes/messaging";
 import { registerStatutoryRoutes } from "./routes/statutory";
 import { registerEngagementRoutes } from "./routes/engagement";
+import { registerOnboardingRoutes } from "./routes/onboarding";
+import { registerImportRoutes } from "./routes/imports";
+import { OutboxMailProvider } from "@schoolapp/core";
 
 export type { ApiConfig, ApiEnv, SchoolappApi } from "./types";
 
@@ -42,6 +45,22 @@ export function createApiApp(config: ApiConfig) {
     ...config,
     platformDomain: normalizePlatformDomain(config.platformDomain),
     trustProxy: Boolean(config.trustProxy),
+    mailProvider:
+      config.mailProvider ??
+      new OutboxMailProvider(async (message) => {
+        await config.pools.app.query(
+          "select enqueue_mail_message($1, $2, $3, $4, $5, $6, $7::jsonb)",
+          [
+            message.organisationId,
+            message.purpose,
+            message.toEmail,
+            message.toName ?? null,
+            message.subject,
+            message.textBody,
+            JSON.stringify(message.metadata ?? {}),
+          ],
+        );
+      }),
   };
   if (resolvedConfig.trustProxy && process.env.VITEST !== "true") {
     console.warn(
@@ -82,6 +101,8 @@ export function createApiApp(config: ApiConfig) {
   registerMeRoutes(app);
   registerPlatformRoutes(app);
   registerOrganisationRoutes(app);
+  registerOnboardingRoutes(app);
+  registerImportRoutes(app);
   registerAcademicRoutes(app);
   registerPeopleRoutes(app);
   registerAdditionalNeedsRoutes(app);

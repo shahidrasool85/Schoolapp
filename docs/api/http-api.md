@@ -32,14 +32,18 @@ POST /api/v1/auth/login
 POST /api/v1/auth/logout
 POST /api/v1/auth/refresh
 POST /api/v1/auth/forgot-password
-POST /api/v1/invitations/{token}/accept
+POST /api/v1/auth/reset-password
+POST /api/v1/auth/activate
+POST /api/v1/invitations/accept
 
 GET  /api/v1/me
 GET  /api/v1/me/memberships
 PATCH /api/v1/me
 POST /api/v1/me/devices          # reserve for Expo push tokens; stub later
 
-GET  /api/v1/public/tenant       # Host-based platform vs school identity (public name/slug only)
+GET  /api/v1/public/tenant       # Host-based platform vs school identity; school hosts include display-only branding (no storage keys)
+GET  /api/v1/public/branding/logo
+GET  /api/v1/public/branding/hero
 POST /api/v1/public/signup       # disabled; returns onboarding_public_disabled
 ```
 
@@ -691,6 +695,38 @@ POST   /api/v1/parent/children/{studentId}/practice/attempts/{attemptId}/submit
 ```
 
 Leaderboard `?scope=` cannot widen visibility. Parent/student practice GET never includes `correctAnswer`. Internal reward notes are omitted from parent/student payloads. Parent list/play/start/submit require year-group `parentAssistedMode` plus live `portal_access`; GET of items is `403` when assisted mode is off. Pupil-facing practice lists only activity types allowed by year-group policy (early-learning types vs `challenge`). Attempts resume only on the same channel (`student` vs `parent_assisted`). Revoking a reward that granted XP inserts an append-only XP reversal. Cross-school IDs return `not_found`. Platform Admin has no school engagement browse. See [ADR 0028](../adr/0028-phase19-engagement.md).
+
+## School onboarding, branding, accounts, and imports
+
+```http
+GET    /api/v1/onboarding
+PATCH  /api/v1/onboarding/progress
+GET    /api/v1/onboarding/profile
+PATCH  /api/v1/onboarding/profile
+PATCH  /api/v1/onboarding/branding
+POST   /api/v1/onboarding/branding/{logo|hero}
+GET    /api/v1/onboarding/mail
+
+POST   /api/v1/staff/{id}/invite
+POST   /api/v1/staff/{id}/invite/revoke
+POST   /api/v1/staff/{id}/suspend
+POST   /api/v1/staff/{id}/reactivate
+PATCH  /api/v1/staff/{id}/roles
+
+POST   /api/v1/guardianships/{id}/invite
+POST   /api/v1/guardianships/{id}/invite/revoke
+POST   /api/v1/students/{id}/guardians/link-existing
+POST   /api/v1/students/{id}/portal-login
+POST   /api/v1/students/{id}/portal-login/reset
+POST   /api/v1/students/{id}/portal-login/disable
+
+GET    /api/v1/imports/templates/{staff|pupils|guardians}
+POST   /api/v1/imports/{staff|pupils|guardians}
+GET    /api/v1/imports/{id}
+POST   /api/v1/imports/{id}/confirm
+```
+
+Invitation, activation, and password-reset tokens are shown once in the issuing response (or inspectable local mail outbox) and stored hashed. Forgot-password always returns the same copy. `portalAccess` omitted or false never enables Parent Portal. Staff import cannot assign `school.admin`. Public branding endpoints return image bytes only — never storage keys. See [ADR 0030](../adr/0030-phase20-onboarding.md).
 
 ## Files
 

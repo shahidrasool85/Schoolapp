@@ -21,10 +21,10 @@ export const DEFAULT_LOGIN_ACCENT = "#2b6cb0";
  * Display-only login branding. Tenant authority still comes from hostname
  * resolution, not from the school name, logo, or colours.
  *
- * Current public tenant payload exposes organisation name / slug / hostname.
- * If `organisation_settings.extras.branding` later includes logoUrl,
- * heroImageUrl, primaryColor, or tagline on GET /api/v1/public/tenant,
- * this helper will use them. Until then, professional defaults apply.
+ * Current public tenant payload includes display-only branding
+ * (`primaryColor`, `logoUrl`, `heroImageUrl`, `tagline`) plus organisation
+ * name / slug / hostname. Tenant authority still comes from hostname
+ * resolution, not from the school name, logo, or colours.
  */
 export function resolveLoginBranding(input: {
   organisationName?: string | null;
@@ -60,6 +60,9 @@ function safeHexColor(value?: string | null): string | null {
 
 function safeHttpUrl(value?: string | null): string | null {
   if (!value) return null;
+  if (/^\/api\/v1\/public\/branding\/(logo|hero)(\?[A-Za-z0-9_=&-]*)?$/.test(value)) {
+    return value;
+  }
   try {
     const url = new URL(value);
     return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;

@@ -13,6 +13,8 @@ import {
   canAccessPastoral,
   canReadStudentProfile,
   loadStudentPortalDecision,
+  parentInviteMail,
+  staffInviteMail,
   summariseAttendanceMarks,
   writeAudit,
 } from "@schoolapp/core";
@@ -26,6 +28,7 @@ import {
   mapStaffAssignment,
   mapStudent,
 } from "../serialize";
+import { inviteAcceptPath, mailOf } from "../mail";
 
 const studentCreateSchema = z.object({
   legalName: z.string().min(1).max(120),
@@ -218,7 +221,14 @@ export function registerPeopleRoutes(app: SchoolappApi) {
             `select g.id, g.student_profile_id, g.guardian_user_id, u.full_name, u.email,
                     g.relationship, g.has_parental_responsibility, g.is_emergency_contact,
                     g.lives_with_student, g.portal_access, g.priority,
-                    g.started_on::text, g.ended_on::text, m.status as membership_status
+                    g.started_on::text, g.ended_on::text, m.status as membership_status,
+                    exists(select 1 from user_credentials c where c.user_id = u.id) as has_credentials,
+                    exists(
+                      select 1 from invitations i
+                      where i.organisation_id = g.organisation_id
+                        and i.email = u.email
+                        and i.accepted_at is null and i.revoked_at is null and i.expires_at > now()
+                    ) as pending_invitation
              from guardianships g
              join users u on u.id = g.guardian_user_id
              left join organisation_memberships m
@@ -289,7 +299,16 @@ export function registerPeopleRoutes(app: SchoolappApi) {
              where sp.id = $1 and a.organisation_id = $2`,
             [id, orgId],
           )
-        : { rows: [] };
+        : { rows: [] as Array<{ alias: string }> };
+      const credentials = actor.permissions.has(PERMISSIONS.STUDENTS_PORTAL_ACCESS_MANAGE)
+        ? await client.query(
+            `select 1
+             from user_credentials c
+             join student_profiles sp on sp.user_id = c.user_id
+             where sp.id = $1 and sp.organisation_id = $2`,
+            [id, orgId],
+          )
+        : { rows: [] as unknown[] };
 
       return c.json({
         student: mapStudent(listed.rows[0]),
@@ -323,6 +342,9 @@ export function registerPeopleRoutes(app: SchoolappApi) {
           source: portal.source,
           ...(actor.permissions.has(PERMISSIONS.STUDENTS_PROFILES_MANAGE)
             ? { hasLoginAlias: alias.rows.length > 0, alias: alias.rows[0]?.alias ?? null }
+            : {}),
+          ...(actor.permissions.has(PERMISSIONS.STUDENTS_PORTAL_ACCESS_MANAGE)
+            ? { hasCredentials: credentials.rows.length > 0 }
             : {}),
         },
       });
@@ -773,6 +795,21 @@ export function registerPeopleRoutes(app: SchoolappApi) {
         invitationId = row.invitation_id;
         invitationToken = row.invitation_token;
         guardianUserId = row.created_user_id;
+        if (invitationToken) {
+          const org = await client.query<{ name: string }>(
+            "select name from organisations where id = $1",
+            [orgId],
+          );
+          await mailOf(c).send(
+            parentInviteMail({
+              organisationId: orgId,
+              organisationName: org.rows[0]?.name ?? "School",
+              toEmail: email,
+              toName: parsed.data.fullName ?? email,
+              acceptPath: inviteAcceptPath(invitationToken),
+            }),
+          );
+        }
       }
       const listed = await client.query(
         `select g.id, g.student_profile_id, g.guardian_user_id, u.full_name, u.email,
@@ -868,7 +905,14 @@ export function registerPeopleRoutes(app: SchoolappApi) {
                 g.guardian_user_id, u.full_name, u.email, g.relationship,
                 g.has_parental_responsibility, g.is_emergency_contact, g.lives_with_student,
                 g.portal_access, g.priority, g.started_on::text, g.ended_on::text,
-                m.status as membership_status
+                m.status as membership_status,
+                exists(select 1 from user_credentials c where c.user_id = u.id) as has_credentials,
+                exists(
+                  select 1 from invitations i
+                  where i.organisation_id = g.organisation_id
+                    and i.email = u.email
+                    and i.accepted_at is null and i.revoked_at is null and i.expires_at > now()
+                ) as pending_invitation
          from guardianships g
          join users u on u.id = g.guardian_user_id
          join student_profiles sp on sp.id = g.student_profile_id
@@ -890,6 +934,13 @@ export function registerPeopleRoutes(app: SchoolappApi) {
       const rows = await client.query(
         `select sp.id, sp.user_id, u.full_name, u.email, sp.job_title, sp.employee_number,
                 sp.started_on::text, m.status as membership_status,
+                exists(select 1 from user_credentials c where c.user_id = u.id) as has_credentials,
+                exists(
+                  select 1 from invitations i
+                  where i.organisation_id = sp.organisation_id
+                    and i.email = u.email
+                    and i.accepted_at is null and i.revoked_at is null and i.expires_at > now()
+                ) as pending_invitation,
                 coalesce((
                   select array_agg(r.key order by r.key)
                   from membership_roles mr
@@ -932,6 +983,16 @@ export function registerPeopleRoutes(app: SchoolappApi) {
         invitation_token: string;
         created_user_id: string;
       };
+      const org = await client.query<{ name: string }>("select name from organisations where id = $1", [orgId]);
+      await mailOf(c).send(
+        staffInviteMail({
+          organisationId: orgId,
+          organisationName: org.rows[0]?.name ?? "School",
+          toEmail: parsed.data.email.toLowerCase(),
+          toName: parsed.data.fullName,
+          acceptPath: inviteAcceptPath(row.invitation_token),
+        }),
+      );
       return c.json(
         {
           staffProfileId: row.staff_profile_id,
@@ -950,6 +1011,13 @@ export function registerPeopleRoutes(app: SchoolappApi) {
       const rows = await client.query(
         `select sp.id, sp.user_id, u.full_name, u.email, sp.job_title, sp.employee_number,
                 sp.started_on::text, m.status as membership_status,
+                exists(select 1 from user_credentials c where c.user_id = u.id) as has_credentials,
+                exists(
+                  select 1 from invitations i
+                  where i.organisation_id = sp.organisation_id
+                    and i.email = u.email
+                    and i.accepted_at is null and i.revoked_at is null and i.expires_at > now()
+                ) as pending_invitation,
                 coalesce((
                   select array_agg(r.key order by r.key)
                   from membership_roles mr
@@ -1016,6 +1084,260 @@ export function registerPeopleRoutes(app: SchoolappApi) {
         ],
       );
       if (!updated.rows[0]) throw new AppError(404, "not_found", "Not found");
+      return c.json({ ok: true });
+    }),
+  );
+
+  app.post("/staff/:id/invite", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ORG_MEMBERS_MANAGE);
+      const staff = await client.query<{ email: string; full_name: string; role_keys: string[] }>(
+        `select u.email, u.full_name,
+                coalesce((
+                  select array_agg(r.key) from membership_roles mr
+                  join roles r on r.id = mr.role_id
+                  join organisation_memberships m on m.id = mr.membership_id
+                  where m.user_id = sp.user_id and m.organisation_id = sp.organisation_id
+                ), array['school.teacher']::text[]) as role_keys
+         from staff_profiles sp
+         join users u on u.id = sp.user_id
+         where sp.id = $1 and sp.organisation_id = $2`,
+        [c.req.param("id"), orgId],
+      );
+      if (!staff.rows[0]?.email) throw new AppError(404, "not_found", "Not found");
+      const issued = await client.query(
+        "select * from reissue_school_invitation($1, $2, $3, $4)",
+        [userId, orgId, staff.rows[0].email, staff.rows[0].role_keys],
+      );
+      const token = issued.rows[0].invitation_token as string;
+      const org = await client.query<{ name: string }>("select name from organisations where id = $1", [orgId]);
+      await mailOf(c).send(
+        staffInviteMail({
+          organisationId: orgId,
+          organisationName: org.rows[0]?.name ?? "School",
+          toEmail: staff.rows[0].email,
+          toName: staff.rows[0].full_name,
+          acceptPath: inviteAcceptPath(token),
+        }),
+      );
+      return c.json({ invitationId: issued.rows[0].invitation_id, invitationToken: token }, 201);
+    }),
+  );
+
+  app.post("/staff/:id/invite/revoke", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ORG_MEMBERS_MANAGE);
+      const invite = await client.query<{ id: string }>(
+        `select i.id
+         from invitations i
+         join staff_profiles sp on sp.organisation_id = i.organisation_id
+         join users u on u.id = sp.user_id and u.email = i.email
+         where sp.id = $1 and i.organisation_id = $2
+           and i.accepted_at is null and i.revoked_at is null
+         order by i.created_at desc
+         limit 1`,
+        [c.req.param("id"), orgId],
+      );
+      if (!invite.rows[0]) throw new AppError(404, "not_found", "Not found");
+      await client.query("select revoke_school_invitation($1, $2, $3)", [
+        userId,
+        orgId,
+        invite.rows[0].id,
+      ]);
+      return c.json({ ok: true });
+    }),
+  );
+
+  app.post("/staff/:id/suspend", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ORG_MEMBERS_MANAGE);
+      const staff = await client.query<{ user_id: string }>(
+        "select user_id from staff_profiles where id = $1 and organisation_id = $2",
+        [c.req.param("id"), orgId],
+      );
+      if (!staff.rows[0]) throw new AppError(404, "not_found", "Not found");
+      await client.query("select set_organisation_membership_status($1, $2, $3, $4)", [
+        userId,
+        orgId,
+        staff.rows[0].user_id,
+        "suspended",
+      ]);
+      return c.json({ ok: true });
+    }),
+  );
+
+  app.post("/staff/:id/reactivate", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ORG_MEMBERS_MANAGE);
+      const staff = await client.query<{ user_id: string }>(
+        "select user_id from staff_profiles where id = $1 and organisation_id = $2",
+        [c.req.param("id"), orgId],
+      );
+      if (!staff.rows[0]) throw new AppError(404, "not_found", "Not found");
+      await client.query("select set_organisation_membership_status($1, $2, $3, $4)", [
+        userId,
+        orgId,
+        staff.rows[0].user_id,
+        "active",
+      ]);
+      return c.json({ ok: true });
+    }),
+  );
+
+  app.patch("/staff/:id/roles", requireUser, async (c) =>
+    withSchoolActor(c, async ({ actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ORG_ROLES_MANAGE);
+      const parsed = z.object({ roleKeys: z.array(z.string().min(1)).min(1) }).safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid roles payload");
+      await c.get("config").pools.app.query("select replace_staff_roles($1, $2, $3, $4)", [
+        userId,
+        orgId,
+        c.req.param("id"),
+        parsed.data.roleKeys,
+      ]);
+      return c.json({ ok: true });
+    }),
+  );
+
+  app.post("/guardianships/:id/invite", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.GUARDIANSHIPS_MANAGE);
+      const guardian = await client.query<{ email: string; full_name: string; has_credentials: boolean }>(
+        `select u.email, u.full_name,
+                exists(select 1 from user_credentials c where c.user_id = u.id) as has_credentials
+         from guardianships g
+         join users u on u.id = g.guardian_user_id
+         where g.id = $1 and g.organisation_id = $2`,
+        [c.req.param("id"), orgId],
+      );
+      if (!guardian.rows[0]?.email) throw new AppError(404, "not_found", "Not found");
+      if (guardian.rows[0].has_credentials) {
+        throw new AppError(409, "conflict", "This parent already has an account. Use password reset instead.");
+      }
+      const issued = await client.query(
+        "select * from reissue_school_invitation($1, $2, $3, $4)",
+        [userId, orgId, guardian.rows[0].email, ["school.parent"]],
+      );
+      const token = issued.rows[0].invitation_token as string;
+      const org = await client.query<{ name: string }>("select name from organisations where id = $1", [orgId]);
+      await mailOf(c).send(
+        parentInviteMail({
+          organisationId: orgId,
+          organisationName: org.rows[0]?.name ?? "School",
+          toEmail: guardian.rows[0].email,
+          toName: guardian.rows[0].full_name,
+          acceptPath: inviteAcceptPath(token),
+        }),
+      );
+      return c.json({ invitationId: issued.rows[0].invitation_id, invitationToken: token }, 201);
+    }),
+  );
+
+  app.post("/guardianships/:id/invite/revoke", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.GUARDIANSHIPS_MANAGE);
+      const invite = await client.query<{ id: string }>(
+        `select i.id
+         from invitations i
+         join guardianships g on g.organisation_id = i.organisation_id
+         join users u on u.id = g.guardian_user_id and u.email = i.email
+         where g.id = $1 and i.organisation_id = $2
+           and i.accepted_at is null and i.revoked_at is null
+         order by i.created_at desc limit 1`,
+        [c.req.param("id"), orgId],
+      );
+      if (!invite.rows[0]) throw new AppError(404, "not_found", "Not found");
+      await client.query("select revoke_school_invitation($1, $2, $3)", [userId, orgId, invite.rows[0].id]);
+      return c.json({ ok: true });
+    }),
+  );
+
+  app.post("/students/:id/guardians/link-existing", requireUser, async (c) =>
+    withSchoolActor(c, async ({ actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.GUARDIANSHIPS_MANAGE);
+      const parsed = z
+        .object({
+          guardianUserId: z.string().uuid(),
+          relationship: z.string().max(40).optional(),
+          hasParentalResponsibility: z.boolean().optional(),
+          portalAccess: z.boolean().optional(),
+        })
+        .safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid link payload");
+      const result = await c.get("config").pools.app.query(
+        "select link_existing_org_guardian($1,$2,$3,$4,$5,$6,$7) as id",
+        [
+          userId,
+          orgId,
+          c.req.param("id"),
+          parsed.data.guardianUserId,
+          parsed.data.relationship ?? "other",
+          parsed.data.hasParentalResponsibility ?? false,
+          portalAccessGranted(parsed.data.portalAccess),
+        ],
+      );
+      return c.json({ guardianshipId: result.rows[0].id }, 201);
+    }),
+  );
+
+  app.post("/students/:id/portal-login", requireUser, async (c) =>
+    withSchoolActor(c, async ({ actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.STUDENTS_PORTAL_ACCESS_MANAGE);
+      const parsed = z
+        .object({
+          alias: z.string().min(3).max(64).regex(/^[a-z0-9._-]+$/),
+        })
+        .safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid student login payload");
+      const issued = await c.get("config").pools.app.query(
+        "select * from issue_student_access_token($1,$2,$3,$4,$5)",
+        [userId, orgId, c.req.param("id"), parsed.data.alias, "student_activation"],
+      );
+      return c.json(
+        {
+          loginAlias: issued.rows[0].login_alias,
+          activationToken: issued.rows[0].token,
+        },
+        201,
+      );
+    }),
+  );
+
+  app.post("/students/:id/portal-login/reset", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.STUDENTS_PORTAL_ACCESS_MANAGE);
+      const alias = await client.query<{ alias: string }>(
+        `select a.alias
+         from user_login_aliases a
+         join student_profiles sp on sp.user_id = a.user_id
+         where sp.id = $1 and a.organisation_id = $2`,
+        [c.req.param("id"), orgId],
+      );
+      const issued = await c.get("config").pools.app.query(
+        "select * from issue_student_access_token($1,$2,$3,$4,$5)",
+        [userId, orgId, c.req.param("id"), alias.rows[0]?.alias ?? null, "student_reset"],
+      );
+      return c.json({
+        loginAlias: issued.rows[0].login_alias,
+        activationToken: issued.rows[0].token,
+      });
+    }),
+  );
+
+  app.post("/students/:id/portal-login/disable", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.STUDENTS_PORTAL_ACCESS_MANAGE);
+      const student = await client.query<{ user_id: string }>(
+        "select user_id from student_profiles where id = $1 and organisation_id = $2",
+        [c.req.param("id"), orgId],
+      );
+      if (!student.rows[0]) throw new AppError(404, "not_found", "Not found");
+      await client.query("select set_organisation_membership_status($1, $2, $3, $4)", [
+        userId,
+        orgId,
+        student.rows[0].user_id,
+        "suspended",
+      ]);
       return c.json({ ok: true });
     }),
   );

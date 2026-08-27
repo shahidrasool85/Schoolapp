@@ -94,6 +94,7 @@ export default function SchoolDashboardPage() {
   const [events, setEvents] = useState<CalendarEvent[] | null>(null);
   const [classes, setClasses] = useState<ClassRow[] | null>(null);
   const [error, setError] = useState("");
+  const [setupReady, setSetupReady] = useState<boolean | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -136,6 +137,8 @@ export default function SchoolDashboardPage() {
         setMessages(inbox?.conversations ?? null);
         setEvents(calendar?.events ?? null);
         setClasses(registerClasses?.classes ?? null);
+        const onboarding = await optionalApi<{ readiness: { ready: boolean } }>("/api/v1/onboarding");
+        if (!cancelled) setSetupReady(onboarding?.readiness.ready ?? null);
       } catch (err) {
         if (!cancelled) setError(userFacingError(err, "Could not load the dashboard."));
       }
@@ -359,6 +362,17 @@ export default function SchoolDashboardPage() {
           </>
         }
       />
+      {setupReady === false ? (
+        <EmptyState
+          title="Finish school setup"
+          description="This school is not using demo data. Complete the setup wizard to add an academic year, classes, staff and pupils."
+          action={
+            <Link className="button" href="/school/setup">
+              Open setup wizard
+            </Link>
+          }
+        />
+      ) : null}
       <div className="stat-grid">
         <StatCard label="Pupils" value={data.counts.students} href="/school/students" />
         {data.counts.staff > 0 ? <StatCard label="Staff" value={data.counts.staff} href="/school/staff" /> : null}

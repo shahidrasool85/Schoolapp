@@ -51,8 +51,23 @@ export function pgErrorToAppError(error: unknown): AppError | null {
   if (code === "42501" || message.includes("tenant_context_membership_required")) {
     return new AppError(403, "org_membership_required", "Active organisation membership is required");
   }
-  if (code === "P0002" || message.includes("invitation_invalid") || message.includes("not_found")) {
+  if (message.includes("reset_token_invalid") || message.includes("invitation_invalid")) {
+    return new AppError(404, "not_found", "This link is invalid or has expired");
+  }
+  if (code === "P0002" || message.includes("not_found")) {
     return new AppError(404, "not_found", "Not found");
+  }
+  if (message.includes("cannot_change_own_membership")) {
+    return new AppError(403, "forbidden", "You cannot change your own membership status");
+  }
+  if (message.includes("last_school_admin")) {
+    return new AppError(409, "conflict", "The school must keep at least one School Admin");
+  }
+  if (message.includes("guardian_not_in_organisation")) {
+    return new AppError(404, "not_found", "Not found");
+  }
+  if (message.includes("mail_password_forbidden")) {
+    return new AppError(400, "validation_failed", "Messages must not include passwords");
   }
   if (message.includes("platform_admin_required")) {
     return new AppError(403, "forbidden", "Platform administrator required");

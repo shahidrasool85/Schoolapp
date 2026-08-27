@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { EmptyState } from "../../../components/ui";
 import { api } from "../../../lib/api";
 
 type YearGroup = {
@@ -70,6 +71,12 @@ export default function StudentPortalPolicyPage() {
         <div><button type="submit">Save default</button></div>
       </form>
       {message ? <p>{message}</p> : null}
+      {yearGroups.length === 0 ? (
+        <EmptyState
+          title="No year groups yet"
+          description="Create year groups first, then set Student Portal access by year."
+        />
+      ) : (
       <table>
         <thead>
           <tr><th>Year group</th><th>Override</th><th>Effective</th></tr>
@@ -93,6 +100,7 @@ export default function StudentPortalPolicyPage() {
           ))}
         </tbody>
       </table>
+      )}
     </>
   );
 }

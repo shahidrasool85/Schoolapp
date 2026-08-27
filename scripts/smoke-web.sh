@@ -70,8 +70,15 @@ expect_page() {
 }
 
 expect_page "/login"
+expect_page "/forgot-password"
+expect_page "/reset-password"
+expect_page "/activate"
+expect_page "/invite"
 expect_page "/platform"
 expect_page "/school"
+expect_page "/school/setup"
+expect_page "/school/settings"
+expect_page "/school/imports"
 expect_page "/school/students"
 expect_page "/school/staff"
 expect_page "/school/parents"

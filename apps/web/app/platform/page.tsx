@@ -70,10 +70,9 @@ export default function PlatformPage() {
     router.replace("/login");
   }
 
-  const schoolHref = (slug: string) => {
-    if (typeof window === "undefined") return `http://${slug}.${platformDomain}:3000/login`;
-    return `${schoolOrigin(slug, platformDomain)}/login`;
-  };
+  const schoolHref = (slug: string) => `${schoolOrigin(slug, platformDomain)}/login`;
+  const exampleSchoolLogin = schoolHref(organisations[0]?.slug ?? "your-school");
+  const localPlatform = platformDomain === "localhost";
 
   async function createSchool(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -180,8 +179,16 @@ export default function PlatformPage() {
             </div>
           )}
           <p className="muted">
-            Local demo URLs look like <code>http://greenwood.localhost:3000</code>. Production DNS
-            and TLS are not configured in this environment.
+            {localPlatform ? (
+              <>
+                Local demo school addresses look like <code>{exampleSchoolLogin}</code>.
+              </>
+            ) : (
+              <>
+                Staff, parents and students sign in on each school host, for example{" "}
+                <code>{exampleSchoolLogin}</code>.
+              </>
+            )}
           </p>
         </>
       ) : null}

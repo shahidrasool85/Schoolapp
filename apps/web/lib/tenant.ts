@@ -34,10 +34,14 @@ export async function loadPublicTenant(): Promise<PublicTenant | { kind: "unknow
 }
 
 export function schoolOrigin(slug: string, platformDomain: string): string {
+  const host = `${slug}.${platformDomain}`;
+  const local = platformDomain === "localhost";
+  if (typeof window === "undefined") {
+    return local ? `http://${host}:3000` : `https://${host}`;
+  }
   const protocol = window.location.protocol;
-  const port = window.location.port;
-  const portPart = port ? `:${port}` : "";
-  return `${protocol}//${slug}.${platformDomain}${portPart}`;
+  const portPart = local && window.location.port ? `:${window.location.port}` : "";
+  return `${protocol}//${host}${portPart}`;
 }
 
 export function membershipForHost(

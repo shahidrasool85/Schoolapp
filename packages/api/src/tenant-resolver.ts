@@ -148,6 +148,18 @@ export async function resolveTenantFromRequest(
     };
   }
 
+  if (classified.kind !== "custom") {
+    return {
+      kind: "unknown",
+      hostname: parsed.hostname,
+      port: parsed.port,
+      organisationId: null,
+      slug: null,
+      name: null,
+      source: null,
+    };
+  }
+
   const custom = await config.pools.app.query<{
     organisation_id: string;
     slug: string;

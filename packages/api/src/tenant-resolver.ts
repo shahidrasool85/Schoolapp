@@ -4,6 +4,7 @@ import {
   bindOrganisationHint,
   classifyHostname,
   parseHostHeader,
+  publicHostKindFromClassification,
   selectRequestHost,
 } from "@schoolapp/core";
 import type { ApiEnv } from "./types";
@@ -84,7 +85,8 @@ export async function resolveTenantFromRequest(
   }
 
   const classified = classifyHostname(parsed.hostname, config.platformDomain);
-  if (classified.kind === "invalid") {
+  const publicKind = publicHostKindFromClassification(classified);
+  if (publicKind === "invalid") {
     return {
       kind: "invalid",
       hostname: null,
@@ -95,9 +97,20 @@ export async function resolveTenantFromRequest(
       source: null,
     };
   }
-  if (classified.kind === "platform" || classified.kind === "reserved") {
+  if (publicKind === "platform") {
     return {
       kind: "platform",
+      hostname: parsed.hostname,
+      port: parsed.port,
+      organisationId: null,
+      slug: null,
+      name: null,
+      source: null,
+    };
+  }
+  if (publicKind === "unknown") {
+    return {
+      kind: "unknown",
       hostname: parsed.hostname,
       port: parsed.port,
       organisationId: null,
@@ -132,17 +145,6 @@ export async function resolveTenantFromRequest(
       slug: row.slug,
       name: row.name,
       source: "subdomain",
-    };
-  }
-  if (classified.kind === "unknown_subdomain") {
-    return {
-      kind: "unknown",
-      hostname: parsed.hostname,
-      port: parsed.port,
-      organisationId: null,
-      slug: null,
-      name: null,
-      source: null,
     };
   }
 

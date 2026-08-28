@@ -1,9 +1,18 @@
 import { headers } from "next/headers";
+import { loginHostKindFromRequest } from "@schoolapp/core";
 import { LoginForm } from "./login-form";
 
+function runtimeEnv(name: string): string | undefined {
+  return process.env[name];
+}
+
 export default async function LoginPage() {
-  const host = (await headers()).get("host") ?? "localhost";
-  const hostname = host.split(":")[0] ?? "localhost";
-  const initialSchoolHost = hostname !== "localhost" && hostname !== "127.0.0.1";
-  return <LoginForm initialSchoolHost={initialSchoolHost} />;
+  const headerStore = await headers();
+  const initialHostKind = loginHostKindFromRequest({
+    host: headerStore.get("host"),
+    forwardedHost: headerStore.get("x-forwarded-host"),
+    trustProxy: runtimeEnv("TRUST_PROXY") === "true",
+    platformDomain: runtimeEnv("PLATFORM_DOMAIN"),
+  });
+  return <LoginForm initialHostKind={initialHostKind} />;
 }

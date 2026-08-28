@@ -399,6 +399,102 @@ describe("Phase 5 SaaS hostname tenancy", () => {
     expect(((await ip.json()) as { kind: string }).kind).toBe("platform");
   });
 
+  it("classifies production platform, school, and unknown hosts using PLATFORM_DOMAIN", async () => {
+    const production = "luvlearn.co.uk";
+    const prodApp = testApp(pools, { platformDomain: production });
+    const id = suffix();
+    const school = await seedSchool(pools.owner, `school1-${id}`, "School One");
+
+    const appHost = await prodApp.request("/api/v1/public/tenant", {
+      headers: { Host: "app.luvlearn.co.uk" },
+    });
+    expect(appHost.status).toBe(200);
+    const appBody = (await appHost.json()) as { kind: string; organisation: unknown };
+    expect(appBody.kind).toBe("platform");
+    expect(appBody.organisation).toBeNull();
+
+    const apex = await prodApp.request("/api/v1/public/tenant", {
+      headers: { Host: "luvlearn.co.uk" },
+    });
+    expect(apex.status).toBe(200);
+    expect(((await apex.json()) as { kind: string }).kind).toBe("platform");
+
+    const www = await prodApp.request("/api/v1/public/tenant", {
+      headers: { Host: "www.luvlearn.co.uk" },
+    });
+    expect(www.status).toBe(200);
+    expect(((await www.json()) as { kind: string }).kind).toBe("platform");
+
+    const reserved = await prodApp.request("/api/v1/public/tenant", {
+      headers: { Host: "api.luvlearn.co.uk" },
+    });
+    expect(reserved.status).toBe(200);
+    expect(((await reserved.json()) as { kind: string }).kind).toBe("platform");
+
+    const schoolHost = await prodApp.request("/api/v1/public/tenant", {
+      headers: { Host: `${school.slug}.luvlearn.co.uk` },
+    });
+    expect(schoolHost.status).toBe(200);
+    const schoolBody = (await schoolHost.json()) as {
+      kind: string;
+      organisation: { id: string; slug: string };
+    };
+    expect(schoolBody.kind).toBe("school");
+    expect(schoolBody.organisation.id).toBe(school.orgId);
+    expect(schoolBody.organisation.slug).toBe(school.slug);
+
+    const unregistered = await prodApp.request("/api/v1/public/tenant", {
+      headers: { Host: `ghost-${id}.luvlearn.co.uk` },
+    });
+    expect(unregistered.status).toBe(404);
+    expect(((await unregistered.json()) as { error: { code: string } }).error.code).toBe(
+      "tenant_not_found",
+    );
+
+    const nested = await prodApp.request("/api/v1/public/tenant", {
+      headers: { Host: "foo.bar.luvlearn.co.uk" },
+    });
+    expect(nested.status).toBe(404);
+
+    const untrustedForward = await prodApp.request("/api/v1/public/tenant", {
+      headers: {
+        Host: "app.luvlearn.co.uk",
+        "X-Forwarded-Host": `${school.slug}.luvlearn.co.uk`,
+      },
+    });
+    expect(untrustedForward.status).toBe(200);
+    expect(((await untrustedForward.json()) as { kind: string }).kind).toBe("platform");
+
+    const trustedProd = testApp(pools, { platformDomain: production, trustProxy: true });
+    const reservedTerminator = await trustedProd.request("/api/v1/public/tenant", {
+      headers: {
+        Host: "app.luvlearn.co.uk",
+        "X-Forwarded-Host": `${school.slug}.luvlearn.co.uk`,
+      },
+    });
+    expect(reservedTerminator.status).toBe(200);
+    expect(
+      ((await reservedTerminator.json()) as { kind: string; organisation: { id: string } }).kind,
+    ).toBe("school");
+
+    const schoolNotSpoofed = await trustedProd.request("/api/v1/public/tenant", {
+      headers: {
+        Host: `${school.slug}.luvlearn.co.uk`,
+        "X-Forwarded-Host": "app.luvlearn.co.uk",
+      },
+    });
+    expect(schoolNotSpoofed.status).toBe(200);
+    expect(((await schoolNotSpoofed.json()) as { kind: string }).kind).toBe("school");
+
+    const login = await prodApp.request("/api/v1/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Host: "app.luvlearn.co.uk" },
+      body: JSON.stringify({ email: school.adminEmail, password: "password-12x" }),
+    });
+    expect(login.status).toBe(200);
+    expect(((await login.json()) as { accessToken: string }).accessToken).toBeTruthy();
+  });
+
   it("resolves local-development hostnames and ignores untrusted X-Forwarded-Host", async () => {
     const id = suffix();
     const school = await seedSchool(pools.owner, `local-${id}`, "Local School");

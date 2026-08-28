@@ -14,6 +14,8 @@ import { loadPublicTenant, membershipForHost, type PublicTenant } from "../../li
 import { EyeIcon, EyeOffIcon, ParentIcon, StaffIcon, StudentIcon } from "./login-icons";
 import { LoginShell } from "./login-shell";
 
+type LoginHostKind = "platform" | "school" | "unknown";
+
 type SchoolPersona = "staff" | "parent" | "student";
 
 const PERSONAS: Array<{
@@ -31,7 +33,7 @@ function tenantBranding(tenant: PublicTenant | { kind: "unknown" } | null): Publ
   return tenant.organisation.branding ?? null;
 }
 
-export function LoginForm({ initialSchoolHost }: { initialSchoolHost: boolean }) {
+export function LoginForm({ initialHostKind }: { initialHostKind: LoginHostKind }) {
   const router = useRouter();
   const passwordId = useId();
   const [persona, setPersona] = useState<SchoolPersona>("staff");
@@ -42,11 +44,8 @@ export function LoginForm({ initialSchoolHost }: { initialSchoolHost: boolean })
   const [username, setUsername] = useState("");
   const [error, setError] = useState("");
   const [tenant, setTenant] = useState<PublicTenant | { kind: "unknown" } | null>(null);
-  const [schoolHost, setSchoolHost] = useState(initialSchoolHost);
 
   useEffect(() => {
-    const host = window.location.hostname;
-    setSchoolHost(host !== "localhost" && host !== "127.0.0.1");
     loadPublicTenant()
       .then((value) => {
         setTenant(value);
@@ -57,10 +56,15 @@ export function LoginForm({ initialSchoolHost }: { initialSchoolHost: boolean })
       .catch(() => setTenant({ kind: "unknown" }));
   }, []);
 
+  const awaitingSchoolTenant = initialHostKind === "school" && tenant === null;
+  const unknownHost =
+    tenant?.kind === "unknown" || (tenant === null && initialHostKind === "unknown");
+  const schoolHost = tenant?.kind === "school" || awaitingSchoolTenant;
+
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     setError("");
-    if (schoolHost && tenant?.kind !== "school") {
+    if (awaitingSchoolTenant) {
       setError("School sign-in is still loading. Please try again.");
       return;
     }
@@ -131,7 +135,7 @@ export function LoginForm({ initialSchoolHost }: { initialSchoolHost: boolean })
     fallbackName: schoolHost ? "School portal" : "Schoolapp",
   });
 
-  if (schoolHost && !tenant) {
+  if (awaitingSchoolTenant) {
     return (
       <LoginShell mode="loading" branding={branding}>
         <h2 className="login-heading">Sign in</h2>
@@ -140,7 +144,7 @@ export function LoginForm({ initialSchoolHost }: { initialSchoolHost: boolean })
     );
   }
 
-  if (tenant?.kind === "unknown") {
+  if (unknownHost) {
     return (
       <LoginShell mode="unknown" branding={branding}>
         <h2 className="login-heading">School not found</h2>

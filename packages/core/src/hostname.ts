@@ -19,6 +19,16 @@ export type HostClassification =
   | { kind: "custom"; hostname: string }
   | { kind: "unknown_subdomain"; hostname: string; label: string };
 
+/**
+ * Public/login host kinds shared by API tenant resolution and the login UI.
+ * `school` means the host must be resolved via organisation lookup (subdomain
+ * or custom hostname). Lookup may still yield `unknown` for unregistered hosts.
+ * Reserved platform labels (`app`, `api`, …) are `platform`, not school.
+ */
+export type PublicHostKind = "platform" | "school" | "unknown" | "invalid";
+
+export type LoginHostKind = Exclude<PublicHostKind, "invalid">;
+
 const HOSTNAME_LABEL_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
 export function normalizePlatformDomain(raw: string | null | undefined): string {
@@ -118,7 +128,7 @@ export function selectRequestHost(input: {
     return connectionHost;
   }
   const classified = classifyHostname(parsedConnection.hostname, input.platformDomain);
-  if (classified.kind === "platform" || classified.kind === "reserved") {
+  if (publicHostKindFromClassification(classified) === "platform") {
     return forwarded;
   }
   return connectionHost;
@@ -165,6 +175,52 @@ export function classifyHostname(
   }
 
   return { kind: "custom", hostname };
+}
+
+export function publicHostKindFromClassification(
+  classified: HostClassification,
+): PublicHostKind {
+  switch (classified.kind) {
+    case "invalid":
+      return "invalid";
+    case "platform":
+    case "reserved":
+      return "platform";
+    case "unknown_subdomain":
+      return "unknown";
+    case "school_subdomain":
+    case "custom":
+      return "school";
+  }
+}
+
+export function classifyPublicHost(hostname: string, platformDomain: string): PublicHostKind {
+  return publicHostKindFromClassification(classifyHostname(hostname, platformDomain));
+}
+
+/**
+ * Login/UI host kind using the same Host / X-Forwarded-Host rules as the API.
+ * Invalid hosts fail closed as `unknown` (not platform). Missing Host matches
+ * the API default of platform/localhost.
+ */
+export function loginHostKindFromRequest(input: {
+  host: string | null | undefined;
+  forwardedHost?: string | null | undefined;
+  trustProxy: boolean;
+  platformDomain: string | null | undefined;
+}): LoginHostKind {
+  const platformDomain = normalizePlatformDomain(input.platformDomain);
+  const rawHost = selectRequestHost({
+    host: input.host,
+    forwardedHost: input.forwardedHost ?? null,
+    trustProxy: input.trustProxy,
+    platformDomain,
+  });
+  if (!rawHost) return "platform";
+  const parsed = parseHostHeader(rawHost);
+  if (!parsed) return "unknown";
+  const kind = classifyPublicHost(parsed.hostname, platformDomain);
+  return kind === "invalid" ? "unknown" : kind;
 }
 
 export function schoolPublicHostname(

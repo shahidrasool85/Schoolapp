@@ -162,7 +162,18 @@ async function wipeDemoData(client: pg.Client): Promise<void> {
       [orgIds],
     );
 
+    await client.query(
+      `update organisation_settings
+       set logo_object_id = null, hero_object_id = null
+       where organisation_id = any($1::uuid[])`,
+      [orgIds],
+    );
     const tenantDeletes = [
+      "data_import_rows",
+      "data_imports",
+      "mail_outbox",
+      "account_tokens",
+      "organisation_setup_progress",
       "learning_activity_answers",
       "learning_activity_attempts",
       "learning_activity_recipients",
@@ -395,8 +406,18 @@ async function createOrganisation(
   );
   const id = org.rows[0]!.id;
   await client.query(
-    `insert into organisation_settings (organisation_id, extras)
-     values ($1, '{"branding":{"primaryColor":"#1e3a5f","logoUrl":null}}'::jsonb)`,
+    `insert into organisation_settings (organisation_id, extras, primary_colour, tagline)
+     values ($1, '{"branding":{"primaryColor":"#1e3a5f","logoUrl":null}}'::jsonb, '#1e3a5f', $2)`,
+    [id, spec.slug === "oak" ? "Oak Primary" : "A calm, professional school portal"],
+  );
+  await client.query(
+    `insert into organisation_setup_progress (
+       organisation_id, current_step, completed_steps, completed_at, ready_marked_at
+     ) values (
+       $1, 'completion',
+       array['school_details','branding','academic_year','academic_structure','school_day','rooms','staff','pupils','portals','completion'],
+       now(), now()
+     )`,
     [id],
   );
   await client.query(

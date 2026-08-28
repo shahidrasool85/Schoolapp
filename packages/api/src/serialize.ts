@@ -1,3 +1,5 @@
+import { deriveAccountStatus } from "@schoolapp/domain";
+
 export function mapAcademicYear(row: Record<string, unknown>) {
   return {
     id: row.id,
@@ -283,6 +285,9 @@ export function mapTerm(row: Record<string, unknown>) {
 }
 
 export function mapStaff(row: Record<string, unknown>) {
+  const membershipStatus = (row.membership_status as string | null) ?? null;
+  const hasCredentials = Boolean(row.has_credentials);
+  const pendingInvitation = Boolean(row.pending_invitation);
   return {
     id: row.id,
     userId: row.user_id,
@@ -291,7 +296,10 @@ export function mapStaff(row: Record<string, unknown>) {
     jobTitle: row.job_title,
     employeeNumber: row.employee_number,
     startedOn: row.started_on,
-    membershipStatus: row.membership_status ?? null,
+    membershipStatus,
+    hasCredentials,
+    pendingInvitation,
+    accountStatus: deriveAccountStatus({ membershipStatus, hasCredentials, pendingInvitation }),
     roleKeys: row.role_keys ?? [],
   };
 }
@@ -338,6 +346,9 @@ export function mapEnrolment(row: Record<string, unknown>) {
 }
 
 export function mapGuardianship(row: Record<string, unknown>) {
+  const membershipStatus = (row.membership_status as string | null) ?? null;
+  const hasCredentials = Boolean(row.has_credentials);
+  const pendingInvitation = Boolean(row.pending_invitation);
   return {
     id: row.id,
     studentProfileId: row.student_profile_id,
@@ -350,7 +361,10 @@ export function mapGuardianship(row: Record<string, unknown>) {
     isEmergencyContact: row.is_emergency_contact,
     livesWithStudent: row.lives_with_student,
     portalAccess: row.portal_access,
-    membershipStatus: row.membership_status ?? null,
+    membershipStatus,
+    hasCredentials,
+    pendingInvitation,
+    accountStatus: deriveAccountStatus({ membershipStatus, hasCredentials, pendingInvitation }),
     priority: row.priority,
     startedOn: row.started_on,
     endedOn: row.ended_on,

@@ -1,6 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
+import { EmptyState } from "../../../../components/ui";
 import { api } from "../../../../lib/api";
 
 type Room = {
@@ -29,7 +31,8 @@ export default function RoomsPage() {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formEl = captureSubmitTarget(event);
+    const form = new FormData(formEl);
     await api("/api/v1/timetable/rooms", {
       method: "POST",
       body: JSON.stringify({
@@ -41,7 +44,7 @@ export default function RoomsPage() {
         locationType: String(form.get("locationType") ?? "teaching"),
       }),
     });
-    event.currentTarget.reset();
+    resetFormSafely(formEl);
     await load();
   }
 
@@ -81,7 +84,9 @@ export default function RoomsPage() {
         </div>
       </form>
       {error ? <p className="error">{error}</p> : null}
-      {rooms.length === 0 ? <p>No rooms have been added yet.</p> : (
+      {rooms.length === 0 ? (
+        <EmptyState title="No rooms yet" description="Add teaching rooms so timetable lessons can be placed." />
+      ) : (
         <table>
           <thead>
             <tr>

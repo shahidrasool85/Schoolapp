@@ -1,6 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
+import { EmptyState } from "../../../components/ui";
 import { api } from "../../../lib/api";
 
 type ClassRow = {
@@ -47,7 +49,8 @@ export default function ClassesPage() {
 
   async function createClass(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formEl = captureSubmitTarget(event);
+    const form = new FormData(formEl);
     await api("/api/v1/classes", {
       method: "POST",
       body: JSON.stringify({
@@ -57,7 +60,7 @@ export default function ClassesPage() {
         classType: form.get("classType"),
       }),
     });
-    event.currentTarget.reset();
+    resetFormSafely(formEl);
     await load();
   }
 
@@ -128,6 +131,14 @@ export default function ClassesPage() {
         <div><button type="submit">Add class</button></div>
       </form>
       {error ? <p className="error">{error}</p> : null}
+      {years.length === 0 ? (
+        <EmptyState
+          title="Create an academic year first"
+          description="Classes belong to one academic year. Add a year, then return here to create forms and teaching groups."
+        />
+      ) : classes.length === 0 ? (
+        <EmptyState title="No classes yet" description="Add a form or teaching group for the current academic year." />
+      ) : (
       <table>
         <thead>
           <tr><th>Name</th><th>Type</th><th>Year</th><th>Year group</th></tr>
@@ -143,6 +154,7 @@ export default function ClassesPage() {
           ))}
         </tbody>
       </table>
+      )}
       {selected && detail ? (
         <div className="card" style={{ marginTop: 16 }}>
           <h2>Class details</h2>

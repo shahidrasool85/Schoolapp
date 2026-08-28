@@ -16,5 +16,6 @@ export function usePermissions() {
     permissions,
     ready: permissions !== null,
     has: (key: string) => Boolean(permissions?.includes(key)),
+    hasAny: (keys: string[]) => keys.some((key) => Boolean(permissions?.includes(key))),
   };
 }

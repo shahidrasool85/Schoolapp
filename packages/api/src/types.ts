@@ -1,3 +1,4 @@
+import type { MailProvider } from "@schoolapp/core";
 import type { Hono } from "hono";
 import type { DbPools } from "@schoolapp/db";
 import type { FileScanner, ObjectStoragePort } from "@schoolapp/storage";
@@ -13,6 +14,7 @@ export type ApiConfig = {
   fileScanner: FileScanner;
   payments?: PaymentRuntimeConfig;
   paymentProvider?: PaymentProvider;
+  mailProvider?: MailProvider;
 };
 
 export type ApiEnv = {

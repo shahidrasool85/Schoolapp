@@ -6,7 +6,7 @@ The in-app `notifications` inbox is implemented in Phase 3. `notification_prefer
 | --- | --- | --- |
 | `organisation_hostnames` | Future custom school domains (verification token + activation) | Automated DNS/TXT checks, certificate provisioning |
 | `organisation_identifiers` | School URN, DfE number, Companies House, admissions codes | Platform-wide uniqueness and MIS sync. Phase 18 stores tenant-scoped census identifiers on `organisation_statutory_profiles` (synthetic demo values only). |
-| `organisation_settings` | Typed school settings (timezone already on org; calendar, locale, branding later) | Settings UI beyond what Phase 1 needs to provision a school. Login already consumes organisation name/hostname with professional fallbacks. A later additive `GET /api/v1/public/tenant` field can expose display-only `extras.branding` (`primaryColor`, `logoUrl`, `heroImageUrl`, `tagline`) without per-school CSS. |
+| `organisation_settings` | Typed school settings (timezone, locale, contact, branding colours, logo/hero object ids) | Production mail delivery adapters beyond the inspectable outbox; custom-domain TLS. Login, staff, parent and student shells consume display-only branding from `GET /api/v1/public/tenant` with professional fallbacks. |
 | `organisation_feature_flags` | Per-school flags (leaderboards, AI, student login, auto-publish) | Flag admin UX; evaluation lives in core once modules exist |
 | `terms` / `half_terms` | UK academic calendar | Calendar admin UI; attendance already records against academic year dates |
 | `notification_preferences` | Per-user, per-org, per-channel, per-category opt-in/out | Email/push workers, templates, Children’s Code marketing rules enforcement in code |

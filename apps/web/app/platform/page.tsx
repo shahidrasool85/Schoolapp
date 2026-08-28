@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
 import { useRouter } from "next/navigation";
-import { EmptyState, LoadingState, PageError, PageHeader } from "../../components/ui";
+import { Alert, EmptyState, FormField, Input, InviteTokenAlert, LoadingState, PageError, PageHeader, SectionCard } from "../../components/ui";
 import { Button } from "../../components/ui/button";
 import { api, getToken, setOrgId, setToken } from "../../lib/api";
 import { userFacingError } from "../../lib/errors";
@@ -22,6 +23,9 @@ export default function PlatformPage() {
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
   const [userName, setUserName] = useState<string | null>(null);
+  const [inviteToken, setInviteToken] = useState("");
+  const [inviteSlug, setInviteSlug] = useState("");
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
     if (!getToken()) {
@@ -66,10 +70,40 @@ export default function PlatformPage() {
     router.replace("/login");
   }
 
-  const schoolHref = (slug: string) => {
-    if (typeof window === "undefined") return `http://${slug}.${platformDomain}:3000/login`;
-    return `${schoolOrigin(slug, platformDomain)}/login`;
-  };
+  const schoolHref = (slug: string) => `${schoolOrigin(slug, platformDomain)}/login`;
+  const exampleSchoolLogin = schoolHref(organisations[0]?.slug ?? "your-school");
+  const localPlatform = platformDomain === "localhost";
+
+  async function createSchool(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formEl = captureSubmitTarget(event);
+    const form = new FormData(formEl);
+    setError("");
+    setNotice("");
+    try {
+      const created = await api<{ invitationToken: string; organisationId: string; slug: string }>(
+        "/api/v1/platform/organisations",
+        {
+          method: "POST",
+          orgId: null,
+          body: JSON.stringify({
+            name: form.get("name"),
+            slug: form.get("slug"),
+            adminEmail: form.get("adminEmail"),
+            adminFullName: form.get("adminFullName"),
+          }),
+        },
+      );
+      setInviteToken(created.invitationToken);
+      setInviteSlug(created.slug);
+      setNotice("School created. Copy the one-time School Admin invitation now — it will not be shown again.");
+      resetFormSafely(formEl);
+      const body = await api<{ organisations: Organisation[] }>("/api/v1/platform/organisations", { orgId: null });
+      setOrganisations(body.organisations);
+    } catch (err) {
+      setError(userFacingError(err, "Could not create school."));
+    }
+  }
 
   return (
     <main className="platform-shell">
@@ -87,6 +121,32 @@ export default function PlatformPage() {
       {!ready && !error ? <LoadingState label="Loading schools…" /> : null}
       {ready ? (
         <>
+          <SectionCard title="Create a school" description="Creates the organisation, hostname slug, and first School Admin invitation. Super Admin cannot browse pupils from here.">
+            <form className="form-grid" onSubmit={createSchool}>
+              <FormField label="School name">
+                <Input name="name" required />
+              </FormField>
+              <FormField label="Slug / host">
+                <Input name="slug" required placeholder="riverside" />
+              </FormField>
+              <FormField label="First School Admin name">
+                <Input name="adminFullName" required />
+              </FormField>
+              <FormField label="First School Admin email">
+                <Input name="adminEmail" type="email" required />
+              </FormField>
+              <div>
+                <Button type="submit">Create school</Button>
+              </div>
+            </form>
+          </SectionCard>
+          {inviteToken ? (
+            <InviteTokenAlert
+              token={inviteToken}
+              href={`${schoolOrigin(inviteSlug, platformDomain)}/invite?token=${encodeURIComponent(inviteToken)}`}
+            />
+          ) : null}
+          {notice ? <Alert tone="success">{notice}</Alert> : null}
           <h2>Schools</h2>
           {organisations.length === 0 ? (
             <EmptyState title="No schools yet" description="No organisations have been provisioned yet." />
@@ -119,8 +179,16 @@ export default function PlatformPage() {
             </div>
           )}
           <p className="muted">
-            Local demo URLs look like <code>http://greenwood.localhost:3000</code>. Production DNS
-            and TLS are not configured in this environment.
+            {localPlatform ? (
+              <>
+                Local demo school addresses look like <code>{exampleSchoolLogin}</code>.
+              </>
+            ) : (
+              <>
+                Staff, parents and students sign in on each school host, for example{" "}
+                <code>{exampleSchoolLogin}</code>.
+              </>
+            )}
           </p>
         </>
       ) : null}

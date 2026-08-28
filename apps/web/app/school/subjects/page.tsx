@@ -1,6 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
+import { EmptyState } from "../../../components/ui";
 import { api } from "../../../lib/api";
 
 type Subject = { id: string; key: string; name: string };
@@ -20,14 +22,15 @@ export default function SubjectsPage() {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formEl = captureSubmitTarget(event);
+    const form = new FormData(formEl);
     const name = String(form.get("name") ?? "");
     const key = String(form.get("key") || name.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
     await api("/api/v1/subjects", {
       method: "POST",
       body: JSON.stringify({ key, name }),
     });
-    event.currentTarget.reset();
+    resetFormSafely(formEl);
     await load();
   }
 
@@ -40,6 +43,9 @@ export default function SubjectsPage() {
         <div><button type="submit">Add subject</button></div>
       </form>
       {error ? <p className="error">{error}</p> : null}
+      {subjects.length === 0 ? (
+        <EmptyState title="No subjects yet" description="Add subjects such as Mathematics or English to use in classes and the timetable." />
+      ) : (
       <table>
         <thead>
           <tr><th>Name</th><th>Key</th></tr>
@@ -53,6 +59,7 @@ export default function SubjectsPage() {
           ))}
         </tbody>
       </table>
+      )}
     </>
   );
 }

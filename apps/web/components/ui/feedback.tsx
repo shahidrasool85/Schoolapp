@@ -34,6 +34,35 @@ export function Alert({
   );
 }
 
+export function InviteTokenAlert({
+  token,
+  href,
+  kind = "invitation",
+}: {
+  token: string;
+  href?: string;
+  kind?: "invitation" | "activation";
+}) {
+  const path =
+    href ??
+    (kind === "activation"
+      ? `/activate?token=${encodeURIComponent(token)}`
+      : `/invite?token=${encodeURIComponent(token)}`);
+  const label = kind === "activation" ? "Open activation link" : "Open invitation link";
+  return (
+    <Alert tone="info">
+      <p>
+        One-time {kind === "activation" ? "activation" : "invitation"} — open the link now. It will not be shown
+        again.
+      </p>
+      <p>
+        <a href={path}>{label}</a>
+      </p>
+      <code className="invite-token">{token}</code>
+    </Alert>
+  );
+}
+
 export function PageError({
   title = "Something went wrong",
   description,

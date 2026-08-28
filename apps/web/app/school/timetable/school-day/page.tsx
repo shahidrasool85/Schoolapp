@@ -1,6 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
+import { EmptyState } from "../../../../components/ui";
 import { api } from "../../../../lib/api";
 
 type Period = {
@@ -46,7 +48,8 @@ export default function SchoolDayPage() {
 
   async function createProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formEl = captureSubmitTarget(event);
+    const form = new FormData(formEl);
     const weekdays = [1, 2, 3, 4, 5].filter((day) => form.get(`d${day}`) === "on");
     await api("/api/v1/timetable/school-day-profiles", {
       method: "POST",
@@ -58,13 +61,14 @@ export default function SchoolDayPage() {
         endsAt: String(form.get("endsAt") ?? ""),
       }),
     });
-    event.currentTarget.reset();
+    resetFormSafely(formEl);
     await load();
   }
 
   async function addPeriod(event: FormEvent<HTMLFormElement>, profileId: string) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formEl = captureSubmitTarget(event);
+    const form = new FormData(formEl);
     await api(`/api/v1/timetable/school-day-profiles/${profileId}/periods`, {
       method: "POST",
       body: JSON.stringify({
@@ -75,7 +79,7 @@ export default function SchoolDayPage() {
         sortOrder: Number(form.get("sortOrder") || 0),
       }),
     });
-    event.currentTarget.reset();
+    resetFormSafely(formEl);
     await load();
   }
 
@@ -125,7 +129,12 @@ export default function SchoolDayPage() {
           <button type="submit">Add school-day profile</button>
         </div>
       </form>
-      {profiles.length === 0 ? <p>No school-day profiles yet.</p> : null}
+      {profiles.length === 0 ? (
+        <EmptyState
+          title="No school-day profiles yet"
+          description="Add a weekday profile with start and end times, then define periods for lessons and breaks."
+        />
+      ) : null}
       {profiles.map((profile) => (
         <section className="card" key={profile.id}>
           <h2>{profile.name}</h2>

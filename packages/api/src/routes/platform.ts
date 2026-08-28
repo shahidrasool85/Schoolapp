@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { PERMISSIONS, validateOrganisationSlug, slugValidationMessage } from "@schoolapp/domain";
-import { AppError, pgErrorToAppError } from "@schoolapp/core";
+import { AppError, pgErrorToAppError, staffInviteMail } from "@schoolapp/core";
 import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
 import { requirePlatformHost } from "../tenant-resolver";
+import { inviteAcceptPath, mailOf } from "../mail";
 
 const provisionSchema = z.object({
   name: z.string().min(1),
@@ -72,11 +73,21 @@ export function registerPlatformRoutes(app: SchoolappApi) {
         invitation_id: string;
         invitation_token: string;
       };
+      await mailOf(c).send(
+        staffInviteMail({
+          organisationId: row.organisation_id,
+          organisationName: parsed.data.name,
+          toEmail: parsed.data.adminEmail.toLowerCase(),
+          toName: parsed.data.adminFullName,
+          acceptPath: inviteAcceptPath(row.invitation_token),
+        }),
+      );
       return c.json(
         {
           organisationId: row.organisation_id,
           invitationId: row.invitation_id,
           invitationToken: row.invitation_token,
+          slug: slug.slug,
         },
         201,
       );

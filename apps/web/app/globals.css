@@ -838,6 +838,15 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .alert-success { background: var(--ok-soft); border-color: #abefc6; color: var(--ok); }
 .alert-info { background: var(--info-soft); border-color: #b2ccff; color: var(--info); }
 
+.alert code,
+.invite-token {
+  display: block;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  margin-top: 0.45rem;
+}
+
+.button-row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 .stack { display: grid; gap: 0.85rem; }
 
 .profile-list {
@@ -1549,3 +1558,80 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   .content,
   .app-content { max-width: none; padding: 0; }
 }
+
+.wizard-progress {
+  margin-bottom: 1.5rem;
+}
+.wizard-progress-bar {
+  height: 4px;
+  background: var(--brand);
+  border-radius: 99px;
+  margin-bottom: 0.85rem;
+}
+.wizard-steps {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.wizard-steps li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted);
+  white-space: nowrap;
+  font-size: var(--text-caption);
+}
+.wizard-steps li.is-current { color: var(--ink); font-weight: 600; }
+.wizard-steps li.is-done { color: var(--ok); }
+.wizard-step-index {
+  display: inline-flex;
+  width: 1.4rem;
+  height: 1.4rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 99px;
+  background: var(--accent-soft);
+  font-size: 0.7rem;
+}
+.wizard-panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+  box-shadow: var(--shadow-sm);
+}
+.wizard-panel h2 { margin: 0 0 0.25rem; }
+.wizard-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+  flex-wrap: wrap;
+}
+.wizard-actions-end {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.readiness-list {
+  display: grid;
+  gap: 0.65rem;
+}
+.readiness-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+@media (max-width: 390px) {
+  .wizard-step-label { display: none; }
+  .wizard-steps li.is-current .wizard-step-label { display: inline; }
+}
+

@@ -1,6 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
+import { EmptyState } from "../../../components/ui";
 import { api } from "../../../lib/api";
 
 type Year = {
@@ -26,7 +28,8 @@ export default function AcademicYearsPage() {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formEl = captureSubmitTarget(event);
+    const form = new FormData(formEl);
     await api("/api/v1/academic-years", {
       method: "POST",
       body: JSON.stringify({
@@ -36,7 +39,7 @@ export default function AcademicYearsPage() {
         isCurrent: form.get("isCurrent") === "on",
       }),
     });
-    event.currentTarget.reset();
+    resetFormSafely(formEl);
     await load();
   }
 
@@ -67,6 +70,12 @@ export default function AcademicYearsPage() {
         <div><button type="submit">Add academic year</button></div>
       </form>
       {error ? <p className="error">{error}</p> : null}
+      {years.length === 0 ? (
+        <EmptyState
+          title="No academic years yet"
+          description="Create the current academic year to unlock classes, enrolments and the timetable."
+        />
+      ) : (
       <table>
         <thead>
           <tr><th>Name</th><th>Starts</th><th>Ends</th><th>Current</th><th></th></tr>
@@ -89,6 +98,7 @@ export default function AcademicYearsPage() {
           ))}
         </tbody>
       </table>
+      )}
     </>
   );
 }

@@ -7,10 +7,20 @@ import {
   verifyAccessToken,
   verifyPassword,
 } from "@schoolapp/auth";
-import { AppError, headerMatchesHostSlug, pgErrorToAppError } from "@schoolapp/core";
+import {
+  AppError,
+  headerMatchesHostSlug,
+  MemoryRateLimiter,
+  passwordResetMail,
+  pgErrorToAppError,
+  PASSWORD_RESET_NEUTRAL_MESSAGE,
+} from "@schoolapp/core";
 import { withTenantContext } from "@schoolapp/db";
 import type { SchoolappApi } from "../types";
 import { readAccessToken } from "../auth-middleware";
+import { mailOf, resetPasswordPath } from "../mail";
+
+const forgotLimiter = new MemoryRateLimiter();
 
 const loginSchema = z
   .object({
@@ -175,7 +185,7 @@ export function registerAuthRoutes(app: SchoolappApi) {
       }>("select * from lookup_invitation_for_accept($1)", [parsed.data.token]);
       const invite = preview.rows[0];
       if (!invite) {
-        throw new AppError(404, "not_found", "Not found");
+        throw new AppError(404, "not_found", "This link is invalid or has expired");
       }
 
       let passwordHash = "";
@@ -215,6 +225,117 @@ export function registerAuthRoutes(app: SchoolappApi) {
     } catch (error) {
       if (error instanceof AppError) throw error;
       throw pgErrorToAppError(error) ?? new AppError(400, "validation_failed", "Could not accept invitation");
+    }
+  });
+
+  app.post("/auth/forgot-password", async (c) => {
+    const parsed = z.object({ email: z.string().email() }).safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return c.json({ ok: true, message: PASSWORD_RESET_NEUTRAL_MESSAGE });
+    }
+    const host = c.get("tenantHost");
+    const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+    const limit = forgotLimiter.consume(`forgot:${host.hostname ?? "unknown"}:${ip}`, 8, 15 * 60 * 1000);
+    if (!limit.allowed) {
+      return c.json({ ok: true, message: PASSWORD_RESET_NEUTRAL_MESSAGE });
+    }
+    const orgId = host.kind === "school" ? host.organisationId : null;
+    try {
+      const result = await c.get("config").pools.app.query<{
+        created: boolean;
+        reset_token: string | null;
+        target_user_id: string | null;
+        target_full_name: string | null;
+        target_organisation_id: string | null;
+      }>("select * from request_password_reset($1, $2)", [orgId, parsed.data.email.toLowerCase()]);
+      const row = result.rows[0];
+      if (row?.created && row.reset_token) {
+        await mailOf(c).send(
+          passwordResetMail({
+            organisationId: row.target_organisation_id,
+            toEmail: parsed.data.email.toLowerCase(),
+            toName: row.target_full_name,
+            resetPath: resetPasswordPath(row.reset_token),
+          }),
+        );
+      }
+    } catch {
+      // Neutral response — do not distinguish missing accounts, tenant mismatch, or mail errors.
+    }
+    return c.json({ ok: true, message: PASSWORD_RESET_NEUTRAL_MESSAGE });
+  });
+
+  app.post("/auth/reset-password", async (c) => {
+    const parsed = z
+      .object({ token: z.string().min(16), password: z.string().min(10) })
+      .safeParse(await c.req.json());
+    if (!parsed.success) {
+      throw new AppError(400, "validation_failed", "Invalid reset payload");
+    }
+    try {
+      const hash = await hashPassword(parsed.data.password);
+      await c.get("config").pools.app.query("select * from consume_password_reset($1, $2)", [
+        parsed.data.token,
+        hash,
+      ]);
+      return c.json({ ok: true });
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      throw pgErrorToAppError(error) ?? new AppError(404, "not_found", "This link is invalid or has expired");
+    }
+  });
+
+  app.post("/auth/activate", async (c) => {
+    const parsed = z
+      .object({
+        token: z.string().min(16),
+        password: z.string().min(10),
+        fullName: z.string().min(1).optional(),
+      })
+      .safeParse(await c.req.json());
+    if (!parsed.success) {
+      throw new AppError(400, "validation_failed", "Invalid activation payload");
+    }
+    const config = c.get("config");
+    try {
+      const preview = await config.pools.app.query(
+        "select * from lookup_invitation_for_accept($1)",
+        [parsed.data.token],
+      );
+      if (preview.rows[0]) {
+        const hash = preview.rows[0].has_credentials
+          ? ""
+          : await hashPassword(parsed.data.password);
+        if (preview.rows[0].has_credentials) {
+          const lookup = await config.pools.app.query("select * from local_auth_lookup($1)", [
+            preview.rows[0].email,
+          ]);
+          const row = lookup.rows[0] as { password_hash: string } | undefined;
+          const ok = row ? await verifyPassword(row.password_hash, parsed.data.password) : false;
+          if (!ok) throw new AppError(401, "unauthenticated", "Invalid email or password");
+        }
+        const accepted = await config.pools.app.query("select * from accept_invitation($1, $2, $3)", [
+          parsed.data.token,
+          parsed.data.fullName || "Student",
+          hash,
+        ]);
+        return c.json({
+          userId: accepted.rows[0].accepted_user_id,
+          organisationId: accepted.rows[0].accepted_organisation_id,
+        });
+      }
+      const hash = await hashPassword(parsed.data.password);
+      const result = await config.pools.app.query("select * from consume_student_access_token($1, $2)", [
+        parsed.data.token,
+        hash,
+      ]);
+      return c.json({
+        userId: result.rows[0].accepted_user_id,
+        organisationId: result.rows[0].accepted_organisation_id,
+      });
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      throw pgErrorToAppError(error) ?? new AppError(404, "not_found", "This link is invalid or has expired");
     }
   });
 }

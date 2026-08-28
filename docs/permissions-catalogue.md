@@ -16,6 +16,9 @@ Platform Super Admin does **not** silently receive pupil read. Tenant data requi
 | `platform.support_access.manage` | F | — | — | — | — | — | — | — |
 | `org.settings.read` | — | F | F | R | R | R | — | — |
 | `org.settings.manage` | — | F | — | — | — | — | — | — |
+| `onboarding.read` | — | F | R | — | — | — | — | — |
+| `onboarding.manage` | — | F | — | — | — | — | — | — |
+| `imports.manage` | — | F | — | — | — | — | — | — |
 | `org.members.read` | — | F | F | — | R | — | — | — |
 | `org.members.manage` | — | F | — | — | — | — | — | — |
 | `org.roles.manage` | — | F | — | — | — | — | — | — |

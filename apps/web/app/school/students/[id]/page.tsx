@@ -28,6 +28,7 @@ import {
   Dialog,
   FormField,
   Input,
+  InviteTokenAlert,
   LoadingState,
   PageError,
   PersonSummary,
@@ -49,12 +50,15 @@ import {
 
 type Guardian = {
   id: string;
+  guardianUserId?: string;
   guardianFullName: string | null;
   guardianEmail: string | null;
   relationship: string;
   hasParentalResponsibility: boolean;
   portalAccess: boolean;
   membershipStatus: string | null;
+  accountStatus?: string;
+  pendingInvitation?: boolean;
   endedOn: string | null;
 };
 
@@ -111,6 +115,7 @@ type Detail = {
     source: string;
     hasLoginAlias?: boolean;
     alias?: string | null;
+    hasCredentials?: boolean;
   };
   behaviourSummary: { incidentCount: number; openIncidents: number; positiveCount: number } | null;
   pastoralSummary: { openCount: number; latestPriority: string | null } | null;
@@ -244,6 +249,7 @@ export default function StudentDetailPage() {
   const [error, setError] = useState("");
   const [actionErrorMessage, setActionErrorMessage] = useState("");
   const [invite, setInvite] = useState<InviteCreated | null>(null);
+  const [studentLoginToken, setStudentLoginToken] = useState("");
   const [editingIdentity, setEditingIdentity] = useState(false);
   const [movingEnrolment, setMovingEnrolment] = useState(false);
   const [enrolYearId, setEnrolYearId] = useState("");
@@ -256,6 +262,7 @@ export default function StudentDetailPage() {
   const [sectionsReady, setSectionsReady] = useState(false);
   const canManagePupil = permissions.has("students.profiles.manage");
   const canManageGuardians = permissions.has("guardianships.manage");
+  const canManagePortal = permissions.has("students.portal_access.manage");
   const canManageStatutory = permissions.has("pupils.statutory.manage");
 
   function goToTab(next: PupilRecordTab) {
@@ -584,6 +591,92 @@ export default function StudentDetailPage() {
     }
   }
 
+  async function inviteGuardian(guardianId: string) {
+    setActionErrorMessage("");
+    try {
+      const body = await api<{ invitationToken: string }>(`/api/v1/guardianships/${guardianId}/invite`, {
+        method: "POST",
+      });
+      setInvite({ name: "Parent", email: "", relationship: "", token: body.invitationToken });
+      await load();
+    } catch (err) {
+      setActionErrorMessage(actionError(err, "Could not invite parent."));
+    }
+  }
+
+  async function revokeGuardianInvite(guardianId: string) {
+    setActionErrorMessage("");
+    try {
+      await api(`/api/v1/guardianships/${guardianId}/invite/revoke`, { method: "POST" });
+      await load();
+    } catch (err) {
+      setActionErrorMessage(actionError(err, "Could not revoke invitation."));
+    }
+  }
+
+  async function linkExistingGuardian(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canManageGuardians) return;
+    const form = event.currentTarget;
+    const payload = new FormData(form);
+    setActionErrorMessage("");
+    try {
+      await api(`/api/v1/students/${params.id}/guardians/link-existing`, {
+        method: "POST",
+        body: JSON.stringify({
+          guardianUserId: payload.get("guardianUserId"),
+          relationship: payload.get("relationship") || "other",
+          hasParentalResponsibility: payload.get("hasParentalResponsibility") === "on",
+          portalAccess: payload.get("portalAccess") === "on",
+        }),
+      });
+      resetFormSafely(form);
+      await load();
+    } catch (err) {
+      setActionErrorMessage(actionError(err, "Could not link existing parent."));
+    }
+  }
+
+  async function createStudentLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const alias = String(new FormData(form).get("alias") ?? "");
+    setActionErrorMessage("");
+    try {
+      const body = await api<{ activationToken: string }>(`/api/v1/students/${params.id}/portal-login`, {
+        method: "POST",
+        body: JSON.stringify({ alias }),
+      });
+      setStudentLoginToken(body.activationToken);
+      await load();
+    } catch (err) {
+      setActionErrorMessage(actionError(err, "Could not create student login."));
+    }
+  }
+
+  async function resetStudentLogin() {
+    setActionErrorMessage("");
+    try {
+      const body = await api<{ activationToken: string }>(`/api/v1/students/${params.id}/portal-login/reset`, {
+        method: "POST",
+      });
+      setStudentLoginToken(body.activationToken);
+      await load();
+    } catch (err) {
+      setActionErrorMessage(actionError(err, "Could not reset student access."));
+    }
+  }
+
+  async function disableStudentLogin() {
+    setActionErrorMessage("");
+    try {
+      await api(`/api/v1/students/${params.id}/portal-login/disable`, { method: "POST" });
+      await load();
+    } catch (err) {
+      setActionErrorMessage(actionError(err, "Could not disable student login."));
+    }
+  }
+
   async function saveStatutory(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canManageStatutory) return;
@@ -664,9 +757,34 @@ export default function StudentDetailPage() {
       <p className="muted">
         Student portal: {data.portalAccess.enabled ? "enabled" : "disabled"}
         {data.portalAccess.hasLoginAlias ? ` · login alias ${data.portalAccess.alias}` : " · no student login yet"}
+        {data.portalAccess.hasCredentials ? " · credentials set" : ""}
         {" · "}
         <a href="/school/student-portal">Student Portal policy</a>
       </p>
+      {studentLoginToken ? <InviteTokenAlert token={studentLoginToken} kind="activation" /> : null}
+      {canManagePortal ? (
+        <SectionCard title="Student Portal account" description="Policy is rechecked on every request. Passwords are never shown after this one-time token.">
+          {data.portalAccess.hasLoginAlias ? (
+            <div className="button-row">
+              <Button type="button" variant="secondary" onClick={resetStudentLogin}>
+                Reset / reissue access
+              </Button>
+              <Button type="button" variant="danger" onClick={disableStudentLogin}>
+                Disable account
+              </Button>
+            </div>
+          ) : (
+            <form className="form-grid" onSubmit={createStudentLogin}>
+              <FormField label="Login username">
+                <Input name="alias" required minLength={3} pattern="[a-z0-9._-]+" placeholder="j.smith" />
+              </FormField>
+              <div>
+                <Button type="submit">Create student login</Button>
+              </div>
+            </form>
+          )}
+        </SectionCard>
+      ) : null}
       <Tabs>
         {visibleTabs.map((id) => (
             <a
@@ -917,7 +1035,21 @@ export default function StudentDetailPage() {
                       )}
                     </td>
                     <td>{row.hasParentalResponsibility ? "Yes" : "No"}</td>
-                    <td>{row.endedOn ?? "current"}</td>
+                    <td>
+                      {row.endedOn ?? "current"}
+                      {canManageGuardians && !row.endedOn ? (
+                        <div className="button-row">
+                          <Button type="button" variant="ghost" onClick={() => inviteGuardian(row.id)}>
+                            {row.pendingInvitation ? "Resend" : "Invite"}
+                          </Button>
+                          {row.pendingInvitation ? (
+                            <Button type="button" variant="ghost" onClick={() => revokeGuardianInvite(row.id)}>
+                              Revoke
+                            </Button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </td>
                   </tr>
                 ))}
               </DataTable>
@@ -942,6 +1074,26 @@ export default function StudentDetailPage() {
                 <Checkbox name="portalAccess" label="Enable parent portal access" />
                 <div>
                   <Button type="submit">Invite / link parent</Button>
+                </div>
+              </form>
+            ) : null}
+            {canManageGuardians ? (
+              <form className="form-grid" onSubmit={linkExistingGuardian} style={{ marginTop: "1rem" }}>
+                <FormField label="Existing parent user id (same school only)">
+                  <Input name="guardianUserId" required placeholder="uuid" />
+                </FormField>
+                <FormField label="Relationship">
+                  <Select name="relationship" defaultValue="other">
+                    <option value="mother">Mother</option>
+                    <option value="father">Father</option>
+                    <option value="carer">Carer</option>
+                    <option value="other">Other</option>
+                  </Select>
+                </FormField>
+                <Checkbox name="hasParentalResponsibility" label="Parental responsibility" />
+                <Checkbox name="portalAccess" label="Enable parent portal access" />
+                <div>
+                  <Button type="submit">Link existing parent</Button>
                 </div>
               </form>
             ) : null}
@@ -1476,6 +1628,9 @@ export default function StudentDetailPage() {
               </div>
             </dl>
             <p className="muted">Invitation token / link</p>
+            <p>
+              <a href={`/invite?token=${encodeURIComponent(invite.token)}`}>Open invitation link</a>
+            </p>
             <code>{invite.token}</code>
             <Alert tone="warning">Copy this invitation now. For security it will not be shown again.</Alert>
             <div className="dialog-actions">

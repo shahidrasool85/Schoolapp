@@ -173,6 +173,9 @@ export function LoginForm({ initialHostKind }: { initialHostKind: LoginHostKind 
           <button type="submit" className="login-submit">
             Sign in
           </button>
+          <p className="login-support muted">
+            <a href="/forgot-password">Forgot password?</a>
+          </p>
         </form>
         {error ? <p className="error">{error}</p> : null}
       </LoginShell>
@@ -226,6 +229,11 @@ export function LoginForm({ initialHostKind }: { initialHostKind: LoginHostKind 
         <button type="submit" className="login-submit">
           Sign in
         </button>
+        {persona !== "student" ? (
+          <p className="login-support muted">
+            <a href="/forgot-password">Forgot password?</a>
+          </p>
+        ) : null}
       </form>
       {persona === "staff" ? (
         <p className="login-support muted">

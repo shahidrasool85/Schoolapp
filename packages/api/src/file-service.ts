@@ -131,6 +131,8 @@ export function profileForDomain(domain: StoredObjectDomain) {
           ? "activity"
           : domain === "message"
             ? "message"
+            : domain === "branding"
+              ? "branding"
             : "safeguarding";
   return fileProfile(name, limits);
 }
@@ -500,6 +502,15 @@ export async function authorizeStoredObjectDownload(
     }
     case "message": {
       await assertCanAccessMessageAttachment(client, actor, object.organisation_id, object.id);
+      return;
+    }
+    case "branding": {
+      if (
+        !actor.permissions.has(PERMISSIONS.ORG_SETTINGS_READ) &&
+        !actor.permissions.has(PERMISSIONS.ORG_SETTINGS_MANAGE)
+      ) {
+        notFound();
+      }
       return;
     }
     default:

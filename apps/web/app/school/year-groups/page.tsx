@@ -1,6 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
+import { EmptyState } from "../../../components/ui";
 import { api } from "../../../lib/api";
 
 type YearGroup = {
@@ -46,7 +48,8 @@ export default function YearGroupsPage() {
 
   async function add(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formEl = captureSubmitTarget(event);
+    const form = new FormData(formEl);
     await api("/api/v1/year-groups", {
       method: "POST",
       body: JSON.stringify({
@@ -55,7 +58,7 @@ export default function YearGroupsPage() {
         studentLoginEnabled: form.get("studentLoginEnabled") === "on",
       }),
     });
-    event.currentTarget.reset();
+    resetFormSafely(formEl);
     await load();
   }
 
@@ -97,6 +100,12 @@ export default function YearGroupsPage() {
         <div><button type="submit">Add year group</button></div>
       </form>
       {error ? <p className="error">{error}</p> : null}
+      {groups.length === 0 ? (
+        <EmptyState
+          title="No year groups yet"
+          description="Seed Reception through your maximum year, or add year groups individually."
+        />
+      ) : (
       <table>
         <thead>
           <tr><th>Code</th><th>Name</th><th>Key stage</th><th>Student login</th><th></th></tr>
@@ -117,6 +126,7 @@ export default function YearGroupsPage() {
           ))}
         </tbody>
       </table>
+      )}
     </>
   );
 }

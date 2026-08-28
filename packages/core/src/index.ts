@@ -755,6 +755,38 @@ export {
 export { generatePermanentUpn, isValidPermanentUpn, normaliseUpn, validateUpn, upnCheckLetter } from "./upn.js";
 
 export {
+  NoopMailProvider,
+  OutboxMailProvider,
+  assertNoPasswordInMail,
+  parentInviteMail,
+  passwordResetMail,
+  staffInviteMail,
+  studentActivationMail,
+  type MailMessage,
+  type MailProvider,
+} from "./mail.js";
+
+export {
+  evaluateReadiness,
+  PASSWORD_RESET_NEUTRAL_MESSAGE,
+  type ReadinessCounts,
+  type ReadinessViewItem,
+} from "./onboarding.js";
+
+export {
+  IMPORT_TEMPLATES,
+  csvFormulaSafe,
+  importTemplateCsv,
+  parseCsvText,
+  rowToRecord,
+  validateGuardianImportRow,
+  validatePupilImportRow,
+  validateStaffImportRow,
+  type ImportIssue,
+  type ImportRowPreview,
+} from "./imports.js";
+
+export {
   compareIsoDates,
   dateCountsTowardAttendance,
   dateInInclusiveRange,

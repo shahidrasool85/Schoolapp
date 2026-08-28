@@ -375,6 +375,23 @@ export const STAFF_NAV_SECTIONS: StaffNavSection[] = [
         permissions: ["guardianships.manage", "org.members.read", "students.profiles.read"],
       },
       {
+        href: "/school/setup",
+        label: "School setup",
+        icon: "layers",
+        permissions: ["onboarding.manage"],
+      },
+      {
+        href: "/school/settings",
+        label: "School settings",
+        icon: "layers",
+        permissions: ["org.settings.read", "org.settings.manage"],
+      },
+      {
+        href: "/school/imports",
+        label: "Bulk import",
+        permissions: ["imports.manage"],
+      },
+      {
         href: "/school/academic-years",
         label: "Academic setup",
         icon: "layers",

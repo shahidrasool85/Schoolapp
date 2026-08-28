@@ -43,11 +43,16 @@ export {
   selectRequestHost,
   firstForwardedHost,
   classifyHostname,
+  publicHostKindFromClassification,
+  classifyPublicHost,
+  loginHostKindFromRequest,
   schoolPublicHostname,
   originForHostname,
   formatHostname,
   type ParsedHost,
   type HostClassification,
+  type PublicHostKind,
+  type LoginHostKind,
 } from "./hostname.js";
 
 export {

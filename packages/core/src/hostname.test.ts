@@ -7,8 +7,11 @@ import {
 import {
   bindOrganisationHint,
   classifyHostname,
+  classifyPublicHost,
   headerMatchesHostSlug,
+  loginHostKindFromRequest,
   parseHostHeader,
+  publicHostKindFromClassification,
   selectRequestHost,
 } from "./index.js";
 
@@ -149,6 +152,137 @@ describe("hostname classification", () => {
       kind: "custom",
       hostname: "portal.greenwoodacademy.org.uk",
     });
+  });
+});
+
+describe("public host kind and login classification", () => {
+  const production = "luvlearn.co.uk";
+
+  it("treats the production platform app host as platform, never as a school tenant", () => {
+    expect(classifyHostname("app.luvlearn.co.uk", production)).toMatchObject({
+      kind: "reserved",
+      label: "app",
+    });
+    expect(classifyPublicHost("app.luvlearn.co.uk", production)).toBe("platform");
+    expect(
+      loginHostKindFromRequest({
+        host: "app.luvlearn.co.uk",
+        trustProxy: false,
+        platformDomain: production,
+      }),
+    ).toBe("platform");
+  });
+
+  it("treats the production apex as platform when that is the configured domain", () => {
+    expect(classifyHostname("luvlearn.co.uk", production)).toMatchObject({ kind: "platform" });
+    expect(classifyPublicHost("luvlearn.co.uk", production)).toBe("platform");
+    expect(classifyPublicHost("www.luvlearn.co.uk", production)).toBe("platform");
+    expect(
+      loginHostKindFromRequest({
+        host: "luvlearn.co.uk",
+        trustProxy: false,
+        platformDomain: production,
+      }),
+    ).toBe("platform");
+  });
+
+  it("sends a school subdomain down the tenant lookup path", () => {
+    expect(classifyHostname("school1.luvlearn.co.uk", production)).toEqual({
+      kind: "school_subdomain",
+      hostname: "school1.luvlearn.co.uk",
+      slug: "school1",
+    });
+    expect(classifyPublicHost("school1.luvlearn.co.uk", production)).toBe("school");
+    expect(
+      loginHostKindFromRequest({
+        host: "school1.luvlearn.co.uk:443",
+        trustProxy: false,
+        platformDomain: production,
+      }),
+    ).toBe("school");
+  });
+
+  it("keeps localhost development hosts on the platform, with *.localhost as schools", () => {
+    expect(classifyPublicHost("localhost", "localhost")).toBe("platform");
+    expect(classifyPublicHost("127.0.0.1", "localhost")).toBe("platform");
+    expect(classifyPublicHost("greenwood.localhost", "localhost")).toBe("school");
+    expect(classifyPublicHost("localhost", production)).toBe("platform");
+    expect(classifyPublicHost("127.0.0.1", production)).toBe("platform");
+    expect(
+      loginHostKindFromRequest({
+        host: "localhost:3000",
+        trustProxy: false,
+        platformDomain: "localhost",
+      }),
+    ).toBe("platform");
+    expect(
+      loginHostKindFromRequest({
+        host: "127.0.0.1:3000",
+        trustProxy: false,
+        platformDomain: "localhost",
+      }),
+    ).toBe("platform");
+    expect(
+      loginHostKindFromRequest({
+        host: "greenwood.localhost:3000",
+        trustProxy: false,
+        platformDomain: "localhost",
+      }),
+    ).toBe("school");
+  });
+
+  it("does not treat unknown or unregistered-looking production hosts as platform", () => {
+    expect(classifyHostname("ghost.luvlearn.co.uk", production)).toMatchObject({
+      kind: "school_subdomain",
+      slug: "ghost",
+    });
+    expect(classifyPublicHost("ghost.luvlearn.co.uk", production)).toBe("school");
+    expect(classifyHostname("foo.bar.luvlearn.co.uk", production)).toMatchObject({
+      kind: "unknown_subdomain",
+    });
+    expect(classifyPublicHost("foo.bar.luvlearn.co.uk", production)).toBe("unknown");
+    expect(classifyPublicHost("a.luvlearn.co.uk", production)).toBe("unknown");
+    expect(
+      loginHostKindFromRequest({
+        host: "foo.bar.luvlearn.co.uk",
+        trustProxy: false,
+        platformDomain: production,
+      }),
+    ).toBe("unknown");
+    expect(
+      publicHostKindFromClassification({
+        kind: "unknown_subdomain",
+        hostname: "foo.bar.luvlearn.co.uk",
+        label: "foo.bar",
+      }),
+    ).toBe("unknown");
+  });
+
+  it("does not let a client spoof X-Forwarded-Host on a school connection", () => {
+    expect(
+      loginHostKindFromRequest({
+        host: "school1.luvlearn.co.uk",
+        forwardedHost: "app.luvlearn.co.uk",
+        trustProxy: true,
+        platformDomain: production,
+      }),
+    ).toBe("school");
+    expect(
+      selectRequestHost({
+        host: "school1.luvlearn.co.uk",
+        forwardedHost: "app.luvlearn.co.uk",
+        trustProxy: true,
+        platformDomain: production,
+      }),
+    ).toBe("school1.luvlearn.co.uk");
+    expect(
+      loginHostKindFromRequest({
+        host: "app.luvlearn.co.uk",
+        forwardedHost: "school1.luvlearn.co.uk",
+        trustProxy: false,
+        platformDomain: production,
+      }),
+    ).toBe("platform");
   });
 });
 

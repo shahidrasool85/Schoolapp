@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
 import { EmptyState } from "../../../components/ui";
+import { SetupReturnBanner } from "../../../components/setup-return-banner";
 import { api } from "../../../lib/api";
 
 type ClassRow = {
@@ -101,6 +102,7 @@ export default function ClassesPage() {
 
   return (
     <>
+      <SetupReturnBanner />
       <h1>Classes</h1>
       <p className="muted">
         Classes belong to one academic year. Teacher assignments and pupil memberships are dated so

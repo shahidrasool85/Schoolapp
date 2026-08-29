@@ -2,8 +2,10 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
-import { EmptyState } from "../../../../components/ui";
+import { Alert, EmptyState } from "../../../../components/ui";
+import { SetupReturnBanner } from "../../../../components/setup-return-banner";
 import { api } from "../../../../lib/api";
+import { userFacingError } from "../../../../lib/errors";
 
 type Period = {
   id: string;
@@ -31,6 +33,10 @@ export default function SchoolDayPage() {
   const [yearId, setYearId] = useState("");
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   async function load(nextYear = yearId) {
     const yearBody = await api<{ academicYears: Year[] }>("/api/v1/academic-years");
@@ -51,44 +57,66 @@ export default function SchoolDayPage() {
     const formEl = captureSubmitTarget(event);
     const form = new FormData(formEl);
     const weekdays = [1, 2, 3, 4, 5].filter((day) => form.get(`d${day}`) === "on");
-    await api("/api/v1/timetable/school-day-profiles", {
-      method: "POST",
-      body: JSON.stringify({
-        academicYearId: yearId,
-        name: String(form.get("name") ?? ""),
-        weekdays,
-        startsAt: String(form.get("startsAt") ?? ""),
-        endsAt: String(form.get("endsAt") ?? ""),
-      }),
-    });
-    resetFormSafely(formEl);
-    await load();
+    setSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      await api("/api/v1/timetable/school-day-profiles", {
+        method: "POST",
+        body: JSON.stringify({
+          academicYearId: yearId,
+          name: String(form.get("name") ?? ""),
+          weekdays,
+          startsAt: String(form.get("startsAt") ?? ""),
+          endsAt: String(form.get("endsAt") ?? ""),
+        }),
+      });
+      resetFormSafely(formEl);
+      setDirty(false);
+      setSaved(true);
+      setNotice("School-day profile saved. You can add periods below or return to School Setup.");
+      await load();
+    } catch (err) {
+      setError(userFacingError(err, "Could not add a school-day profile."));
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function addPeriod(event: FormEvent<HTMLFormElement>, profileId: string) {
     event.preventDefault();
     const formEl = captureSubmitTarget(event);
     const form = new FormData(formEl);
-    await api(`/api/v1/timetable/school-day-profiles/${profileId}/periods`, {
-      method: "POST",
-      body: JSON.stringify({
-        name: String(form.get("name") ?? ""),
-        periodType: String(form.get("periodType") ?? "teaching"),
-        startsAt: String(form.get("startsAt") ?? ""),
-        endsAt: String(form.get("endsAt") ?? ""),
-        sortOrder: Number(form.get("sortOrder") || 0),
-      }),
-    });
-    resetFormSafely(formEl);
-    await load();
+    setError("");
+    setNotice("");
+    try {
+      await api(`/api/v1/timetable/school-day-profiles/${profileId}/periods`, {
+        method: "POST",
+        body: JSON.stringify({
+          name: String(form.get("name") ?? ""),
+          periodType: String(form.get("periodType") ?? "teaching"),
+          startsAt: String(form.get("startsAt") ?? ""),
+          endsAt: String(form.get("endsAt") ?? ""),
+          sortOrder: Number(form.get("sortOrder") || 0),
+        }),
+      });
+      resetFormSafely(formEl);
+      setSaved(true);
+      setNotice("Period added. You can add more, or return to School Setup.");
+      await load();
+    } catch (err) {
+      setError(userFacingError(err, "Could not add a period."));
+    }
   }
-
-  if (error) return <p className="error">{error}</p>;
 
   return (
     <>
+      <SetupReturnBanner dirty={dirty} afterSave={saved} />
       <h1>School day / Periods</h1>
-      <p className="muted">Define weekday structures. Friday can finish earlier than the rest of the week.</p>
+      <p className="muted">
+        Define weekday structures. Friday can finish earlier than the rest of the week. Add a
+        profile with start and end times, then add lesson and break periods.
+      </p>
       <label>
         Academic year
         <select
@@ -105,7 +133,9 @@ export default function SchoolDayPage() {
           ))}
         </select>
       </label>
-      <form className="card form-grid" onSubmit={createProfile}>
+      {notice ? <Alert tone="success">{notice}</Alert> : null}
+      {error ? <p className="error">{error}</p> : null}
+      <form className="card form-grid" onSubmit={createProfile} onChange={() => setDirty(true)}>
         <label>
           Profile name
           <input name="name" required placeholder="Standard day" />
@@ -126,7 +156,9 @@ export default function SchoolDayPage() {
           ))}
         </div>
         <div>
-          <button type="submit">Add school-day profile</button>
+          <button type="submit" disabled={saving}>
+            {saving ? "Saving…" : "Add school-day profile"}
+          </button>
         </div>
       </form>
       {profiles.length === 0 ? (

@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { EmptyState } from "../../../components/ui";
+import { SetupReturnBanner } from "../../../components/setup-return-banner";
 import { api } from "../../../lib/api";
 
 type YearGroup = {
@@ -53,6 +54,7 @@ export default function StudentPortalPolicyPage() {
 
   return (
     <>
+      <SetupReturnBanner />
       <h1>Student portal access</h1>
       <p className="muted">
         A student record exists whether or not the pupil can log in. Effective access is

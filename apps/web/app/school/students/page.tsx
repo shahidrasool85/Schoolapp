@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { Alert, Button, DataTable, EmptyState, FormField, Input, PageHeader, Select, StatusBadge } from "../../../components/ui";
 import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
+import { SetupReturnBanner } from "../../../components/setup-return-banner";
 import { api } from "../../../lib/api";
 import { userFacingError } from "../../../lib/errors";
 
@@ -75,6 +76,7 @@ export default function StudentsPage() {
 
   return (
     <>
+      <SetupReturnBanner />
       <PageHeader
         title="Pupils"
         description="Current year group and form class are derived from enrolments and dated class memberships. Moving a pupil keeps the previous records."

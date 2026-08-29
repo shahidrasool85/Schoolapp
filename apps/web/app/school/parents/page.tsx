@@ -11,6 +11,7 @@ import {
   PageHeader,
   StatusBadge,
 } from "../../../components/ui";
+import { SetupReturnBanner } from "../../../components/setup-return-banner";
 import { api } from "../../../lib/api";
 import { userFacingError } from "../../../lib/errors";
 
@@ -84,6 +85,7 @@ export default function ParentsPage() {
 
   return (
     <>
+      <SetupReturnBanner />
       <PageHeader
         title="Parents / Guardians"
         description="Portal access is off unless explicitly enabled. Matching emails are never linked across organisations."

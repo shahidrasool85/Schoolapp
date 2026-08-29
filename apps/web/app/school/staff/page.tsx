@@ -15,6 +15,7 @@ import {
   StatusBadge,
 } from "../../../components/ui";
 import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
+import { SetupReturnBanner } from "../../../components/setup-return-banner";
 import { api } from "../../../lib/api";
 import { userFacingError } from "../../../lib/errors";
 
@@ -70,6 +71,7 @@ export default function StaffPage() {
 
   return (
     <>
+      <SetupReturnBanner />
       <PageHeader
         title="Staff"
         description="Create staff, assign roles, and manage invitations. Teachers cannot manage school-wide accounts."

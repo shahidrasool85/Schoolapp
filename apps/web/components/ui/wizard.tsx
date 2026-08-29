@@ -1,29 +1,56 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { Button } from "./button";
 
 export function WizardProgress({
   steps,
   currentIndex,
+  completedKeys = [],
+  stepHref,
 }: {
   steps: Array<{ key: string; label: string }>;
   currentIndex: number;
+  completedKeys?: readonly string[];
+  stepHref?: (key: string) => string;
 }) {
   const percent = steps.length <= 1 ? 100 : Math.round((currentIndex / (steps.length - 1)) * 100);
+  const completed = new Set(completedKeys);
   return (
-    <div className="wizard-progress" aria-label="Setup progress">
-      <div className="wizard-progress-bar" style={{ width: `${percent}%` }} />
+    <nav className="wizard-progress" aria-label="Setup steps">
+      <div className="wizard-progress-bar" style={{ width: `${percent}%` }} aria-hidden="true" />
       <ol className="wizard-steps">
-        {steps.map((step, index) => (
-          <li
-            key={step.key}
-            className={index === currentIndex ? "is-current" : index < currentIndex ? "is-done" : ""}
-          >
-            <span className="wizard-step-index">{index + 1}</span>
-            <span className="wizard-step-label">{step.label}</span>
-          </li>
-        ))}
+        {steps.map((step, index) => {
+          const current = index === currentIndex;
+          const done = !current && (completed.has(step.key) || index < currentIndex);
+          const href = stepHref?.(step.key);
+          const className = current ? "is-current" : done ? "is-done" : "";
+          const label = (
+            <>
+              <span className="wizard-step-index">{index + 1}</span>
+              <span className="wizard-step-label">{step.label}</span>
+            </>
+          );
+          return (
+            <li key={step.key} className={className}>
+              {href ? (
+                <Link
+                  href={href}
+                  className="wizard-step-button"
+                  aria-current={current ? "step" : undefined}
+                  aria-label={`Go to ${step.label} step`}
+                >
+                  {label}
+                </Link>
+              ) : (
+                <span className="wizard-step-static">
+                  {label}
+                </span>
+              )}
+            </li>
+          );
+        })}
       </ol>
-    </div>
+    </nav>
   );
 }
 

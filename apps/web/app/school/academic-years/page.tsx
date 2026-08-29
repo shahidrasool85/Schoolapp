@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
 import { EmptyState } from "../../../components/ui";
+import { SetupReturnBanner } from "../../../components/setup-return-banner";
 import { api } from "../../../lib/api";
 
 type Year = {
@@ -58,6 +59,7 @@ export default function AcademicYearsPage() {
 
   return (
     <>
+      <SetupReturnBanner />
       <h1>Academic years</h1>
       <form className="card form-grid" onSubmit={onSubmit}>
         <label>Name<input name="name" placeholder="2026/27" required /></label>

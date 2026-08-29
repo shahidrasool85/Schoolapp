@@ -41,23 +41,108 @@ export type ReadinessItemDefinition = {
   required: boolean;
 };
 
+export const SETUP_PATH = "/school/setup";
+
+export const SETUP_STEP_ALIASES: Record<string, OnboardingStep> = {
+  school: "school_details",
+  "school-details": "school_details",
+  school_details: "school_details",
+  branding: "branding",
+  year: "academic_year",
+  "academic-year": "academic_year",
+  academic_year: "academic_year",
+  structure: "academic_structure",
+  "academic-structure": "academic_structure",
+  academic_structure: "academic_structure",
+  "school-day": "school_day",
+  school_day: "school_day",
+  rooms: "rooms",
+  staff: "staff",
+  pupils: "pupils",
+  portals: "portals",
+  ready: "completion",
+  completion: "completion",
+};
+
+export function parseSetupStep(value: string | null | undefined): OnboardingStep | null {
+  if (!value) return null;
+  const key = value.trim().toLowerCase();
+  return SETUP_STEP_ALIASES[key] ?? (isOnboardingStep(key) ? key : null);
+}
+
+export function setupStepHref(step: OnboardingStep): string {
+  return `${SETUP_PATH}?step=${step}`;
+}
+
+export function mergeCompletedSteps(
+  existing: readonly string[],
+  add: OnboardingStep | readonly OnboardingStep[],
+): OnboardingStep[] {
+  const extra = Array.isArray(add) ? add : [add];
+  const set = new Set<OnboardingStep>();
+  for (const step of existing) {
+    if (isOnboardingStep(step)) set.add(step);
+  }
+  for (const step of extra) {
+    if (isOnboardingStep(step)) set.add(step);
+  }
+  return ONBOARDING_STEPS.filter((step) => set.has(step));
+}
+
+export function parseSafeReturnTo(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("/school")) return null;
+  if (trimmed.startsWith("//") || trimmed.includes("\\")) return null;
+  if (/^[a-zA-Z][a-zA-Z+\-.]*:/.test(trimmed)) return null;
+  try {
+    const url = new URL(trimmed, "https://school.invalid");
+    if (url.origin !== "https://school.invalid") return null;
+    if (!url.pathname.startsWith("/school")) return null;
+    if (url.pathname.includes("..")) return null;
+    return `${url.pathname}${url.search}`;
+  } catch {
+    return null;
+  }
+}
+
+export function withSetupReturn(href: string, step: OnboardingStep): string {
+  const url = new URL(href, "https://school.invalid");
+  url.searchParams.set("returnTo", setupStepHref(step));
+  return `${url.pathname}${url.search}`;
+}
+
+export function setupReturnLeaveMessage(): string {
+  return "You have unsaved changes. Leave without saving?";
+}
+
+export function seedYearGroupsMessage(created: number): string {
+  return created > 0 ? "Standard year groups created" : "Standard year groups are already set up";
+}
+
 export const READINESS_ITEMS: readonly ReadinessItemDefinition[] = [
-  { key: "school_profile", label: "School profile", href: "/school/setup?step=school_details", required: true },
-  { key: "branding", label: "Branding", href: "/school/setup?step=branding", required: false },
-  { key: "academic_year", label: "Academic year", href: "/school/academic-years", required: true },
-  { key: "term_dates", label: "Term dates", href: "/school/setup?step=academic_year", required: false },
-  { key: "year_groups", label: "Year groups", href: "/school/year-groups", required: true },
-  { key: "classes", label: "Classes", href: "/school/classes", required: true },
-  { key: "subjects", label: "Subjects", href: "/school/subjects", required: true },
-  { key: "school_day", label: "School day", href: "/school/timetable/school-day", required: false },
-  { key: "rooms", label: "Rooms", href: "/school/timetable/rooms", required: false },
-  { key: "staff", label: "Staff", href: "/school/staff", required: true },
-  { key: "pupils", label: "Pupils", href: "/school/students", required: true },
-  { key: "parent_accounts", label: "Parent accounts", href: "/school/parents", required: false },
-  { key: "student_portal", label: "Student Portal", href: "/school/student-portal", required: false },
+  { key: "school_profile", label: "School profile", href: setupStepHref("school_details"), required: true },
+  { key: "branding", label: "Branding", href: setupStepHref("branding"), required: false },
+  { key: "academic_year", label: "Academic year", href: setupStepHref("academic_year"), required: true },
+  { key: "term_dates", label: "Term dates", href: setupStepHref("academic_year"), required: false },
+  { key: "year_groups", label: "Year groups", href: setupStepHref("academic_structure"), required: true },
+  { key: "classes", label: "Classes", href: setupStepHref("academic_structure"), required: true },
+  { key: "subjects", label: "Subjects", href: setupStepHref("academic_structure"), required: true },
+  { key: "school_day", label: "School day", href: setupStepHref("school_day"), required: false },
+  { key: "rooms", label: "Rooms", href: setupStepHref("rooms"), required: false },
+  { key: "staff", label: "Staff", href: setupStepHref("staff"), required: true },
+  { key: "pupils", label: "Pupils", href: setupStepHref("pupils"), required: true },
+  { key: "parent_accounts", label: "Parent accounts", href: setupStepHref("portals"), required: false },
+  { key: "student_portal", label: "Student Portal", href: setupStepHref("portals"), required: false },
   { key: "timetable", label: "Timetable", href: "/school/timetable", required: false },
   { key: "statutory_profile", label: "Statutory school profile", href: "/school/settings/statutory", required: false },
 ];
+
+export function readinessFixHref(key: ReadinessItemKey): string {
+  const item = READINESS_ITEMS.find((entry) => entry.key === key);
+  if (!item) throw new Error(`Unknown readiness item: ${key}`);
+  return item.href;
+}
 
 export function isOnboardingStep(value: string): value is OnboardingStep {
   return (ONBOARDING_STEPS as readonly string[]).includes(value);
@@ -134,9 +219,29 @@ export function mapImportedStaffRole(value: string | null | undefined): Importab
 export const HEX_COLOR_PATTERN = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
 export function safeBrandColor(value: string | null | undefined, fallback: string): string {
-  const trimmed = value?.trim();
-  if (trimmed && HEX_COLOR_PATTERN.test(trimmed)) return trimmed;
-  return fallback;
+  return normalizeBrandHex(value) ?? fallback;
+}
+
+export function normalizeBrandHex(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  const six = trimmed.match(/^#([0-9a-fA-F]{6})$/);
+  if (six) return `#${six[1]!.toUpperCase()}`;
+  const three = trimmed.match(/^#([0-9a-fA-F]{3})$/);
+  if (three) {
+    const [a, b, c] = three[1]!.split("");
+    return `#${a}${a}${b}${b}${c}${c}`.toUpperCase();
+  }
+  return null;
+}
+
+export function hexForColorInput(value: string, fallback: string): string {
+  return normalizeBrandHex(value) ?? normalizeBrandHex(fallback) ?? DEFAULT_BRAND_PRIMARY.toUpperCase();
+}
+
+export function brandHexError(value: string): string | null {
+  if (!value.trim()) return "Enter a colour, for example #122C4A.";
+  if (!normalizeBrandHex(value)) return "Enter a valid colour like #122C4A.";
+  return null;
 }
 
 export const DEFAULT_BRAND_PRIMARY = "#122C4A";

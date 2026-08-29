@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
 import { EmptyState } from "../../../../components/ui";
+import { SetupReturnBanner } from "../../../../components/setup-return-banner";
 import { api } from "../../../../lib/api";
 
 type Room = {
@@ -50,6 +51,7 @@ export default function RoomsPage() {
 
   return (
     <>
+      <SetupReturnBanner />
       <h1>Rooms</h1>
       <form className="card form-grid" onSubmit={onSubmit}>
         <label>

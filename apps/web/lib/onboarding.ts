@@ -1,7 +1,9 @@
 import {
   ONBOARDING_WELCOME_PATH,
   SCHOOL_DASHBOARD_PATH,
+  SETUP_PATH,
   setupStepHref,
+  setupWelcomePrimaryHref,
   type OnboardingPresentation,
   type OnboardingStep,
   type SetupProgressView,
@@ -33,9 +35,14 @@ export type SchoolOnboardingResponse = {
   presentation: OnboardingPresentation;
 };
 
-export { ONBOARDING_WELCOME_PATH, SCHOOL_DASHBOARD_PATH, setupStepHref };
+export { ONBOARDING_WELCOME_PATH, SCHOOL_DASHBOARD_PATH, SETUP_PATH, setupStepHref };
 
-export function setupContinueHref(setup: Pick<SetupProgressView, "resumeStep">): string {
-  return setupStepHref(setup.resumeStep as OnboardingStep);
+export function setupContinueHref(
+  setup: Pick<SetupProgressView, "resumeStep" | "status">,
+): string {
+  return setupWelcomePrimaryHref({
+    status: setup.status,
+    resumeStep: setup.resumeStep as OnboardingStep,
+  });
 }
 

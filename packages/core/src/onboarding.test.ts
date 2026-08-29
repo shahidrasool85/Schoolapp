@@ -26,6 +26,7 @@ import {
   setupProgressLabel,
   setupSidebarBadge,
   setupStepHref,
+  setupWelcomePrimaryHref,
   shouldAutoLaunchOnboarding,
   shouldShowDashboardOnboardingCard,
   withSetupReturn,
@@ -314,6 +315,11 @@ describe("setup lifecycle and progress", () => {
       canManageSetup: true,
       setupStatus: progress.status,
       automaticOnboardingDismissed: false,
+    })).toBe(true);
+    expect(shouldShowDashboardOnboardingCard({
+      canManageSetup: true,
+      setupStatus: progress.status,
+      automaticOnboardingDismissed: false,
     })).toBe(false);
   });
 
@@ -421,7 +427,34 @@ describe("setup lifecycle and progress", () => {
     expect(resume.heading).toBe("Welcome back");
     expect(resume.title).toBe("Continue setting up Northfield Academy");
     expect(resume.lede).toContain("40%");
-    expect(resume.primaryLabel).toBe("Continue setup");
+    expect(resume.primaryLabel).toBe("Continue School Setup");
+    expect(resume.showProgress).toBe(true);
+    expect(resume.completeBadge).toBeNull();
+  });
+
+  it("reports a completed school as already set up without incomplete copy", () => {
+    const copy = onboardingWelcomeCopy({
+      schoolName: "Kingswood School",
+      status: "completed",
+      completedCount: 10,
+      totalSteps: 10,
+      currentStep: "school_details",
+      completedSteps: [],
+    });
+    expect(copy.heading).toBe("Welcome to LuvLearn");
+    expect(copy.title).toBe("Kingswood School is already set up.");
+    expect(copy.lede).toContain("review your school setup");
+    expect(copy.primaryLabel).toBe("Review School Setup");
+    expect(copy.showProgress).toBe(false);
+    expect(copy.completeBadge).toBe("School setup complete ✓");
+    expect(copy.dismissLabel).toBe("Don't show this again");
+    expect(copy.title.toLowerCase()).not.toContain("finish");
+    expect(copy.lede.toLowerCase()).not.toContain("continue setting up");
+    expect(copy.lede.toLowerCase()).not.toMatch(/incomplete|% complete/);
+    expect(setupWelcomePrimaryHref({ status: "completed", resumeStep: "completion" })).toBe("/school/setup");
+    expect(setupWelcomePrimaryHref({ status: "in_progress", resumeStep: "rooms" })).toBe(
+      "/school/setup?step=rooms",
+    );
   });
 });
 
@@ -548,7 +581,33 @@ describe("post-login onboarding routing", () => {
     expect(loginHrefForReturn("/school/finance")).toBe("/login?next=%2Fschool%2Ffinance");
   });
 
-  it("sends dismissed or completed admins to the dashboard", () => {
+  it("sends a completed-school admin without a dismissal to welcome", () => {
+    expect(
+      resolveStaffPostAuthPath({
+        canManageSetup: true,
+        setupStatus: "completed",
+        automaticOnboardingDismissed: false,
+      }),
+    ).toBe(ONBOARDING_WELCOME_PATH);
+    expect(
+      resolveStaffPostAuthPath({
+        canManageSetup: true,
+        setupStatus: "completed",
+        automaticOnboardingDismissed: false,
+        requestedNext: "/school",
+      }),
+    ).toBe(ONBOARDING_WELCOME_PATH);
+    expect(
+      resolveStaffPostAuthPath({
+        canManageSetup: true,
+        setupStatus: "completed",
+        automaticOnboardingDismissed: false,
+        requestedNext: "/school/pupils/123",
+      }),
+    ).toBe("/school/pupils/123");
+  });
+
+  it("sends dismissed admins to the dashboard even when setup is completed", () => {
     expect(
       resolveStaffPostAuthPath({
         canManageSetup: true,
@@ -560,7 +619,7 @@ describe("post-login onboarding routing", () => {
       resolveStaffPostAuthPath({
         canManageSetup: true,
         setupStatus: "completed",
-        automaticOnboardingDismissed: false,
+        automaticOnboardingDismissed: true,
       }),
     ).toBe("/school");
   });
@@ -609,6 +668,58 @@ describe("onboarding presentation assembly", () => {
     expect(dismissed.presentation.shouldAutoLaunch).toBe(false);
     expect(dismissed.presentation.showDashboardCard).toBe(false);
     expect(dismissed.progress.completedSteps).toEqual(view.progress.completedSteps);
+  });
+
+  it("shows a legacy completed school the welcome once without a dashboard card", () => {
+    const readiness = evaluateReadiness({
+      ...empty,
+      hasName: true,
+      hasTimezone: true,
+      academicYears: 1,
+      yearGroups: 3,
+      classes: 2,
+      subjects: 4,
+      hasBranding: true,
+      staff: 8,
+      pupils: 40,
+    });
+    const completedAt = "2026-01-15T09:30:00.000Z";
+    const view = presentSchoolOnboarding({
+      schoolName: "Kingswood School",
+      currentStep: "completion",
+      completedSteps: ["school_details"],
+      completedAt,
+      readyMarkedAt: completedAt,
+      readiness,
+      automaticOnboardingDismissed: false,
+      canManageSetup: true,
+    });
+    expect(view.setup.status).toBe("completed");
+    expect(view.progress.completedAt).toBe(completedAt);
+    expect(view.presentation.shouldAutoLaunch).toBe(true);
+    expect(view.presentation.showDashboardCard).toBe(false);
+    const copy = onboardingWelcomeCopy({
+      schoolName: view.setup.schoolName,
+      status: view.setup.status,
+      completedCount: view.setup.completedCount,
+      totalSteps: view.setup.totalSteps,
+    });
+    expect(copy.title).toBe("Kingswood School is already set up.");
+    expect(copy.showProgress).toBe(false);
+    const dismissed = presentSchoolOnboarding({
+      schoolName: "Kingswood School",
+      currentStep: view.progress.currentStep,
+      completedSteps: view.progress.completedSteps,
+      completedAt,
+      readyMarkedAt: completedAt,
+      readiness,
+      automaticOnboardingDismissed: true,
+      canManageSetup: true,
+    });
+    expect(dismissed.setup.status).toBe("completed");
+    expect(dismissed.progress.completedAt).toBe(completedAt);
+    expect(dismissed.presentation.shouldAutoLaunch).toBe(false);
+    expect(dismissed.presentation.showDashboardCard).toBe(false);
   });
 });
 

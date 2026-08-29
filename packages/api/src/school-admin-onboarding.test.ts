@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   ONBOARDING_WELCOME_PATH,
   PERMISSIONS,
+  onboardingWelcomeCopy,
   resolveStaffPostAuthPath,
   setupSidebarBadge,
 } from "@schoolapp/domain";
@@ -88,6 +89,43 @@ async function seedExistingSchoolProgress(
     `insert into subjects (organisation_id, key, name) values ($1, 'mathematics', 'Mathematics')`,
     [orgId],
   );
+}
+
+const LEGACY_COMPLETED_AT = "2026-01-15T09:30:00.000Z";
+
+async function markLegacySetupCompleted(
+  owner: ReturnType<typeof testPools>["owner"],
+  orgId: string,
+  completedAt = LEGACY_COMPLETED_AT,
+) {
+  await owner.query(
+    `insert into organisation_setup_progress (
+       organisation_id, current_step, completed_steps, completed_at, ready_marked_at
+     ) values ($1, 'completion', $2, $3::timestamptz, $3::timestamptz)
+     on conflict (organisation_id) do update set
+       current_step = excluded.current_step,
+       completed_steps = excluded.completed_steps,
+       completed_at = excluded.completed_at,
+       ready_marked_at = excluded.ready_marked_at`,
+    [
+      orgId,
+      ["school_details", "branding", "academic_year", "academic_structure", "completion"],
+      completedAt,
+    ],
+  );
+  return completedAt;
+}
+
+async function readCompletedAt(
+  owner: ReturnType<typeof testPools>["owner"],
+  orgId: string,
+) {
+  const row = await owner.query<{ completed_at: Date | string | null }>(
+    "select completed_at from organisation_setup_progress where organisation_id = $1",
+    [orgId],
+  );
+  const value = row.rows[0]?.completed_at ?? null;
+  return value ? new Date(value).toISOString() : null;
 }
 
 function jsonHeaders(token: string, orgId: string) {
@@ -395,7 +433,7 @@ describe("School Admin first-login onboarding", () => {
     const done = (await (await app.request("/api/v1/onboarding", { headers: hdrs })).json()) as OnboardingBody;
     expect(done.setup.status).toBe("completed");
     expect(done.progress.completedAt).toBeTruthy();
-    expect(done.presentation.shouldAutoLaunch).toBe(false);
+    expect(done.presentation.shouldAutoLaunch).toBe(true);
     expect(done.presentation.showDashboardCard).toBe(false);
     const stillReadable = await app.request("/api/v1/onboarding", { headers: hdrs });
     expect(stillReadable.status).toBe(200);
@@ -538,6 +576,227 @@ describe("School Admin first-login onboarding", () => {
       );
       expect(leakedPref.rows).toEqual([]);
     });
+  });
+
+  it("shows a legacy completed school the welcome once without changing completed_at", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id, `Kingswood School ${id}`);
+    await seedExistingSchoolProgress(pools.owner, school.orgId, `Kingswood School ${id}`);
+    const completedAt = await markLegacySetupCompleted(pools.owner, school.orgId);
+    expect(await readCompletedAt(pools.owner, school.orgId)).toBe(new Date(completedAt).toISOString());
+
+    const token = await login(app, school.adminEmail, "password-12x");
+    const first = (await (
+      await app.request("/api/v1/onboarding", { headers: jsonHeaders(token, school.orgId) })
+    ).json()) as OnboardingBody;
+
+    expect(first.setup.schoolName).toBe(`Kingswood School ${id}`);
+    expect(first.setup.status).toBe("completed");
+    expect(first.progress.completedAt).toBeTruthy();
+    expect(new Date(first.progress.completedAt!).toISOString()).toBe(new Date(completedAt).toISOString());
+    expect(first.presentation.automaticOnboardingDismissed).toBe(false);
+    expect(first.presentation.shouldAutoLaunch).toBe(true);
+    expect(first.presentation.showDashboardCard).toBe(false);
+    expect(
+      resolveStaffPostAuthPath({
+        canManageSetup: true,
+        setupStatus: first.setup.status,
+        automaticOnboardingDismissed: false,
+      }),
+    ).toBe(ONBOARDING_WELCOME_PATH);
+    expect(
+      resolveStaffPostAuthPath({
+        canManageSetup: true,
+        setupStatus: first.setup.status,
+        automaticOnboardingDismissed: false,
+        requestedNext: "/school",
+      }),
+    ).toBe(ONBOARDING_WELCOME_PATH);
+
+    const copy = onboardingWelcomeCopy({
+      schoolName: first.setup.schoolName,
+      status: first.setup.status,
+      completedCount: first.setup.completedCount,
+      totalSteps: first.setup.totalSteps,
+      currentStep: first.progress.currentStep,
+      completedSteps: first.progress.completedSteps,
+    });
+    expect(copy.heading).toBe("Welcome to LuvLearn");
+    expect(copy.title).toBe(`${first.setup.schoolName} is already set up.`);
+    expect(copy.primaryLabel).toBe("Review School Setup");
+    expect(copy.showProgress).toBe(false);
+    expect(copy.completeBadge).toBe("School setup complete ✓");
+    expect(copy.dismissLabel).toBe("Don't show this again");
+    expect(`${copy.title} ${copy.lede} ${copy.primaryLabel}`.toLowerCase()).not.toContain("finish setting up");
+    expect(copy.lede.toLowerCase()).not.toContain("continue setting up");
+
+    expect(await readCompletedAt(pools.owner, school.orgId)).toBe(new Date(completedAt).toISOString());
+    const prefsBeforeDismiss = await pools.owner.query(
+      `select automatic_onboarding_dismissed_at
+       from organisation_onboarding_preferences
+       where organisation_id = $1 and user_id = $2`,
+      [school.orgId, school.adminId],
+    );
+    expect(prefsBeforeDismiss.rows).toEqual([]);
+
+    const afterDashboardOnly = (await (
+      await app.request("/api/v1/onboarding", { headers: jsonHeaders(token, school.orgId) })
+    ).json()) as OnboardingBody;
+    expect(afterDashboardOnly.presentation.automaticOnboardingDismissed).toBe(false);
+    expect(afterDashboardOnly.presentation.shouldAutoLaunch).toBe(true);
+    expect(afterDashboardOnly.setup.status).toBe("completed");
+    expect(new Date(afterDashboardOnly.progress.completedAt!).toISOString()).toBe(
+      new Date(completedAt).toISOString(),
+    );
+    expect(
+      resolveStaffPostAuthPath({
+        canManageSetup: true,
+        setupStatus: afterDashboardOnly.setup.status,
+        automaticOnboardingDismissed: false,
+      }),
+    ).toBe(ONBOARDING_WELCOME_PATH);
+
+    const dismiss = await app.request("/api/v1/onboarding/preference", {
+      method: "PATCH",
+      headers: jsonHeaders(token, school.orgId),
+      body: JSON.stringify({ dismissAutomatic: true }),
+    });
+    expect(dismiss.status).toBe(200);
+    expect(await readCompletedAt(pools.owner, school.orgId)).toBe(new Date(completedAt).toISOString());
+
+    const afterDismiss = (await (
+      await app.request("/api/v1/onboarding", { headers: jsonHeaders(token, school.orgId) })
+    ).json()) as OnboardingBody;
+    expect(afterDismiss.presentation.automaticOnboardingDismissed).toBe(true);
+    expect(afterDismiss.presentation.shouldAutoLaunch).toBe(false);
+    expect(afterDismiss.presentation.showDashboardCard).toBe(false);
+    expect(afterDismiss.setup.status).toBe("completed");
+    expect(new Date(afterDismiss.progress.completedAt!).toISOString()).toBe(new Date(completedAt).toISOString());
+    expect(setupSidebarBadge({
+      status: afterDismiss.setup.status,
+      percent: afterDismiss.setup.percent,
+      dismissed: true,
+    })).toEqual({
+      badge: null,
+      badgeTone: "subtle",
+      emphasis: false,
+    });
+    expect(
+      resolveStaffPostAuthPath({
+        canManageSetup: true,
+        setupStatus: afterDismiss.setup.status,
+        automaticOnboardingDismissed: true,
+      }),
+    ).toBe("/school");
+    expect(await readCompletedAt(pools.owner, school.orgId)).toBe(new Date(completedAt).toISOString());
+    const prefsAfterDismiss = await pools.owner.query(
+      `select automatic_onboarding_dismissed_at
+       from organisation_onboarding_preferences
+       where organisation_id = $1 and user_id = $2`,
+      [school.orgId, school.adminId],
+    );
+    expect(prefsAfterDismiss.rows).toHaveLength(1);
+    expect(prefsAfterDismiss.rows[0]?.automatic_onboarding_dismissed_at).toBeTruthy();
+  });
+
+  it("gives a new School Admin on a completed school the completed-school welcome once", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id, `Completed Campus ${id}`);
+    await seedExistingSchoolProgress(pools.owner, school.orgId, `Completed Campus ${id}`);
+    const completedAt = await markLegacySetupCompleted(pools.owner, school.orgId);
+
+    const newAdminId = await insertUser(pools.owner, {
+      email: `admin-new-${id}@example.com`,
+      password: "password-12x",
+      fullName: "New School Admin",
+      kind: "staff",
+    });
+    await addMembership(pools.owner, school.orgId, newAdminId, "school.admin");
+    await pools.owner.query(
+      "insert into staff_profiles (organisation_id, user_id, job_title) values ($1, $2, 'School Admin')",
+      [school.orgId, newAdminId],
+    );
+
+    const token = await login(app, `admin-new-${id}@example.com`, "password-12x");
+    const body = (await (
+      await app.request("/api/v1/onboarding", { headers: jsonHeaders(token, school.orgId) })
+    ).json()) as OnboardingBody;
+    expect(body.setup.status).toBe("completed");
+    expect(body.presentation.shouldAutoLaunch).toBe(true);
+    expect(body.presentation.showDashboardCard).toBe(false);
+    expect(body.presentation.automaticOnboardingDismissed).toBe(false);
+    const copy = onboardingWelcomeCopy({
+      schoolName: body.setup.schoolName,
+      status: body.setup.status,
+      completedCount: body.setup.completedCount,
+      totalSteps: body.setup.totalSteps,
+    });
+    expect(copy.title).toBe(`${body.setup.schoolName} is already set up.`);
+    expect(
+      resolveStaffPostAuthPath({
+        canManageSetup: true,
+        setupStatus: body.setup.status,
+        automaticOnboardingDismissed: false,
+      }),
+    ).toBe(ONBOARDING_WELCOME_PATH);
+    expect(await readCompletedAt(pools.owner, school.orgId)).toBe(new Date(completedAt).toISOString());
+  });
+
+  it("does not give a teacher the School Admin welcome on a completed school", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id, `Teacher Campus ${id}`);
+    await seedExistingSchoolProgress(pools.owner, school.orgId, `Teacher Campus ${id}`);
+    await markLegacySetupCompleted(pools.owner, school.orgId);
+    const teacherId = await insertUser(pools.owner, {
+      email: `teacher-done-${id}@example.com`,
+      password: "password-12x",
+      fullName: "Teacher",
+      kind: "staff",
+    });
+    await addMembership(pools.owner, school.orgId, teacherId, "school.teacher");
+    const teacherToken = await login(app, `teacher-done-${id}@example.com`, "password-12x");
+    const teacherView = (await (
+      await app.request("/api/v1/onboarding", { headers: jsonHeaders(teacherToken, school.orgId) })
+    ).json()) as OnboardingBody;
+    expect(teacherView.setup.status).toBe("completed");
+    expect(teacherView.presentation.shouldAutoLaunch).toBe(false);
+    expect(teacherView.presentation.showDashboardCard).toBe(false);
+    expect(
+      resolveStaffPostAuthPath({
+        canManageSetup: false,
+        setupStatus: teacherView.setup.status,
+        automaticOnboardingDismissed: false,
+      }),
+    ).toBe("/school");
+  });
+
+  it("preserves an explicit deep link on a completed school that has not dismissed welcome", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id, `Deep Link Campus ${id}`);
+    await seedExistingSchoolProgress(pools.owner, school.orgId, `Deep Link Campus ${id}`);
+    await markLegacySetupCompleted(pools.owner, school.orgId);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const body = (await (
+      await app.request("/api/v1/onboarding", { headers: jsonHeaders(token, school.orgId) })
+    ).json()) as OnboardingBody;
+    expect(body.setup.status).toBe("completed");
+    expect(body.presentation.shouldAutoLaunch).toBe(true);
+    expect(
+      resolveStaffPostAuthPath({
+        canManageSetup: true,
+        setupStatus: body.setup.status,
+        automaticOnboardingDismissed: false,
+        requestedNext: "/school/pupils/123",
+      }),
+    ).toBe("/school/pupils/123");
+    expect(
+      resolveStaffPostAuthPath({
+        canManageSetup: true,
+        setupStatus: body.setup.status,
+        automaticOnboardingDismissed: false,
+        requestedNext: "/invite?token=abc",
+      }),
+    ).toBe("/invite?token=abc");
   });
 
   it("does not let one School Admin change another admin's dismissal preference", async () => {

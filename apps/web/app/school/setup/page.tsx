@@ -1,8 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { ONBOARDING_STEPS, type OnboardingStep, captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
+import { useRouter, useSearchParams } from "next/navigation";
+import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import {
+  captureSubmitTarget,
+  mergeCompletedSteps,
+  parseSetupStep,
+  resetFormSafely,
+  seedYearGroupsMessage,
+  setupStepHref,
+  withSetupReturn,
+  type OnboardingStep,
+} from "@schoolapp/domain";
 import {
   Alert,
   Button,
@@ -15,7 +25,6 @@ import {
   PageHeader,
   Select,
   StatusBadge,
-  Textarea,
   WizardActions,
   WizardPanel,
   WizardProgress,
@@ -69,16 +78,26 @@ type Profile = {
   };
 };
 
+function stepIndex(key: OnboardingStep): number {
+  return STEP_META.findIndex((item) => item.key === key);
+}
+
 export default function SchoolSetupPage() {
   return (
     <RequirePermission anyOf={["onboarding.manage"]}>
-      <SchoolSetupWizard />
+      <Suspense fallback={<LoadingState label="Loading school setup…" />}>
+        <SchoolSetupWizard />
+      </Suspense>
     </RequirePermission>
   );
 }
 
 function SchoolSetupWizard() {
-  const [index, setIndex] = useState(0);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlStep = parseSetupStep(searchParams.get("step"));
+  const [index, setIndex] = useState(() => (urlStep ? Math.max(stepIndex(urlStep), 0) : 0));
+  const [completedSteps, setCompletedSteps] = useState<string[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [readiness, setReadiness] = useState<ReadinessItem[]>([]);
   const [ready, setReady] = useState(false);
@@ -86,25 +105,34 @@ function SchoolSetupWizard() {
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const loadSeq = useRef(0);
+  const loaded = useRef(false);
+  const lastPersisted = useRef<OnboardingStep | null>(null);
 
   const step = STEP_META[index]!.key;
 
-  async function persist(nextIndex = index, extras?: { markComplete?: boolean; markReady?: boolean }) {
+  async function persist(
+    nextIndex: number,
+    extras?: { markComplete?: boolean; markReady?: boolean; completeCurrent?: boolean },
+  ) {
+    const nextStep = STEP_META[nextIndex]?.key;
+    const payload: Record<string, unknown> = { currentStep: nextStep };
+    if (extras?.completeCurrent) {
+      payload.completedSteps = mergeCompletedSteps(completedSteps, STEP_META[index]!.key);
+    }
+    if (extras?.markComplete) payload.markComplete = true;
+    if (extras?.markReady) payload.markReady = true;
     await api("/api/v1/onboarding/progress", {
       method: "PATCH",
-      body: JSON.stringify({
-        currentStep: STEP_META[nextIndex]?.key,
-        completedSteps: STEP_META.slice(0, nextIndex + 1).map((item) => item.key),
-        ...extras,
-      }),
+      body: JSON.stringify(payload),
     });
+    lastPersisted.current = nextStep ?? null;
   }
 
   async function load(options?: { syncStep?: boolean }) {
     const seq = ++loadSeq.current;
     const [onboarding, body] = await Promise.all([
       api<{
-        progress: { currentStep: string };
+        progress: { currentStep: string; completedSteps: string[] };
         readiness: { ready: boolean; items: ReadinessItem[] };
       }>("/api/v1/onboarding"),
       api<{ profile: Profile }>("/api/v1/onboarding/profile"),
@@ -113,20 +141,43 @@ function SchoolSetupWizard() {
     setProfile(body.profile);
     setReadiness(onboarding.readiness.items);
     setReady(onboarding.readiness.ready);
-    if (options?.syncStep) {
+    setCompletedSteps(onboarding.progress.completedSteps ?? []);
+    if (options?.syncStep && !urlStep) {
       const found = STEP_META.findIndex((item) => item.key === onboarding.progress.currentStep);
-      if (found >= 0) setIndex(found);
+      if (found >= 0) {
+        setIndex(found);
+        router.replace(setupStepHref(STEP_META[found]!.key));
+      }
     }
+    loaded.current = true;
   }
 
   useEffect(() => {
     load({ syncStep: true })
       .catch((err: Error) => setError(userFacingError(err, "Could not load school setup.")))
       .finally(() => setLoading(false));
+    // Initial load only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!urlStep) return;
+    const found = stepIndex(urlStep);
+    if (found >= 0) setIndex(found);
+    if (!loaded.current || lastPersisted.current === urlStep) return;
+    void api("/api/v1/onboarding/progress", {
+      method: "PATCH",
+      body: JSON.stringify({ currentStep: urlStep }),
+    })
+      .then(() => {
+        lastPersisted.current = urlStep;
+      })
+      .catch((err: Error) => setError(userFacingError(err, "Could not update setup progress.")));
+  }, [urlStep]);
 
   async function saveLater() {
     setNotice("");
+    setError("");
     try {
       await persist(index);
       setNotice("Progress saved. You can return to this wizard at any time.");
@@ -135,11 +186,17 @@ function SchoolSetupWizard() {
     }
   }
 
-  async function go(next: number) {
+  async function go(next: number, completeCurrent = false) {
     setError("");
+    setNotice("");
     try {
-      await persist(next, next === STEP_META.length - 1 ? { markComplete: true, markReady: ready } : undefined);
+      await persist(next, {
+        completeCurrent,
+        markComplete: next === STEP_META.length - 1,
+        markReady: next === STEP_META.length - 1 ? ready : undefined,
+      });
       setIndex(next);
+      router.push(setupStepHref(STEP_META[next]!.key));
       await load();
     } catch (err) {
       setError(userFacingError(err, "Could not update setup progress."));
@@ -154,10 +211,15 @@ function SchoolSetupWizard() {
     <>
       <PageHeader
         title="School setup"
-        description="A resumable first-run wizard. Existing Academic Years, Year Groups, Classes, Subjects, Timetable and Portal pages remain the source of truth."
+        description="A resumable first-run wizard. Existing Academic Years, Year Groups, Classes, Subjects, Timetable and Portal pages remain the source of truth. Use the numbered steps to jump around, or save and continue later."
       />
-      <WizardProgress steps={STEP_META} currentIndex={index} />
-      {notice ? <Alert>{notice}</Alert> : null}
+      <WizardProgress
+        steps={STEP_META}
+        currentIndex={index}
+        completedKeys={completedSteps}
+        stepHref={(key) => setupStepHref(key as OnboardingStep)}
+      />
+      {notice ? <Alert tone="success">{notice}</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {step === "school_details" ? (
         <SchoolDetailsStep profile={profile} onSaved={load} />
@@ -174,7 +236,7 @@ function SchoolSetupWizard() {
       <WizardActions
         onBack={index > 0 ? () => void go(index - 1) : undefined}
         onSaveLater={saveLater}
-        onContinue={index < STEP_META.length - 1 ? () => void go(index + 1) : undefined}
+        onContinue={index < STEP_META.length - 1 ? () => void go(index + 1, true) : undefined}
         continueLabel={index === STEP_META.length - 2 ? "Review readiness" : "Continue"}
       />
     </>
@@ -183,9 +245,14 @@ function SchoolSetupWizard() {
 
 function SchoolDetailsStep({ profile, onSaved }: { profile: Profile; onSaved: () => Promise<void> }) {
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [saving, setSaving] = useState(false);
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    setSaving(true);
+    setError("");
+    setNotice("");
     try {
       await api("/api/v1/onboarding/profile", {
         method: "PATCH",
@@ -204,9 +271,12 @@ function SchoolDetailsStep({ profile, onSaved }: { profile: Profile; onSaved: ()
           postcode: form.get("postcode") || null,
         }),
       });
+      setNotice("School details saved.");
       await onSaved();
     } catch (err) {
       setError(userFacingError(err, "Could not save school details."));
+    } finally {
+      setSaving(false);
     }
   }
   return (
@@ -225,7 +295,8 @@ function SchoolDetailsStep({ profile, onSaved }: { profile: Profile; onSaved: ()
         <FormField label="City"><Input name="city" defaultValue={profile.city ?? ""} /></FormField>
         <FormField label="Postcode"><Input name="postcode" defaultValue={profile.postcode ?? ""} /></FormField>
         {error ? <Alert tone="danger">{error}</Alert> : null}
-        <div><Button type="submit">Save details</Button></div>
+        {notice ? <Alert tone="success">{notice}</Alert> : null}
+        <div><Button type="submit" disabled={saving}>{saving ? "Saving…" : "Save details"}</Button></div>
       </form>
     </WizardPanel>
   );
@@ -239,6 +310,7 @@ function BrandingStep({ profile, onSaved }: { profile: Profile; onSaved: () => P
       await onSaved();
     } catch (err) {
       setError(userFacingError(err, "Could not save school name."));
+      throw err;
     }
   }
   async function onSaveColours(input: {
@@ -251,6 +323,7 @@ function BrandingStep({ profile, onSaved }: { profile: Profile; onSaved: () => P
       await onSaved();
     } catch (err) {
       setError(userFacingError(err, "Could not save branding."));
+      throw err;
     }
   }
   async function upload(kind: "logo" | "hero", file: File) {
@@ -288,9 +361,14 @@ function BrandingStep({ profile, onSaved }: { profile: Profile; onSaved: () => P
 
 function AcademicYearStep() {
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [saving, setSaving] = useState(false);
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    setSaving(true);
+    setError("");
+    setNotice("");
     try {
       const year = await api<{ academicYear: { id: string } }>("/api/v1/academic-years", {
         method: "POST",
@@ -312,8 +390,11 @@ function AcademicYearStep() {
           }),
         });
       }
+      setNotice("Academic year created.");
     } catch (err) {
       setError(userFacingError(err, "Could not create the academic year. You can also use Academic setup."));
+    } finally {
+      setSaving(false);
     }
   }
   return (
@@ -326,25 +407,52 @@ function AcademicYearStep() {
         <FormField label="Term starts"><Input name="termStartsOn" type="date" /></FormField>
         <FormField label="Term ends"><Input name="termEndsOn" type="date" /></FormField>
         {error ? <Alert tone="danger">{error}</Alert> : null}
-        <div><Button type="submit">Create academic year</Button></div>
+        {notice ? <Alert tone="success">{notice}</Alert> : null}
+        <div><Button type="submit" disabled={saving}>{saving ? "Saving…" : "Create academic year"}</Button></div>
       </form>
-      <p className="muted"><Link href="/school/academic-years">Open Academic years</Link></p>
+      <p className="muted">
+        <Link href={withSetupReturn("/school/academic-years", "academic_year")}>Open Academic years</Link>
+      </p>
     </WizardPanel>
   );
 }
 
 function AcademicStructureStep() {
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+
+  async function seed() {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const body = await api<{ created: number }>("/api/v1/year-groups/seed", {
+        method: "POST",
+        body: "{}",
+      });
+      setNotice(seedYearGroupsMessage(body.created));
+    } catch (err) {
+      setError(userFacingError(err, "Could not seed standard year groups."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <WizardPanel title="Academic structure" description="Year groups, classes and subjects stay on their canonical pages.">
       <p>
-        <Button type="button" onClick={() => void api("/api/v1/year-groups/seed", { method: "POST", body: "{}" })}>
-          Seed standard year groups
+        <Button type="button" onClick={() => void seed()} disabled={busy}>
+          {busy ? "Seeding…" : "Seed standard year groups"}
         </Button>
       </p>
+      {notice ? <Alert tone="success">{notice}</Alert> : null}
+      {error ? <Alert tone="danger">{error}</Alert> : null}
       <ul>
-        <li><Link href="/school/year-groups">Year groups</Link></li>
-        <li><Link href="/school/classes">Classes / forms</Link></li>
-        <li><Link href="/school/subjects">Subjects</Link></li>
+        <li><Link href={withSetupReturn("/school/year-groups", "academic_structure")}>Year groups</Link></li>
+        <li><Link href={withSetupReturn("/school/classes", "academic_structure")}>Classes / forms</Link></li>
+        <li><Link href={withSetupReturn("/school/subjects", "academic_structure")}>Subjects</Link></li>
       </ul>
     </WizardPanel>
   );
@@ -354,7 +462,7 @@ function SchoolDayStep() {
   return (
     <WizardPanel title="School day" description="School-day profiles and periods live on the Timetable pages so this wizard does not duplicate that model.">
       <p>
-        <Link className="button" href="/school/timetable/school-day">
+        <Link className="button" href={withSetupReturn("/school/timetable/school-day", "school_day")}>
           Configure school day / periods
         </Link>
       </p>
@@ -364,10 +472,13 @@ function SchoolDayStep() {
 
 function RoomsStep() {
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formEl = captureSubmitTarget(event);
     const form = new FormData(formEl);
+    setError("");
+    setNotice("");
     try {
       await api("/api/v1/timetable/rooms", {
         method: "POST",
@@ -377,6 +488,7 @@ function RoomsStep() {
         }),
       });
       resetFormSafely(formEl);
+      setNotice("Room added.");
     } catch (err) {
       setError(userFacingError(err, "Could not create a room."));
     }
@@ -387,9 +499,12 @@ function RoomsStep() {
         <FormField label="Room name"><Input name="name" required /></FormField>
         <FormField label="Code"><Input name="code" /></FormField>
         {error ? <Alert tone="danger">{error}</Alert> : null}
+        {notice ? <Alert tone="success">{notice}</Alert> : null}
         <div><Button type="submit">Add room</Button></div>
       </form>
-      <p className="muted"><Link href="/school/timetable/rooms">Open rooms</Link></p>
+      <p className="muted">
+        <Link href={withSetupReturn("/school/timetable/rooms", "rooms")}>Open rooms</Link>
+      </p>
     </WizardPanel>
   );
 }
@@ -435,7 +550,11 @@ function StaffStep() {
         <div><Button type="submit">Invite staff</Button></div>
       </form>
       {token ? <InviteTokenAlert token={token} /> : null}
-      <p className="muted"><Link href="/school/staff">Open staff</Link> · <Link href="/school/imports">Bulk import</Link></p>
+      <p className="muted">
+        <Link href={withSetupReturn("/school/staff", "staff")}>Open staff</Link>
+        {" · "}
+        <Link href={withSetupReturn("/school/imports", "staff")}>Bulk import</Link>
+      </p>
     </WizardPanel>
   );
 }
@@ -444,8 +563,8 @@ function PupilsStep() {
   return (
     <WizardPanel title="Pupils" description="Add a pupil now, or import many records from CSV.">
       <p>
-        <Link className="button" href="/school/students">Add pupils</Link>{" "}
-        <Link className="button secondary" href="/school/imports">Import CSV</Link>
+        <Link className="button" href={withSetupReturn("/school/students", "pupils")}>Add pupils</Link>{" "}
+        <Link className="button secondary" href={withSetupReturn("/school/imports", "pupils")}>Import CSV</Link>
       </p>
     </WizardPanel>
   );
@@ -454,9 +573,11 @@ function PupilsStep() {
 function PortalsStep() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [saving, setSaving] = useState(false);
   async function enableStudentPortal() {
     setError("");
     setNotice("");
+    setSaving(true);
     try {
       await api("/api/v1/student-portal-policy", {
         method: "PATCH",
@@ -465,15 +586,25 @@ function PortalsStep() {
       setNotice("School-wide Student Portal default is now enabled.");
     } catch (err) {
       setError(userFacingError(err, "Could not update Student Portal policy."));
+    } finally {
+      setSaving(false);
     }
   }
   return (
     <WizardPanel title="Portal configuration" description="Parent Portal access stays off until you enable it on a guardianship. Student Portal uses the existing year/policy rules.">
       <p className="muted">Parent Portal: omitted or unchecked portal access remains false. Enable it from Parents / Guardians or a pupil record.</p>
-      <div><Button type="button" onClick={() => void enableStudentPortal()}>Enable school-wide Student Portal default</Button></div>
+      <div>
+        <Button type="button" onClick={() => void enableStudentPortal()} disabled={saving}>
+          {saving ? "Saving…" : "Enable school-wide Student Portal default"}
+        </Button>
+      </div>
       {notice ? <Alert tone="success">{notice}</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
-      <p className="muted"><Link href="/school/student-portal">Student Portal policy</Link> · <Link href="/school/parents">Parents</Link></p>
+      <p className="muted">
+        <Link href={withSetupReturn("/school/student-portal", "portals")}>Student Portal policy</Link>
+        {" · "}
+        <Link href={withSetupReturn("/school/parents", "portals")}>Parents</Link>
+      </p>
     </WizardPanel>
   );
 }
@@ -496,7 +627,7 @@ function CompletionStep({ items, ready }: { items: ReadinessItem[]; ready: boole
             </div>
             <div>
               <StatusBadge status={item.status} />{" "}
-              <Link href={item.href}>Fix</Link>
+              <Link href={item.href}>{item.complete ? "Review" : "Fix"}</Link>
             </div>
           </div>
         ))}

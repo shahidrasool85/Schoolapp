@@ -1175,8 +1175,19 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .login-page-stack {
   display: grid;
   justify-items: center;
-  gap: 1.15rem;
+  gap: 1.5rem;
   width: min(920px, 100%);
+}
+
+.login-platform-header {
+  width: 100%;
+  display: grid;
+  justify-items: center;
+  padding: 1.2rem 1.6rem 1.1rem;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow: var(--shadow-sm);
 }
 
 .login-platform-brand {
@@ -1188,9 +1199,9 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 }
 
 .login-platform-logo {
-  height: 6.75rem;
+  height: 8.5rem;
   width: auto;
-  max-width: min(16rem, 72vw);
+  max-width: min(22rem, 82vw);
   object-fit: contain;
 }
 
@@ -1476,11 +1487,15 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
     align-items: stretch;
   }
 
-  .login-page-stack { gap: 0.75rem; }
+  .login-page-stack { gap: 1.1rem; }
+
+  .login-platform-header {
+    padding: 0.85rem 1rem 0.75rem;
+  }
 
   .login-platform-logo {
-    height: 3.35rem;
-    max-width: min(11rem, 58vw);
+    height: 5rem;
+    max-width: min(16rem, 72vw);
   }
 
   .login-platform-copy { display: block; }
@@ -1704,6 +1719,27 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   font-size: 0.82rem;
 }
 
+.login-brand-preview-logo {
+  width: 2.4rem;
+  height: 2.4rem;
+  object-fit: contain;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.login-brand-preview-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0.55rem;
+  min-height: 1.7rem;
+  padding: 0.2rem 0.75rem;
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
 .branding-help {
   margin: 0;
   color: var(--muted);
@@ -1737,6 +1773,32 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 }
 .wizard-steps li.is-current { color: var(--ink); font-weight: 600; }
 .wizard-steps li.is-done { color: var(--ok); }
+.wizard-step-button,
+.wizard-step-static {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.15rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.wizard-step-static { cursor: default; }
+.wizard-step-button:hover {
+  color: var(--ink);
+  background: var(--accent-soft);
+}
+.wizard-step-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.wizard-steps li.is-current .wizard-step-button {
+  box-shadow: inset 0 -2px 0 var(--brand);
+}
 .wizard-step-index {
   display: inline-flex;
   width: 1.4rem;
@@ -1784,5 +1846,78 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 @media (max-width: 390px) {
   .wizard-step-label { display: none; }
   .wizard-steps li.is-current .wizard-step-label { display: inline; }
+}
+
+.colour-field {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.colour-swatch {
+  position: relative;
+  display: inline-flex;
+  width: 2.75rem;
+  height: 2.75rem;
+  flex: 0 0 2.75rem;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
+}
+
+.colour-swatch-face {
+  width: 100%;
+  height: 100%;
+}
+
+.colour-swatch input[type="color"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.colour-swatch input[type="color"]:focus-visible {
+  opacity: 1;
+}
+
+.colour-field input[type="text"],
+.colour-field input:not([type="color"]) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.setup-return-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.setup-return-link {
+  font-weight: 650;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 

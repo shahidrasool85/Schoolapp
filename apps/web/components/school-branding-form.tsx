@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useRef } from "react";
+import { FormEvent, useEffect, useId, useRef, useState } from "react";
+import { brandHexError, hexForColorInput, normalizeBrandHex } from "@schoolapp/domain";
 import { Alert, Button, FormField, Input } from "./ui";
 
 export type SchoolBrandingProfile = {
@@ -34,6 +35,29 @@ export function SchoolBrandingForm({
 }) {
   const logoInput = useRef<HTMLInputElement>(null);
   const heroInput = useRef<HTMLInputElement>(null);
+  const primaryPickerId = useId();
+  const accentPickerId = useId();
+  const [tagline, setTagline] = useState(profile.branding.tagline ?? "");
+  const [primary, setPrimary] = useState(profile.branding.primaryColor);
+  const [accent, setAccent] = useState(profile.branding.accentColor);
+  const [colourError, setColourError] = useState("");
+  const [colourNotice, setColourNotice] = useState("");
+  const [savingColours, setSavingColours] = useState(false);
+
+  useEffect(() => {
+    setTagline(profile.branding.tagline ?? "");
+    setPrimary(profile.branding.primaryColor);
+    setAccent(profile.branding.accentColor);
+  }, [profile.branding.tagline, profile.branding.primaryColor, profile.branding.accentColor]);
+
+  const primaryError = brandHexError(primary);
+  const accentError = brandHexError(accent);
+  const previewPrimary = normalizeBrandHex(primary) ?? profile.branding.primaryColor;
+  const previewAccent = normalizeBrandHex(accent) ?? profile.branding.accentColor;
+  const draftDirty =
+    tagline !== (profile.branding.tagline ?? "") ||
+    (normalizeBrandHex(primary) ?? primary) !== profile.branding.primaryColor ||
+    (normalizeBrandHex(accent) ?? accent) !== profile.branding.accentColor;
 
   async function saveIdentity(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -44,12 +68,29 @@ export function SchoolBrandingForm({
   async function saveColours(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!onSaveColours) return;
-    const form = new FormData(event.currentTarget);
-    await onSaveColours({
-      tagline: String(form.get("tagline") ?? "").trim() || null,
-      primaryColour: String(form.get("primaryColour") ?? ""),
-      accentColour: String(form.get("accentColour") ?? ""),
-    });
+    const nextPrimary = normalizeBrandHex(primary);
+    const nextAccent = normalizeBrandHex(accent);
+    const nextError = brandHexError(primary) ?? brandHexError(accent);
+    if (!nextPrimary || !nextAccent || nextError) {
+      setColourNotice("");
+      setColourError(nextError ?? "Enter valid colours before saving.");
+      return;
+    }
+    setSavingColours(true);
+    setColourError("");
+    setColourNotice("");
+    try {
+      await onSaveColours({
+        tagline: tagline.trim() || null,
+        primaryColour: nextPrimary,
+        accentColour: nextAccent,
+      });
+      setColourNotice("Colours saved.");
+    } catch (err) {
+      setColourError(err instanceof Error ? err.message : "Could not save branding.");
+    } finally {
+      setSavingColours(false);
+    }
   }
 
   return (
@@ -145,19 +186,31 @@ export function SchoolBrandingForm({
 
       <div className="branding-asset">
         <h3>Login preview</h3>
+        <p className="branding-help">
+          {draftDirty
+            ? "Preview of unsaved colour changes. Click Save colours to keep them."
+            : "Shows how the login panel uses the current logo, cover and colours."}
+        </p>
         <div
           className="login-brand-preview"
-          style={
-            profile.branding.heroImageUrl
-              ? { backgroundImage: `url("${profile.branding.heroImageUrl}")` }
-              : undefined
-          }
+          style={{
+            backgroundColor: previewPrimary,
+            backgroundImage: profile.branding.heroImageUrl
+              ? `linear-gradient(165deg, rgba(18, 44, 74, 0.55), rgba(10, 24, 42, 0.88)), url("${profile.branding.heroImageUrl}")`
+              : `linear-gradient(165deg, ${previewPrimary} 0%, #0a182a 100%)`,
+          }}
         >
           <div className="login-brand-preview-inner">
+            {profile.branding.logoUrl ? (
+              <img src={profile.branding.logoUrl} alt="" className="login-brand-preview-logo" />
+            ) : null}
             <span>School portal</span>
             <strong>{profile.name || "School name"}</strong>
             {profile.hostname ? <em>{profile.hostname}</em> : null}
-            <span>{profile.branding.tagline || "Welcome to your school portal."}</span>
+            <span>{tagline.trim() || "Welcome to your school portal."}</span>
+            <span className="login-brand-preview-cta" style={{ backgroundColor: previewAccent }}>
+              Sign in
+            </span>
           </div>
         </div>
       </div>
@@ -165,17 +218,74 @@ export function SchoolBrandingForm({
       {onSaveColours ? (
         <form className="form-grid" onSubmit={(event) => void saveColours(event)}>
           <FormField label="Tagline">
-            <Input name="tagline" defaultValue={profile.branding.tagline ?? ""} disabled={!canManage} />
+            <Input
+              name="tagline"
+              value={tagline}
+              onChange={(event) => setTagline(event.target.value)}
+              disabled={!canManage}
+            />
           </FormField>
-          <FormField label="Primary colour">
-            <Input name="primaryColour" defaultValue={profile.branding.primaryColor} disabled={!canManage} />
+          <FormField
+            label="Primary colour"
+            hint="Used for the login panel and school chrome."
+            error={primaryError ?? undefined}
+          >
+            <div className="colour-field">
+              <span className="colour-swatch">
+                <span className="colour-swatch-face" style={{ backgroundColor: previewPrimary }} />
+                <input
+                  id={primaryPickerId}
+                  type="color"
+                  aria-label="Choose primary colour"
+                  value={hexForColorInput(primary, profile.branding.primaryColor)}
+                  onChange={(event) => setPrimary(event.target.value.toUpperCase())}
+                  disabled={!canManage}
+                />
+              </span>
+              <Input
+                name="primaryColour"
+                value={primary}
+                onChange={(event) => setPrimary(event.target.value)}
+                disabled={!canManage}
+                spellCheck={false}
+                autoComplete="off"
+                aria-invalid={Boolean(primaryError)}
+              />
+            </div>
           </FormField>
-          <FormField label="Accent colour">
-            <Input name="accentColour" defaultValue={profile.branding.accentColor} disabled={!canManage} />
+          <FormField
+            label="Accent colour"
+            hint="Used for buttons and highlights."
+            error={accentError ?? undefined}
+          >
+            <div className="colour-field">
+              <span className="colour-swatch">
+                <span className="colour-swatch-face" style={{ backgroundColor: previewAccent }} />
+                <input
+                  id={accentPickerId}
+                  type="color"
+                  aria-label="Choose accent colour"
+                  value={hexForColorInput(accent, profile.branding.accentColor)}
+                  onChange={(event) => setAccent(event.target.value.toUpperCase())}
+                  disabled={!canManage}
+                />
+              </span>
+              <Input
+                name="accentColour"
+                value={accent}
+                onChange={(event) => setAccent(event.target.value)}
+                disabled={!canManage}
+                spellCheck={false}
+                autoComplete="off"
+                aria-invalid={Boolean(accentError)}
+              />
+            </div>
           </FormField>
+          {colourError ? <Alert tone="danger">{colourError}</Alert> : null}
+          {colourNotice ? <Alert tone="success">{colourNotice}</Alert> : null}
           <div>
-            <Button type="submit" disabled={!canManage}>
-              Save colours
+            <Button type="submit" disabled={!canManage || savingColours}>
+              {savingColours ? "Saving…" : "Save colours"}
             </Button>
           </div>
         </form>

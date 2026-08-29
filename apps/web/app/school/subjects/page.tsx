@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
 import { EmptyState } from "../../../components/ui";
+import { SetupReturnBanner } from "../../../components/setup-return-banner";
 import { api } from "../../../lib/api";
 
 type Subject = { id: string; key: string; name: string };
@@ -36,6 +37,7 @@ export default function SubjectsPage() {
 
   return (
     <>
+      <SetupReturnBanner />
       <h1>Subjects</h1>
       <form className="card form-grid" onSubmit={onSubmit}>
         <label>Name<input name="name" required placeholder="Mathematics" /></label>

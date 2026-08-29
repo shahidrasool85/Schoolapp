@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
 import { EmptyState } from "../../../components/ui";
+import { SetupReturnBanner } from "../../../components/setup-return-banner";
 import { api } from "../../../lib/api";
 
 type YearGroup = {
@@ -72,6 +73,7 @@ export default function YearGroupsPage() {
 
   return (
     <>
+      <SetupReturnBanner />
       <h1>Year groups</h1>
       <p className="muted">
         Reception through the school&apos;s configured maximum year (default Year 8, including 11+

@@ -29,7 +29,9 @@ export function LoginShell({
   return (
     <main className="login-page">
       <div className="login-page-stack">
-        <LuvLearnMark />
+        <header className="login-platform-header">
+          <LuvLearnMark />
+        </header>
         <section className="login-card" aria-label={title}>
           <aside className="login-brand-panel" style={brandPanelStyle(branding)}>
             <div className="login-brand-panel-inner">

@@ -14,6 +14,7 @@ import {
   Textarea,
 } from "../../../components/ui";
 import { RequirePermission } from "../../../components/require-permission";
+import { SetupReturnBanner } from "../../../components/setup-return-banner";
 import { api, downloadAuthenticated } from "../../../lib/api";
 import { userFacingError } from "../../../lib/errors";
 
@@ -102,8 +103,11 @@ function ImportsWorkspace() {
     }
   }
 
+  const dirty = Boolean(csv.trim()) || Boolean(preview);
+
   return (
     <>
+      <SetupReturnBanner dirty={dirty} afterSave={Boolean(report)} />
       <PageHeader
         title="Bulk import"
         description="Upload, preview, and confirm staff, pupil, or guardian CSVs. Duplicates are flagged, not merged. Admin roles cannot be imported."

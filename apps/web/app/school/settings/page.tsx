@@ -121,6 +121,7 @@ export default function SchoolSettingsPage() {
       await load();
     } catch (err) {
       setError(userFacingError(err, "Could not save school name."));
+      throw err;
     }
   }
 
@@ -139,6 +140,7 @@ export default function SchoolSettingsPage() {
       await load();
     } catch (err) {
       setError(userFacingError(err, "Could not save branding."));
+      throw err;
     }
   }
 

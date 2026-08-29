@@ -77,8 +77,13 @@ expect_page "/invite"
 expect_page "/platform"
 expect_page "/school"
 expect_page "/school/setup"
+expect_page "/school/setup?step=branding"
+expect_page "/school/setup?step=academic_structure"
+expect_page "/school/setup?step=school_day"
 expect_page "/school/settings"
 expect_page "/school/imports"
+expect_page "/school/imports?returnTo=%2Fschool%2Fsetup%3Fstep%3Dpupils"
+expect_page "/school/timetable/school-day?returnTo=%2Fschool%2Fsetup%3Fstep%3Dschool_day"
 expect_page "/school/students"
 expect_page "/school/staff"
 expect_page "/school/parents"
@@ -191,6 +196,10 @@ if ! grep -q "Platform sign in" /tmp/schoolapp-smoke-login.html; then
 fi
 if ! grep -q "luvlearn-logo.png" /tmp/schoolapp-smoke-login.html; then
   echo "/login HTML did not include the LuvLearn logo" >&2
+  exit 1
+fi
+if ! grep -q "login-platform-header" /tmp/schoolapp-smoke-login.html; then
+  echo "/login HTML did not include the LuvLearn brand header" >&2
   exit 1
 fi
 if ! grep -q "login-brand-title" /tmp/schoolapp-smoke-login.html; then

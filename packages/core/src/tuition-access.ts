@@ -19,6 +19,7 @@ import {
   applyDiscounts,
   applyMidPeriodPolicy,
   arrearsBucket,
+  asIsoDate,
   billingPeriodKey,
   daysOverdue,
   deriveInvoiceStatus,
@@ -453,9 +454,9 @@ function mapDiscountRule(row: Record<string, unknown>) {
     percentBps: row.percent_bps == null ? null : Number(row.percent_bps),
     amountMinor: row.amount_minor == null ? null : Number(row.amount_minor),
     stackingPriority: Number(row.stacking_priority),
-    exclusiveGroup: row.exclusive_group ?? null,
-    staffScope: row.staff_scope ?? null,
-    staffRoleKeys: row.staff_role_keys ?? [],
+    exclusiveGroup: row.exclusive_group ? String(row.exclusive_group) : null,
+    staffScope: row.staff_scope ? String(row.staff_scope) : null,
+    staffRoleKeys: Array.isArray(row.staff_role_keys) ? row.staff_role_keys.map(String) : [],
     appliesTo: row.applies_to,
     effectiveFrom: row.effective_from ?? null,
     effectiveUntil: row.effective_until ?? null,
@@ -1690,9 +1691,9 @@ function mapBillingRun(row: Record<string, unknown>) {
     academicYearId: row.academic_year_id,
     academicYearName: row.academic_year_name ?? null,
     billingFrequency: row.billing_frequency,
-    periodStart: row.period_start,
-    periodEnd: row.period_end,
-    dueOn: row.due_on,
+    periodStart: asIsoDate(row.period_start),
+    periodEnd: asIsoDate(row.period_end),
+    dueOn: asIsoDate(row.due_on),
     instalmentNumber: row.instalment_number == null ? null : Number(row.instalment_number),
     status: row.status,
     itemCount: Number(row.item_count),
@@ -1728,10 +1729,10 @@ function mapInvoice(row: Record<string, unknown>) {
     payerName: row.payer_name ?? null,
     academicYearId: row.academic_year_id ?? null,
     periodKey: row.period_key,
-    billingPeriodStart: row.billing_period_start,
-    billingPeriodEnd: row.billing_period_end,
-    invoiceDate: row.invoice_date,
-    dueDate: row.due_date,
+    billingPeriodStart: asIsoDate(row.billing_period_start),
+    billingPeriodEnd: asIsoDate(row.billing_period_end),
+    invoiceDate: asIsoDate(row.invoice_date),
+    dueDate: asIsoDate(row.due_date),
     status: row.status,
     currency: row.currency,
     subtotalMinor: Number(row.subtotal_minor),
@@ -1767,7 +1768,7 @@ export async function refreshInvoiceStatus(client: Client, organisationId: strin
     current: String(row.status) as SchoolInvoiceStatus,
     totalMinor: total,
     paidMinor: settled,
-    dueDate: String(row.due_date).slice(0, 10),
+    dueDate: asIsoDate(row.due_date),
     gracePeriodDays: settings.gracePeriodDays,
   });
   await client.query(
@@ -1862,7 +1863,7 @@ function mapInvoicePayment(row: Record<string, unknown>) {
     amountMinor: Number(row.amount_minor),
     currency: row.currency,
     method: row.method,
-    receivedOn: row.received_on,
+    receivedOn: asIsoDate(row.received_on),
     externalReference: row.external_reference ?? null,
     note: row.note ?? null,
     status: row.status,
@@ -2147,7 +2148,7 @@ export async function listArrears(client: Client, organisationId: string, bucket
   );
   return rows.rows
     .map((row) => {
-      const due = String(row.due_date).slice(0, 10);
+      const due = asIsoDate(row.due_date);
       const overdue = daysOverdue(due, today, settings.gracePeriodDays);
       return {
         ...mapInvoice(row as Record<string, unknown>),
@@ -2207,7 +2208,7 @@ export async function loadAccountStatement(
   }> = [];
   for (const invoice of invoices.rows) {
     entries.push({
-      date: String(invoice.invoice_date).slice(0, 10),
+      date: asIsoDate(invoice.invoice_date),
       kind: "invoice",
       reference: String(invoice.reference),
       debitMinor: Number(invoice.total_minor),
@@ -2216,7 +2217,7 @@ export async function loadAccountStatement(
   }
   for (const payment of payments.rows) {
     entries.push({
-      date: String(payment.received_on).slice(0, 10),
+      date: asIsoDate(payment.received_on),
       kind: "payment",
       reference: String(payment.reference),
       debitMinor: 0,
@@ -2225,7 +2226,7 @@ export async function loadAccountStatement(
   }
   for (const credit of credits.rows) {
     entries.push({
-      date: String(credit.created_at).slice(0, 10),
+      date: asIsoDate(credit.created_at),
       kind: String(credit.kind),
       reference: String(credit.reference),
       debitMinor: 0,

@@ -3,12 +3,12 @@ import { PERMISSIONS } from "@schoolapp/domain";
 import {
   AppError,
   assertPermission,
+  assertTuitionRead,
   canManageBillingRuns,
   canManageDiscounts,
   canManageFeeSchedules,
   canManageFinanceSettings,
   canManageInvoices,
-  canReadTuition,
   canRecordOffline,
   confirmBillingRun,
   createDiscountRule,
@@ -46,14 +46,10 @@ import { uuidRouteParam, withSchoolActor } from "../school-context";
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
-function requireTuitionRead(actor: { permissions: Set<string> }) {
-  if (!canReadTuition(actor as never)) throw new AppError(403, "forbidden", "Missing permission");
-}
-
 export function registerTuitionRoutes(app: SchoolappApi) {
   app.get("/finance/settings", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
-      requireTuitionRead(actor);
+      assertTuitionRead(actor);
       return c.json({ settings: await loadFinanceSettings(client, orgId) });
     }),
   );
@@ -97,7 +93,7 @@ export function registerTuitionRoutes(app: SchoolappApi) {
 
   app.get("/finance/fee-schedules", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
-      requireTuitionRead(actor);
+      assertTuitionRead(actor);
       return c.json({
         schedules: await listFeeSchedules(client, orgId, c.req.query("academicYearId") || undefined),
       });
@@ -172,7 +168,7 @@ export function registerTuitionRoutes(app: SchoolappApi) {
 
   app.get("/finance/discount-rules", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
-      requireTuitionRead(actor);
+      assertTuitionRead(actor);
       return c.json({ rules: await listDiscountRules(client, orgId) });
     }),
   );
@@ -251,7 +247,7 @@ export function registerTuitionRoutes(app: SchoolappApi) {
 
   app.get("/finance/staff-child-links", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
-      requireTuitionRead(actor);
+      assertTuitionRead(actor);
       return c.json({ links: await listStaffChildLinks(client, orgId) });
     }),
   );
@@ -296,7 +292,7 @@ export function registerTuitionRoutes(app: SchoolappApi) {
 
   app.get("/finance/pupils/:studentId", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
-      requireTuitionRead(actor);
+      assertTuitionRead(actor);
       return c.json(await loadPupilFeeProfile(client, orgId, uuidRouteParam(c, "studentId")));
     }),
   );
@@ -363,21 +359,21 @@ export function registerTuitionRoutes(app: SchoolappApi) {
 
   app.get("/finance/accounts", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
-      requireTuitionRead(actor);
+      assertTuitionRead(actor);
       return c.json({ accounts: await listBillingAccounts(client, orgId) });
     }),
   );
 
   app.get("/finance/accounts/:accountId", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
-      requireTuitionRead(actor);
+      assertTuitionRead(actor);
       return c.json(await loadBillingAccount(client, orgId, uuidRouteParam(c, "accountId")));
     }),
   );
 
   app.get("/finance/accounts/:accountId/statement", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
-      requireTuitionRead(actor);
+      assertTuitionRead(actor);
       const from = c.req.query("from") ?? "2000-01-01";
       const to = c.req.query("to") ?? new Date().toISOString().slice(0, 10);
       return c.json(await loadAccountStatement(client, orgId, uuidRouteParam(c, "accountId"), from, to));
@@ -386,7 +382,7 @@ export function registerTuitionRoutes(app: SchoolappApi) {
 
   app.get("/finance/invoices", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
-      requireTuitionRead(actor);
+      assertTuitionRead(actor);
       return c.json({
         invoices: await listInvoices(client, orgId, {
           status: c.req.query("status") || undefined,
@@ -399,7 +395,7 @@ export function registerTuitionRoutes(app: SchoolappApi) {
 
   app.get("/finance/invoices/:invoiceId", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
-      requireTuitionRead(actor);
+      assertTuitionRead(actor);
       return c.json(await loadInvoice(client, orgId, uuidRouteParam(c, "invoiceId")));
     }),
   );
@@ -495,7 +491,7 @@ export function registerTuitionRoutes(app: SchoolappApi) {
 
   app.get("/finance/billing-runs", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
-      requireTuitionRead(actor);
+      assertTuitionRead(actor);
       return c.json({ runs: await listBillingRuns(client, orgId) });
     }),
   );
@@ -523,7 +519,7 @@ export function registerTuitionRoutes(app: SchoolappApi) {
 
   app.get("/finance/billing-runs/:runId", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
-      requireTuitionRead(actor);
+      assertTuitionRead(actor);
       return c.json(await loadBillingRun(client, orgId, uuidRouteParam(c, "runId")));
     }),
   );
@@ -543,7 +539,7 @@ export function registerTuitionRoutes(app: SchoolappApi) {
 
   app.get("/finance/arrears", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
-      requireTuitionRead(actor);
+      assertTuitionRead(actor);
       return c.json({ items: await listArrears(client, orgId, c.req.query("bucket") || undefined) });
     }),
   );

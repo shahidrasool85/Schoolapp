@@ -355,11 +355,19 @@ export function daysOverdue(dueDate: string, today: string, gracePeriodDays = 0)
   return inclusiveDayCount(effectiveDue, today) - 1;
 }
 
-function parseIsoDate(value: string): Date {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    throw new Error("invalid_date");
+export function asIsoDate(value: unknown): string {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
   }
-  const date = new Date(`${value}T00:00:00Z`);
+  const text = String(value ?? "");
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match?.[1]) return match[1];
+  throw new Error("invalid_date");
+}
+
+function parseIsoDate(value: string): Date {
+  const iso = asIsoDate(value);
+  const date = new Date(`${iso}T00:00:00Z`);
   if (Number.isNaN(date.getTime())) throw new Error("invalid_date");
   return date;
 }

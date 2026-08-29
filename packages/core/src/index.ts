@@ -700,6 +700,7 @@ export {
   applyDiscounts,
   applyMidPeriodPolicy,
   arrearsBucket,
+  asIsoDate,
   billingPeriodKey,
   compareSiblings,
   deriveInvoiceStatus,

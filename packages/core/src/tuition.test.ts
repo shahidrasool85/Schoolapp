@@ -3,6 +3,7 @@ import {
   applyDiscounts,
   applyMidPeriodPolicy,
   arrearsBucket,
+  asIsoDate,
   billingPeriodKey,
   compareSiblings,
   daysOverdue,
@@ -92,7 +93,9 @@ describe("discount stacking", () => {
 
   it("E stack: sibling 10% and staff 25% both apply against original tuition", () => {
     const result = applyDiscounts(60000, [sibling10, staff25], "stack");
-    expect(result.applied.map((row) => row.calculatedMinor).sort()).toEqual([6000, 15000]);
+    expect(result.applied.map((row) => row.calculatedMinor).sort((left, right) => left - right)).toEqual([
+      6000, 15000,
+    ]);
     expect(result.netMinor).toBe(39000);
   });
 
@@ -220,6 +223,11 @@ describe("invoice status and arrears", () => {
     expect(billingPeriodKey("monthly", "2026-09-01", "2026-09-30")).toBe(
       "tuition:monthly:2026-09-01:2026-09-30",
     );
+  });
+
+  it("normalises driver Date values to ISO calendar dates", () => {
+    expect(asIsoDate(new Date("2026-09-15T00:00:00.000Z"))).toBe("2026-09-15");
+    expect(asIsoDate("2026-09-15T12:00:00.000Z")).toBe("2026-09-15");
   });
 });
 

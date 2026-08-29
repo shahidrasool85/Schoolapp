@@ -13,6 +13,8 @@ type Bundle = {
     status: string;
     dueDate: string;
     totalMinor: number;
+    paidMinor: number;
+    creditTotalMinor: number;
     outstandingMinor: number;
     currency: string;
     paymentInstructions: string | null;
@@ -46,7 +48,9 @@ export default function ParentInvoicePage() {
       />
       <p>
         <StatusBadge status={data.invoice.status} /> Total {formatMinor(data.invoice.totalMinor, data.invoice.currency)} ·
-        Outstanding {formatMinor(data.invoice.outstandingMinor, data.invoice.currency)}
+        Paid {formatMinor(data.invoice.paidMinor, data.invoice.currency)} · Credits{" "}
+        {formatMinor(data.invoice.creditTotalMinor, data.invoice.currency)} · Outstanding{" "}
+        {formatMinor(data.invoice.outstandingMinor, data.invoice.currency)}
       </p>
       <DataTable
         headers={

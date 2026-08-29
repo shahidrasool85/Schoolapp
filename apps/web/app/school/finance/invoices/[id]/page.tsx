@@ -29,6 +29,7 @@ type Bundle = {
     discountTotalMinor: number;
     totalMinor: number;
     paidMinor: number;
+    creditTotalMinor: number;
     outstandingMinor: number;
     paymentInstructions: string | null;
     deliveryState: string;
@@ -41,6 +42,7 @@ type Bundle = {
     amountMinor: number;
   }>;
   payments: Array<{ id: string; reference: string; amountMinor: number; method: string; status: string; receivedOn: string }>;
+  credits: Array<{ id: string; reference: string; amountMinor: number; kind: string; reason: string; status: string }>;
 };
 
 export default function InvoiceDetailPage() {
@@ -76,6 +78,26 @@ export default function InvoiceDetailPage() {
       await reload();
     } catch (err) {
       setError(userFacingError(err as Error, "Could not record the payment."));
+    }
+  }
+
+  async function credit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    try {
+      await api(`/api/v1/finance/invoices/${params.id}/credits`, {
+        method: "POST",
+        body: JSON.stringify({
+          amountMinor: poundsToMinor(String(form.get("amount") || "0")),
+          kind: form.get("kind"),
+          reason: form.get("reason"),
+        }),
+      });
+      setMessage("Credit applied. The invoice total is unchanged; outstanding is reduced.");
+      event.currentTarget.reset();
+      await reload();
+    } catch (err) {
+      setError(userFacingError(err as Error, "Could not apply the credit."));
     }
   }
 
@@ -118,8 +140,9 @@ export default function InvoiceDetailPage() {
       {message ? <Alert tone="success">{message}</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
       <p>
-        <StatusBadge status={invoice.status} /> Total {formatMinor(invoice.totalMinor, invoice.currency)} · Outstanding{" "}
-        {formatMinor(invoice.outstandingMinor, invoice.currency)}
+        <StatusBadge status={invoice.status} /> Total {formatMinor(invoice.totalMinor, invoice.currency)} · Paid{" "}
+        {formatMinor(invoice.paidMinor, invoice.currency)} · Credits {formatMinor(invoice.creditTotalMinor, invoice.currency)}{" "}
+        · Outstanding {formatMinor(invoice.outstandingMinor, invoice.currency)}
       </p>
       <SectionCard title="How this amount was calculated">
         <DataTable
@@ -170,6 +193,29 @@ export default function InvoiceDetailPage() {
           </form>
         </SectionCard>
       ) : null}
+      {invoice.status !== "void" && invoice.outstandingMinor > 0 ? (
+        <SectionCard title="Apply a credit">
+          <form className="stack" onSubmit={credit}>
+            <label>
+              Amount (£)
+              <input name="amount" required placeholder="50.00" />
+            </label>
+            <label>
+              Kind
+              <select name="kind" defaultValue="credit_note">
+                <option value="credit_note">Credit note</option>
+                <option value="adjustment">Adjustment</option>
+                <option value="account_credit">Account credit</option>
+              </select>
+            </label>
+            <label>
+              Reason
+              <input name="reason" required />
+            </label>
+            <button type="submit">Apply credit</button>
+          </form>
+        </SectionCard>
+      ) : null}
       <SectionCard title="Payments">
         {data.payments.length === 0 ? (
           <p className="muted">No payments recorded against this invoice.</p>
@@ -179,6 +225,20 @@ export default function InvoiceDetailPage() {
               <li key={payment.id}>
                 {payment.receivedOn} · {payment.reference} · {payment.method} · {formatMinor(payment.amountMinor, invoice.currency)}{" "}
                 <StatusBadge status={payment.status} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </SectionCard>
+      <SectionCard title="Credits">
+        {(data.credits ?? []).length === 0 ? (
+          <p className="muted">No credits applied to this invoice.</p>
+        ) : (
+          <ul className="plain-list">
+            {(data.credits ?? []).map((item) => (
+              <li key={item.id}>
+                {item.reference} · {item.kind} · {formatMinor(item.amountMinor, invoice.currency)} · {item.reason}{" "}
+                <StatusBadge status={item.status} />
               </li>
             ))}
           </ul>

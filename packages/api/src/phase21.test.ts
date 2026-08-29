@@ -131,6 +131,55 @@ async function siblingRule(app: ReturnType<typeof testApp>, hdrs: ReturnType<typ
   expect(res.status).toBe(201);
 }
 
+async function issueTuitionInvoice(
+  app: ReturnType<typeof testApp>,
+  hdrs: ReturnType<typeof jsonHeaders>,
+  input: { legalName: string; yearId: string; yearGroupId: string; periodStart: string; periodEnd: string; dueOn: string },
+) {
+  await enableTuition(app, hdrs);
+  const pupil = await createStudent(app, hdrs, {
+    legalName: input.legalName,
+    academicYearId: input.yearId,
+    yearGroupId: input.yearGroupId,
+  });
+  const schedule = await app.request("/api/v1/finance/fee-schedules", {
+    method: "POST",
+    headers: hdrs,
+    body: JSON.stringify({
+      name: "Monthly £600",
+      academicYearId: input.yearId,
+      amountMinor: 60000,
+      billingFrequency: "monthly",
+      effectiveFrom: "2026-01-01",
+    }),
+  });
+  expect(schedule.status).toBe(201);
+  const preview = await app.request("/api/v1/finance/billing-runs/preview", {
+    method: "POST",
+    headers: hdrs,
+    body: JSON.stringify({
+      academicYearId: input.yearId,
+      frequency: "monthly",
+      periodStart: input.periodStart,
+      periodEnd: input.periodEnd,
+      dueOn: input.dueOn,
+    }),
+  });
+  expect(preview.status).toBe(201);
+  const run = (await preview.json()) as { run: { id: string } };
+  const confirmed = await app.request(`/api/v1/finance/billing-runs/${run.run.id}/confirm`, {
+    method: "POST",
+    headers: hdrs,
+    body: "{}",
+  });
+  expect(confirmed.status).toBe(200);
+  const invoices = (await (await app.request("/api/v1/finance/invoices", { headers: hdrs })).json()) as {
+    invoices: Array<{ id: string; billingAccountId: string; totalMinor: number }>;
+  };
+  expect(invoices.invoices).toHaveLength(1);
+  return { pupilId: pupil.student.id, invoice: invoices.invoices[0]! };
+}
+
 describe("Phase 21 independent school fees", () => {
   const pools = testPools();
   const app = testApp(pools);
@@ -557,5 +606,326 @@ describe("Phase 21 independent school fees", () => {
     });
     expect([401, 403, 404]).toContain(platform.status);
     void platformId;
+  });
+
+  it("reduces outstanding by credit: £600 − £100 paid − £50 credit = £450", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = jsonHeaders(token, school.orgId);
+    const seeded = await seedYear(app, hdrs);
+    const issued = await issueTuitionInvoice(app, hdrs, {
+      legalName: "Credit Pupil",
+      yearId: seeded.yearId,
+      yearGroupId: seeded.year2Id,
+      periodStart: "2026-11-01",
+      periodEnd: "2026-11-30",
+      dueOn: "2026-11-14",
+    });
+    await app.request(`/api/v1/finance/invoices/${issued.invoice.id}/payments`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ amountMinor: 10000, method: "bank_transfer" }),
+    });
+    const credit = await app.request(`/api/v1/finance/invoices/${issued.invoice.id}/credits`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ kind: "credit_note", amountMinor: 5000, reason: "Concession" }),
+    });
+    expect(credit.status).toBe(201);
+    const detail = (await (
+      await app.request(`/api/v1/finance/invoices/${issued.invoice.id}`, { headers: hdrs })
+    ).json()) as {
+      invoice: {
+        totalMinor: number;
+        paidMinor: number;
+        creditTotalMinor: number;
+        outstandingMinor: number;
+        status: string;
+      };
+    };
+    expect(detail.invoice.totalMinor).toBe(60000);
+    expect(detail.invoice.paidMinor).toBe(10000);
+    expect(detail.invoice.creditTotalMinor).toBe(5000);
+    expect(detail.invoice.outstandingMinor).toBe(45000);
+    expect(detail.invoice.status).toBe("partially_paid");
+
+    const statement = (await (
+      await app.request(`/api/v1/finance/accounts/${issued.invoice.billingAccountId}/statement?from=2026-01-01&to=2026-12-31`, {
+        headers: hdrs,
+      })
+    ).json()) as { closingBalanceMinor: number };
+    expect(statement.closingBalanceMinor).toBe(45000);
+
+    const accounts = (await (await app.request("/api/v1/finance/accounts", { headers: hdrs })).json()) as {
+      accounts: Array<{ outstandingMinor: number }>;
+    };
+    expect(accounts.accounts[0]?.outstandingMinor).toBe(45000);
+
+    const tooMuch = await app.request(`/api/v1/finance/invoices/${issued.invoice.id}/credits`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ kind: "credit_note", amountMinor: 50000, reason: "Too large" }),
+    });
+    expect(tooMuch.status).toBe(409);
+    const afterReject = (await (
+      await app.request(`/api/v1/finance/invoices/${issued.invoice.id}`, { headers: hdrs })
+    ).json()) as { invoice: { totalMinor: number; outstandingMinor: number; creditTotalMinor: number } };
+    expect(afterReject.invoice.totalMinor).toBe(60000);
+    expect(afterReject.invoice.outstandingMinor).toBe(45000);
+    expect(afterReject.invoice.creditTotalMinor).toBe(5000);
+  });
+
+  it("reverses a partial payment and restores the unpaid balance", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = jsonHeaders(token, school.orgId);
+    const seeded = await seedYear(app, hdrs);
+    const issued = await issueTuitionInvoice(app, hdrs, {
+      legalName: "Reverse Pupil",
+      yearId: seeded.yearId,
+      yearGroupId: seeded.year2Id,
+      periodStart: "2026-10-01",
+      periodEnd: "2026-10-31",
+      dueOn: "2026-10-14",
+    });
+    const payment = await app.request(`/api/v1/finance/invoices/${issued.invoice.id}/payments`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ amountMinor: 30000, method: "cash" }),
+    });
+    expect(payment.status).toBe(201);
+    const created = (await payment.json()) as { payment: { id: string } };
+    const afterPay = (await (
+      await app.request(`/api/v1/finance/invoices/${issued.invoice.id}`, { headers: hdrs })
+    ).json()) as { invoice: { status: string; outstandingMinor: number } };
+    expect(afterPay.invoice.status).toBe("partially_paid");
+    expect(afterPay.invoice.outstandingMinor).toBe(30000);
+
+    const reversed = await app.request(`/api/v1/finance/invoice-payments/${created.payment.id}/reverse`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ reason: "Banked in error" }),
+    });
+    expect(reversed.status).toBe(200);
+    const afterReverse = (await (
+      await app.request(`/api/v1/finance/invoices/${issued.invoice.id}`, { headers: hdrs })
+    ).json()) as {
+      invoice: { status: string; outstandingMinor: number; paidMinor: number };
+      payments: Array<{ id: string; status: string }>;
+    };
+    expect(afterReverse.invoice.paidMinor).toBe(0);
+    expect(afterReverse.invoice.outstandingMinor).toBe(60000);
+    expect(afterReverse.invoice.status).toBe("issued");
+    expect(afterReverse.payments).toHaveLength(1);
+    expect(afterReverse.payments[0]?.status).toBe("reversed");
+    expect(afterReverse.payments[0]?.id).toBe(created.payment.id);
+  });
+
+  it("reverses a full payment so a paid invoice is unpaid again", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = jsonHeaders(token, school.orgId);
+    const seeded = await seedYear(app, hdrs);
+    const issued = await issueTuitionInvoice(app, hdrs, {
+      legalName: "Full Reverse Pupil",
+      yearId: seeded.yearId,
+      yearGroupId: seeded.year2Id,
+      periodStart: "2026-12-01",
+      periodEnd: "2026-12-31",
+      dueOn: "2026-12-14",
+    });
+    const payment = await app.request(`/api/v1/finance/invoices/${issued.invoice.id}/payments`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ amountMinor: 60000, method: "bank_transfer" }),
+    });
+    const created = (await payment.json()) as { payment: { id: string } };
+    const paid = (await (
+      await app.request(`/api/v1/finance/invoices/${issued.invoice.id}`, { headers: hdrs })
+    ).json()) as { invoice: { status: string; outstandingMinor: number } };
+    expect(paid.invoice.status).toBe("paid");
+    expect(paid.invoice.outstandingMinor).toBe(0);
+
+    await app.request(`/api/v1/finance/invoice-payments/${created.payment.id}/reverse`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ reason: "Returned funds" }),
+    });
+    const after = (await (
+      await app.request(`/api/v1/finance/invoices/${issued.invoice.id}`, { headers: hdrs })
+    ).json()) as { invoice: { status: string; outstandingMinor: number; paidMinor: number } };
+    expect(after.invoice.status).not.toBe("paid");
+    expect(after.invoice.status).toBe("issued");
+    expect(after.invoice.paidMinor).toBe(0);
+    expect(after.invoice.outstandingMinor).toBe(60000);
+  });
+
+  it("classifies overdue invoices and excludes paid or void past-due invoices", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = jsonHeaders(token, school.orgId);
+    const seeded = await seedYear(app, hdrs);
+
+    const unpaid = await issueTuitionInvoice(app, hdrs, {
+      legalName: "Unpaid Overdue",
+      yearId: seeded.yearId,
+      yearGroupId: seeded.year2Id,
+      periodStart: "2026-09-01",
+      periodEnd: "2026-09-30",
+      dueOn: "2026-08-01",
+    });
+    const unpaidDetail = (await (
+      await app.request(`/api/v1/finance/invoices/${unpaid.invoice.id}`, { headers: hdrs })
+    ).json()) as { invoice: { status: string; outstandingMinor: number } };
+    expect(unpaidDetail.invoice.status).toBe("overdue");
+    expect(unpaidDetail.invoice.outstandingMinor).toBe(60000);
+
+    const school2 = await createSchool(pools.owner, `${id}p`);
+    const token2 = await login(app, school2.adminEmail, "password-12x");
+    const hdrs2 = jsonHeaders(token2, school2.orgId);
+    const seeded2 = await seedYear(app, hdrs2);
+    const partial = await issueTuitionInvoice(app, hdrs2, {
+      legalName: "Partial Overdue",
+      yearId: seeded2.yearId,
+      yearGroupId: seeded2.year2Id,
+      periodStart: "2026-09-01",
+      periodEnd: "2026-09-30",
+      dueOn: "2026-08-01",
+    });
+    await app.request(`/api/v1/finance/invoices/${partial.invoice.id}/payments`, {
+      method: "POST",
+      headers: hdrs2,
+      body: JSON.stringify({ amountMinor: 10000, method: "cash" }),
+    });
+    const partialDetail = (await (
+      await app.request(`/api/v1/finance/invoices/${partial.invoice.id}`, { headers: hdrs2 })
+    ).json()) as { invoice: { status: string; outstandingMinor: number } };
+    expect(partialDetail.invoice.status).toBe("overdue");
+    expect(partialDetail.invoice.outstandingMinor).toBe(50000);
+
+    const school3 = await createSchool(pools.owner, `${id}f`);
+    const token3 = await login(app, school3.adminEmail, "password-12x");
+    const hdrs3 = jsonHeaders(token3, school3.orgId);
+    const seeded3 = await seedYear(app, hdrs3);
+    const paid = await issueTuitionInvoice(app, hdrs3, {
+      legalName: "Paid Past Due",
+      yearId: seeded3.yearId,
+      yearGroupId: seeded3.year2Id,
+      periodStart: "2026-09-01",
+      periodEnd: "2026-09-30",
+      dueOn: "2026-08-01",
+    });
+    await app.request(`/api/v1/finance/invoices/${paid.invoice.id}/payments`, {
+      method: "POST",
+      headers: hdrs3,
+      body: JSON.stringify({ amountMinor: 60000, method: "cash" }),
+    });
+    const paidDetail = (await (
+      await app.request(`/api/v1/finance/invoices/${paid.invoice.id}`, { headers: hdrs3 })
+    ).json()) as { invoice: { status: string; outstandingMinor: number } };
+    expect(paidDetail.invoice.status).toBe("paid");
+    expect(paidDetail.invoice.outstandingMinor).toBe(0);
+
+    const school4 = await createSchool(pools.owner, `${id}v`);
+    const token4 = await login(app, school4.adminEmail, "password-12x");
+    const hdrs4 = jsonHeaders(token4, school4.orgId);
+    const seeded4 = await seedYear(app, hdrs4);
+    const voided = await issueTuitionInvoice(app, hdrs4, {
+      legalName: "Void Past Due",
+      yearId: seeded4.yearId,
+      yearGroupId: seeded4.year2Id,
+      periodStart: "2026-09-01",
+      periodEnd: "2026-09-30",
+      dueOn: "2026-08-01",
+    });
+    const voidRes = await app.request(`/api/v1/finance/invoices/${voided.invoice.id}/void`, {
+      method: "POST",
+      headers: hdrs4,
+      body: JSON.stringify({ reason: "Cancelled place" }),
+    });
+    expect(voidRes.status).toBe(200);
+    const voidDetail = (await voidRes.json()) as { invoice: { status: string; outstandingMinor: number } };
+    expect(voidDetail.invoice.status).toBe("void");
+    expect(voidDetail.invoice.outstandingMinor).toBe(0);
+
+    const unpaidArrears = (await (await app.request("/api/v1/finance/arrears?bucket=overdue", { headers: hdrs })).json()) as {
+      items: Array<{ id: string }>;
+    };
+    expect(unpaidArrears.items.some((item) => item.id === unpaid.invoice.id)).toBe(true);
+    const partialArrears = (await (
+      await app.request("/api/v1/finance/arrears?bucket=overdue", { headers: hdrs2 })
+    ).json()) as { items: Array<{ id: string }> };
+    expect(partialArrears.items.some((item) => item.id === partial.invoice.id)).toBe(true);
+    const paidArrears = (await (await app.request("/api/v1/finance/arrears?bucket=overdue", { headers: hdrs3 })).json()) as {
+      items: Array<{ id: string }>;
+    };
+    expect(paidArrears.items.some((item) => item.id === paid.invoice.id)).toBe(false);
+    const voidArrears = (await (await app.request("/api/v1/finance/arrears?bucket=overdue", { headers: hdrs4 })).json()) as {
+      items: Array<{ id: string }>;
+    };
+    expect(voidArrears.items.some((item) => item.id === voided.invoice.id)).toBe(false);
+
+    const unpaidDash = (await (await app.request("/api/v1/finance/dashboard", { headers: hdrs })).json()) as {
+      overdueMinor: number;
+    };
+    const paidDash = (await (await app.request("/api/v1/finance/dashboard", { headers: hdrs3 })).json()) as {
+      overdueMinor: number;
+    };
+    const voidDash = (await (await app.request("/api/v1/finance/dashboard", { headers: hdrs4 })).json()) as {
+      overdueMinor: number;
+    };
+    expect(unpaidDash.overdueMinor).toBe(60000);
+    expect(paidDash.overdueMinor).toBe(0);
+    expect(voidDash.overdueMinor).toBe(0);
+  });
+
+  it("blocks rewriting issued invoice totals, lines, and period keys", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = jsonHeaders(token, school.orgId);
+    const seeded = await seedYear(app, hdrs);
+    const issued = await issueTuitionInvoice(app, hdrs, {
+      legalName: "Immutable Pupil",
+      yearId: seeded.yearId,
+      yearGroupId: seeded.year2Id,
+      periodStart: "2026-09-01",
+      periodEnd: "2026-09-30",
+      dueOn: "2026-09-14",
+    });
+    await expect(
+      pools.owner.query(`update school_invoices set total_minor = 1 where id = $1`, [issued.invoice.id]),
+    ).rejects.toThrow(/invoice_immutable/);
+    await expect(
+      pools.owner.query(`update school_invoices set subtotal_minor = 1 where id = $1`, [issued.invoice.id]),
+    ).rejects.toThrow(/invoice_immutable/);
+    await expect(
+      pools.owner.query(`update school_invoices set discount_total_minor = 1 where id = $1`, [issued.invoice.id]),
+    ).rejects.toThrow(/invoice_immutable/);
+    await expect(
+      pools.owner.query(`update school_invoices set period_key = 'rewritten' where id = $1`, [issued.invoice.id]),
+    ).rejects.toThrow(/invoice_immutable/);
+    await expect(
+      pools.owner.query(`update school_invoices set billing_period_start = '2025-01-01' where id = $1`, [
+        issued.invoice.id,
+      ]),
+    ).rejects.toThrow(/invoice_immutable/);
+    await expect(
+      pools.owner.query(`update school_invoices set billing_period_end = '2025-01-31' where id = $1`, [
+        issued.invoice.id,
+      ]),
+    ).rejects.toThrow(/invoice_immutable/);
+    await expect(
+      pools.owner.query(`update school_invoices set calculation_snapshot = '{"x":1}'::jsonb where id = $1`, [
+        issued.invoice.id,
+      ]),
+    ).rejects.toThrow(/invoice_immutable/);
+    await expect(
+      pools.owner.query(`update school_invoice_lines set amount_minor = 1 where invoice_id = $1`, [issued.invoice.id]),
+    ).rejects.toThrow(/invoice_lines_immutable/);
   });
 });

@@ -189,6 +189,53 @@ describe("invoice status and arrears", () => {
     expect(invoiceOutstandingMinor(60000, 60000)).toBe(0);
   });
 
+  it("reduces outstanding by payment and credit: £600 − £100 − £50 = £450", () => {
+    expect(invoiceOutstandingMinor(60000, 10000, 5000)).toBe(45000);
+    expect(
+      deriveInvoiceStatus({
+        current: "issued",
+        totalMinor: 60000,
+        paidMinor: 10000,
+        creditMinor: 5000,
+        dueDate: "2026-09-14",
+        gracePeriodDays: 0,
+        today: "2026-09-01",
+      }),
+    ).toBe("partially_paid");
+  });
+
+  it("never returns a negative outstanding balance", () => {
+    expect(invoiceOutstandingMinor(60000, 40000, 30000)).toBe(0);
+  });
+
+  it("does not treat a credit-only reduction as a partial payment", () => {
+    expect(
+      deriveInvoiceStatus({
+        current: "issued",
+        totalMinor: 60000,
+        paidMinor: 0,
+        creditMinor: 5000,
+        dueDate: "2026-09-14",
+        gracePeriodDays: 0,
+        today: "2026-09-01",
+      }),
+    ).toBe("issued");
+  });
+
+  it("returns an unpaid invoice to issued after a full payment is reversed", () => {
+    expect(
+      deriveInvoiceStatus({
+        current: "paid",
+        totalMinor: 60000,
+        paidMinor: 0,
+        creditMinor: 0,
+        dueDate: "2026-09-14",
+        gracePeriodDays: 0,
+        today: "2026-09-01",
+      }),
+    ).toBe("issued");
+  });
+
   it("marks overdue after grace", () => {
     expect(
       deriveInvoiceStatus({
@@ -210,6 +257,40 @@ describe("invoice status and arrears", () => {
         today: "2026-09-09",
       }),
     ).toBe("overdue");
+  });
+
+  it("marks a partially paid past-due invoice overdue, not paid or void", () => {
+    expect(
+      deriveInvoiceStatus({
+        current: "partially_paid",
+        totalMinor: 60000,
+        paidMinor: 10000,
+        creditMinor: 0,
+        dueDate: "2026-01-15",
+        gracePeriodDays: 0,
+        today: "2026-08-29",
+      }),
+    ).toBe("overdue");
+    expect(
+      deriveInvoiceStatus({
+        current: "paid",
+        totalMinor: 60000,
+        paidMinor: 60000,
+        dueDate: "2026-01-15",
+        gracePeriodDays: 0,
+        today: "2026-08-29",
+      }),
+    ).toBe("paid");
+    expect(
+      deriveInvoiceStatus({
+        current: "void",
+        totalMinor: 60000,
+        paidMinor: 0,
+        dueDate: "2026-01-15",
+        gracePeriodDays: 0,
+        today: "2026-08-29",
+      }),
+    ).toBe("void");
   });
 
   it("classifies arrears buckets", () => {

@@ -1607,17 +1607,25 @@ export async function confirmBillingRun(
       );
     }
     const total = subtotal - discounts;
+    const status = deriveInvoiceStatus({
+      current: "issued",
+      totalMinor: total,
+      paidMinor: 0,
+      creditMinor: 0,
+      dueDate: asIsoDate(run.rows[0].due_on),
+      gracePeriodDays: settings.gracePeriodDays,
+    });
     await client.query(
       `update school_invoices
           set subtotal_minor = $3,
               discount_total_minor = $4,
               total_minor = $5,
               outstanding_minor = $5,
-              status = 'issued',
+              status = $7,
               issued_by = $6,
               issued_at = now()
         where id = $1 and organisation_id = $2`,
-      [invoiceId, input.organisationId, subtotal, discounts, total, input.actorUserId],
+      [invoiceId, input.organisationId, subtotal, discounts, total, input.actorUserId, status],
     );
     await writeAudit(client, {
       organisationId: input.organisationId,
@@ -1762,12 +1770,12 @@ export async function refreshInvoiceStatus(client: Client, organisationId: strin
   const paid = Number(row.paid_minor);
   const credits = Number(row.credit_total_minor ?? 0);
   const total = Number(row.total_minor);
-  const settled = paid + credits;
-  const outstanding = invoiceOutstandingMinor(total, settled);
+  const outstanding = invoiceOutstandingMinor(total, paid, credits);
   const next = deriveInvoiceStatus({
     current: String(row.status) as SchoolInvoiceStatus,
     totalMinor: total,
-    paidMinor: settled,
+    paidMinor: paid,
+    creditMinor: credits,
     dueDate: asIsoDate(row.due_date),
     gracePeriodDays: settings.gracePeriodDays,
   });
@@ -1782,11 +1790,26 @@ export async function refreshInvoiceStatus(client: Client, organisationId: strin
   return row;
 }
 
+async function syncOverdueInvoiceStatuses(client: Client, organisationId: string) {
+  const settings = await loadFinanceSettings(client, organisationId);
+  const today = new Date().toISOString().slice(0, 10);
+  await client.query(
+    `update school_invoices
+        set status = 'overdue'
+      where organisation_id = $1
+        and status in ('issued', 'partially_paid')
+        and outstanding_minor > 0
+        and $2::date > (due_date + $3::int)`,
+    [organisationId, today, settings.gracePeriodDays],
+  );
+}
+
 export async function listInvoices(
   client: Client,
   organisationId: string,
   filters: { status?: string; billingAccountId?: string; studentId?: string } = {},
 ) {
+  await syncOverdueInvoiceStatuses(client, organisationId);
   const rows = await client.query(
     `select i.*, a.name as billing_account_name, u.full_name as payer_name
        from school_invoices i
@@ -2008,6 +2031,27 @@ export async function createInvoiceCredit(
   if (!isSchoolCreditKind(input.kind)) {
     throw new AppError(400, "validation_failed", "Invalid credit kind");
   }
+  if (input.invoiceId) {
+    const invoice = await refreshInvoiceStatus(client, input.organisationId, input.invoiceId);
+    if (String(invoice.billing_account_id) !== input.billingAccountId) {
+      throw new AppError(400, "validation_failed", "Credit must belong to the invoice family account");
+    }
+    if (["void", "draft"].includes(String(invoice.status))) {
+      throw new AppError(409, "invalid_status_transition", "This invoice cannot accept credits");
+    }
+    const outstanding = invoiceOutstandingMinor(
+      Number(invoice.total_minor),
+      Number(invoice.paid_minor),
+      Number(invoice.credit_total_minor ?? 0),
+    );
+    if (input.amountMinor > outstanding) {
+      throw new AppError(
+        409,
+        "credit_exceeds_outstanding",
+        "A credit cannot exceed the amount still outstanding on this invoice",
+      );
+    }
+  }
   const settings = await loadFinanceSettings(client, input.organisationId);
   const reference = await nextFinanceReference(client, input.organisationId, "credit");
   const created = await client.query(
@@ -2134,6 +2178,7 @@ export async function loadBillingAccount(client: Client, organisationId: string,
 
 export async function listArrears(client: Client, organisationId: string, bucket?: string) {
   const settings = await loadFinanceSettings(client, organisationId);
+  await syncOverdueInvoiceStatuses(client, organisationId);
   const today = new Date().toISOString().slice(0, 10);
   const rows = await client.query(
     `select i.*, a.name as billing_account_name, u.full_name as payer_name
@@ -2256,10 +2301,6 @@ export async function loadTuitionDashboard(client: Client, organisationId: strin
        coalesce(sum(total_minor) filter (where status <> 'void' and status <> 'draft'), 0)::text as invoiced,
        coalesce(sum(paid_minor) filter (where status <> 'void'), 0)::text as collected,
        coalesce(sum(outstanding_minor) filter (where status in ('issued', 'partially_paid', 'overdue')), 0)::text as outstanding,
-       coalesce(sum(outstanding_minor) filter (
-         where status = 'overdue'
-            or (status in ('issued', 'partially_paid') and due_date < current_date)
-       ), 0)::text as overdue,
        coalesce(sum(credit_total_minor) filter (where status <> 'void'), 0)::text as credits
      from school_invoices
      where organisation_id = $1`,
@@ -2290,7 +2331,7 @@ export async function loadTuitionDashboard(client: Client, organisationId: strin
     invoicedMinor: Number(invoiceTotals.rows[0]?.invoiced ?? 0),
     collectedMinor: Number(invoiceTotals.rows[0]?.collected ?? 0),
     outstandingMinor: Number(invoiceTotals.rows[0]?.outstanding ?? 0),
-    overdueMinor: Number(invoiceTotals.rows[0]?.overdue ?? 0),
+    overdueMinor: overdue.reduce((sum, item) => sum + item.outstandingMinor, 0),
     creditsMinor: Number(invoiceTotals.rows[0]?.credits ?? 0),
     currency: settings.currency,
     upcomingRuns: upcoming.rows.map((row) => mapBillingRun(row as Record<string, unknown>)),

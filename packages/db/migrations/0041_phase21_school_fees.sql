@@ -870,6 +870,8 @@ begin
        or old.subtotal_minor is distinct from new.subtotal_minor
        or old.discount_total_minor is distinct from new.discount_total_minor
        or old.period_key is distinct from new.period_key
+       or old.billing_period_start is distinct from new.billing_period_start
+       or old.billing_period_end is distinct from new.billing_period_end
        or old.billing_account_id is distinct from new.billing_account_id
        or old.currency is distinct from new.currency
        or old.calculation_snapshot is distinct from new.calculation_snapshot then

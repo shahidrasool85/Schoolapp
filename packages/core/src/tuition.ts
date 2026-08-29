@@ -310,23 +310,26 @@ export function deriveInvoiceStatus(input: {
   current: SchoolInvoiceStatus;
   totalMinor: number;
   paidMinor: number;
+  creditMinor?: number;
   dueDate: string;
   gracePeriodDays: number;
   today?: string;
 }): SchoolInvoiceStatus {
   if (input.current === "draft" || input.current === "void") return input.current;
-  const outstanding = invoiceOutstandingMinor(input.totalMinor, input.paidMinor);
+  const outstanding = invoiceOutstandingMinor(input.totalMinor, input.paidMinor, input.creditMinor ?? 0);
   if (outstanding <= 0) return "paid";
-  if (input.paidMinor > 0) return "partially_paid";
   const today = input.today ?? isoToday();
   if (isOverdue(input.dueDate, input.gracePeriodDays, today)) return "overdue";
+  if (input.paidMinor > 0) return "partially_paid";
   return "issued";
 }
 
-export function invoiceOutstandingMinor(totalMinor: number, paidMinor: number): number {
+export function invoiceOutstandingMinor(totalMinor: number, paidMinor: number, creditMinor = 0): number {
   if (!Number.isInteger(totalMinor) || totalMinor < 0) throw new Error("invalid_amount");
   if (!Number.isInteger(paidMinor) || paidMinor < 0) throw new Error("invalid_amount");
-  return paidMinor >= totalMinor ? 0 : totalMinor - paidMinor;
+  if (!Number.isInteger(creditMinor) || creditMinor < 0) throw new Error("invalid_amount");
+  const settled = paidMinor + creditMinor;
+  return settled >= totalMinor ? 0 : totalMinor - settled;
 }
 
 export function isOverdue(dueDate: string, gracePeriodDays: number, today: string): boolean {

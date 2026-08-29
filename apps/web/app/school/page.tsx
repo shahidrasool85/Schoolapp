@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { staffDashboardKind, staffPersonaLabel } from "@schoolapp/domain";
+import { SetupReminderCard } from "../../components/setup-reminder-card";
 import { EmptyState, LoadingState, PageError, PageHeader, SectionCard, StatCard, StatusBadge } from "../../components/ui";
+import type { SchoolOnboardingResponse } from "../../lib/onboarding";
 import { api } from "../../lib/api";
 import { optionalApi, userFacingError } from "../../lib/errors";
 import { formatMinor } from "../../lib/money";
@@ -95,6 +97,7 @@ export default function SchoolDashboardPage() {
   const [classes, setClasses] = useState<ClassRow[] | null>(null);
   const [error, setError] = useState("");
   const [setupReady, setSetupReady] = useState<boolean | null>(null);
+  const [setupOnboarding, setSetupOnboarding] = useState<SchoolOnboardingResponse | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -137,8 +140,11 @@ export default function SchoolDashboardPage() {
         setMessages(inbox?.conversations ?? null);
         setEvents(calendar?.events ?? null);
         setClasses(registerClasses?.classes ?? null);
-        const onboarding = await optionalApi<{ readiness: { ready: boolean } }>("/api/v1/onboarding");
-        if (!cancelled) setSetupReady(onboarding?.readiness.ready ?? null);
+        const onboarding = await optionalApi<SchoolOnboardingResponse>("/api/v1/onboarding");
+        if (!cancelled) {
+          setSetupOnboarding(onboarding);
+          setSetupReady(onboarding?.readiness.ready ?? null);
+        }
       } catch (err) {
         if (!cancelled) setError(userFacingError(err, "Could not load the dashboard."));
       }
@@ -362,7 +368,7 @@ export default function SchoolDashboardPage() {
           </>
         }
       />
-      {setupReady === false ? (
+      {setupOnboarding ? <SetupReminderCard data={setupOnboarding} /> : setupReady === false ? (
         <EmptyState
           title="Finish school setup"
           description="This school is not using demo data. Complete the setup wizard to add an academic year, classes, staff and pupils."

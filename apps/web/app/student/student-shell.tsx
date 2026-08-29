@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { ReactNode, Suspense, useEffect, useState } from "react";
+import { loginHrefForReturn } from "@schoolapp/domain";
 import { AppShell } from "../../components/app-shell";
 import { api, getOrgId, getToken, setOrgId, setToken } from "../../lib/api";
 import { resolveLoginBranding } from "../../lib/login-branding";
@@ -47,7 +48,7 @@ function StudentShellInner({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!getToken()) {
-      router.replace("/login");
+      router.replace(loginHrefForReturn(`${window.location.pathname}${window.location.search}`, "student"));
       return;
     }
     Promise.all([

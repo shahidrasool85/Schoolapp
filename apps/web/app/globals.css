@@ -394,6 +394,36 @@ input[type="radio"] {
   text-align: center;
 }
 
+.app-nav-link.is-setup-highlight {
+  background: rgba(43, 120, 201, 0.28);
+  box-shadow: inset 3px 0 0 #7eb6f0;
+}
+
+.app-nav-link.is-setup-highlight:hover,
+.app-nav-link.is-setup-highlight.active {
+  background: rgba(43, 120, 201, 0.4);
+}
+
+.setup-nav-badge {
+  margin-left: auto;
+  max-width: 6.5rem;
+  padding: 0.12rem 0.4rem;
+  border-radius: 999px;
+  background: #2b78c9;
+  color: white;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.setup-nav-badge.is-subtle {
+  background: rgba(255, 255, 255, 0.16);
+  color: #e8f0fa;
+}
+
 .app-sidebar-footer {
   margin-top: auto;
   padding: 1rem 0.45rem 0;
@@ -1846,6 +1876,118 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 @media (max-width: 390px) {
   .wizard-step-label { display: none; }
   .wizard-steps li.is-current .wizard-step-label { display: inline; }
+}
+
+.setup-welcome {
+  display: flex;
+  justify-content: center;
+  padding: 0.5rem 0 2.5rem;
+}
+
+.setup-welcome-card {
+  width: min(36rem, 100%);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: clamp(1.25rem, 4vw, 2.25rem);
+  box-shadow: var(--shadow-lg);
+}
+
+.setup-welcome-card h1 {
+  margin: 0.35rem 0 0.25rem;
+  font-size: clamp(1.6rem, 4vw, 2rem);
+  line-height: 1.2;
+}
+
+.setup-welcome-eyebrow {
+  margin: 1.1rem 0 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--brand);
+}
+
+.setup-welcome-title {
+  margin: 0 0 0.75rem;
+  font-size: clamp(1.15rem, 3vw, 1.4rem);
+  font-weight: 650;
+}
+
+.setup-welcome-progress {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 1rem 0 0;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  font-weight: 650;
+}
+
+.setup-welcome-percent {
+  color: var(--brand);
+}
+
+.setup-welcome-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.setup-welcome-actions .button {
+  min-height: 2.6rem;
+}
+
+.setup-welcome-dismiss {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.setup-reminder-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: 1.1rem 1.2rem;
+  border: 1px solid #b7d4f3;
+  border-radius: var(--radius-lg);
+  background: var(--accent-soft);
+}
+
+.setup-reminder-card h2 {
+  margin: 0.15rem 0 0.25rem;
+  font-size: 1.15rem;
+}
+
+.setup-reminder-eyebrow {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--brand);
+}
+
+@media (max-width: 720px) {
+  .setup-welcome-actions,
+  .setup-reminder-card,
+  .wizard-actions,
+  .wizard-actions-end {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .setup-welcome-actions .button,
+  .setup-reminder-card .button,
+  .wizard-actions .button {
+    width: 100%;
+    text-align: center;
+  }
 }
 
 .colour-field {

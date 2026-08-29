@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ReactNode, Suspense, useEffect, useState } from "react";
 import { AppShell } from "../../components/app-shell";
+import { loginHrefForReturn } from "@schoolapp/domain";
 import { api, getOrgId, getToken, setOrgId, setToken } from "../../lib/api";
 import { userFacingError } from "../../lib/errors";
 import { resolveLoginBranding } from "../../lib/login-branding";
@@ -16,6 +17,7 @@ import {
   staffPersonaLabel,
   type Membership,
 } from "../../lib/portal";
+import { setupSidebarBadge, type SchoolOnboardingResponse } from "../../lib/onboarding";
 import { visibleStaffNav } from "../../lib/staff-nav";
 import { loadPublicTenant, membershipForHost, switchSchoolLocation } from "../../lib/tenant";
 
@@ -32,10 +34,11 @@ function SchoolShellInner({ children }: { children: ReactNode }) {
   const [schoolName, setSchoolName] = useState("School");
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [unreadMessages, setUnreadMessages] = useState<number | null>(null);
+  const [setupNav, setSetupNav] = useState<ReturnType<typeof setupSidebarBadge> | null>(null);
 
   useEffect(() => {
     if (!getToken()) {
-      router.replace("/login");
+      router.replace(loginHrefForReturn(`${window.location.pathname}${window.location.search}`));
       return;
     }
     Promise.all([
@@ -95,9 +98,25 @@ function SchoolShellInner({ children }: { children: ReactNode }) {
         setPermissions(me.permissions ?? []);
         setSignedInName(me.user?.fullName ?? null);
         setReady(true);
-        return api<{ unreadCount: number }>("/api/v1/messages/unread-count")
-          .then((body) => setUnreadMessages(body.unreadCount))
-          .catch(() => setUnreadMessages(null));
+        const setupPromise = (me.permissions ?? []).includes("onboarding.manage")
+          ? api<SchoolOnboardingResponse>("/api/v1/onboarding")
+              .then((onboarding) =>
+                setSetupNav(
+                  setupSidebarBadge({
+                    status: onboarding.setup.status,
+                    percent: onboarding.setup.percent,
+                    dismissed: onboarding.presentation.automaticOnboardingDismissed,
+                  }),
+                ),
+              )
+              .catch(() => setSetupNav(null))
+          : Promise.resolve();
+        return Promise.all([
+          setupPromise,
+          api<{ unreadCount: number }>("/api/v1/messages/unread-count")
+            .then((body) => setUnreadMessages(body.unreadCount))
+            .catch(() => setUnreadMessages(null)),
+        ]);
       })
       .catch((err: Error) => {
         setError(userFacingError(err, "You do not have access to this school."));
@@ -127,11 +146,15 @@ function SchoolShellInner({ children }: { children: ReactNode }) {
   const personaLabel = staffPersonaLabel(current?.roleKeys ?? []);
   const sections = visibleStaffNav(permissions).map((section) => ({
     ...section,
-    items: section.items.map((item) =>
-      item.href === "/school/messages"
-        ? { ...item, count: unreadMessages && unreadMessages > 0 ? unreadMessages : null }
-        : item,
-    ),
+    items: section.items.map((item) => {
+      if (item.href === "/school/messages") {
+        return { ...item, count: unreadMessages && unreadMessages > 0 ? unreadMessages : null };
+      }
+      if (item.href === "/school/setup" && setupNav) {
+        return { ...item, ...setupNav };
+      }
+      return item;
+    }),
   }));
 
   return (

@@ -9,9 +9,12 @@ import {
   parseSetupStep,
   resetFormSafely,
   seedYearGroupsMessage,
+  setupProgressLabel,
+  setupStatusLabel,
   setupStepHref,
   withSetupReturn,
   type OnboardingStep,
+  type SetupStatus,
 } from "@schoolapp/domain";
 import {
   Alert,
@@ -101,6 +104,9 @@ function SchoolSetupWizard() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [readiness, setReadiness] = useState<ReadinessItem[]>([]);
   const [ready, setReady] = useState(false);
+  const [setupStatus, setSetupStatus] = useState<SetupStatus>("not_started");
+  const [setupSummary, setSetupSummary] = useState({ completedCount: 0, totalSteps: 10, percent: 0 });
+  const [satisfiedSteps, setSatisfiedSteps] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
@@ -134,6 +140,13 @@ function SchoolSetupWizard() {
       api<{
         progress: { currentStep: string; completedSteps: string[] };
         readiness: { ready: boolean; items: ReadinessItem[] };
+        setup: {
+          status: SetupStatus;
+          completedCount: number;
+          totalSteps: number;
+          percent: number;
+          satisfiedSteps: string[];
+        };
       }>("/api/v1/onboarding"),
       api<{ profile: Profile }>("/api/v1/onboarding/profile"),
     ]);
@@ -142,6 +155,15 @@ function SchoolSetupWizard() {
     setReadiness(onboarding.readiness.items);
     setReady(onboarding.readiness.ready);
     setCompletedSteps(onboarding.progress.completedSteps ?? []);
+    if (onboarding.setup) {
+      setSetupStatus(onboarding.setup.status);
+      setSetupSummary({
+        completedCount: onboarding.setup.completedCount,
+        totalSteps: onboarding.setup.totalSteps,
+        percent: onboarding.setup.percent,
+      });
+      setSatisfiedSteps(onboarding.setup.satisfiedSteps ?? []);
+    }
     if (options?.syncStep && !urlStep) {
       const found = STEP_META.findIndex((item) => item.key === onboarding.progress.currentStep);
       if (found >= 0) {
@@ -180,9 +202,20 @@ function SchoolSetupWizard() {
     setError("");
     try {
       await persist(index);
-      setNotice("Progress saved. You can return to this wizard at any time.");
+      router.push("/school");
     } catch (err) {
       setError(userFacingError(err, "Could not save progress."));
+    }
+  }
+
+  async function finishSetup() {
+    setNotice("");
+    setError("");
+    try {
+      await persist(index, { markComplete: true, markReady: true, completeCurrent: true });
+      router.push("/school");
+    } catch (err) {
+      setError(userFacingError(err, "Could not finish school setup."));
     }
   }
 
@@ -192,8 +225,6 @@ function SchoolSetupWizard() {
     try {
       await persist(next, {
         completeCurrent,
-        markComplete: next === STEP_META.length - 1,
-        markReady: next === STEP_META.length - 1 ? ready : undefined,
       });
       setIndex(next);
       router.push(setupStepHref(STEP_META[next]!.key));
@@ -211,12 +242,17 @@ function SchoolSetupWizard() {
     <>
       <PageHeader
         title="School setup"
-        description="A resumable first-run wizard. Existing Academic Years, Year Groups, Classes, Subjects, Timetable and Portal pages remain the source of truth. Use the numbered steps to jump around, or save and continue later."
+        description={`${setupProgressLabel(setupSummary)} · Setup status: ${setupStatusLabel(setupStatus)}`}
+        actions={
+          <Link className="button secondary" href="/school">
+            Go to dashboard
+          </Link>
+        }
       />
       <WizardProgress
         steps={STEP_META}
         currentIndex={index}
-        completedKeys={completedSteps}
+        completedKeys={satisfiedSteps.length > 0 ? satisfiedSteps : completedSteps}
         stepHref={(key) => setupStepHref(key as OnboardingStep)}
       />
       {notice ? <Alert tone="success">{notice}</Alert> : null}
@@ -232,7 +268,9 @@ function SchoolSetupWizard() {
       {step === "staff" ? <StaffStep /> : null}
       {step === "pupils" ? <PupilsStep /> : null}
       {step === "portals" ? <PortalsStep /> : null}
-      {step === "completion" ? <CompletionStep items={readiness} ready={ready} /> : null}
+      {step === "completion" ? (
+        <CompletionStep items={readiness} ready={ready} onFinish={() => void finishSetup()} />
+      ) : null}
       <WizardActions
         onBack={index > 0 ? () => void go(index - 1) : undefined}
         onSaveLater={saveLater}
@@ -609,14 +647,22 @@ function PortalsStep() {
   );
 }
 
-function CompletionStep({ items, ready }: { items: ReadinessItem[]; ready: boolean }) {
+function CompletionStep({
+  items,
+  ready,
+  onFinish,
+}: {
+  items: ReadinessItem[];
+  ready: boolean;
+  onFinish: () => void;
+}) {
   const tone = useMemo(() => (ready ? "success" : "warning"), [ready]);
   return (
-    <WizardPanel title={ready ? "School ready" : "Readiness checklist"} description="Optional items never block Admissions, Attendance or Teaching. Required items should be completed first.">
+    <WizardPanel title={ready ? "School ready" : "Readiness checklist"} description="Required foundation items must be complete before you can finish setup. Optional items never block the rest of the product.">
       <Alert tone={tone === "success" ? "success" : "warning"}>
         {ready
-          ? "Required setup is complete. You can start using Admissions, Attendance, Timetable and Teaching & Learning."
-          : "Some required setup still needs attention. The rest of the product stays available."}
+          ? "Required setup is complete. Finish setup when you are ready. You can still change any of these settings later."
+          : "Some required setup still needs attention. The rest of the product stays available — use Go to dashboard or Save and continue later at any time."}
       </Alert>
       <div className="readiness-list">
         {items.map((item) => (
@@ -631,6 +677,15 @@ function CompletionStep({ items, ready }: { items: ReadinessItem[]; ready: boole
             </div>
           </div>
         ))}
+      </div>
+      <p className="muted">
+        Setup is complete only when the required items above are done and you choose Finish setup.
+        Visiting every screen is not enough.
+      </p>
+      <div>
+        <Button type="button" onClick={onFinish} disabled={!ready}>
+          Finish setup
+        </Button>
       </div>
     </WizardPanel>
   );

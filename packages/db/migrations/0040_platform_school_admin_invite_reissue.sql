@@ -192,12 +192,13 @@ begin
   ) into v_name;
 
   -- Same revoke + hashed token issuance as reissue_school_invitation.
-  update invitations
+  -- Qualify invitations columns: RETURNS TABLE exposes organisation_id as a variable.
+  update invitations i
      set revoked_at = now()
-   where organisation_id = p_organisation_id
-     and email = v_email
-     and accepted_at is null
-     and revoked_at is null;
+   where i.organisation_id = p_organisation_id
+     and i.email = v_email
+     and i.accepted_at is null
+     and i.revoked_at is null;
 
   v_token := encode(gen_random_bytes(32), 'hex');
   v_expires := now() + interval '14 days';

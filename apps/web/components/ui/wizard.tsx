@@ -21,7 +21,7 @@ export function WizardProgress({
       <ol className="wizard-steps">
         {steps.map((step, index) => {
           const current = index === currentIndex;
-          const done = !current && (completed.has(step.key) || index < currentIndex);
+          const done = !current && completed.has(step.key);
           const href = stepHref?.(step.key);
           const className = current ? "is-current" : done ? "is-done" : "";
           const label = (

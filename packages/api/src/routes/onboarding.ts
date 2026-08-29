@@ -14,6 +14,7 @@ import {
   assertPermission,
   evaluateReadiness,
   isIsoCurrency,
+  presentSchoolOnboarding,
   pgErrorToAppError,
   writeAudit,
 } from "@schoolapp/core";
@@ -61,6 +62,10 @@ const progressSchema = z.object({
   markReady: z.boolean().optional(),
 });
 
+const preferenceSchema = z.object({
+  dismissAutomatic: z.literal(true),
+});
+
 function publicBrandingUrls(
   hasLogo: boolean,
   hasHero: boolean,
@@ -99,18 +104,22 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
       const counts = await loadReadinessCounts(client, orgId);
       const readiness = evaluateReadiness(counts);
       const row = progress.rows[0];
-      return c.json({
-        progress: {
+      const dismissed = await loadAutomaticOnboardingDismissed(client, orgId, actor.userId);
+      return c.json(
+        presentSchoolOnboarding({
+          schoolName: counts.schoolName,
           currentStep: row?.current_step ?? "school_details",
           completedSteps: row?.completed_steps ?? [],
           completedAt: row?.completed_at ?? null,
           readyMarkedAt: row?.ready_marked_at ?? null,
-        },
-        readiness: {
-          ready: readiness.ready,
-          items: readiness.items,
-        },
-      });
+          readiness: {
+            ready: readiness.ready,
+            items: readiness.items,
+          },
+          automaticOnboardingDismissed: dismissed,
+          canManageSetup: actor.permissions.has(PERMISSIONS.ONBOARDING_MANAGE),
+        }),
+      );
     }),
   );
 
@@ -120,6 +129,16 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
       const parsed = progressSchema.safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid onboarding payload");
       const completed = (parsed.data.completedSteps ?? []).filter(isOnboardingStep);
+      if (parsed.data.markComplete === true) {
+        const readiness = evaluateReadiness(await loadReadinessCounts(client, orgId));
+        if (!readiness.ready) {
+          throw new AppError(
+            400,
+            "setup_not_ready",
+            "Required setup is not complete yet. You can keep using the school and finish later.",
+          );
+        }
+      }
       await client.query(
         `insert into organisation_setup_progress (organisation_id, current_step, completed_steps, updated_by)
          values ($1, $2, $3, $4)
@@ -154,6 +173,31 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
         after: parsed.data,
       });
       return c.json({ ok: true });
+    }),
+  );
+
+  app.patch("/onboarding/preference", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ONBOARDING_MANAGE);
+      const parsed = preferenceSchema.safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid onboarding preference");
+      await client.query(
+        `insert into organisation_onboarding_preferences (
+           organisation_id, user_id, automatic_onboarding_dismissed_at
+         ) values ($1, $2, now())
+         on conflict (organisation_id, user_id) do update set
+           automatic_onboarding_dismissed_at = now()`,
+        [orgId, userId],
+      );
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "onboarding.automatic_dismissed",
+        entityType: "organisation_onboarding_preferences",
+        entityId: orgId,
+        after: { dismissedAutomatic: true },
+      });
+      return c.json({ ok: true, automaticOnboardingDismissed: true });
     }),
   );
 
@@ -466,6 +510,7 @@ async function loadReadinessCounts(
     [orgId],
   );
   return {
+    schoolName: String(row.name ?? "").trim(),
     hasName: Boolean(String(row.name ?? "").trim()),
     hasTimezone: Boolean(String(row.timezone ?? "").trim()),
     academicYears: await q("select count(*)::int as n from academic_years where organisation_id = $1"),
@@ -488,6 +533,20 @@ async function loadReadinessCounts(
     statutoryProfile: Boolean(statutory.rows[0]),
     hasBranding: Boolean(row.tagline || row.primary_colour || row.logo_object_id),
   };
+}
+
+async function loadAutomaticOnboardingDismissed(
+  client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }> },
+  orgId: string,
+  userId: string,
+): Promise<boolean> {
+  const result = await client.query(
+    `select automatic_onboarding_dismissed_at
+     from organisation_onboarding_preferences
+     where organisation_id = $1 and user_id = $2`,
+    [orgId, userId],
+  );
+  return Boolean(result.rows[0]?.automatic_onboarding_dismissed_at);
 }
 
 export { pgErrorToAppError };

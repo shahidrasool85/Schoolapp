@@ -1,9 +1,16 @@
 import {
   READINESS_ITEMS,
+  buildOnboardingPresentation,
+  evaluateSetupProgress,
   readinessStatus,
   schoolIsReady,
+  type OnboardingPresentation,
+  type OnboardingStep,
   type ReadinessItemKey,
   type ReadinessStatus,
+  type ReadinessTier,
+  type SetupProgressView,
+  type SetupStatus,
 } from "@schoolapp/domain";
 
 export type ReadinessCounts = {
@@ -30,6 +37,7 @@ export type ReadinessViewItem = {
   label: string;
   href: string;
   required: boolean;
+  tier: ReadinessTier;
   complete: boolean;
   status: ReadinessStatus;
 };
@@ -60,7 +68,7 @@ export function evaluateReadiness(counts: ReadinessCounts): {
     return {
       ...definition,
       complete,
-      status: readinessStatus(complete, definition.required),
+      status: readinessStatus(complete, definition.tier),
     };
   });
   return { items, ready: schoolIsReady(items) };
@@ -68,3 +76,55 @@ export function evaluateReadiness(counts: ReadinessCounts): {
 
 export const PASSWORD_RESET_NEUTRAL_MESSAGE =
   "If an account exists, reset instructions have been generated.";
+
+export type SchoolOnboardingView = {
+  schoolName: string;
+  progress: {
+    currentStep: OnboardingStep | string;
+    completedSteps: string[];
+    completedAt: string | null;
+    readyMarkedAt: string | null;
+  };
+  readiness: {
+    ready: boolean;
+    items: ReadinessViewItem[];
+  };
+  setup: SetupProgressView & { schoolName: string };
+  presentation: OnboardingPresentation;
+};
+
+export function presentSchoolOnboarding(input: {
+  schoolName: string;
+  currentStep: string;
+  completedSteps: string[];
+  completedAt: string | null;
+  readyMarkedAt: string | null;
+  readiness: { ready: boolean; items: ReadinessViewItem[] };
+  automaticOnboardingDismissed: boolean;
+  canManageSetup: boolean;
+}): SchoolOnboardingView {
+  const setup = evaluateSetupProgress({
+    currentStep: input.currentStep,
+    completedSteps: input.completedSteps,
+    completedAt: input.completedAt,
+    readinessItems: input.readiness.items,
+  });
+  return {
+    schoolName: input.schoolName,
+    progress: {
+      currentStep: input.currentStep,
+      completedSteps: input.completedSteps,
+      completedAt: input.completedAt,
+      readyMarkedAt: input.readyMarkedAt,
+    },
+    readiness: input.readiness,
+    setup: { ...setup, schoolName: input.schoolName },
+    presentation: buildOnboardingPresentation({
+      canManageSetup: input.canManageSetup,
+      setupStatus: setup.status,
+      automaticOnboardingDismissed: input.automaticOnboardingDismissed,
+    }),
+  };
+}
+
+export type { OnboardingPresentation, SetupProgressView, SetupStatus };

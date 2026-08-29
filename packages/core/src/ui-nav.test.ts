@@ -105,6 +105,8 @@ describe("statusTone", () => {
     expect(statusTone("waiting_list")).toBe("warning");
     expect(statusTone("archived")).toBe("neutral");
     expect(statusTone("open")).toBe("info");
+    expect(statusTone("recommended")).toBe("info");
+    expect(statusTone("optional")).toBe("info");
     expect(formatStatusLabel("under_review")).toBe("Under review");
   });
 });

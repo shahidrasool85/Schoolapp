@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
+import { captureSubmitTarget, loginHrefForReturn, resetFormSafely } from "@schoolapp/domain";
 import { useRouter } from "next/navigation";
 import { Alert, EmptyState, FormField, Input, InviteTokenAlert, LoadingState, PageError, PageHeader, SectionCard } from "../../components/ui";
 import { Button } from "../../components/ui/button";
@@ -42,7 +42,7 @@ export default function PlatformPage() {
 
   useEffect(() => {
     if (!getToken()) {
-      router.replace("/login");
+      router.replace(loginHrefForReturn(`${window.location.pathname}${window.location.search}`, "platform"));
       return;
     }
     Promise.all([

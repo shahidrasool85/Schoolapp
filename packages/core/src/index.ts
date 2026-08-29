@@ -842,9 +842,11 @@ export {
 
 export {
   evaluateReadiness,
+  presentSchoolOnboarding,
   PASSWORD_RESET_NEUTRAL_MESSAGE,
   type ReadinessCounts,
   type ReadinessViewItem,
+  type SchoolOnboardingView,
 } from "./onboarding.js";
 
 export {

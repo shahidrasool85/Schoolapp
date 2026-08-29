@@ -15,6 +15,9 @@ export type ShellNavLink = {
   exact?: boolean;
   children?: ShellNavLink[];
   count?: number | null;
+  badge?: string | null;
+  badgeTone?: "accent" | "subtle";
+  emphasis?: boolean;
 };
 
 export type ShellNavSection = {
@@ -140,10 +143,15 @@ export function AppShell({
                     <Link
                       key={link.href + link.label}
                       href={link.href}
-                      className={`app-nav-link${parentActive ? " active" : ""}`}
+                      className={`app-nav-link${parentActive ? " active" : ""}${link.emphasis ? " is-setup-highlight" : ""}`}
                     >
                       <NavIcon name={link.icon} />
                       <span>{link.label}</span>
+                      {link.badge ? (
+                        <span className={`setup-nav-badge${link.badgeTone === "subtle" ? " is-subtle" : ""}`}>
+                          {link.badge}
+                        </span>
+                      ) : null}
                       {link.count ? <span className="nav-count">{link.count}</span> : null}
                     </Link>
                   );

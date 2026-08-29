@@ -2,8 +2,10 @@
 
 import { FormEvent, useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
+import { PERMISSIONS, resolvePostAuthPath } from "@schoolapp/domain";
 import { api, setOrgId, setToken } from "../../lib/api";
 import { resolveLoginBranding, type PublicLoginBranding } from "../../lib/login-branding";
+import type { SchoolOnboardingResponse } from "../../lib/onboarding";
 import {
   hasParentRole,
   hasStaffRole,
@@ -27,6 +29,34 @@ const PERSONAS: Array<{
   { value: "parent", label: "Parent", Icon: ParentIcon },
   { value: "student", label: "Student", Icon: StudentIcon },
 ];
+
+async function staffDestinationAfterLogin(requestedNext: string | null): Promise<string> {
+  try {
+    const me = await api<{ permissions: string[] }>("/api/v1/me");
+    const canManageSetup = (me.permissions ?? []).includes(PERMISSIONS.ONBOARDING_MANAGE);
+    if (!canManageSetup) {
+      return resolvePostAuthPath({
+        portal: "staff",
+        canManageSetup: false,
+        requestedNext,
+      });
+    }
+    const onboarding = await api<SchoolOnboardingResponse>("/api/v1/onboarding");
+    return resolvePostAuthPath({
+      portal: "staff",
+      canManageSetup: true,
+      setupStatus: onboarding.setup.status,
+      automaticOnboardingDismissed: onboarding.presentation.automaticOnboardingDismissed,
+      requestedNext,
+    });
+  } catch {
+    return resolvePostAuthPath({
+      portal: "staff",
+      canManageSetup: false,
+      requestedNext,
+    });
+  }
+}
 
 function tenantBranding(tenant: PublicTenant | { kind: "unknown" } | null): PublicLoginBranding | null {
   if (tenant?.kind !== "school") return null;
@@ -55,6 +85,11 @@ export function LoginForm({ initialHostKind }: { initialHostKind: LoginHostKind 
       })
       .catch(() => setTenant({ kind: "unknown" }));
   }, []);
+
+  function requestedNext() {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("next");
+  }
 
   const awaitingSchoolTenant = initialHostKind === "school" && tenant === null;
   const unknownHost =
@@ -114,12 +149,28 @@ export function LoginForm({ initialHostKind }: { initialHostKind: LoginHostKind 
           return;
         }
         setOrgId(current.organisationId);
-        router.push(persona === "staff" ? "/school" : persona === "parent" ? "/parent" : "/student");
+        if (persona === "staff") {
+          router.push(await staffDestinationAfterLogin(requestedNext()));
+          return;
+        }
+        router.push(
+          resolvePostAuthPath({
+            portal: persona,
+            requestedNext: requestedNext(),
+          }),
+        );
         return;
       }
       if (me.isPlatformAdmin) {
         setOrgId(null);
-        router.push("/platform");
+        router.push(
+          resolvePostAuthPath({
+            portal: "platform",
+            isPlatformAdmin: true,
+            schoolHost: false,
+            requestedNext: requestedNext(),
+          }),
+        );
         return;
       }
       setError("Use your school address to sign in as staff, a parent or a student.");

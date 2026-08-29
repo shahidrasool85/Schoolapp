@@ -14,8 +14,8 @@ export type ResolvedLoginBranding = {
   heroImageUrl: string | null;
 };
 
-export const DEFAULT_LOGIN_PRIMARY = "#1e3a5f";
-export const DEFAULT_LOGIN_ACCENT = "#2b6cb0";
+export const DEFAULT_LOGIN_PRIMARY = "#122C4A";
+export const DEFAULT_LOGIN_ACCENT = "#2B78C9";
 
 /**
  * Display-only login branding. Tenant authority still comes from hostname

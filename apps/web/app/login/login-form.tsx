@@ -132,7 +132,7 @@ export function LoginForm({ initialHostKind }: { initialHostKind: LoginHostKind 
     organisationName: tenant?.kind === "school" ? tenant.organisation.name : null,
     hostname: tenant && "hostname" in tenant ? tenant.hostname : null,
     branding: tenantBranding(tenant),
-    fallbackName: schoolHost ? "School portal" : "Schoolapp",
+    fallbackName: schoolHost ? "School portal" : "LuvLearn",
   });
 
   if (awaitingSchoolTenant) {
@@ -158,7 +158,7 @@ export function LoginForm({ initialHostKind }: { initialHostKind: LoginHostKind 
       <LoginShell mode="platform" branding={branding}>
         <h2 className="login-heading">Platform sign in</h2>
         <p className="login-lede muted">
-          Schoolapp Platform Administration. Platform administrators sign in here. School staff,
+          LuvLearn Platform Administration. Platform administrators sign in here. School staff,
           parents and students use their school address.
         </p>
         <form onSubmit={onSubmit} className="login-form">

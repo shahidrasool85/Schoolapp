@@ -5,7 +5,7 @@ import {
   HEX_COLOR_PATTERN,
   ONBOARDING_STEPS,
   PERMISSIONS,
-  PUBLIC_BRANDING_PATHS,
+  publicBrandingAssetUrl,
   isOnboardingStep,
 } from "@schoolapp/domain";
 import {
@@ -30,7 +30,7 @@ import {
   storageOf,
   scannerOf,
 } from "../file-service";
-import { validateUpload } from "@schoolapp/storage";
+import { assertBrandingImageDimensions, validateUpload } from "@schoolapp/storage";
 
 const profileSchema = z.object({
   name: z.string().min(1).max(160).optional(),
@@ -61,10 +61,14 @@ const progressSchema = z.object({
   markReady: z.boolean().optional(),
 });
 
-function publicBrandingUrls(hasLogo: boolean, hasHero: boolean) {
+function publicBrandingUrls(
+  hasLogo: boolean,
+  hasHero: boolean,
+  versions?: { logo?: string | null; hero?: string | null },
+) {
   return {
-    logoUrl: hasLogo ? PUBLIC_BRANDING_PATHS.logo : null,
-    heroImageUrl: hasHero ? PUBLIC_BRANDING_PATHS.hero : null,
+    logoUrl: hasLogo ? publicBrandingAssetUrl("logo", versions?.logo) : null,
+    heroImageUrl: hasHero ? publicBrandingAssetUrl("hero", versions?.hero) : null,
   };
 }
 
@@ -301,6 +305,11 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
           bytes: uploaded.bytes,
           profile,
         });
+        assertBrandingImageDimensions({
+          bytes: uploaded.bytes,
+          kind: validated.kind,
+          purpose: kind,
+        });
       } catch (error) {
         throw storageErrorToAppError(error);
       }
@@ -343,6 +352,30 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
     }),
   );
 
+  app.delete("/onboarding/branding/:kind", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ORG_SETTINGS_MANAGE);
+      const kind = c.req.param("kind");
+      if (kind !== "logo" && kind !== "hero") {
+        throw new AppError(404, "not_found", "Not found");
+      }
+      const column = kind === "logo" ? "logo_object_id" : "hero_object_id";
+      await client.query(
+        `update organisation_settings set ${column} = null where organisation_id = $1`,
+        [orgId],
+      );
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "org.branding.removed",
+        entityType: "organisation",
+        entityId: orgId,
+        after: { kind },
+      });
+      return c.json({ ok: true, kind });
+    }),
+  );
+
   app.get("/onboarding/mail", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertAnyPermission(actor, [PERMISSIONS.ONBOARDING_MANAGE, PERMISSIONS.ORG_SETTINGS_MANAGE]);
@@ -367,6 +400,12 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
       });
     }),
   );
+}
+
+function brandingVersionFromId(id: unknown): string | null {
+  if (typeof id !== "string" || !id) return null;
+  const compact = id.replace(/-/g, "");
+  return compact.slice(0, 16) || null;
 }
 
 function mapSchoolProfile(row: Record<string, unknown>) {
@@ -394,7 +433,10 @@ function mapSchoolProfile(row: Record<string, unknown>) {
       tagline: row.tagline,
       primaryColor: row.primary_colour ?? DEFAULT_BRAND_PRIMARY,
       accentColor: row.accent_colour ?? DEFAULT_BRAND_ACCENT,
-      ...publicBrandingUrls(hasLogo, hasHero),
+      ...publicBrandingUrls(hasLogo, hasHero, {
+        logo: brandingVersionFromId(row.logo_object_id),
+        hero: brandingVersionFromId(row.hero_object_id),
+      }),
     },
   };
 }

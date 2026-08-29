@@ -139,13 +139,25 @@ export function safeBrandColor(value: string | null | undefined, fallback: strin
   return fallback;
 }
 
-export const DEFAULT_BRAND_PRIMARY = "#1e3a5f";
-export const DEFAULT_BRAND_ACCENT = "#2b6cb0";
+export const DEFAULT_BRAND_PRIMARY = "#122C4A";
+export const DEFAULT_BRAND_ACCENT = "#2B78C9";
 
 export const PUBLIC_BRANDING_PATHS = {
   logo: "/api/v1/public/branding/logo",
   hero: "/api/v1/public/branding/hero",
 } as const;
+
+const BRANDING_VERSION_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+export function publicBrandingAssetUrl(
+  kind: "logo" | "hero",
+  version?: string | null,
+): string {
+  const base = kind === "logo" ? PUBLIC_BRANDING_PATHS.logo : PUBLIC_BRANDING_PATHS.hero;
+  const safe = version?.trim() ?? "";
+  if (!safe || !BRANDING_VERSION_RE.test(safe)) return base;
+  return `${base}?v=${safe}`;
+}
 
 export const FORGOT_PASSWORD_COPY =
   "If an account exists, reset instructions have been generated.";

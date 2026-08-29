@@ -88,14 +88,19 @@ export function brandPanelStyle(options: {
   primaryColor: string;
   heroImageUrl: string | null;
 }): CSSProperties {
-  const overlay = "linear-gradient(165deg, rgba(12, 22, 38, 0.78), rgba(12, 22, 38, 0.88))";
+  const navy = "#122C4A";
+  const overlay =
+    "linear-gradient(165deg, rgba(18, 44, 74, 0.82), rgba(10, 24, 42, 0.92))";
   if (options.heroImageUrl) {
     return {
-      ["--login-brand" as string]: options.primaryColor,
-      backgroundImage: `${overlay}, url("${options.heroImageUrl}")`,
+      ["--login-brand" as string]: navy,
+      ["--login-hero-image" as string]: `url("${options.heroImageUrl}")`,
+      backgroundColor: navy,
+      backgroundImage: `${overlay}, var(--login-hero-image)`,
     };
   }
   return {
-    ["--login-brand" as string]: options.primaryColor,
+    ["--login-brand" as string]: navy,
+    backgroundColor: navy,
   };
 }

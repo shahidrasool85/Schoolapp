@@ -57,8 +57,8 @@ function SchoolShellInner({ children }: { children: ReactNode }) {
           });
           setSchoolName(branding.organisationName);
           setLogoUrl(branding.logoUrl);
-          document.documentElement.style.setProperty("--brand", branding.primaryColor);
           document.documentElement.style.setProperty("--sidebar", branding.primaryColor);
+          document.documentElement.style.setProperty("--navy", branding.primaryColor);
           const current = membershipForHost(active, tenant);
           if (!current || !hasStaffRole(current.roleKeys)) {
             const fallback = current ? homePath(current.roleKeys) : "/login";

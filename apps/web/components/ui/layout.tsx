@@ -83,18 +83,20 @@ export function StatCard({
 }
 
 export function SectionCard({
+  id,
   title,
   description,
   actions,
   children,
 }: {
+  id?: string;
   title?: string;
   description?: string;
   actions?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <section className="section-card">
+    <section id={id} className="section-card">
       {title || actions ? (
         <div className="toolbar" style={{ marginBottom: "0.75rem" }}>
           <div>

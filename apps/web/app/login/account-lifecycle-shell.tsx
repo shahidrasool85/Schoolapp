@@ -20,7 +20,7 @@ export function AccountLifecycleShell({
     organisationName: tenant?.kind === "school" ? tenant.organisation.name : null,
     hostname: tenant && "hostname" in tenant ? tenant.hostname : null,
     branding: tenant?.kind === "school" ? (tenant.organisation.branding as PublicLoginBranding | null) : null,
-    fallbackName: mode === "platform" ? "Schoolapp" : "School portal",
+    fallbackName: mode === "platform" ? "LuvLearn" : "School portal",
   });
 
   if (mode === "loading") {

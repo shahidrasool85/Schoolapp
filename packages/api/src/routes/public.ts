@@ -1,5 +1,5 @@
 import { AppError } from "@schoolapp/core";
-import { DEFAULT_BRAND_ACCENT, DEFAULT_BRAND_PRIMARY, PUBLIC_BRANDING_PATHS } from "@schoolapp/domain";
+import { DEFAULT_BRAND_ACCENT, DEFAULT_BRAND_PRIMARY, publicBrandingAssetUrl } from "@schoolapp/domain";
 import type { SchoolappApi } from "../types";
 import { publicTenantPayload } from "../tenant-resolver";
 import { storageErrorToAppError, storageOf } from "../file-service";
@@ -18,6 +18,8 @@ export function registerPublicRoutes(app: SchoolappApi) {
       accent_colour: string | null;
       has_logo: boolean;
       has_hero: boolean;
+      logo_version: string | null;
+      hero_version: string | null;
     }>("select * from get_public_school_branding($1)", [payload.organisation.id]);
     const row = branding.rows[0];
     return c.json({
@@ -29,8 +31,8 @@ export function registerPublicRoutes(app: SchoolappApi) {
           tagline: row?.tagline ?? null,
           primaryColor: row?.primary_colour ?? DEFAULT_BRAND_PRIMARY,
           accentColor: row?.accent_colour ?? DEFAULT_BRAND_ACCENT,
-          logoUrl: row?.has_logo ? PUBLIC_BRANDING_PATHS.logo : null,
-          heroImageUrl: row?.has_hero ? PUBLIC_BRANDING_PATHS.hero : null,
+          logoUrl: row?.has_logo ? publicBrandingAssetUrl("logo", row.logo_version) : null,
+          heroImageUrl: row?.has_hero ? publicBrandingAssetUrl("hero", row.hero_version) : null,
         },
       },
     });
@@ -55,11 +57,14 @@ export function registerPublicRoutes(app: SchoolappApi) {
     try {
       const got = await storageOf(c).getObject(row.storage_key);
       if (!got) throw new AppError(404, "not_found", "Not found");
+      const version = (c.req.query("v") ?? "").replace(/[^A-Za-z0-9_-]/g, "");
+      const cacheControl = version ? "public, max-age=86400" : "public, max-age=300";
+      c.header("Cache-Control", cacheControl);
       return new Response(Buffer.from(got.body), {
         status: 200,
         headers: {
           "Content-Type": row.content_type,
-          "Cache-Control": "public, max-age=300",
+          "Cache-Control": cacheControl,
           "Content-Length": String(got.byteSize),
         },
       });

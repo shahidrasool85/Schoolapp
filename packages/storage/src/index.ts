@@ -47,6 +47,13 @@ export {
   downloadCacheControl,
   DEFAULT_FILE_MAX_BYTES,
 } from "./validation.js";
+export {
+  readRasterImageSize,
+  assertBrandingImageDimensions,
+  BRANDING_LIMITS,
+  type RasterImageSize,
+  type BrandingImagePurpose,
+} from "./image-size.js";
 export { FilesystemObjectStorage, defaultFilesystemRoot } from "./filesystem.js";
 export {
   S3CompatibleObjectStorage,

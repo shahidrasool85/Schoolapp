@@ -21,6 +21,7 @@ import {
   WizardProgress,
 } from "../../../components/ui";
 import { RequirePermission } from "../../../components/require-permission";
+import { SchoolBrandingForm } from "../../../components/school-branding-form";
 import { api } from "../../../lib/api";
 import { userFacingError } from "../../../lib/errors";
 
@@ -59,7 +60,13 @@ type Profile = {
   addressLine1: string | null;
   city: string | null;
   postcode: string | null;
-  branding: { tagline: string | null; primaryColor: string; accentColor: string };
+  branding: {
+    tagline: string | null;
+    primaryColor: string;
+    accentColor: string;
+    logoUrl: string | null;
+    heroImageUrl: string | null;
+  };
 };
 
 export default function SchoolSetupPage() {
@@ -226,25 +233,27 @@ function SchoolDetailsStep({ profile, onSaved }: { profile: Profile; onSaved: ()
 
 function BrandingStep({ profile, onSaved }: { profile: Profile; onSaved: () => Promise<void> }) {
   const [error, setError] = useState("");
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
+  async function onSaveIdentity(name: string) {
     try {
-      await api("/api/v1/onboarding/branding", {
-        method: "PATCH",
-        body: JSON.stringify({
-          tagline: form.get("tagline") || null,
-          primaryColour: form.get("primaryColour"),
-          accentColour: form.get("accentColour"),
-        }),
-      });
+      await api("/api/v1/onboarding/profile", { method: "PATCH", body: JSON.stringify({ name }) });
+      await onSaved();
+    } catch (err) {
+      setError(userFacingError(err, "Could not save school name."));
+    }
+  }
+  async function onSaveColours(input: {
+    tagline: string | null;
+    primaryColour: string;
+    accentColour: string;
+  }) {
+    try {
+      await api("/api/v1/onboarding/branding", { method: "PATCH", body: JSON.stringify(input) });
       await onSaved();
     } catch (err) {
       setError(userFacingError(err, "Could not save branding."));
     }
   }
-  async function upload(kind: "logo" | "hero", file: File | null) {
-    if (!file) return;
+  async function upload(kind: "logo" | "hero", file: File) {
     const data = new FormData();
     data.append("file", file);
     try {
@@ -254,21 +263,25 @@ function BrandingStep({ profile, onSaved }: { profile: Profile; onSaved: () => P
       setError(userFacingError(err, "Could not upload image."));
     }
   }
+  async function removeAsset(kind: "logo" | "hero") {
+    try {
+      await api(`/api/v1/onboarding/branding/${kind}`, { method: "DELETE" });
+      await onSaved();
+    } catch (err) {
+      setError(userFacingError(err, "Could not remove image."));
+    }
+  }
   return (
-    <WizardPanel title="Branding" description="Logo, colours and optional login hero. Public pages only receive display-safe fields.">
-      <form className="form-grid" onSubmit={onSubmit}>
-        <FormField label="Tagline"><Input name="tagline" defaultValue={profile.branding.tagline ?? ""} /></FormField>
-        <FormField label="Primary colour"><Input name="primaryColour" defaultValue={profile.branding.primaryColor} /></FormField>
-        <FormField label="Accent colour"><Input name="accentColour" defaultValue={profile.branding.accentColor} /></FormField>
-        <FormField label="Logo">
-          <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => void upload("logo", e.target.files?.[0] ?? null)} />
-        </FormField>
-        <FormField label="Login hero image">
-          <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => void upload("hero", e.target.files?.[0] ?? null)} />
-        </FormField>
-        {error ? <Alert tone="danger">{error}</Alert> : null}
-        <div><Button type="submit">Save branding</Button></div>
-      </form>
+    <WizardPanel title="Branding" description="Logo, colours and optional login cover. Public pages only receive display-safe fields.">
+      <SchoolBrandingForm
+        profile={profile}
+        canManage
+        error={error}
+        onSaveIdentity={onSaveIdentity}
+        onSaveColours={onSaveColours}
+        onUpload={upload}
+        onRemove={removeAsset}
+      />
     </WizardPanel>
   );
 }

@@ -327,6 +327,7 @@ export {
   MAIL_PURPOSES,
   ONBOARDING_STEPS,
   PUBLIC_BRANDING_PATHS,
+  publicBrandingAssetUrl,
   READINESS_ITEMS,
   READINESS_ITEM_KEYS,
   accountStatusLabel,

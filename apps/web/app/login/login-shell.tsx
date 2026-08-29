@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { LuvLearnMark } from "../../components/luvlearn-mark";
 import type { ResolvedLoginBranding } from "../../lib/login-branding";
 import { PlatformMarkIcon, SchoolMarkIcon, brandPanelStyle } from "./login-icons";
 
@@ -15,7 +16,7 @@ export function LoginShell({
 }) {
   const isPlatform = mode === "platform";
   const Mark = isPlatform ? PlatformMarkIcon : SchoolMarkIcon;
-  const eyebrow = isPlatform ? "Schoolapp" : "School portal";
+  const eyebrow = isPlatform ? "LuvLearn" : "School portal";
   const title = isPlatform ? "Platform Administration" : branding.organisationName;
   const subtitle =
     branding.tagline ??
@@ -27,41 +28,44 @@ export function LoginShell({
 
   return (
     <main className="login-page">
-      <section className="login-card" aria-label={title}>
-        <aside className="login-brand-panel" style={brandPanelStyle(branding)}>
-          <div className="login-brand-panel-inner">
-            <div className="login-brand-mark" aria-hidden="true">
-              {branding.logoUrl && !isPlatform ? (
-                <img src={branding.logoUrl} alt="" className="login-brand-logo" />
-              ) : (
-                <Mark className="login-brand-icon" />
-              )}
+      <div className="login-page-stack">
+        <LuvLearnMark />
+        <section className="login-card" aria-label={title}>
+          <aside className="login-brand-panel" style={brandPanelStyle(branding)}>
+            <div className="login-brand-panel-inner">
+              <div className="login-brand-mark" aria-hidden="true">
+                {branding.logoUrl && !isPlatform ? (
+                  <img src={branding.logoUrl} alt="" className="login-brand-logo" />
+                ) : (
+                  <Mark className="login-brand-icon" />
+                )}
+              </div>
+              <p className="login-brand-eyebrow">{eyebrow}</p>
+              <h1 className="login-brand-title">{title}</h1>
+              {branding.domainLabel && !isPlatform ? (
+                <p className="login-brand-domain">{branding.domainLabel}</p>
+              ) : null}
+              <p className="login-brand-tagline">{subtitle}</p>
             </div>
-            <p className="login-brand-eyebrow">{eyebrow}</p>
-            <h1 className="login-brand-title">{title}</h1>
-            {branding.domainLabel && !isPlatform ? (
-              <p className="login-brand-domain">{branding.domainLabel}</p>
-            ) : null}
-            <p className="login-brand-tagline">{subtitle}</p>
+          </aside>
+          <div className="login-form-panel">
+            <div className="login-brand-compact">
+              <div className="login-brand-mark compact" aria-hidden="true">
+                {branding.logoUrl && !isPlatform ? (
+                  <img src={branding.logoUrl} alt="" className="login-brand-logo" />
+                ) : (
+                  <Mark className="login-brand-icon" />
+                )}
+              </div>
+              <div>
+                <p className="login-compact-eyebrow">{eyebrow}</p>
+                <p className="login-compact-title">{title}</p>
+              </div>
+            </div>
+            {children}
           </div>
-        </aside>
-        <div className="login-form-panel">
-          <div className="login-brand-compact">
-            <div className="login-brand-mark compact" aria-hidden="true">
-              {branding.logoUrl && !isPlatform ? (
-                <img src={branding.logoUrl} alt="" className="login-brand-logo" />
-              ) : (
-                <Mark className="login-brand-icon" />
-              )}
-            </div>
-            <div>
-              <p className="login-compact-eyebrow">{eyebrow}</p>
-              <p className="login-compact-title">{title}</p>
-            </div>
-          </div>
-          {children}
-        </div>
-      </section>
+        </section>
+      </div>
     </main>
   );
 }

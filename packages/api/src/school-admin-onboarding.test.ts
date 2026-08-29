@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ONBOARDING_WELCOME_PATH, PERMISSIONS, resolveStaffPostAuthPath } from "@schoolapp/domain";
 import { closePools, withTenantContext } from "@schoolapp/db";
-import { addMembership, ensureMigrated, insertUser, login, testApp, testPools } from "./test-helpers";
+import { addMembership, ensureMigrated, insertUser, login, loginAlias, testApp, testPools } from "./test-helpers";
 
 const suffix = () => randomUUID().slice(0, 8);
 
@@ -310,6 +310,38 @@ describe("School Admin first-login onboarding", () => {
       kind: "student",
     });
     await addMembership(pools.owner, school.orgId, studentId, "school.student");
+    const studentProfile = await pools.owner.query<{ id: string }>(
+      `insert into student_profiles (organisation_id, user_id, legal_name)
+       values ($1, $2, 'Student One') returning id`,
+      [school.orgId, studentId],
+    );
+    const year = await pools.owner.query<{ id: string }>(
+      `insert into academic_years (organisation_id, name, starts_on, ends_on, is_current)
+       values ($1, '2026/27', current_date - 10, current_date + 200, true) returning id`,
+      [school.orgId],
+    );
+    const yearGroup = await pools.owner.query<{ id: string }>(
+      `insert into year_groups (organisation_id, code, name, key_stage, sort_order)
+       values ($1, '3', 'Year 3', 2, 3) returning id`,
+      [school.orgId],
+    );
+    await pools.owner.query(
+      `insert into student_enrolments (
+         organisation_id, student_profile_id, academic_year_id, year_group_id,
+         status, is_primary, placement_kind, started_on
+       ) values ($1, $2, $3, $4, 'enrolled', true, 'primary', current_date - 10)`,
+      [school.orgId, studentProfile.rows[0]!.id, year.rows[0]!.id, yearGroup.rows[0]!.id],
+    );
+    await pools.owner.query(
+      `insert into student_portal_policies (organisation_id, default_enabled)
+       values ($1, true)
+       on conflict (organisation_id) do update set default_enabled = true`,
+      [school.orgId],
+    );
+    await pools.owner.query(
+      "insert into user_login_aliases (organisation_id, user_id, alias) values ($1, $2, $3)",
+      [school.orgId, studentId, `stu.${id}`],
+    );
     await insertUser(pools.owner, {
       email: `platform-${id}@example.com`,
       password: "platform-pass-1",
@@ -320,7 +352,7 @@ describe("School Admin first-login onboarding", () => {
 
     const teacherToken = await login(app, `teacher-${id}@example.com`, "password-12x");
     const parentToken = await login(app, `parent-${id}@example.com`, "password-12x");
-    const studentToken = await login(app, `student-${id}@example.com`, "student-pass-1");
+    const studentToken = await loginAlias(app, school.slug, `stu.${id}`, "student-pass-1");
     const platformToken = await login(app, `platform-${id}@example.com`, "platform-pass-1");
 
     expect((await app.request("/api/v1/onboarding", { headers: jsonHeaders(teacherToken, school.orgId) })).status).toBe(403);

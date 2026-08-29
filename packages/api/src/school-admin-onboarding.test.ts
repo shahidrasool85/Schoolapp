@@ -355,11 +355,20 @@ describe("School Admin first-login onboarding", () => {
     const studentToken = await loginAlias(app, school.slug, `stu.${id}`, "student-pass-1");
     const platformToken = await login(app, `platform-${id}@example.com`, "platform-pass-1");
 
-    expect((await app.request("/api/v1/onboarding", { headers: jsonHeaders(teacherToken, school.orgId) })).status).toBe(403);
+    const teacherView = (await (
+      await app.request("/api/v1/onboarding", { headers: jsonHeaders(teacherToken, school.orgId) })
+    ).json()) as OnboardingBody;
+    expect(teacherView.presentation.shouldAutoLaunch).toBe(false);
+    expect(teacherView.presentation.showDashboardCard).toBe(false);
     expect((await app.request("/api/v1/onboarding/preference", {
       method: "PATCH",
       headers: jsonHeaders(teacherToken, school.orgId),
       body: JSON.stringify({ dismissAutomatic: true }),
+    })).status).toBe(403);
+    expect((await app.request("/api/v1/onboarding/progress", {
+      method: "PATCH",
+      headers: jsonHeaders(teacherToken, school.orgId),
+      body: JSON.stringify({ currentStep: "completion", markComplete: true }),
     })).status).toBe(403);
     expect((await app.request("/api/v1/onboarding", { headers: jsonHeaders(parentToken, school.orgId) })).status).toBe(403);
     expect((await app.request("/api/v1/onboarding", { headers: jsonHeaders(studentToken, school.orgId) })).status).toBe(403);

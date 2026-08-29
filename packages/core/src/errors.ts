@@ -72,6 +72,13 @@ export function pgErrorToAppError(error: unknown): AppError | null {
   if (message.includes("platform_admin_required")) {
     return new AppError(403, "forbidden", "Platform administrator required");
   }
+  if (message.includes("invitation_already_accepted")) {
+    return new AppError(
+      409,
+      "conflict",
+      "This School Admin invitation has already been accepted",
+    );
+  }
   if (message.includes("support_reason_required")) {
     return new AppError(400, "validation_failed", "A support access reason of at least 8 characters is required");
   }

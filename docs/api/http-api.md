@@ -68,11 +68,16 @@ Prefix `/api/v1/platform/...` — no school header.
 ```http
 GET  /api/v1/platform/organisations
 POST /api/v1/platform/organisations
+POST /api/v1/platform/organisations/{id}/school-admin-invitation/reissue
 POST /api/v1/platform/organisations/{id}/slug
 POST /api/v1/platform/organisations/{id}/suspend
 POST /api/v1/platform/organisation-hostnames/{id}/verify
 POST /api/v1/platform/organisation-hostnames/{id}/activate
 ```
+
+`GET /platform/organisations` includes `schoolAdmin` state (`invitationStatus`, `canReissue`, invited email/name, membership status). It never returns token hashes or reconstructs old tokens.
+
+`POST .../school-admin-invitation/reissue` is Platform Admin + platform host only. It revokes the outstanding School Admin invitation, issues a new hashed token, and returns the one-time `invitationToken` and school-host `invitationUrl` once. Accepted invitations cannot be reissued (`409 conflict`).
 
 ## School administration (Phase 1–2)
 

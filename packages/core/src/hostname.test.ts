@@ -12,6 +12,9 @@ import {
   loginHostKindFromRequest,
   parseHostHeader,
   publicHostKindFromClassification,
+  schoolInviteUrl,
+  schoolPublicHostname,
+  schoolPublicOrigin,
   selectRequestHost,
 } from "./index.js";
 
@@ -329,5 +332,21 @@ describe("hostname and membership bind", () => {
       false,
     );
     expect(headerMatchesHostSlug({ hostSlug: "greenwood", requestedSlug: "Greenwood" })).toBe(true);
+  });
+});
+
+describe("school invitation URL generation", () => {
+  it("builds the production school host invitation URL", () => {
+    expect(schoolPublicHostname("kingswood", "luvlearn.co.uk")).toBe("kingswood.luvlearn.co.uk");
+    expect(schoolPublicOrigin("kingswood", "luvlearn.co.uk")).toBe("https://kingswood.luvlearn.co.uk");
+    expect(schoolInviteUrl("kingswood", "luvlearn.co.uk", "abc123")).toBe(
+      "https://kingswood.luvlearn.co.uk/invite?token=abc123",
+    );
+  });
+
+  it("uses http and port 3000 on localhost and encodes the token", () => {
+    expect(schoolInviteUrl("kingswood", "localhost", "a+b c")).toBe(
+      "http://kingswood.localhost:3000/invite?token=a%2Bb%20c",
+    );
   });
 });

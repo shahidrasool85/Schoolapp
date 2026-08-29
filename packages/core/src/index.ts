@@ -47,6 +47,8 @@ export {
   classifyPublicHost,
   loginHostKindFromRequest,
   schoolPublicHostname,
+  schoolPublicOrigin,
+  schoolInviteUrl,
   originForHostname,
   formatHostname,
   type ParsedHost,

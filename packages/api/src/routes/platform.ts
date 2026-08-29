@@ -1,10 +1,44 @@
 import { z } from "zod";
 import { PERMISSIONS, validateOrganisationSlug, slugValidationMessage } from "@schoolapp/domain";
-import { AppError, pgErrorToAppError, staffInviteMail } from "@schoolapp/core";
+import { AppError, pgErrorToAppError, schoolInviteUrl, staffInviteMail } from "@schoolapp/core";
 import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
 import { requirePlatformHost } from "../tenant-resolver";
 import { inviteAcceptPath, mailOf } from "../mail";
+
+type SchoolAdminStateRow = {
+  organisation_id: string;
+  invitation_id: string | null;
+  invitation_status: string;
+  invited_email: string | null;
+  invited_full_name: string | null;
+  expires_at: Date | string | null;
+  membership_status: string | null;
+  can_reissue: boolean;
+};
+
+function mapSchoolAdminState(row: SchoolAdminStateRow | undefined) {
+  if (!row) {
+    return {
+      invitationStatus: "none" as const,
+      canReissue: false,
+      invitationId: null,
+      email: null,
+      fullName: null,
+      expiresAt: null,
+      membershipStatus: null,
+    };
+  }
+  return {
+    invitationStatus: row.invitation_status,
+    canReissue: Boolean(row.can_reissue),
+    invitationId: row.invitation_id,
+    email: row.invited_email,
+    fullName: row.invited_full_name,
+    expiresAt: row.expires_at,
+    membershipStatus: row.membership_status,
+  };
+}
 
 const provisionSchema = z.object({
   name: z.string().min(1),
@@ -25,9 +59,14 @@ export function registerPlatformRoutes(app: SchoolappApi) {
     const config = c.get("config");
     const userId = c.get("userId");
     try {
-      const result = await config.pools.app.query("select * from list_platform_organisations($1)", [
-        userId,
+      const [result, adminState] = await Promise.all([
+        config.pools.app.query("select * from list_platform_organisations($1)", [userId]),
+        config.pools.app.query<SchoolAdminStateRow>(
+          "select * from list_platform_school_admin_state($1)",
+          [userId],
+        ),
       ]);
+      const adminByOrg = new Map(adminState.rows.map((row) => [row.organisation_id, row]));
       return c.json({
         organisations: result.rows.map((row: Record<string, unknown>) => ({
           id: row.id,
@@ -35,6 +74,7 @@ export function registerPlatformRoutes(app: SchoolappApi) {
           name: row.name,
           status: row.status,
           createdAt: row.created_at,
+          schoolAdmin: mapSchoolAdminState(adminByOrg.get(String(row.id))),
         })),
       });
     } catch (error) {
@@ -88,6 +128,54 @@ export function registerPlatformRoutes(app: SchoolappApi) {
           invitationId: row.invitation_id,
           invitationToken: row.invitation_token,
           slug: slug.slug,
+        },
+        201,
+      );
+    } catch (error) {
+      throw pgErrorToAppError(error) ?? error;
+    }
+  });
+
+  app.post("/platform/organisations/:organisationId/school-admin-invitation/reissue", requireUser, async (c) => {
+    requirePlatformHost(c);
+    const organisationId = c.req.param("organisationId");
+    try {
+      const result = await c.get("config").pools.app.query(
+        "select * from reissue_school_admin_invitation_as_platform($1, $2)",
+        [c.get("userId"), organisationId],
+      );
+      const row = result.rows[0] as {
+        invitation_id: string;
+        invitation_token: string;
+        organisation_id: string;
+        organisation_slug: string;
+        organisation_name: string;
+        email: string;
+        invited_full_name: string;
+        expires_at: Date | string;
+      };
+      const invitationUrl = schoolInviteUrl(
+        row.organisation_slug,
+        c.get("config").platformDomain,
+        row.invitation_token,
+      );
+      await mailOf(c).send(
+        staffInviteMail({
+          organisationId: row.organisation_id,
+          organisationName: row.organisation_name || "School",
+          toEmail: row.email,
+          toName: row.invited_full_name,
+          acceptPath: inviteAcceptPath(row.invitation_token),
+        }),
+      );
+      return c.json(
+        {
+          invitationId: row.invitation_id,
+          invitationToken: row.invitation_token,
+          invitationUrl,
+          email: row.email,
+          fullName: row.invited_full_name,
+          expiresAt: row.expires_at,
         },
         201,
       );

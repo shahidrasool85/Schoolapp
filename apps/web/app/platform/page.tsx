@@ -9,11 +9,22 @@ import { api, getToken, setOrgId, setToken } from "../../lib/api";
 import { userFacingError } from "../../lib/errors";
 import { loadPublicTenant, schoolOrigin } from "../../lib/tenant";
 
+type SchoolAdminState = {
+  invitationStatus: "outstanding" | "accepted" | "none" | string;
+  canReissue: boolean;
+  invitationId: string | null;
+  email: string | null;
+  fullName: string | null;
+  expiresAt: string | null;
+  membershipStatus: string | null;
+};
+
 type Organisation = {
   id: string;
   slug: string;
   name: string;
   status: string;
+  schoolAdmin?: SchoolAdminState;
 };
 
 export default function PlatformPage() {
@@ -25,7 +36,9 @@ export default function PlatformPage() {
   const [userName, setUserName] = useState<string | null>(null);
   const [inviteToken, setInviteToken] = useState("");
   const [inviteSlug, setInviteSlug] = useState("");
+  const [inviteUrl, setInviteUrl] = useState("");
   const [notice, setNotice] = useState("");
+  const [reissuingId, setReissuingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!getToken()) {
@@ -96,6 +109,7 @@ export default function PlatformPage() {
       );
       setInviteToken(created.invitationToken);
       setInviteSlug(created.slug);
+      setInviteUrl("");
       setNotice("School created. Copy the one-time School Admin invitation now — it will not be shown again.");
       resetFormSafely(formEl);
       const body = await api<{ organisations: Organisation[] }>("/api/v1/platform/organisations", { orgId: null });
@@ -103,6 +117,53 @@ export default function PlatformPage() {
     } catch (err) {
       setError(userFacingError(err, "Could not create school."));
     }
+  }
+
+  async function reissueSchoolAdminInvitation(org: Organisation) {
+    setError("");
+    setNotice("");
+    setReissuingId(org.id);
+    try {
+      const issued = await api<{
+        invitationToken: string;
+        invitationUrl: string;
+        email: string;
+      }>(`/api/v1/platform/organisations/${org.id}/school-admin-invitation/reissue`, {
+        method: "POST",
+        orgId: null,
+      });
+      setInviteToken(issued.invitationToken);
+      setInviteSlug(org.slug);
+      setInviteUrl(issued.invitationUrl);
+      setNotice(
+        `New School Admin invitation issued for ${issued.email}. Copy the one-time URL now — it will not be shown again.`,
+      );
+      const body = await api<{ organisations: Organisation[] }>("/api/v1/platform/organisations", {
+        orgId: null,
+      });
+      setOrganisations(body.organisations);
+    } catch (err) {
+      setError(userFacingError(err, "Could not reissue the School Admin invitation."));
+    } finally {
+      setReissuingId(null);
+    }
+  }
+
+  function schoolAdminLabel(org: Organisation): string {
+    const admin = org.schoolAdmin;
+    if (!admin || admin.invitationStatus === "none") {
+      return "No School Admin invitation";
+    }
+    const who = admin.fullName
+      ? `${admin.fullName}${admin.email ? ` · ${admin.email}` : ""}`
+      : admin.email ?? "School Admin";
+    if (admin.invitationStatus === "outstanding") {
+      return `Invitation outstanding · ${who}`;
+    }
+    if (admin.membershipStatus && admin.membershipStatus !== "active") {
+      return `School Admin ${admin.membershipStatus} · ${who}`;
+    }
+    return `School Admin active · ${who}`;
   }
 
   return (
@@ -141,10 +202,20 @@ export default function PlatformPage() {
             </form>
           </SectionCard>
           {inviteToken ? (
-            <InviteTokenAlert
-              token={inviteToken}
-              href={`${schoolOrigin(inviteSlug, platformDomain)}/invite?token=${encodeURIComponent(inviteToken)}`}
-            />
+            <>
+              <InviteTokenAlert
+                token={inviteToken}
+                href={
+                  inviteUrl ||
+                  `${schoolOrigin(inviteSlug, platformDomain)}/invite?token=${encodeURIComponent(inviteToken)}`
+                }
+              />
+              {inviteUrl ? (
+                <p className="muted">
+                  School invitation URL (shown once): <code>{inviteUrl}</code>
+                </p>
+              ) : null}
+            </>
           ) : null}
           {notice ? <Alert tone="success">{notice}</Alert> : null}
           <h2>Schools</h2>
@@ -158,6 +229,7 @@ export default function PlatformPage() {
                     <th>School</th>
                     <th>Slug</th>
                     <th>Status</th>
+                    <th>School Admin</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -169,8 +241,23 @@ export default function PlatformPage() {
                       </td>
                       <td>{org.slug}</td>
                       <td>{org.status}</td>
+                      <td>{schoolAdminLabel(org)}</td>
                       <td>
-                        <a href={schoolHref(org.slug)}>Open school login</a>
+                        <div className="button-row">
+                          {org.schoolAdmin?.canReissue ? (
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              disabled={reissuingId === org.id}
+                              onClick={() => reissueSchoolAdminInvitation(org)}
+                            >
+                              {reissuingId === org.id
+                                ? "Reissuing…"
+                                : "Reissue School Admin invitation"}
+                            </Button>
+                          ) : null}
+                          <a href={schoolHref(org.slug)}>Open school login</a>
+                        </div>
                       </td>
                     </tr>
                   ))}

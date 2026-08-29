@@ -149,6 +149,7 @@ const INFO_STATUSES = new Set([
   "offer_made",
   "open",
   "optional",
+  "recommended",
   "processing",
   "reopened",
   "information",

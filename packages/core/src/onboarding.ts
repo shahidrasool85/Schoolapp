@@ -8,6 +8,7 @@ import {
   type OnboardingStep,
   type ReadinessItemKey,
   type ReadinessStatus,
+  type ReadinessTier,
   type SetupProgressView,
   type SetupStatus,
 } from "@schoolapp/domain";
@@ -36,6 +37,7 @@ export type ReadinessViewItem = {
   label: string;
   href: string;
   required: boolean;
+  tier: ReadinessTier;
   complete: boolean;
   status: ReadinessStatus;
 };
@@ -66,7 +68,7 @@ export function evaluateReadiness(counts: ReadinessCounts): {
     return {
       ...definition,
       complete,
-      status: readinessStatus(complete, definition.required),
+      status: readinessStatus(complete, definition.tier),
     };
   });
   return { items, ready: schoolIsReady(items) };

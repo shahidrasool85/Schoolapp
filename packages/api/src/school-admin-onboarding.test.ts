@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ONBOARDING_WELCOME_PATH, PERMISSIONS, resolveStaffPostAuthPath } from "@schoolapp/domain";
+import {
+  ONBOARDING_WELCOME_PATH,
+  PERMISSIONS,
+  resolveStaffPostAuthPath,
+  setupSidebarBadge,
+} from "@schoolapp/domain";
 import { closePools, withTenantContext } from "@schoolapp/db";
 import { addMembership, ensureMigrated, insertUser, login, loginAlias, testApp, testPools } from "./test-helpers";
 
@@ -144,6 +149,21 @@ describe("School Admin first-login onboarding", () => {
     expect(first.progress.completedAt).toBeNull();
     expect(first.presentation.shouldAutoLaunch).toBe(true);
     expect(first.presentation.showDashboardCard).toBe(true);
+    expect(
+      resolveStaffPostAuthPath({
+        canManageSetup: true,
+        setupStatus: first.setup.status,
+        automaticOnboardingDismissed: first.presentation.automaticOnboardingDismissed,
+      }),
+    ).toBe(ONBOARDING_WELCOME_PATH);
+    expect(
+      resolveStaffPostAuthPath({
+        canManageSetup: true,
+        setupStatus: first.setup.status,
+        automaticOnboardingDismissed: false,
+        requestedNext: "/school/dashboard",
+      }),
+    ).toBe(ONBOARDING_WELCOME_PATH);
 
     const leave = await app.request("/api/v1/onboarding/progress", {
       method: "PATCH",
@@ -193,11 +213,28 @@ describe("School Admin first-login onboarding", () => {
     expect(afterDismiss.progress.completedAt).toBeNull();
     expect(afterDismiss.setup.satisfiedSteps).toEqual(saved.setup.satisfiedSteps);
     expect(afterDismiss.progress.completedSteps).toEqual(saved.progress.completedSteps);
+    expect(setupSidebarBadge({
+      status: afterDismiss.setup.status,
+      percent: afterDismiss.setup.percent,
+      dismissed: true,
+    })).toEqual({
+      badge: `${afterDismiss.setup.percent}%`,
+      badgeTone: "subtle",
+      emphasis: false,
+    });
     expect(
       resolveStaffPostAuthPath({
         canManageSetup: true,
         setupStatus: afterDismiss.setup.status,
         automaticOnboardingDismissed: true,
+      }),
+    ).toBe("/school");
+    expect(
+      resolveStaffPostAuthPath({
+        canManageSetup: true,
+        setupStatus: afterDismiss.setup.status,
+        automaticOnboardingDismissed: true,
+        requestedNext: "/school/dashboard",
       }),
     ).toBe("/school");
 
@@ -220,6 +257,86 @@ describe("School Admin first-login onboarding", () => {
     expect(second.presentation.shouldAutoLaunch).toBe(true);
     expect(second.presentation.showDashboardCard).toBe(true);
     expect(second.setup.satisfiedSteps).toEqual(afterDismiss.setup.satisfiedSteps);
+    expect(
+      resolveStaffPostAuthPath({
+        canManageSetup: true,
+        setupStatus: second.setup.status,
+        automaticOnboardingDismissed: false,
+      }),
+    ).toBe(ONBOARDING_WELCOME_PATH);
+  });
+
+  it("sends a direct /login to welcome and preserves an explicit pupil deep link", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id, `Login Route ${id}`);
+    await seedExistingSchoolProgress(pools.owner, school.orgId, `Login Route ${id}`);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const body = (await (
+      await app.request("/api/v1/onboarding", { headers: jsonHeaders(token, school.orgId) })
+    ).json()) as OnboardingBody;
+    expect(body.presentation.shouldAutoLaunch).toBe(true);
+    expect(
+      resolveStaffPostAuthPath({
+        canManageSetup: true,
+        setupStatus: body.setup.status,
+        automaticOnboardingDismissed: false,
+      }),
+    ).toBe(ONBOARDING_WELCOME_PATH);
+    expect(
+      resolveStaffPostAuthPath({
+        canManageSetup: true,
+        setupStatus: body.setup.status,
+        automaticOnboardingDismissed: false,
+        requestedNext: "/school/pupils/123",
+      }),
+    ).toBe("/school/pupils/123");
+  });
+
+  it("does not inflate factual progress when a step is only visited", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id, `Visit Only ${id}`);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = jsonHeaders(token, school.orgId);
+    const before = (await (await app.request("/api/v1/onboarding", { headers: hdrs })).json()) as OnboardingBody;
+    expect(before.setup.satisfiedSteps).not.toContain("academic_structure");
+    const visit = await app.request("/api/v1/onboarding/progress", {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({
+        currentStep: "school_day",
+        completedSteps: ["school_details", "branding", "academic_year", "academic_structure"],
+      }),
+    });
+    expect(visit.status).toBe(200);
+    const after = (await (await app.request("/api/v1/onboarding", { headers: hdrs })).json()) as OnboardingBody;
+    expect(after.progress.completedSteps).toEqual(
+      expect.arrayContaining(["school_details", "branding", "academic_year", "academic_structure"]),
+    );
+    expect(after.setup.satisfiedSteps).not.toContain("academic_structure");
+    expect(after.setup.satisfiedSteps).not.toContain("branding");
+    expect(after.setup.completedCount).toBe(before.setup.completedCount);
+    expect(after.readiness.ready).toBe(false);
+  });
+
+  it("lets the first School Admin finish setup without pupils or extra staff", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id, `Foundation ${id}`);
+    await seedExistingSchoolProgress(pools.owner, school.orgId, `Foundation ${id}`);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = jsonHeaders(token, school.orgId);
+    const before = (await (await app.request("/api/v1/onboarding", { headers: hdrs })).json()) as OnboardingBody;
+    expect(before.readiness.ready).toBe(true);
+    expect(before.readiness.items.find((item) => item.key === "pupils")?.complete).toBe(false);
+    expect(before.readiness.items.find((item) => item.key === "pupils")?.required).toBe(false);
+    const finish = await app.request("/api/v1/onboarding/progress", {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ currentStep: "completion", markComplete: true, markReady: true }),
+    });
+    expect(finish.status).toBe(200);
+    const done = (await (await app.request("/api/v1/onboarding", { headers: hdrs })).json()) as OnboardingBody;
+    expect(done.setup.status).toBe("completed");
+    expect(done.progress.completedAt).toBeTruthy();
   });
 
   it("does not mark setup complete when required readiness is missing", async () => {

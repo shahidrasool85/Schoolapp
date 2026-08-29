@@ -8,6 +8,8 @@ import {
   deriveSetupStatus,
   evaluateSetupProgress,
   hexForColorInput,
+  isExplicitStaffDeepLink,
+  isSystemGeneratedSchoolLanding,
   loginHrefForReturn,
   mapImportedStaffRole,
   mergeCompletedSteps,
@@ -53,11 +55,14 @@ describe("readiness", () => {
   it("does not mark a school ready when required items are missing", () => {
     const result = evaluateReadiness(empty);
     expect(result.ready).toBe(false);
-    expect(result.items.find((item) => item.key === "pupils")?.status).toBe("needs_attention");
-    expect(result.items.find((item) => item.key === "branding")?.status).toBe("optional");
+    expect(result.items.find((item) => item.key === "pupils")?.status).toBe("recommended");
+    expect(result.items.find((item) => item.key === "staff")?.status).toBe("recommended");
+    expect(result.items.find((item) => item.key === "school_profile")?.status).toBe("needs_attention");
+    expect(result.items.find((item) => item.key === "branding")?.status).toBe("recommended");
+    expect(result.items.find((item) => item.key === "statutory_profile")?.status).toBe("optional");
   });
 
-  it("marks ready when required configuration exists even if optional items are empty", () => {
+  it("marks ready when the school foundation exists even without staff or pupils", () => {
     const result = evaluateReadiness({
       ...empty,
       hasName: true,
@@ -66,11 +71,11 @@ describe("readiness", () => {
       yearGroups: 3,
       classes: 2,
       subjects: 4,
-      staff: 1,
-      pupils: 12,
     });
     expect(result.ready).toBe(true);
-    expect(result.items.find((item) => item.key === "rooms")?.status).toBe("optional");
+    expect(result.items.find((item) => item.key === "pupils")?.status).toBe("recommended");
+    expect(result.items.find((item) => item.key === "staff")?.status).toBe("recommended");
+    expect(result.items.find((item) => item.key === "rooms")?.status).toBe("recommended");
     expect(schoolIsReady(result.items)).toBe(true);
   });
 });
@@ -241,6 +246,27 @@ describe("setup lifecycle and progress", () => {
     expect(setupProgressLabel(progress)).toBe(`${progress.completedCount} of 10 complete`);
   });
 
+  it("does not treat visiting or skipping a step as factual setup completion", () => {
+    const readiness = evaluateReadiness({
+      ...empty,
+      hasName: true,
+      hasTimezone: true,
+      academicYears: 1,
+    });
+    const visited = evaluateSetupProgress({
+      currentStep: "school_day",
+      completedSteps: ["school_details", "branding", "academic_year", "academic_structure"],
+      completedAt: null,
+      readinessItems: readiness.items,
+    });
+    expect(visited.satisfiedSteps).toEqual(["school_details", "academic_year"]);
+    expect(visited.satisfiedSteps).not.toContain("academic_structure");
+    expect(visited.satisfiedSteps).not.toContain("branding");
+    expect(visited.completedCount).toBe(2);
+    expect(setupProgressLabel(visited)).toBe("2 of 10 complete");
+    expect(visited.status).toBe("in_progress");
+  });
+
   it("does not treat visiting screens as completion", () => {
     const readiness = evaluateReadiness({
       ...empty,
@@ -400,6 +426,53 @@ describe("setup lifecycle and progress", () => {
 });
 
 describe("post-login onboarding routing", () => {
+  const eligible = {
+    canManageSetup: true,
+    setupStatus: "in_progress" as const,
+    automaticOnboardingDismissed: false,
+  };
+
+  it("sends a School Admin who opened /login directly to welcome", () => {
+    expect(resolveStaffPostAuthPath({ ...eligible, setupStatus: "not_started" })).toBe(ONBOARDING_WELCOME_PATH);
+    expect(resolveStaffPostAuthPath({ ...eligible, requestedNext: null })).toBe(ONBOARDING_WELCOME_PATH);
+    expect(resolveStaffPostAuthPath({ ...eligible, requestedNext: "" })).toBe(ONBOARDING_WELCOME_PATH);
+    expect(loginHrefForReturn("/school")).toBe("/login");
+    expect(loginHrefForReturn("/school/")).toBe("/login");
+    expect(loginHrefForReturn("/school/dashboard")).toBe("/login");
+  });
+
+  it("does not treat a system-generated school landing as an explicit deep link", () => {
+    expect(isSystemGeneratedSchoolLanding(null)).toBe(true);
+    expect(isSystemGeneratedSchoolLanding("/school")).toBe(true);
+    expect(isSystemGeneratedSchoolLanding("/school/")).toBe(true);
+    expect(isSystemGeneratedSchoolLanding("/school/dashboard")).toBe(true);
+    expect(isExplicitStaffDeepLink("/school")).toBe(false);
+    expect(isExplicitStaffDeepLink("/school/dashboard")).toBe(false);
+    expect(isExplicitStaffDeepLink("/school/pupils/123")).toBe(true);
+    expect(
+      resolveStaffPostAuthPath({
+        ...eligible,
+        requestedNext: "/school",
+      }),
+    ).toBe(ONBOARDING_WELCOME_PATH);
+    expect(
+      resolveStaffPostAuthPath({
+        ...eligible,
+        requestedNext: "/school/dashboard",
+      }),
+    ).toBe(ONBOARDING_WELCOME_PATH);
+  });
+
+  it("preserves an explicit /school/... deep link after login", () => {
+    expect(
+      resolveStaffPostAuthPath({
+        ...eligible,
+        requestedNext: "/school/pupils/123",
+      }),
+    ).toBe("/school/pupils/123");
+    expect(loginHrefForReturn("/school/pupils/123")).toBe("/login?next=%2Fschool%2Fpupils%2F123");
+  });
+
   it("sends a new or existing eligible School Admin to welcome after a default login", () => {
     expect(
       resolveStaffPostAuthPath({

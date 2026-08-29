@@ -32,13 +32,15 @@ export const READINESS_ITEM_KEYS = [
 ] as const;
 
 export type ReadinessItemKey = (typeof READINESS_ITEM_KEYS)[number];
-export type ReadinessStatus = "complete" | "needs_attention" | "optional";
+export type ReadinessTier = "required" | "recommended" | "optional";
+export type ReadinessStatus = "complete" | "needs_attention" | "recommended" | "optional";
 
 export type ReadinessItemDefinition = {
   key: ReadinessItemKey;
   label: string;
   href: string;
   required: boolean;
+  tier: ReadinessTier;
 };
 
 export const SETUP_PATH = "/school/setup";
@@ -49,7 +51,10 @@ export const SETUP_STEP_COUNT = ONBOARDING_STEPS.length;
 export const SETUP_STATUSES = ["not_started", "in_progress", "completed"] as const;
 export type SetupStatus = (typeof SETUP_STATUSES)[number];
 
-/** Wizard steps mapped to readiness items. Progress is readiness-led so existing schools reflect real configuration. */
+/**
+ * Wizard steps mapped to live readiness items.
+ * `completed_steps` is navigation/resume only and must never count a step as factually configured.
+ */
 export const SETUP_STEP_READINESS: Record<OnboardingStep, readonly ReadinessItemKey[]> = {
   school_details: ["school_profile"],
   branding: ["branding"],
@@ -164,22 +169,31 @@ export function seedYearGroupsMessage(created: number): string {
   return created > 0 ? "Standard year groups created" : "Standard year groups are already set up";
 }
 
+function readinessItem(
+  key: ReadinessItemKey,
+  label: string,
+  href: string,
+  tier: ReadinessTier,
+): ReadinessItemDefinition {
+  return { key, label, href, required: tier === "required", tier };
+}
+
 export const READINESS_ITEMS: readonly ReadinessItemDefinition[] = [
-  { key: "school_profile", label: "School profile", href: setupStepHref("school_details"), required: true },
-  { key: "branding", label: "Branding", href: setupStepHref("branding"), required: false },
-  { key: "academic_year", label: "Academic year", href: setupStepHref("academic_year"), required: true },
-  { key: "term_dates", label: "Term dates", href: setupStepHref("academic_year"), required: false },
-  { key: "year_groups", label: "Year groups", href: setupStepHref("academic_structure"), required: true },
-  { key: "classes", label: "Classes", href: setupStepHref("academic_structure"), required: true },
-  { key: "subjects", label: "Subjects", href: setupStepHref("academic_structure"), required: true },
-  { key: "school_day", label: "School day", href: setupStepHref("school_day"), required: false },
-  { key: "rooms", label: "Rooms", href: setupStepHref("rooms"), required: false },
-  { key: "staff", label: "Staff", href: setupStepHref("staff"), required: true },
-  { key: "pupils", label: "Pupils", href: setupStepHref("pupils"), required: true },
-  { key: "parent_accounts", label: "Parent accounts", href: setupStepHref("portals"), required: false },
-  { key: "student_portal", label: "Student Portal", href: setupStepHref("portals"), required: false },
-  { key: "timetable", label: "Timetable", href: "/school/timetable", required: false },
-  { key: "statutory_profile", label: "Statutory school profile", href: "/school/settings/statutory", required: false },
+  readinessItem("school_profile", "School profile", setupStepHref("school_details"), "required"),
+  readinessItem("branding", "Branding", setupStepHref("branding"), "recommended"),
+  readinessItem("academic_year", "Academic year", setupStepHref("academic_year"), "required"),
+  readinessItem("term_dates", "Term dates", setupStepHref("academic_year"), "recommended"),
+  readinessItem("year_groups", "Year groups", setupStepHref("academic_structure"), "required"),
+  readinessItem("classes", "Classes", setupStepHref("academic_structure"), "required"),
+  readinessItem("subjects", "Subjects", setupStepHref("academic_structure"), "required"),
+  readinessItem("school_day", "School day", setupStepHref("school_day"), "recommended"),
+  readinessItem("rooms", "Rooms", setupStepHref("rooms"), "recommended"),
+  readinessItem("staff", "Staff", setupStepHref("staff"), "recommended"),
+  readinessItem("pupils", "Pupils", setupStepHref("pupils"), "recommended"),
+  readinessItem("parent_accounts", "Parent accounts", setupStepHref("portals"), "recommended"),
+  readinessItem("student_portal", "Student Portal", setupStepHref("portals"), "recommended"),
+  readinessItem("timetable", "Timetable", "/school/timetable", "recommended"),
+  readinessItem("statutory_profile", "Statutory school profile", "/school/settings/statutory", "optional"),
 ];
 
 export function readinessFixHref(key: ReadinessItemKey): string {
@@ -192,13 +206,28 @@ export function isOnboardingStep(value: string): value is OnboardingStep {
   return (ONBOARDING_STEPS as readonly string[]).includes(value);
 }
 
-export function readinessStatus(complete: boolean, required: boolean): ReadinessStatus {
+export function readinessStatus(complete: boolean, requiredOrTier: boolean | ReadinessTier): ReadinessStatus {
   if (complete) return "complete";
-  return required ? "needs_attention" : "optional";
+  const tier: ReadinessTier =
+    typeof requiredOrTier === "boolean" ? (requiredOrTier ? "required" : "optional") : requiredOrTier;
+  if (tier === "required") return "needs_attention";
+  if (tier === "recommended") return "recommended";
+  return "optional";
 }
 
 export function schoolIsReady(items: ReadonlyArray<{ required: boolean; complete: boolean }>): boolean {
   return items.filter((item) => item.required).every((item) => item.complete);
+}
+
+export function readinessTierLabel(tier: ReadinessTier): string {
+  switch (tier) {
+    case "required":
+      return "Required";
+    case "recommended":
+      return "Recommended";
+    default:
+      return "Optional";
+  }
 }
 
 export function setupStatusLabel(status: SetupStatus): string {
@@ -249,14 +278,10 @@ export function isSetupStepSatisfied(
   },
 ): boolean {
   if (step === "completion") return Boolean(input.completedAt);
-  if ((input.completedSteps ?? []).includes(step)) return true;
   const mapped = SETUP_STEP_READINESS[step];
   if (mapped.length === 0) return false;
   const byKey = readinessByKey(input.readinessItems);
-  const resolved = mapped.map((key) => byKey.get(key));
-  const required = resolved.filter((item) => item?.required);
-  if (required.length > 0) return required.every((item) => item?.complete);
-  return resolved.some((item) => item?.complete);
+  return mapped.every((key) => Boolean(byKey.get(key)?.complete));
 }
 
 export function deriveSetupStatus(input: SetupProgressInput): SetupStatus {
@@ -389,10 +414,30 @@ export function parseSafeLoginNext(
   return null;
 }
 
-export function isDefaultSchoolLanding(path: string | null | undefined): boolean {
+const SYSTEM_GENERATED_SCHOOL_LANDINGS = [SCHOOL_DASHBOARD_PATH, "/school/dashboard"] as const;
+
+function schoolPathname(path: string): string {
+  return (path.split("?")[0] ?? path).replace(/\/+$/, "") || "/";
+}
+
+/**
+ * System-generated defaults after staff login — not an explicit user-requested deep link.
+ * Includes a missing/empty next, `/school`, `/school/`, and `/school/dashboard`.
+ */
+export function isSystemGeneratedSchoolLanding(path: string | null | undefined): boolean {
   if (!path) return true;
-  const pathname = (path.split("?")[0] ?? path).replace(/\/+$/, "") || "/";
-  return pathname === SCHOOL_DASHBOARD_PATH;
+  const pathname = schoolPathname(path);
+  return (SYSTEM_GENERATED_SCHOOL_LANDINGS as readonly string[]).includes(pathname);
+}
+
+export function isDefaultSchoolLanding(path: string | null | undefined): boolean {
+  return isSystemGeneratedSchoolLanding(path);
+}
+
+export function isExplicitStaffDeepLink(path: string | null | undefined): boolean {
+  const next = parseSafeLoginNext(path, "staff");
+  if (!next || isCriticalPostAuthPath(next)) return false;
+  return !isSystemGeneratedSchoolLanding(next);
 }
 
 export function isCriticalPostAuthPath(path: string | null | undefined): boolean {
@@ -408,9 +453,10 @@ export function resolveStaffPostAuthPath(input: {
   requestedNext?: string | null;
 }): string {
   const next = parseSafeLoginNext(input.requestedNext, "staff");
-  if (next && (isCriticalPostAuthPath(next) || !isDefaultSchoolLanding(next))) return next;
+  if (next && isCriticalPostAuthPath(next)) return next;
+  if (next && isExplicitStaffDeepLink(next)) return next;
   if (shouldAutoLaunchOnboarding(input)) return ONBOARDING_WELCOME_PATH;
-  return next ?? SCHOOL_DASHBOARD_PATH;
+  return SCHOOL_DASHBOARD_PATH;
 }
 
 export function resolvePostAuthPath(input: {
@@ -442,6 +488,7 @@ export function resolvePostAuthPath(input: {
 export function loginHrefForReturn(path: string, portal: LoginPortal = "staff"): string {
   const next = parseSafeLoginNext(path, portal);
   if (!next) return "/login";
+  if (portal === "staff" && isSystemGeneratedSchoolLanding(next)) return "/login";
   return `/login?next=${encodeURIComponent(next)}`;
 }
 

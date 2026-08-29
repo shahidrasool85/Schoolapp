@@ -84,8 +84,10 @@ describe("Phase 20 onboarding and account lifecycle", () => {
       readiness: { ready: boolean; items: Array<{ key: string; status: string; required: boolean }> };
     };
     expect(onboarding.readiness.ready).toBe(false);
-    expect(onboarding.readiness.items.find((item) => item.key === "pupils")?.status).toBe("needs_attention");
-    expect(onboarding.readiness.items.find((item) => item.key === "branding")?.status).toBe("optional");
+    expect(onboarding.readiness.items.find((item) => item.key === "pupils")?.status).toBe("recommended");
+    expect(onboarding.readiness.items.find((item) => item.key === "staff")?.status).toBe("complete");
+    expect(onboarding.readiness.items.find((item) => item.key === "academic_year")?.status).toBe("needs_attention");
+    expect(onboarding.readiness.items.find((item) => item.key === "branding")?.status).toBe("recommended");
 
     const profile = await app.request("/api/v1/onboarding/profile", {
       method: "PATCH",
@@ -158,6 +160,13 @@ describe("Phase 20 onboarding and account lifecycle", () => {
       headers: hdrs,
       body: JSON.stringify({ key: "mathematics", name: "Mathematics" }),
     });
+
+    const foundationReady = (await (await app.request("/api/v1/onboarding", { headers: hdrs })).json()) as {
+      readiness: { ready: boolean; items: Array<{ key: string; status: string }> };
+    };
+    expect(foundationReady.readiness.ready).toBe(true);
+    expect(foundationReady.readiness.items.find((item) => item.key === "pupils")?.status).toBe("recommended");
+
     await app.request("/api/v1/students", {
       method: "POST",
       headers: hdrs,

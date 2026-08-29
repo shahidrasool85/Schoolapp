@@ -9,11 +9,13 @@ import {
   parseSetupStep,
   resetFormSafely,
   seedYearGroupsMessage,
+  readinessTierLabel,
   setupProgressLabel,
   setupStatusLabel,
   setupStepHref,
   withSetupReturn,
   type OnboardingStep,
+  type ReadinessTier,
   type SetupStatus,
 } from "@schoolapp/domain";
 import {
@@ -55,8 +57,9 @@ type ReadinessItem = {
   label: string;
   href: string;
   required: boolean;
+  tier?: ReadinessTier;
   complete: boolean;
-  status: "complete" | "needs_attention" | "optional";
+  status: "complete" | "needs_attention" | "recommended" | "optional";
 };
 
 type Profile = {
@@ -252,7 +255,7 @@ function SchoolSetupWizard() {
       <WizardProgress
         steps={STEP_META}
         currentIndex={index}
-        completedKeys={satisfiedSteps.length > 0 ? satisfiedSteps : completedSteps}
+        completedKeys={satisfiedSteps}
         stepHref={(key) => setupStepHref(key as OnboardingStep)}
       />
       {notice ? <Alert tone="success">{notice}</Alert> : null}
@@ -658,18 +661,18 @@ function CompletionStep({
 }) {
   const tone = useMemo(() => (ready ? "success" : "warning"), [ready]);
   return (
-    <WizardPanel title={ready ? "School ready" : "Readiness checklist"} description="Required foundation items must be complete before you can finish setup. Optional items never block the rest of the product.">
+    <WizardPanel title={ready ? "School ready" : "Readiness checklist"} description="Required foundation items must be complete before you can finish setup. Recommended and optional items stay visible but never block Finish setup.">
       <Alert tone={tone === "success" ? "success" : "warning"}>
         {ready
-          ? "Required setup is complete. Finish setup when you are ready. You can still change any of these settings later."
-          : "Some required setup still needs attention. The rest of the product stays available — use Go to dashboard or Save and continue later at any time."}
+          ? "The school's foundation is configured. Finish setup when you are ready. Staff, pupils and other operational data can be added afterwards."
+          : "Some required foundation setup still needs attention. The rest of the product stays available — use Go to dashboard or Save and continue later at any time."}
       </Alert>
       <div className="readiness-list">
         {items.map((item) => (
           <div key={item.key} className="readiness-item">
             <div>
               <strong>{item.label}</strong>
-              <div className="muted">{item.required ? "Required" : "Optional"}</div>
+              <div className="muted">{readinessTierLabel(item.tier ?? (item.required ? "required" : "optional"))}</div>
             </div>
             <div>
               <StatusBadge status={item.status} />{" "}

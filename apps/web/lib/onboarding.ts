@@ -24,8 +24,9 @@ export type SchoolOnboardingResponse = {
       label: string;
       href: string;
       required: boolean;
+      tier?: "required" | "recommended" | "optional";
       complete: boolean;
-      status: "complete" | "needs_attention" | "optional";
+      status: "complete" | "needs_attention" | "recommended" | "optional";
     }>;
   };
   setup: SetupProgressView & { schoolName: string };

@@ -30,6 +30,7 @@ import { registerTimetableRoutes } from "./routes/timetable";
 import { registerFileRoutes } from "./routes/files";
 import { registerActivityRoutes } from "./routes/activities";
 import { registerFinanceRoutes } from "./routes/finance";
+import { registerTuitionRoutes } from "./routes/tuition";
 import { registerPaymentWebhookRoutes } from "./routes/webhooks-payments";
 import { registerMessagingRoutes } from "./routes/messaging";
 import { registerStatutoryRoutes } from "./routes/statutory";
@@ -126,6 +127,7 @@ export function createApiApp(config: ApiConfig) {
   registerTimetableRoutes(app);
   registerActivityRoutes(app);
   registerFinanceRoutes(app);
+  registerTuitionRoutes(app);
   registerPaymentWebhookRoutes(app);
   registerMessagingRoutes(app);
 

@@ -19,6 +19,7 @@ import {
   formatMoney,
   issueCharge,
   loadOrgCurrency,
+  loadTuitionDashboard,
   recordOfflinePayment,
   requestRefund,
   resolveBulkStudentIds,
@@ -130,6 +131,7 @@ export function registerFinanceRoutes(app: SchoolappApi) {
           order by c.currency`,
         [orgId],
       );
+      const tuition = await loadTuitionDashboard(client, orgId).catch(() => null);
       return c.json({
         currencies: rows.rows.map((row) => ({
           currency: row.currency,
@@ -139,6 +141,7 @@ export function registerFinanceRoutes(app: SchoolappApi) {
           refundCount: Number(row.refund_count),
           refundMinor: Number(row.refund_minor),
         })),
+        tuition,
       });
     }),
   );

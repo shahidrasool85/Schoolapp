@@ -2,6 +2,7 @@ import { z } from "zod";
 import { IMPORT_KINDS, PERMISSIONS, portalAccessGranted } from "@schoolapp/domain";
 import {
   AppError,
+  applyOptionalPupilImportFinance,
   assertPermission,
   importTemplateCsv,
   parseCsvText,
@@ -606,6 +607,7 @@ async function importValidRow(
         ],
       );
     }
+    await applyOptionalPupilImportFinance(client as never, input.orgId, input.userId, studentId, input.payload);
     return null;
   }
 

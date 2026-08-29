@@ -161,6 +161,13 @@ export const PERMISSIONS = {
   FINANCE_ADJUSTMENTS_MANAGE: "finance.adjustments.manage",
   FINANCE_REPORTS_READ: "finance.reports.read",
   FINANCE_READ_OWN_CHILDREN: "finance.read_own_children",
+  FINANCE_SETTINGS_MANAGE: "finance.settings.manage",
+  FINANCE_FEE_SCHEDULES_MANAGE: "finance.fee_schedules.manage",
+  FINANCE_DISCOUNTS_MANAGE: "finance.discounts.manage",
+  FINANCE_BILLING_RUNS_MANAGE: "finance.billing_runs.manage",
+  FINANCE_INVOICES_READ: "finance.invoices.read",
+  FINANCE_INVOICES_MANAGE: "finance.invoices.manage",
+  FINANCE_ACCOUNTS_READ: "finance.accounts.read",
   MESSAGING_READ: "messaging.read",
   MESSAGING_READ_ASSIGNED: "messaging.read_assigned",
   MESSAGING_CREATE: "messaging.create",
@@ -1136,6 +1143,9 @@ export const SCHOOL_CHARGE_CATEGORY_KEYS = [
   "lost_item",
   "meal",
   "other",
+  "tuition",
+  "registration",
+  "deposit",
 ] as const;
 export type SchoolChargeCategoryKey = (typeof SCHOOL_CHARGE_CATEGORY_KEYS)[number];
 
@@ -1199,6 +1209,88 @@ export const SCHOOL_ACTIVITY_PAYMENT_STATUSES = [
   "refunded",
 ] as const;
 export type SchoolActivityPaymentStatus = (typeof SCHOOL_ACTIVITY_PAYMENT_STATUSES)[number];
+
+export const SCHOOL_BILLING_FREQUENCIES = ["monthly", "termly", "annual", "custom"] as const;
+export type SchoolBillingFrequency = (typeof SCHOOL_BILLING_FREQUENCIES)[number];
+
+export const SCHOOL_DISCOUNT_STACKING_MODES = ["stack", "highest", "priority"] as const;
+export type SchoolDiscountStackingMode = (typeof SCHOOL_DISCOUNT_STACKING_MODES)[number];
+
+export const SCHOOL_SIBLING_ORDER_MODES = [
+  "oldest_first",
+  "youngest_first",
+  "year_group",
+  "explicit",
+] as const;
+export type SchoolSiblingOrderMode = (typeof SCHOOL_SIBLING_ORDER_MODES)[number];
+
+export const SCHOOL_MID_PERIOD_POLICIES = ["full", "prorate", "manual"] as const;
+export type SchoolMidPeriodPolicy = (typeof SCHOOL_MID_PERIOD_POLICIES)[number];
+
+export const SCHOOL_DISCOUNT_KINDS = [
+  "sibling",
+  "staff_child",
+  "scholarship",
+  "bursary",
+  "early_payment",
+  "promotional",
+  "individual",
+  "other",
+] as const;
+export type SchoolDiscountKind = (typeof SCHOOL_DISCOUNT_KINDS)[number];
+
+export const SCHOOL_DISCOUNT_AMOUNT_TYPES = ["percent", "fixed"] as const;
+export type SchoolDiscountAmountType = (typeof SCHOOL_DISCOUNT_AMOUNT_TYPES)[number];
+
+export const SCHOOL_INVOICE_STATUSES = [
+  "draft",
+  "issued",
+  "partially_paid",
+  "paid",
+  "overdue",
+  "void",
+] as const;
+export type SchoolInvoiceStatus = (typeof SCHOOL_INVOICE_STATUSES)[number];
+
+export const SCHOOL_INVOICE_LINE_KINDS = [
+  "tuition",
+  "trip",
+  "club",
+  "examination",
+  "activity",
+  "registration",
+  "deposit",
+  "meal",
+  "discount",
+  "credit",
+  "miscellaneous",
+] as const;
+export type SchoolInvoiceLineKind = (typeof SCHOOL_INVOICE_LINE_KINDS)[number];
+
+export const SCHOOL_INVOICE_PAYMENT_METHODS = [
+  "card",
+  "bank_transfer",
+  "cash",
+  "cheque",
+  "direct_debit",
+  "other",
+] as const;
+export type SchoolInvoicePaymentMethod = (typeof SCHOOL_INVOICE_PAYMENT_METHODS)[number];
+
+export const SCHOOL_CREDIT_KINDS = [
+  "credit_note",
+  "account_credit",
+  "overpayment",
+  "adjustment",
+  "refund",
+] as const;
+export type SchoolCreditKind = (typeof SCHOOL_CREDIT_KINDS)[number];
+
+export const SCHOOL_BILLING_RUN_STATUSES = ["previewed", "confirmed", "cancelled"] as const;
+export type SchoolBillingRunStatus = (typeof SCHOOL_BILLING_RUN_STATUSES)[number];
+
+export const SCHOOL_STAFF_CHILD_SCOPES = ["all_staff", "teachers", "selected_roles"] as const;
+export type SchoolStaffChildScope = (typeof SCHOOL_STAFF_CHILD_SCOPES)[number];
 
 export const ISO_CURRENCY_PATTERN = /^[A-Z]{3}$/;
 export const DEFAULT_CURRENCY = "GBP";

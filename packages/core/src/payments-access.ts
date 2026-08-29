@@ -87,7 +87,7 @@ export async function loadOrgCurrency(client: pg.PoolClient, organisationId: str
 export async function nextFinanceReference(
   client: pg.PoolClient,
   organisationId: string,
-  kind: "charge" | "payment" | "receipt" | "refund" | "adjustment",
+  kind: "charge" | "payment" | "receipt" | "refund" | "adjustment" | "invoice" | "credit" | "billing_run",
 ): Promise<string> {
   const result = await client.query<{ next_finance_reference: string }>(
     "select next_finance_reference($1, $2)",

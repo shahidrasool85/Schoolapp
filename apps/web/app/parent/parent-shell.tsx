@@ -23,7 +23,8 @@ const LINKS = [
   { href: "/parent/messages", label: "Messages", icon: "mail" as const },
   { href: "/parent/calendar", label: "Calendar", icon: "calendar" as const },
   { href: "/parent/activities", label: "Activities", icon: "flag" as const },
-  { href: "/parent/payments", label: "Payments", icon: "card" as const },
+  { href: "/parent/finance", label: "Finance", icon: "card" as const },
+  { href: "/parent/payments", label: "Other payments", icon: "card" as const },
   { href: "/parent/notifications", label: "Notifications", icon: "bell" as const },
   { href: "/parent/account", label: "Account", icon: "briefcase" as const },
 ];

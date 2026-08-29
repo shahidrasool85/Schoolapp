@@ -1,0 +1,546 @@
+import { z } from "zod";
+import { PERMISSIONS } from "@schoolapp/domain";
+import {
+  AppError,
+  assertPermission,
+  assertTuitionRead,
+  canManageBillingRuns,
+  canManageDiscounts,
+  canManageFeeSchedules,
+  canManageFinanceSettings,
+  canManageInvoices,
+  canRecordOffline,
+  confirmBillingRun,
+  createDiscountRule,
+  createFeeSchedule,
+  createInvoiceCredit,
+  createPupilConcession,
+  createStaffChildLink,
+  listArrears,
+  listBillingAccounts,
+  listBillingRuns,
+  listDiscountRules,
+  listFeeSchedules,
+  listInvoices,
+  listStaffChildLinks,
+  loadAccountStatement,
+  loadBillingAccount,
+  loadBillingRun,
+  loadFinanceSettings,
+  loadInvoice,
+  loadPupilFeeProfile,
+  loadTuitionDashboard,
+  previewBillingRun,
+  recordInvoicePayment,
+  reverseInvoicePayment,
+  revokeStaffChildLink,
+  updateDiscountRule,
+  updateFeeSchedule,
+  updateFinanceSettings,
+  upsertPupilFeeProfile,
+  voidInvoice,
+} from "@schoolapp/core";
+import type { SchoolappApi } from "../types";
+import { requireUser } from "../auth-middleware";
+import { uuidRouteParam, withSchoolActor } from "../school-context";
+
+const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+export function registerTuitionRoutes(app: SchoolappApi) {
+  app.get("/finance/settings", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertTuitionRead(actor);
+      return c.json({ settings: await loadFinanceSettings(client, orgId) });
+    }),
+  );
+
+  app.patch("/finance/settings", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageFinanceSettings(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      const parsed = z
+        .object({
+          tuitionEnabled: z.boolean().optional(),
+          defaultBillingFrequency: z.enum(["monthly", "termly", "annual", "custom"]).optional(),
+          currency: z.string().regex(/^[A-Z]{3}$/).optional(),
+          invoicePrefix: z.string().trim().min(1).max(12).optional(),
+          paymentDueDays: z.number().int().min(0).max(365).optional(),
+          gracePeriodDays: z.number().int().min(0).max(90).optional(),
+          defaultAcademicYearId: z.string().uuid().nullable().optional(),
+          paymentInstructions: z.string().max(4000).nullable().optional(),
+          invoiceFooter: z.string().max(4000).nullable().optional(),
+          parentsCanViewInvoices: z.boolean().optional(),
+          parentsCanViewBalances: z.boolean().optional(),
+          discountStackingMode: z.enum(["stack", "highest", "priority"]).optional(),
+          siblingOrderMode: z.enum(["oldest_first", "youngest_first", "year_group", "explicit"]).optional(),
+          midPeriodJoinPolicy: z.enum(["full", "prorate", "manual"]).optional(),
+          midPeriodLeavePolicy: z.enum(["full", "prorate", "manual"]).optional(),
+          monthlyInstalmentCount: z.number().int().min(1).max(12).optional(),
+        })
+        .safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid finance settings");
+      return c.json({
+        settings: await updateFinanceSettings(client, { organisationId: orgId, actorUserId: userId, patch: parsed.data }),
+      });
+    }),
+  );
+
+  app.get("/finance/dashboard", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertPermission(actor, PERMISSIONS.FINANCE_REPORTS_READ);
+      return c.json(await loadTuitionDashboard(client, orgId));
+    }),
+  );
+
+  app.get("/finance/fee-schedules", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertTuitionRead(actor);
+      return c.json({
+        schedules: await listFeeSchedules(client, orgId, c.req.query("academicYearId") || undefined),
+      });
+    }),
+  );
+
+  app.post("/finance/fee-schedules", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageFeeSchedules(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      const parsed = z
+        .object({
+          name: z.string().trim().min(1).max(120),
+          academicYearId: z.string().uuid(),
+          yearGroupId: z.string().uuid().nullable().optional(),
+          classId: z.string().uuid().nullable().optional(),
+          amountMinor: z.number().int().min(0),
+          annualAmountMinor: z.number().int().min(0).nullable().optional(),
+          billingFrequency: z.enum(["monthly", "termly", "annual", "custom"]),
+          instalmentCount: z.number().int().min(1).max(24).nullable().optional(),
+          effectiveFrom: dateSchema,
+          effectiveUntil: dateSchema.nullable().optional(),
+          description: z.string().max(4000).nullable().optional(),
+          instalments: z
+            .array(
+              z.object({
+                sequence: z.number().int().min(1),
+                label: z.string().trim().min(1).max(80),
+                dueOn: dateSchema.nullable().optional(),
+                amountMinor: z.number().int().min(0),
+              }),
+            )
+            .optional(),
+        })
+        .safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid fee schedule");
+      const schedule = await createFeeSchedule(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        ...parsed.data,
+      });
+      return c.json({ schedule }, 201);
+    }),
+  );
+
+  app.patch("/finance/fee-schedules/:scheduleId", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageFeeSchedules(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      const parsed = z
+        .object({
+          name: z.string().trim().min(1).max(120).optional(),
+          amountMinor: z.number().int().min(0).optional(),
+          annualAmountMinor: z.number().int().min(0).nullable().optional(),
+          billingFrequency: z.enum(["monthly", "termly", "annual", "custom"]).optional(),
+          instalmentCount: z.number().int().min(1).max(24).nullable().optional(),
+          effectiveFrom: dateSchema.optional(),
+          effectiveUntil: dateSchema.nullable().optional(),
+          isActive: z.boolean().optional(),
+          description: z.string().max(4000).nullable().optional(),
+        })
+        .safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid fee schedule");
+      return c.json({
+        schedule: await updateFeeSchedule(client, {
+          organisationId: orgId,
+          actorUserId: userId,
+          scheduleId: uuidRouteParam(c, "scheduleId"),
+          ...parsed.data,
+        }),
+      });
+    }),
+  );
+
+  app.get("/finance/discount-rules", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertTuitionRead(actor);
+      return c.json({ rules: await listDiscountRules(client, orgId) });
+    }),
+  );
+
+  app.post("/finance/discount-rules", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageDiscounts(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      const parsed = z
+        .object({
+          kind: z.enum([
+            "sibling",
+            "staff_child",
+            "scholarship",
+            "bursary",
+            "early_payment",
+            "promotional",
+            "individual",
+            "other",
+          ]),
+          name: z.string().trim().min(1).max(120),
+          amountType: z.enum(["percent", "fixed"]),
+          percentBps: z.number().int().min(0).max(10000).nullable().optional(),
+          amountMinor: z.number().int().min(0).nullable().optional(),
+          stackingPriority: z.number().int().optional(),
+          exclusiveGroup: z.string().trim().min(1).max(40).nullable().optional(),
+          staffScope: z.enum(["all_staff", "teachers", "selected_roles"]).nullable().optional(),
+          staffRoleKeys: z.array(z.string()).optional(),
+          description: z.string().max(4000).nullable().optional(),
+          effectiveFrom: dateSchema.nullable().optional(),
+          effectiveUntil: dateSchema.nullable().optional(),
+          tiers: z
+            .array(
+              z.object({
+                siblingPosition: z.number().int().min(1),
+                amountType: z.enum(["percent", "fixed"]),
+                percentBps: z.number().int().min(0).max(10000).nullable().optional(),
+                amountMinor: z.number().int().min(0).nullable().optional(),
+              }),
+            )
+            .optional(),
+        })
+        .safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid discount rule");
+      return c.json(
+        { rule: await createDiscountRule(client, { organisationId: orgId, actorUserId: userId, ...parsed.data }) },
+        201,
+      );
+    }),
+  );
+
+  app.patch("/finance/discount-rules/:ruleId", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageDiscounts(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      const parsed = z
+        .object({
+          name: z.string().trim().min(1).max(120).optional(),
+          isActive: z.boolean().optional(),
+          stackingPriority: z.number().int().optional(),
+          exclusiveGroup: z.string().nullable().optional(),
+          percentBps: z.number().int().min(0).max(10000).nullable().optional(),
+          amountMinor: z.number().int().min(0).nullable().optional(),
+          description: z.string().max(4000).nullable().optional(),
+        })
+        .safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid discount rule");
+      return c.json({
+        rule: await updateDiscountRule(client, {
+          organisationId: orgId,
+          actorUserId: userId,
+          ruleId: uuidRouteParam(c, "ruleId"),
+          ...parsed.data,
+        }),
+      });
+    }),
+  );
+
+  app.get("/finance/staff-child-links", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertTuitionRead(actor);
+      return c.json({ links: await listStaffChildLinks(client, orgId) });
+    }),
+  );
+
+  app.post("/finance/staff-child-links", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageDiscounts(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      const parsed = z
+        .object({
+          staffUserId: z.string().uuid(),
+          studentProfileId: z.string().uuid(),
+          effectiveFrom: dateSchema.nullable().optional(),
+          effectiveUntil: dateSchema.nullable().optional(),
+        })
+        .safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid staff-child link");
+      return c.json(
+        {
+          link: await createStaffChildLink(client, {
+            organisationId: orgId,
+            actorUserId: userId,
+            ...parsed.data,
+          }),
+        },
+        201,
+      );
+    }),
+  );
+
+  app.post("/finance/staff-child-links/:linkId/revoke", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageDiscounts(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      return c.json({
+        link: await revokeStaffChildLink(client, {
+          organisationId: orgId,
+          actorUserId: userId,
+          linkId: uuidRouteParam(c, "linkId"),
+        }),
+      });
+    }),
+  );
+
+  app.get("/finance/pupils/:studentId", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertTuitionRead(actor);
+      return c.json(await loadPupilFeeProfile(client, orgId, uuidRouteParam(c, "studentId")));
+    }),
+  );
+
+  app.patch("/finance/pupils/:studentId", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageFeeSchedules(actor) && !canManageDiscounts(actor)) {
+        throw new AppError(403, "forbidden", "Missing permission");
+      }
+      const parsed = z
+        .object({
+          academicYearId: z.string().uuid().nullable().optional(),
+          feeScheduleId: z.string().uuid().nullable().optional(),
+          overrideAmountMinor: z.number().int().min(0).nullable().optional(),
+          overrideBillingFrequency: z.enum(["monthly", "termly", "annual", "custom"]).nullable().optional(),
+          siblingPriority: z.number().int().min(1).nullable().optional(),
+          notes: z.string().max(4000).nullable().optional(),
+        })
+        .safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid pupil fee profile");
+      return c.json({
+        profile: await upsertPupilFeeProfile(client, {
+          organisationId: orgId,
+          actorUserId: userId,
+          studentProfileId: uuidRouteParam(c, "studentId"),
+          ...parsed.data,
+        }),
+      });
+    }),
+  );
+
+  app.post("/finance/pupils/:studentId/concessions", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageDiscounts(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      const parsed = z
+        .object({
+          kind: z.enum(["scholarship", "bursary", "early_payment", "promotional", "individual", "other"]),
+          name: z.string().trim().min(1).max(120),
+          amountType: z.enum(["percent", "fixed"]),
+          percentBps: z.number().int().min(0).max(10000).nullable().optional(),
+          amountMinor: z.number().int().min(0).nullable().optional(),
+          reason: z.string().trim().min(1).max(1000),
+          stackingPriority: z.number().int().optional(),
+          exclusiveGroup: z.string().nullable().optional(),
+          discountRuleId: z.string().uuid().nullable().optional(),
+          effectiveFrom: dateSchema.nullable().optional(),
+          effectiveUntil: dateSchema.nullable().optional(),
+        })
+        .safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid concession");
+      return c.json(
+        {
+          concession: await createPupilConcession(client, {
+            organisationId: orgId,
+            actorUserId: userId,
+            studentProfileId: uuidRouteParam(c, "studentId"),
+            ...parsed.data,
+          }),
+        },
+        201,
+      );
+    }),
+  );
+
+  app.get("/finance/accounts", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertTuitionRead(actor);
+      return c.json({ accounts: await listBillingAccounts(client, orgId) });
+    }),
+  );
+
+  app.get("/finance/accounts/:accountId", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertTuitionRead(actor);
+      return c.json(await loadBillingAccount(client, orgId, uuidRouteParam(c, "accountId")));
+    }),
+  );
+
+  app.get("/finance/accounts/:accountId/statement", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertTuitionRead(actor);
+      const from = c.req.query("from") ?? "2000-01-01";
+      const to = c.req.query("to") ?? new Date().toISOString().slice(0, 10);
+      return c.json(await loadAccountStatement(client, orgId, uuidRouteParam(c, "accountId"), from, to));
+    }),
+  );
+
+  app.get("/finance/invoices", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertTuitionRead(actor);
+      return c.json({
+        invoices: await listInvoices(client, orgId, {
+          status: c.req.query("status") || undefined,
+          billingAccountId: c.req.query("billingAccountId") || undefined,
+          studentId: c.req.query("studentId") || undefined,
+        }),
+      });
+    }),
+  );
+
+  app.get("/finance/invoices/:invoiceId", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertTuitionRead(actor);
+      return c.json(await loadInvoice(client, orgId, uuidRouteParam(c, "invoiceId")));
+    }),
+  );
+
+  app.post("/finance/invoices/:invoiceId/payments", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canRecordOffline(actor) && !canManageInvoices(actor)) {
+        throw new AppError(403, "forbidden", "Missing permission");
+      }
+      const parsed = z
+        .object({
+          amountMinor: z.number().int().positive(),
+          method: z.enum(["card", "bank_transfer", "cash", "cheque", "direct_debit", "other"]),
+          receivedOn: dateSchema.optional(),
+          externalReference: z.string().max(80).nullable().optional(),
+          note: z.string().max(2000).nullable().optional(),
+          idempotencyKey: z.string().min(8).max(120).optional(),
+        })
+        .safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid payment");
+      return c.json(
+        {
+          payment: await recordInvoicePayment(client, {
+            organisationId: orgId,
+            actorUserId: userId,
+            invoiceId: uuidRouteParam(c, "invoiceId"),
+            ...parsed.data,
+          }),
+        },
+        201,
+      );
+    }),
+  );
+
+  app.post("/finance/invoice-payments/:paymentId/reverse", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageInvoices(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      const parsed = z.object({ reason: z.string().trim().min(1).max(1000) }).safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "A reason is required");
+      return c.json({
+        payment: await reverseInvoicePayment(client, {
+          organisationId: orgId,
+          actorUserId: userId,
+          paymentId: uuidRouteParam(c, "paymentId"),
+          reason: parsed.data.reason,
+        }),
+      });
+    }),
+  );
+
+  app.post("/finance/invoices/:invoiceId/credits", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageInvoices(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      const invoice = await loadInvoice(client, orgId, uuidRouteParam(c, "invoiceId"));
+      const parsed = z
+        .object({
+          kind: z.enum(["credit_note", "account_credit", "overpayment", "adjustment", "refund"]),
+          amountMinor: z.number().int().positive(),
+          reason: z.string().trim().min(1).max(1000),
+        })
+        .safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid credit");
+      return c.json(
+        {
+          credit: await createInvoiceCredit(client, {
+            organisationId: orgId,
+            actorUserId: userId,
+            billingAccountId: String(invoice.invoice.billingAccountId),
+            invoiceId: String(invoice.invoice.id),
+            ...parsed.data,
+          }),
+        },
+        201,
+      );
+    }),
+  );
+
+  app.post("/finance/invoices/:invoiceId/void", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageInvoices(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      const parsed = z.object({ reason: z.string().trim().min(1).max(1000) }).safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "A reason is required");
+      return c.json({
+        invoice: await voidInvoice(client, {
+          organisationId: orgId,
+          actorUserId: userId,
+          invoiceId: uuidRouteParam(c, "invoiceId"),
+          reason: parsed.data.reason,
+        }),
+      });
+    }),
+  );
+
+  app.get("/finance/billing-runs", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertTuitionRead(actor);
+      return c.json({ runs: await listBillingRuns(client, orgId) });
+    }),
+  );
+
+  app.post("/finance/billing-runs/preview", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageBillingRuns(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      const parsed = z
+        .object({
+          academicYearId: z.string().uuid(),
+          frequency: z.enum(["monthly", "termly", "annual", "custom"]),
+          periodStart: dateSchema,
+          periodEnd: dateSchema,
+          dueOn: dateSchema.nullable().optional(),
+          instalmentNumber: z.number().int().min(1).nullable().optional(),
+        })
+        .safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid billing run");
+      return c.json(
+        await previewBillingRun(client, { organisationId: orgId, actorUserId: userId, ...parsed.data }),
+        201,
+      );
+    }),
+  );
+
+  app.get("/finance/billing-runs/:runId", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertTuitionRead(actor);
+      return c.json(await loadBillingRun(client, orgId, uuidRouteParam(c, "runId")));
+    }),
+  );
+
+  app.post("/finance/billing-runs/:runId/confirm", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageBillingRuns(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      return c.json(
+        await confirmBillingRun(client, {
+          organisationId: orgId,
+          actorUserId: userId,
+          billingRunId: uuidRouteParam(c, "runId"),
+        }),
+      );
+    }),
+  );
+
+  app.get("/finance/arrears", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertTuitionRead(actor);
+      return c.json({ items: await listArrears(client, orgId, c.req.query("bucket") || undefined) });
+    }),
+  );
+}

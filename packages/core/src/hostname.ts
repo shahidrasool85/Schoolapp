@@ -230,6 +230,31 @@ export function schoolPublicHostname(
   return `${slug}.${normalizePlatformDomain(platformDomain)}`;
 }
 
+/** Canonical school origin: https on production hosts, http://slug.localhost:3000 locally. */
+export function schoolPublicOrigin(
+  slug: string,
+  platformDomain: string,
+  options?: { port?: string | null },
+): string {
+  const platform = normalizePlatformDomain(platformDomain);
+  const local = platform === "localhost";
+  return originForHostname({
+    hostname: schoolPublicHostname(slug, platform),
+    port: options?.port ?? (local ? "3000" : null),
+    protocol: local ? "http" : "https",
+  });
+}
+
+/** One-time invitation URL on the school host, e.g. https://kingswood.luvlearn.co.uk/invite?token=… */
+export function schoolInviteUrl(
+  slug: string,
+  platformDomain: string,
+  token: string,
+  options?: { port?: string | null },
+): string {
+  return `${schoolPublicOrigin(slug, platformDomain, options)}/invite?token=${encodeURIComponent(token)}`;
+}
+
 export function originForHostname(input: {
   hostname: string;
   port: string | null;

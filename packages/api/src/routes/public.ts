@@ -58,11 +58,13 @@ export function registerPublicRoutes(app: SchoolappApi) {
       const got = await storageOf(c).getObject(row.storage_key);
       if (!got) throw new AppError(404, "not_found", "Not found");
       const version = (c.req.query("v") ?? "").replace(/[^A-Za-z0-9_-]/g, "");
+      const cacheControl = version ? "public, max-age=86400" : "public, max-age=300";
+      c.header("Cache-Control", cacheControl);
       return new Response(Buffer.from(got.body), {
         status: 200,
         headers: {
           "Content-Type": row.content_type,
-          "Cache-Control": version ? "public, max-age=86400" : "public, max-age=300",
+          "Cache-Control": cacheControl,
           "Content-Length": String(got.byteSize),
         },
       });

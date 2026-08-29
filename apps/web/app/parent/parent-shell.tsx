@@ -64,8 +64,8 @@ function ParentShellInner({ children }: { children: ReactNode }) {
             branding: tenant.organisation.branding,
           });
           setLogoUrl(branding.logoUrl);
-          document.documentElement.style.setProperty("--brand", branding.primaryColor);
           document.documentElement.style.setProperty("--sidebar", branding.primaryColor);
+          document.documentElement.style.setProperty("--navy", branding.primaryColor);
           const current = membershipForHost(body.memberships, tenant);
           if (!current || !hasParentRole(current.roleKeys)) {
             router.replace(current ? homePath(current.roleKeys) : "/login");

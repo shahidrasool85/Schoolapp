@@ -205,6 +205,26 @@ describe("public host kind and login classification", () => {
     ).toBe("school");
   });
 
+  it("classifies production platform and Kingswood tenant hosts separately", () => {
+    expect(classifyPublicHost("app.luvlearn.co.uk", production)).toBe("platform");
+    expect(loginHostKindFromRequest({
+      host: "app.luvlearn.co.uk",
+      trustProxy: false,
+      platformDomain: production,
+    })).toBe("platform");
+    expect(classifyHostname("kingswood.luvlearn.co.uk", production)).toEqual({
+      kind: "school_subdomain",
+      hostname: "kingswood.luvlearn.co.uk",
+      slug: "kingswood",
+    });
+    expect(classifyPublicHost("kingswood.luvlearn.co.uk", production)).toBe("school");
+    expect(loginHostKindFromRequest({
+      host: "kingswood.luvlearn.co.uk",
+      trustProxy: false,
+      platformDomain: production,
+    })).toBe("school");
+  });
+
   it("keeps localhost development hosts on the platform, with *.localhost as schools", () => {
     expect(classifyPublicHost("localhost", "localhost")).toBe("platform");
     expect(classifyPublicHost("127.0.0.1", "localhost")).toBe("platform");

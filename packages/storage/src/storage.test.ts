@@ -11,6 +11,7 @@ import { assertSafeObjectKey, buildObjectKey, organisationIdFromKey } from "./ke
 import { sha256Hex } from "./checksum.js";
 import { NoopFileScanner } from "./scanner.js";
 import { detectFileKind, fileProfile, validateUpload } from "./validation.js";
+import { assertBrandingImageDimensions, readRasterImageSize } from "./image-size.js";
 import { createObjectStorageFromEnv } from "./factory.js";
 
 const PNG_1X1 = Buffer.from(
@@ -132,6 +133,28 @@ describe("content validation", () => {
     ).toThrow(StorageError);
   });
 
+  it("rejects SVG and oversized files for the branding profile", () => {
+    const branding = fileProfile("branding");
+    expect(() =>
+      validateUpload({
+        filename: "logo.svg",
+        declaredMime: "image/svg+xml",
+        bytes: Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'></svg>"),
+        profile: branding,
+      }),
+    ).toThrow(StorageError);
+    const huge = new Uint8Array(5 * 1024 * 1024 + 12);
+    huge.set(PNG_1X1, 0);
+    expect(() =>
+      validateUpload({
+        filename: "logo.png",
+        declaredMime: "image/png",
+        bytes: huge,
+        profile: branding,
+      }),
+    ).toThrow(/too large/i);
+  });
+
   it("accepts DOCX zip signatures for learning uploads", () => {
     const result = validateUpload({
       filename: "worksheet.docx",
@@ -140,6 +163,32 @@ describe("content validation", () => {
       profile: fileProfile("learning_resource"),
     });
     expect(result.kind).toBe("docx");
+  });
+});
+
+describe("branding image dimensions", () => {
+  function pngHeader(width: number, height: number): Uint8Array {
+    const bytes = Uint8Array.from(PNG_1X1);
+    const view = new DataView(bytes.buffer);
+    view.setUint32(16, width);
+    view.setUint32(20, height);
+    return bytes;
+  }
+
+  it("reads PNG dimensions and enforces logo/cover limits", () => {
+    expect(readRasterImageSize(PNG_1X1, "png")).toEqual({ width: 1, height: 1 });
+    expect(() =>
+      assertBrandingImageDimensions({ bytes: PNG_1X1, kind: "png", purpose: "logo" }),
+    ).toThrow(/32/);
+    expect(() =>
+      assertBrandingImageDimensions({ bytes: pngHeader(64, 64), kind: "png", purpose: "logo" }),
+    ).not.toThrow();
+    expect(() =>
+      assertBrandingImageDimensions({ bytes: pngHeader(80, 80), kind: "png", purpose: "hero" }),
+    ).toThrow(/200/);
+    expect(() =>
+      assertBrandingImageDimensions({ bytes: pngHeader(8000, 800), kind: "png", purpose: "hero" }),
+    ).toThrow(/6000/);
   });
 });
 

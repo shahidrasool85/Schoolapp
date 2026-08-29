@@ -94,11 +94,11 @@ describe("RLS catalog", () => {
            'learning_activity_definitions', 'learning_activity_items', 'learning_activity_assignments',
            'learning_activity_targets', 'learning_activity_recipients', 'learning_activity_attempts',
            'learning_activity_answers',
-           'organisation_setup_progress', 'account_tokens', 'mail_outbox',
+           'organisation_setup_progress', 'organisation_settings', 'account_tokens', 'mail_outbox',
            'data_imports', 'data_import_rows'
          )`,
     );
-    expect(result.rows.length).toBe(191);
+    expect(result.rows.length).toBe(192);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
     }

@@ -14,8 +14,10 @@ import {
   SectionCard,
   StatusBadge,
 } from "../../../components/ui";
+import { SchoolBrandingForm } from "../../../components/school-branding-form";
 import { api } from "../../../lib/api";
 import { userFacingError } from "../../../lib/errors";
+import { loadPublicTenant } from "../../../lib/tenant";
 import { usePermissions } from "../../../lib/use-permissions";
 
 type Profile = {
@@ -55,18 +57,22 @@ export default function SchoolSettingsPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [items, setItems] = useState<ReadinessItem[]>([]);
   const [ready, setReady] = useState(false);
+  const [hostname, setHostname] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
+  const canManage = permissions.has("org.settings.manage");
 
   async function load() {
-    const [onboarding, body] = await Promise.all([
+    const [onboarding, body, tenant] = await Promise.all([
       api<{ readiness: { ready: boolean; items: ReadinessItem[] } }>("/api/v1/onboarding"),
       api<{ profile: Profile }>("/api/v1/onboarding/profile"),
+      loadPublicTenant().catch(() => null),
     ]);
     setProfile(body.profile);
     setItems(onboarding.readiness.items);
     setReady(onboarding.readiness.ready);
+    setHostname(tenant && "hostname" in tenant ? tenant.hostname : null);
   }
 
   useEffect(() => {
@@ -104,37 +110,59 @@ export default function SchoolSettingsPage() {
     }
   }
 
-  async function saveBranding(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
+  async function saveIdentity(name: string) {
+    setError("");
+    try {
+      await api("/api/v1/onboarding/profile", {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      });
+      setNotice("School display name saved.");
+      await load();
+    } catch (err) {
+      setError(userFacingError(err, "Could not save school name."));
+    }
+  }
+
+  async function saveColours(input: {
+    tagline: string | null;
+    primaryColour: string;
+    accentColour: string;
+  }) {
     setError("");
     try {
       await api("/api/v1/onboarding/branding", {
         method: "PATCH",
-        body: JSON.stringify({
-          tagline: form.get("tagline") || null,
-          primaryColour: form.get("primaryColour"),
-          accentColour: form.get("accentColour"),
-        }),
+        body: JSON.stringify(input),
       });
-      setNotice("Branding saved.");
+      setNotice("Branding colours saved.");
       await load();
     } catch (err) {
       setError(userFacingError(err, "Could not save branding."));
     }
   }
 
-  async function upload(kind: "logo" | "hero", file: File | null) {
-    if (!file) return;
+  async function upload(kind: "logo" | "hero", file: File) {
     const data = new FormData();
     data.append("file", file);
     setError("");
     try {
       await api(`/api/v1/onboarding/branding/${kind}`, { method: "POST", body: data });
-      setNotice(kind === "logo" ? "Logo uploaded." : "Login image uploaded.");
+      setNotice(kind === "logo" ? "Logo uploaded." : "Login cover uploaded.");
       await load();
     } catch (err) {
       setError(userFacingError(err, "Could not upload image."));
+    }
+  }
+
+  async function removeAsset(kind: "logo" | "hero") {
+    setError("");
+    try {
+      await api(`/api/v1/onboarding/branding/${kind}`, { method: "DELETE" });
+      setNotice(kind === "logo" ? "Logo removed." : "Login cover removed.");
+      await load();
+    } catch (err) {
+      setError(userFacingError(err, "Could not remove image."));
     }
   }
 
@@ -216,29 +244,19 @@ export default function SchoolSettingsPage() {
         </form>
       </SectionCard>
 
-      <SectionCard title="Branding" description="Display-only. Login, staff, parent and student shells use these colours and images with professional fallbacks.">
-        <form className="form-grid" onSubmit={saveBranding}>
-          <FormField label="Tagline">
-            <Input name="tagline" defaultValue={profile.branding.tagline ?? ""} />
-          </FormField>
-          <FormField label="Primary colour">
-            <Input name="primaryColour" defaultValue={profile.branding.primaryColor} />
-          </FormField>
-          <FormField label="Accent colour">
-            <Input name="accentColour" defaultValue={profile.branding.accentColor} />
-          </FormField>
-          <div>
-            <Button type="submit">Save branding</Button>
-          </div>
-        </form>
-        <div className="form-grid" style={{ marginTop: "1rem" }}>
-          <FormField label="Logo">
-            <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => upload("logo", e.target.files?.[0] ?? null)} />
-          </FormField>
-          <FormField label="Login / hero image">
-            <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => upload("hero", e.target.files?.[0] ?? null)} />
-          </FormField>
-        </div>
+      <SectionCard
+        id="branding"
+        title="Branding"
+        description="School identity for login and the staff, parent and student apps. Changing the display name does not change the school address or organisation ID."
+      >
+        <SchoolBrandingForm
+          profile={{ ...profile, hostname }}
+          canManage={canManage}
+          onSaveIdentity={saveIdentity}
+          onSaveColours={saveColours}
+          onUpload={upload}
+          onRemove={removeAsset}
+        />
       </SectionCard>
     </>
   );

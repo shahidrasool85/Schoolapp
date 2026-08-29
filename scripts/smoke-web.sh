@@ -189,5 +189,18 @@ if ! grep -q "Platform sign in" /tmp/schoolapp-smoke-login.html; then
   echo "/login HTML did not include Platform sign in" >&2
   exit 1
 fi
+if ! grep -q "luvlearn-logo.png" /tmp/schoolapp-smoke-login.html; then
+  echo "/login HTML did not include the LuvLearn logo" >&2
+  exit 1
+fi
+if ! grep -q "login-brand-title" /tmp/schoolapp-smoke-login.html; then
+  echo "/login HTML did not include the school brand title class" >&2
+  exit 1
+fi
+logo_code="$(curl -sS -o /dev/null -w "%{http_code}" "http://127.0.0.1:${PORT}/branding/luvlearn-logo.png")"
+if [ "${logo_code}" != "200" ]; then
+  echo "LuvLearn logo asset returned ${logo_code}" >&2
+  exit 1
+fi
 
 echo "web smoke ok (health 200, platform tenant, unknown host 404, login/school/parent/student/admissions/forms/campaigns/attendance/teaching/assessment/communications/pastoral/safeguarding/activities/finance/messages/statutory/reports/engagement pages 200)"

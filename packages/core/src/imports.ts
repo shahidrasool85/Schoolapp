@@ -31,6 +31,9 @@ const PUPIL_HEADERS = [
   "address_line1",
   "address_town",
   "address_postcode",
+  "fee_schedule",
+  "sibling_priority",
+  "concession_note",
 ] as const;
 const GUARDIAN_HEADERS = [
   "admission_number",
@@ -65,6 +68,9 @@ export function importTemplateCsv(kind: ImportKind): string {
               "1 High Street",
               "London",
               "SW1A 1AA",
+              "",
+              "",
+              "",
             ],
           ]
         : [["ADM1001", "Jordan Smith", "Sam Smith", "sam.smith@family.example", "mother", "true"]];

@@ -1,0 +1,383 @@
+import {
+  SCHOOL_BILLING_FREQUENCIES,
+  SCHOOL_CREDIT_KINDS,
+  SCHOOL_DISCOUNT_AMOUNT_TYPES,
+  SCHOOL_DISCOUNT_KINDS,
+  SCHOOL_DISCOUNT_STACKING_MODES,
+  SCHOOL_INVOICE_LINE_KINDS,
+  SCHOOL_INVOICE_PAYMENT_METHODS,
+  SCHOOL_INVOICE_STATUSES,
+  SCHOOL_MID_PERIOD_POLICIES,
+  SCHOOL_SIBLING_ORDER_MODES,
+  SCHOOL_STAFF_CHILD_SCOPES,
+  type SchoolBillingFrequency,
+  type SchoolDiscountStackingMode,
+  type SchoolInvoiceStatus,
+  type SchoolMidPeriodPolicy,
+  type SchoolSiblingOrderMode,
+} from "@schoolapp/domain";
+
+export function isSchoolBillingFrequency(value: string): value is SchoolBillingFrequency {
+  return (SCHOOL_BILLING_FREQUENCIES as readonly string[]).includes(value);
+}
+
+export function isSchoolDiscountStackingMode(value: string): value is SchoolDiscountStackingMode {
+  return (SCHOOL_DISCOUNT_STACKING_MODES as readonly string[]).includes(value);
+}
+
+export function isSchoolSiblingOrderMode(value: string): value is SchoolSiblingOrderMode {
+  return (SCHOOL_SIBLING_ORDER_MODES as readonly string[]).includes(value);
+}
+
+export function isSchoolMidPeriodPolicy(value: string): value is SchoolMidPeriodPolicy {
+  return (SCHOOL_MID_PERIOD_POLICIES as readonly string[]).includes(value);
+}
+
+export function isSchoolInvoiceStatus(value: string): value is SchoolInvoiceStatus {
+  return (SCHOOL_INVOICE_STATUSES as readonly string[]).includes(value);
+}
+
+export function isSchoolDiscountKind(value: string): boolean {
+  return (SCHOOL_DISCOUNT_KINDS as readonly string[]).includes(value);
+}
+
+export function isSchoolDiscountAmountType(value: string): boolean {
+  return (SCHOOL_DISCOUNT_AMOUNT_TYPES as readonly string[]).includes(value);
+}
+
+export function isSchoolInvoiceLineKind(value: string): boolean {
+  return (SCHOOL_INVOICE_LINE_KINDS as readonly string[]).includes(value);
+}
+
+export function isSchoolInvoicePaymentMethod(value: string): boolean {
+  return (SCHOOL_INVOICE_PAYMENT_METHODS as readonly string[]).includes(value);
+}
+
+export function isSchoolCreditKind(value: string): boolean {
+  return (SCHOOL_CREDIT_KINDS as readonly string[]).includes(value);
+}
+
+export function isSchoolStaffChildScope(value: string): boolean {
+  return (SCHOOL_STAFF_CHILD_SCOPES as readonly string[]).includes(value);
+}
+
+export function percentOfMinor(baseMinor: number, bps: number): number {
+  if (!Number.isInteger(baseMinor) || baseMinor < 0) {
+    throw new Error("invalid_amount");
+  }
+  if (!Number.isInteger(bps) || bps < 0 || bps > 10000) {
+    throw new Error("invalid_percent");
+  }
+  return Math.floor((baseMinor * bps) / 10000);
+}
+
+export function splitAnnualIntoInstalments(annualMinor: number, count: number): number[] {
+  if (!Number.isInteger(annualMinor) || annualMinor < 0) {
+    throw new Error("invalid_amount");
+  }
+  if (!Number.isInteger(count) || count < 1 || count > 24) {
+    throw new Error("invalid_instalment_count");
+  }
+  const base = Math.floor(annualMinor / count);
+  const remainder = annualMinor - base * count;
+  return Array.from({ length: count }, (_, index) => base + (index === count - 1 ? remainder : 0));
+}
+
+export function prorateMinor(amountMinor: number, chargeableDays: number, periodDays: number): number {
+  if (!Number.isInteger(amountMinor) || amountMinor < 0) {
+    throw new Error("invalid_amount");
+  }
+  if (!Number.isInteger(chargeableDays) || !Number.isInteger(periodDays)) {
+    throw new Error("invalid_proration");
+  }
+  if (periodDays <= 0) return amountMinor;
+  if (chargeableDays <= 0) return 0;
+  if (chargeableDays >= periodDays) return amountMinor;
+  return Math.floor((amountMinor * chargeableDays) / periodDays);
+}
+
+export function inclusiveDayCount(start: string, end: string): number {
+  const from = parseIsoDate(start);
+  const to = parseIsoDate(end);
+  const ms = to.getTime() - from.getTime();
+  return Math.floor(ms / 86_400_000) + 1;
+}
+
+export function overlapDays(
+  periodStart: string,
+  periodEnd: string,
+  enrolStart: string | null,
+  enrolEnd: string | null,
+): number {
+  const start = maxIsoDate(periodStart, enrolStart ?? periodStart);
+  const end = minIsoDate(periodEnd, enrolEnd ?? periodEnd);
+  if (start > end) return 0;
+  return inclusiveDayCount(start, end);
+}
+
+export function applyMidPeriodPolicy(input: {
+  amountMinor: number;
+  policy: SchoolMidPeriodPolicy;
+  periodStart: string;
+  periodEnd: string;
+  enrolStart: string | null;
+  enrolEnd: string | null;
+}): { amountMinor: number; skipped: boolean; prorated: boolean; chargeableDays: number; periodDays: number } {
+  const periodDays = inclusiveDayCount(input.periodStart, input.periodEnd);
+  const chargeableDays = overlapDays(input.periodStart, input.periodEnd, input.enrolStart, input.enrolEnd);
+  const fullPeriod = chargeableDays >= periodDays;
+  if (fullPeriod) {
+    return { amountMinor: input.amountMinor, skipped: false, prorated: false, chargeableDays, periodDays };
+  }
+  if (input.policy === "manual") {
+    return { amountMinor: 0, skipped: true, prorated: false, chargeableDays, periodDays };
+  }
+  if (input.policy === "prorate") {
+    return {
+      amountMinor: prorateMinor(input.amountMinor, chargeableDays, periodDays),
+      skipped: chargeableDays <= 0,
+      prorated: chargeableDays > 0,
+      chargeableDays,
+      periodDays,
+    };
+  }
+  return { amountMinor: input.amountMinor, skipped: chargeableDays <= 0, prorated: false, chargeableDays, periodDays };
+}
+
+export type SiblingSortInput = {
+  studentProfileId: string;
+  dateOfBirth: string | null;
+  legalName: string;
+  yearGroupSort: number;
+  explicitPriority: number | null;
+};
+
+export function compareSiblings(
+  left: SiblingSortInput,
+  right: SiblingSortInput,
+  mode: SchoolSiblingOrderMode,
+): number {
+  const leftExplicit = left.explicitPriority;
+  const rightExplicit = right.explicitPriority;
+  if (mode === "explicit" || leftExplicit != null || rightExplicit != null) {
+    const leftRank = leftExplicit ?? Number.MAX_SAFE_INTEGER;
+    const rightRank = rightExplicit ?? Number.MAX_SAFE_INTEGER;
+    if (leftRank !== rightRank) return leftRank - rightRank;
+  }
+  if (mode === "year_group") {
+    if (left.yearGroupSort !== right.yearGroupSort) return left.yearGroupSort - right.yearGroupSort;
+  }
+  if (mode === "oldest_first" || mode === "youngest_first" || (left.dateOfBirth && right.dateOfBirth)) {
+    const leftDob = left.dateOfBirth;
+    const rightDob = right.dateOfBirth;
+    if (leftDob && rightDob && leftDob !== rightDob) {
+      return mode === "youngest_first" ? (leftDob < rightDob ? 1 : -1) : leftDob < rightDob ? -1 : 1;
+    }
+    if (leftDob && !rightDob) return -1;
+    if (!leftDob && rightDob) return 1;
+  }
+  const name = left.legalName.localeCompare(right.legalName, "en-GB");
+  if (name !== 0) return name;
+  return left.studentProfileId.localeCompare(right.studentProfileId);
+}
+
+export function orderSiblings(
+  pupils: SiblingSortInput[],
+  mode: SchoolSiblingOrderMode,
+): SiblingSortInput[] {
+  return [...pupils].sort((left, right) => compareSiblings(left, right, mode));
+}
+
+export type DiscountCandidate = {
+  key: string;
+  ruleId: string | null;
+  concessionId: string | null;
+  kind: string;
+  name: string;
+  amountType: "percent" | "fixed";
+  percentBps: number | null;
+  amountMinor: number | null;
+  stackingPriority: number;
+  exclusiveGroup: string | null;
+};
+
+export type AppliedDiscount = DiscountCandidate & {
+  calculatedMinor: number;
+};
+
+export type DiscountApplication = {
+  applied: AppliedDiscount[];
+  discarded: Array<DiscountCandidate & { reason: string }>;
+  discountTotalMinor: number;
+  netMinor: number;
+};
+
+function calculatedDiscountMinor(standardMinor: number, candidate: DiscountCandidate): number {
+  if (candidate.amountType === "percent") {
+    return percentOfMinor(standardMinor, candidate.percentBps ?? 0);
+  }
+  return Math.min(standardMinor, candidate.amountMinor ?? 0);
+}
+
+function candidateSort(left: DiscountCandidate, right: DiscountCandidate): number {
+  if (left.stackingPriority !== right.stackingPriority) {
+    return left.stackingPriority - right.stackingPriority;
+  }
+  const kind = left.kind.localeCompare(right.kind);
+  if (kind !== 0) return kind;
+  return left.key.localeCompare(right.key);
+}
+
+export function applyDiscounts(
+  standardMinor: number,
+  candidates: DiscountCandidate[],
+  mode: SchoolDiscountStackingMode,
+): DiscountApplication {
+  if (!Number.isInteger(standardMinor) || standardMinor < 0) {
+    throw new Error("invalid_amount");
+  }
+  const discarded: DiscountApplication["discarded"] = [];
+  const eligible = [...candidates].sort(candidateSort).map((candidate) => ({
+    ...candidate,
+    calculatedMinor: calculatedDiscountMinor(standardMinor, candidate),
+  }));
+
+  let selected: AppliedDiscount[] = [];
+  if (mode === "highest") {
+    let best: AppliedDiscount | null = null;
+    for (const candidate of eligible) {
+      if (
+        !best ||
+        candidate.calculatedMinor > best.calculatedMinor ||
+        (candidate.calculatedMinor === best.calculatedMinor && candidateSort(candidate, best) < 0)
+      ) {
+        best = candidate;
+      }
+    }
+    if (best && best.calculatedMinor > 0) {
+      selected = [best];
+      for (const candidate of eligible) {
+        if (candidate.key !== best.key) {
+          discarded.push({ ...candidate, reason: "highest_only" });
+        }
+      }
+    }
+  } else if (mode === "priority") {
+    const usedGroups = new Set<string>();
+    for (const candidate of eligible) {
+      if (candidate.exclusiveGroup && usedGroups.has(candidate.exclusiveGroup)) {
+        discarded.push({ ...candidate, reason: "exclusive_group" });
+        continue;
+      }
+      if (candidate.calculatedMinor <= 0) {
+        discarded.push({ ...candidate, reason: "zero_value" });
+        continue;
+      }
+      selected.push(candidate);
+      if (candidate.exclusiveGroup) usedGroups.add(candidate.exclusiveGroup);
+    }
+  } else {
+    for (const candidate of eligible) {
+      if (candidate.calculatedMinor <= 0) {
+        discarded.push({ ...candidate, reason: "zero_value" });
+        continue;
+      }
+      selected.push(candidate);
+    }
+  }
+
+  let remaining = standardMinor;
+  const applied: AppliedDiscount[] = [];
+  for (const candidate of selected) {
+    const amount = Math.min(candidate.calculatedMinor, remaining);
+    if (amount <= 0) {
+      discarded.push({ ...candidate, reason: "already_zero" });
+      continue;
+    }
+    applied.push({ ...candidate, calculatedMinor: amount });
+    remaining -= amount;
+  }
+
+  return {
+    applied,
+    discarded,
+    discountTotalMinor: standardMinor - remaining,
+    netMinor: remaining,
+  };
+}
+
+export function deriveInvoiceStatus(input: {
+  current: SchoolInvoiceStatus;
+  totalMinor: number;
+  paidMinor: number;
+  dueDate: string;
+  gracePeriodDays: number;
+  today?: string;
+}): SchoolInvoiceStatus {
+  if (input.current === "draft" || input.current === "void") return input.current;
+  const outstanding = invoiceOutstandingMinor(input.totalMinor, input.paidMinor);
+  if (outstanding <= 0) return "paid";
+  if (input.paidMinor > 0) return "partially_paid";
+  const today = input.today ?? isoToday();
+  if (isOverdue(input.dueDate, input.gracePeriodDays, today)) return "overdue";
+  return "issued";
+}
+
+export function invoiceOutstandingMinor(totalMinor: number, paidMinor: number): number {
+  if (!Number.isInteger(totalMinor) || totalMinor < 0) throw new Error("invalid_amount");
+  if (!Number.isInteger(paidMinor) || paidMinor < 0) throw new Error("invalid_amount");
+  return paidMinor >= totalMinor ? 0 : totalMinor - paidMinor;
+}
+
+export function isOverdue(dueDate: string, gracePeriodDays: number, today: string): boolean {
+  const due = addDays(dueDate, gracePeriodDays);
+  return today > due;
+}
+
+export function billingPeriodKey(
+  frequency: SchoolBillingFrequency,
+  periodStart: string,
+  periodEnd: string,
+): string {
+  return `tuition:${frequency}:${periodStart}:${periodEnd}`;
+}
+
+export function arrearsBucket(daysOverdue: number): "current" | "due_soon" | "overdue" | "30" | "60" | "90" {
+  if (daysOverdue <= 0) return daysOverdue < -7 ? "current" : "due_soon";
+  if (daysOverdue >= 90) return "90";
+  if (daysOverdue >= 60) return "60";
+  if (daysOverdue >= 30) return "30";
+  return "overdue";
+}
+
+export function daysOverdue(dueDate: string, today: string, gracePeriodDays = 0): number {
+  const effectiveDue = addDays(dueDate, gracePeriodDays);
+  return inclusiveDayCount(effectiveDue, today) - 1;
+}
+
+function parseIsoDate(value: string): Date {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new Error("invalid_date");
+  }
+  const date = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) throw new Error("invalid_date");
+  return date;
+}
+
+function isoToday(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function addDays(value: string, days: number): string {
+  const date = parseIsoDate(value);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function maxIsoDate(left: string, right: string): string {
+  return left >= right ? left : right;
+}
+
+function minIsoDate(left: string, right: string): string {
+  return left <= right ? left : right;
+}

@@ -27,6 +27,9 @@ import {
   markConversationRead,
   sendConversationMessage,
   loadEffectiveEngagementPolicy,
+  loadParentFinance,
+  loadParentInvoice,
+  loadParentStatement,
   loadPupilYearGroupId,
 } from "@schoolapp/core";
 import { listPupilTimetable } from "./timetable";
@@ -503,6 +506,26 @@ export function registerParentRoutes(app: SchoolappApi) {
         actor,
         chargeId: uuidRouteParam(c, "chargeId"),
       }));
+    }),
+  );
+
+  app.get("/parent/finance", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      return c.json(await loadParentFinance(client, orgId, actor));
+    }),
+  );
+
+  app.get("/parent/finance/invoices/:invoiceId", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      return c.json(await loadParentInvoice(client, orgId, actor, uuidRouteParam(c, "invoiceId")));
+    }),
+  );
+
+  app.get("/parent/finance/statement", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      const from = c.req.query("from") ?? `${new Date().getUTCFullYear()}-01-01`;
+      const to = c.req.query("to") ?? new Date().toISOString().slice(0, 10);
+      return c.json(await loadParentStatement(client, orgId, actor, from, to));
     }),
   );
 

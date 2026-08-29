@@ -77,6 +77,12 @@ describe("RLS catalog", () => {
            'school_charge_adjustments', 'school_payment_transactions', 'school_payment_sessions',
            'school_payment_refunds', 'school_payment_receipts', 'school_payment_provider_events',
            'school_payment_provider_configs',
+           'school_finance_settings', 'school_fee_schedules', 'school_fee_schedule_instalments',
+           'school_discount_rules', 'school_discount_rule_tiers', 'school_pupil_fee_profiles',
+           'school_pupil_concessions', 'school_staff_child_links', 'school_billing_accounts',
+           'school_billing_account_pupils', 'school_billing_account_payers', 'school_billing_runs',
+           'school_billing_run_items', 'school_invoices', 'school_invoice_lines',
+           'school_invoice_payments', 'school_invoice_credits',
            'message_counters', 'message_conversations', 'message_participants', 'messages',
            'message_attachments',
            'organisation_statutory_profiles', 'student_statutory_profiles', 'student_fsm_periods',
@@ -92,7 +98,7 @@ describe("RLS catalog", () => {
            'data_imports', 'data_import_rows'
          )`,
     );
-    expect(result.rows.length).toBe(174);
+    expect(result.rows.length).toBe(191);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
     }
@@ -105,10 +111,12 @@ describe("RLS catalog", () => {
          'school_finance_counters', 'school_charge_categories', 'school_charges',
          'school_charge_adjustments', 'school_payment_transactions', 'school_payment_sessions',
          'school_payment_refunds', 'school_payment_receipts', 'school_payment_provider_events',
-         'school_payment_provider_configs'
+         'school_payment_provider_configs',
+         'school_finance_settings', 'school_fee_schedules', 'school_invoices',
+         'school_invoice_payments', 'school_billing_runs'
        ]) as t(table_name)`,
     );
-    expect(result.rows).toHaveLength(10);
+    expect(result.rows).toHaveLength(15);
     for (const row of result.rows) {
       expect(row.can_select, row.table_name).toBe(true);
     }

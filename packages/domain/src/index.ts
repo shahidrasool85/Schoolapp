@@ -305,11 +305,17 @@ export {
 
 export {
   ACADEMIC_RECORD_STATUSES,
+  SCHOOL_SEARCH_HARD_CAP,
   SCHOOL_SEARCH_LIMIT,
   SCHOOL_SEARCH_MAX_LENGTH,
   SCHOOL_SEARCH_MIN_LENGTH,
+  SYSTEM_YEAR_GROUP_DELETE_REASON,
+  YEAR_GROUP_ORIGINS,
   academicLifecycleFromUsage,
+  formatAcademicDeletionMessage,
   isAcademicRecordStatus,
+  isSystemYearGroup,
+  isYearGroupOrigin,
   parseSchoolSearchQuery,
   safeRelativeNext,
   summarizeAcademicUsage,
@@ -317,6 +323,7 @@ export {
   type AcademicLifecycle,
   type AcademicRecordStatus,
   type AcademicUsageCount,
+  type YearGroupOrigin,
 } from "./academic-lifecycle.js";
 
 export {

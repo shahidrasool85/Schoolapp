@@ -15,7 +15,12 @@ import {
 } from "../../../components/ui";
 import { SetupReturnBanner } from "../../../components/setup-return-banner";
 import { api } from "../../../lib/api";
-import { includeArchivedQuery, type AcademicLifecycle, type AcademicStatus } from "../../../lib/academic-lifecycle";
+import {
+  includeArchivedQuery,
+  lifecycleConfirmDescription,
+  type AcademicLifecycle,
+  type AcademicStatus,
+} from "../../../lib/academic-lifecycle";
 import { userFacingError } from "../../../lib/errors";
 
 type Year = {
@@ -270,15 +275,15 @@ export default function AcademicYearsPage() {
               : `Archive “${confirm?.year.name}”?`
         }
         description={
-          confirm?.mode === "restore"
-            ? "This academic year will appear again in current school lists."
-            : confirm?.mode === "delete"
-              ? "This academic year has no dependent records and can be permanently deleted."
-              : confirm
-                ? confirm.year.isCurrent
+          confirm
+            ? lifecycleConfirmDescription(confirm.mode, confirm.lifecycle, {
+                restore: "This academic year will appear again in current school lists.",
+                unused: "This academic year has no dependent records and can be permanently deleted.",
+                blocked: confirm.year.isCurrent
                   ? "The current academic year cannot be removed until another year is set as current."
-                  : `${confirm.year.name} cannot be deleted because it contains school records. Archive it instead.`
-                : ""
+                  : "This academic year cannot be deleted because it contains school records. Archive it instead.",
+              })
+            : ""
         }
         confirmLabel={
           confirm?.mode === "restore"

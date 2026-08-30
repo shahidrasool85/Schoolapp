@@ -15,7 +15,12 @@ import {
 } from "../../../components/ui";
 import { SetupReturnBanner } from "../../../components/setup-return-banner";
 import { api } from "../../../lib/api";
-import { includeArchivedQuery, type AcademicLifecycle, type AcademicStatus } from "../../../lib/academic-lifecycle";
+import {
+  includeArchivedQuery,
+  lifecycleConfirmDescription,
+  type AcademicLifecycle,
+  type AcademicStatus,
+} from "../../../lib/academic-lifecycle";
 import { userFacingError } from "../../../lib/errors";
 
 type ClassRow = {
@@ -438,11 +443,13 @@ export default function ClassesPage() {
               : `Archive class “${confirm?.row.name}”?`
         }
         description={
-          confirm?.mode === "restore"
-            ? "This class will appear again in current class lists."
-            : confirm?.mode === "delete"
-              ? "This class has no pupil, timetable or teaching records and can be permanently deleted."
-              : "This class cannot be deleted because it has pupil or timetable records. Archive it instead."
+          confirm
+            ? lifecycleConfirmDescription(confirm.mode, confirm.lifecycle, {
+                restore: "This class will appear again in current class lists.",
+                unused: "This class has no pupil, timetable or teaching records and can be permanently deleted.",
+                blocked: "This class cannot be deleted because it has pupil or timetable records. Archive it instead.",
+              })
+            : ""
         }
         confirmLabel={confirm?.mode === "restore" ? "Restore" : confirm?.mode === "delete" ? "Delete class" : "Archive class"}
         danger={confirm?.mode === "delete"}

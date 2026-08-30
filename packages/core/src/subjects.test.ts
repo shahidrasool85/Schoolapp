@@ -65,7 +65,10 @@ describe("subject key rules", () => {
 
 describe("public school finder query", () => {
   it("requires a short typed query and does not treat URLs as destinations", () => {
+    expect(parseSchoolSearchQuery("")).toEqual({ ok: false, query: "" });
     expect(parseSchoolSearchQuery("K")).toEqual({ ok: false, query: "" });
+    expect(parseSchoolSearchQuery("%%")).toEqual({ ok: false, query: "" });
+    expect(parseSchoolSearchQuery("%_")).toEqual({ ok: false, query: "" });
     expect(parseSchoolSearchQuery("Kingswood")).toEqual({ ok: true, query: "Kingswood" });
     expect(parseSchoolSearchQuery("https://evil.example/login").ok).toBe(true);
     expect(safeRelativeNext("https://evil.example/login")).toBeNull();
@@ -75,12 +78,29 @@ describe("public school finder query", () => {
 });
 
 describe("academic usage copy", () => {
-  it("explains why a referenced record cannot be deleted", () => {
+  it("explains why a referenced record cannot be deleted using aggregate counts only", () => {
     expect(
       summarizeAcademicUsage(
         [{ key: "classes", label: "classes", count: 4 }],
-        "Year 3",
+        "This year group",
       ),
-    ).toMatch(/cannot be deleted because 4 classes use it/i);
+    ).toBe("This year group cannot be deleted because it has 4 classes. Archive it instead.");
+    expect(
+      summarizeAcademicUsage(
+        [{ key: "class_memberships", label: "pupil enrolments", count: 12 }],
+        "This class",
+      ),
+    ).toBe("This class cannot be deleted because it has 12 pupil enrolments. Archive it instead.");
+    expect(
+      summarizeAcademicUsage(
+        [
+          { key: "classes", label: "classes", count: 2 },
+          { key: "timetable_entries", label: "timetable entries", count: 3 },
+        ],
+        "This academic year",
+      ),
+    ).toBe(
+      "This academic year cannot be deleted because it has 2 classes and 3 timetable entries. Archive it instead.",
+    );
   });
 });

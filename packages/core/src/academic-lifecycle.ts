@@ -24,7 +24,7 @@ const USAGE_LABELS: Record<string, string> = {
   academic_report_sections: "report sections",
   academic_reporting_periods: "reporting periods",
   academic_reports: "reports",
-  class_memberships: "pupil memberships",
+  class_memberships: "pupil enrolments",
   class_staff_assignments: "teacher assignments",
   classes: "classes",
   student_enrolments: "pupil enrolments",
@@ -105,7 +105,7 @@ export async function loadAcademicLifecycle(
   entityId: string,
   organisationId: string,
   status: AcademicRecordStatus,
-  extras?: { extraBlockReasons?: string[]; archiveBlockedReasons?: string[] },
+  extras?: { extraBlockReasons?: string[]; archiveBlockedReasons?: string[]; entityLabel?: string },
 ): Promise<AcademicLifecycle> {
   const usage = await countForeignKeyUsage(client, entityKind, entityId, organisationId);
   return academicLifecycleFromUsage({
@@ -113,13 +113,14 @@ export async function loadAcademicLifecycle(
     usage,
     extraBlockReasons: extras?.extraBlockReasons,
     archiveBlockedReasons: extras?.archiveBlockedReasons,
+    entityLabel: extras?.entityLabel,
   });
 }
 
 export function deletionBlockedError(entityLabel: string, lifecycle: AcademicLifecycle) {
   return {
     code: "cannot_delete" as const,
-    message: summarizeAcademicUsage(lifecycle.usage, entityLabel),
+    message: lifecycle.message || summarizeAcademicUsage(lifecycle.usage, entityLabel),
     details: {
       canArchive: lifecycle.canArchive,
       usage: lifecycle.usage.filter((item) => item.count > 0),

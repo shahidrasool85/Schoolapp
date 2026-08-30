@@ -16,7 +16,12 @@ import {
 } from "../../../components/ui";
 import { SetupReturnBanner } from "../../../components/setup-return-banner";
 import { api } from "../../../lib/api";
-import { includeArchivedQuery, type AcademicLifecycle, type AcademicStatus } from "../../../lib/academic-lifecycle";
+import {
+  includeArchivedQuery,
+  lifecycleConfirmDescription,
+  type AcademicLifecycle,
+  type AcademicStatus,
+} from "../../../lib/academic-lifecycle";
 import { userFacingError } from "../../../lib/errors";
 
 type YearGroup = {
@@ -26,6 +31,7 @@ type YearGroup = {
   keyStage: number | null;
   studentLoginEnabled: boolean;
   status?: AcademicStatus;
+  origin?: "system" | "custom";
 };
 
 export default function YearGroupsPage() {
@@ -219,7 +225,10 @@ export default function YearGroupsPage() {
               {groups.map((row) => (
                 <tr key={row.id}>
                   <td>{row.code}</td>
-                  <td>{row.name}</td>
+                  <td>
+                    {row.name}
+                    {row.origin === "system" ? <span className="muted"> · Standard</span> : null}
+                  </td>
                   <td>{row.keyStage ?? "—"}</td>
                   <td>{row.studentLoginEnabled ? "Enabled" : "Off"}</td>
                   <td>
@@ -240,7 +249,7 @@ export default function YearGroupsPage() {
                             Toggle login
                           </Button>
                           <Button type="button" variant="ghost" onClick={() => openLifecycle(row, "delete")}>
-                            Archive/Delete
+                            {row.origin === "system" ? "Archive" : "Archive/Delete"}
                           </Button>
                         </>
                       ) : (
@@ -287,13 +296,14 @@ export default function YearGroupsPage() {
               : `Archive “${confirm?.group.name}”?`
         }
         description={
-          confirm?.mode === "restore"
-            ? "This year group will appear again in class and enrolment pickers."
-            : confirm?.mode === "delete"
-              ? "This year group is unused and can be permanently deleted."
-              : confirm
-                ? `${confirm.group.name} cannot be deleted because classes or pupil records use it. Archive it instead.`
-                : ""
+          confirm
+            ? lifecycleConfirmDescription(confirm.mode, confirm.lifecycle, {
+                restore: "This year group will appear again in class and enrolment pickers.",
+                unused: "This year group is unused and can be permanently deleted.",
+                blocked:
+                  "This year group cannot be deleted because classes or pupil records use it. Archive it instead.",
+              })
+            : ""
         }
         confirmLabel={confirm?.mode === "restore" ? "Restore" : confirm?.mode === "delete" ? "Delete year group" : "Archive year group"}
         danger={confirm?.mode === "delete"}

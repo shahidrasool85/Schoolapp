@@ -16,7 +16,12 @@ import {
 } from "../../../components/ui";
 import { SetupReturnBanner } from "../../../components/setup-return-banner";
 import { api, ApiError } from "../../../lib/api";
-import { includeArchivedQuery, type AcademicLifecycle, type AcademicStatus } from "../../../lib/academic-lifecycle";
+import {
+  includeArchivedQuery,
+  lifecycleConfirmDescription,
+  type AcademicLifecycle,
+  type AcademicStatus,
+} from "../../../lib/academic-lifecycle";
 import { userFacingError } from "../../../lib/errors";
 
 type Subject = { id: string; key: string; name: string; status?: AcademicStatus };
@@ -276,13 +281,14 @@ function SubjectsAdmin() {
               : `Delete subject “${confirm?.subject.name}”?`
         }
         description={
-          confirm?.mode === "restore"
-            ? "This subject will appear again in new class and timetable selections."
-            : confirm?.mode === "delete"
-              ? "This subject has not been used anywhere and can be permanently deleted."
-              : confirm
-                ? `This subject cannot be deleted because it is already used. Archive it instead so historical records stay intact.`
-                : ""
+          confirm
+            ? lifecycleConfirmDescription(confirm.mode, confirm.lifecycle, {
+                restore: "This subject will appear again in new class and timetable selections.",
+                unused: "This subject has not been used anywhere and can be permanently deleted.",
+                blocked:
+                  "This subject cannot be deleted because it is already used. Archive it instead so historical records stay intact.",
+              })
+            : ""
         }
         confirmLabel={
           confirm?.mode === "restore" ? "Restore" : confirm?.mode === "delete" ? "Delete subject" : "Archive subject"

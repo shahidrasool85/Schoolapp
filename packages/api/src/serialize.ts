@@ -100,6 +100,7 @@ export function mapYearGroup(row: Record<string, unknown>) {
     studentLoginEnabled: row.student_login_enabled,
     studentPortalOverride: row.portal_override === undefined ? undefined : row.portal_override,
     status: row.status ?? "active",
+    origin: row.origin === "system" ? "system" : "custom",
   };
 }
 

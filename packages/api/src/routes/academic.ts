@@ -1,7 +1,9 @@
 import { z } from "zod";
 import {
   PERMISSIONS,
+  SYSTEM_YEAR_GROUP_DELETE_REASON,
   isAcademicRecordStatus,
+  isSystemYearGroup,
   parseSubjectCreateInput,
   parseSubjectUpdateInput,
 } from "@schoolapp/domain";
@@ -131,6 +133,13 @@ export function registerAcademicRoutes(app: SchoolappApi) {
         throw new AppError(404, "not_found", "Not found");
       }
       const current = existing.rows[0];
+      if (current.is_current && parsed.data.isCurrent === false) {
+        throw new AppError(
+          409,
+          "cannot_clear_current",
+          "Set another academic year as current first. A school must keep exactly one current year.",
+        );
+      }
       const updated = await client.query(
         `update academic_years
          set name = $3, starts_on = $4, ends_on = $5, is_current = $6
@@ -174,6 +183,7 @@ export function registerAcademicRoutes(app: SchoolappApi) {
       const lifecycle = await loadAcademicLifecycle(client, "academic_year", routeParam(c, "id"), orgId, status, {
         extraBlockReasons: extra,
         archiveBlockedReasons: extra,
+        entityLabel: "This academic year",
       });
       return c.json({ academicYear: mapAcademicYear(existing.rows[0]), lifecycle });
     }),
@@ -241,9 +251,10 @@ export function registerAcademicRoutes(app: SchoolappApi) {
       const status = isAcademicRecordStatus(existing.rows[0].status) ? existing.rows[0].status : "active";
       const lifecycle = await loadAcademicLifecycle(client, "academic_year", routeParam(c, "id"), orgId, status, {
         extraBlockReasons: extra,
+        entityLabel: "This academic year",
       });
       if (!lifecycle.canDelete) {
-        const blocked = deletionBlockedError(`Academic year "${existing.rows[0].name}"`, lifecycle);
+        const blocked = deletionBlockedError("This academic year", lifecycle);
         throw new AppError(409, blocked.code, blocked.message, blocked.details);
       }
       await client.query(`delete from academic_years where id = $1 and organisation_id = $2`, [
@@ -317,7 +328,7 @@ export function registerAcademicRoutes(app: SchoolappApi) {
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertAnyPermission(actor, academicReadPermissions);
       const rows = await client.query(
-        `select yg.id, yg.code, yg.name, yg.key_stage, yg.sort_order, yg.status,
+        `select yg.id, yg.code, yg.name, yg.key_stage, yg.sort_order, yg.status, yg.origin,
                 ovr.enabled as portal_override,
                 coalesce(ovr.enabled, pol.default_enabled, false) as student_login_enabled
          from year_groups yg
@@ -339,9 +350,9 @@ export function registerAcademicRoutes(app: SchoolappApi) {
       const parsed = yearGroupSchema.safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid year group payload");
       const inserted = await client.query(
-        `insert into year_groups (organisation_id, code, name, student_login_enabled, sort_order)
-         values ($1, $2, $3, $4, coalesce((select year_group_code_rank($2)), 0))
-         returning id, code, name, key_stage, sort_order, student_login_enabled, status`,
+        `insert into year_groups (organisation_id, code, name, student_login_enabled, sort_order, origin)
+         values ($1, $2, $3, $4, coalesce((select year_group_code_rank($2)), 0), 'custom')
+         returning id, code, name, key_stage, sort_order, student_login_enabled, status, origin`,
         [
           orgId,
           parsed.data.code,
@@ -377,7 +388,7 @@ export function registerAcademicRoutes(app: SchoolappApi) {
         [userId, orgId],
       );
       const rows = await client.query(
-        `select yg.id, yg.code, yg.name, yg.key_stage, yg.sort_order, yg.status,
+        `select yg.id, yg.code, yg.name, yg.key_stage, yg.sort_order, yg.status, yg.origin,
                 ovr.enabled as portal_override,
                 coalesce(ovr.enabled, pol.default_enabled, false) as student_login_enabled
          from year_groups yg
@@ -400,7 +411,7 @@ export function registerAcademicRoutes(app: SchoolappApi) {
       const parsed = yearGroupSchema.partial().safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid year group payload");
       const existing = await client.query(
-        `select id, code, name, key_stage, sort_order, student_login_enabled, status
+        `select id, code, name, key_stage, sort_order, student_login_enabled, status, origin
          from year_groups where id = $1 and organisation_id = $2`,
         [routeParam(c, "id"), orgId],
       );
@@ -410,7 +421,7 @@ export function registerAcademicRoutes(app: SchoolappApi) {
          set name = coalesce($3, name),
              student_login_enabled = coalesce($4, student_login_enabled)
          where id = $1 and organisation_id = $2
-         returning id, code, name, key_stage, sort_order, student_login_enabled, status`,
+         returning id, code, name, key_stage, sort_order, student_login_enabled, status, origin`,
         [
           routeParam(c, "id"),
           orgId,
@@ -443,13 +454,16 @@ export function registerAcademicRoutes(app: SchoolappApi) {
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertAnyPermission(actor, academicReadPermissions);
       const existing = await client.query(
-        `select id, code, name, key_stage, sort_order, student_login_enabled, status
+        `select id, code, name, key_stage, sort_order, student_login_enabled, status, origin
          from year_groups where id = $1 and organisation_id = $2`,
         [routeParam(c, "id"), orgId],
       );
       if (!existing.rows[0]) throw new AppError(404, "not_found", "Not found");
       const status = isAcademicRecordStatus(existing.rows[0].status) ? existing.rows[0].status : "active";
-      const lifecycle = await loadAcademicLifecycle(client, "year_group", routeParam(c, "id"), orgId, status);
+      const lifecycle = await loadAcademicLifecycle(client, "year_group", routeParam(c, "id"), orgId, status, {
+        extraBlockReasons: isSystemYearGroup(existing.rows[0].origin) ? [SYSTEM_YEAR_GROUP_DELETE_REASON] : [],
+        entityLabel: "This year group",
+      });
       return c.json({ yearGroup: mapYearGroup(existing.rows[0]), lifecycle });
     }),
   );
@@ -498,15 +512,18 @@ export function registerAcademicRoutes(app: SchoolappApi) {
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
       const existing = await client.query(
-        `select id, code, name, key_stage, sort_order, student_login_enabled, status
+        `select id, code, name, key_stage, sort_order, student_login_enabled, status, origin
          from year_groups where id = $1 and organisation_id = $2`,
         [routeParam(c, "id"), orgId],
       );
       if (!existing.rows[0]) throw new AppError(404, "not_found", "Not found");
       const status = isAcademicRecordStatus(existing.rows[0].status) ? existing.rows[0].status : "active";
-      const lifecycle = await loadAcademicLifecycle(client, "year_group", routeParam(c, "id"), orgId, status);
+      const lifecycle = await loadAcademicLifecycle(client, "year_group", routeParam(c, "id"), orgId, status, {
+        extraBlockReasons: isSystemYearGroup(existing.rows[0].origin) ? [SYSTEM_YEAR_GROUP_DELETE_REASON] : [],
+        entityLabel: "This year group",
+      });
       if (!lifecycle.canDelete) {
-        const blocked = deletionBlockedError(`Year group "${existing.rows[0].name}"`, lifecycle);
+        const blocked = deletionBlockedError("This year group", lifecycle);
         throw new AppError(409, blocked.code, blocked.message, blocked.details);
       }
       await deleteConfigOnlyYearGroupLinks(client, routeParam(c, "id"), orgId);
@@ -631,7 +648,9 @@ export function registerAcademicRoutes(app: SchoolappApi) {
       );
       if (!existing.rows[0]) throw new AppError(404, "not_found", "Not found");
       const status = isAcademicRecordStatus(existing.rows[0].status) ? existing.rows[0].status : "active";
-      const lifecycle = await loadAcademicLifecycle(client, "subject", routeParam(c, "id"), orgId, status);
+      const lifecycle = await loadAcademicLifecycle(client, "subject", routeParam(c, "id"), orgId, status, {
+        entityLabel: "This subject",
+      });
       return c.json({ subject: mapSubject(existing.rows[0]), lifecycle });
     }),
   );
@@ -685,9 +704,11 @@ export function registerAcademicRoutes(app: SchoolappApi) {
       );
       if (!existing.rows[0]) throw new AppError(404, "not_found", "Not found");
       const status = isAcademicRecordStatus(existing.rows[0].status) ? existing.rows[0].status : "active";
-      const lifecycle = await loadAcademicLifecycle(client, "subject", routeParam(c, "id"), orgId, status);
+      const lifecycle = await loadAcademicLifecycle(client, "subject", routeParam(c, "id"), orgId, status, {
+        entityLabel: "This subject",
+      });
       if (!lifecycle.canDelete) {
-        const blocked = deletionBlockedError(`Subject "${existing.rows[0].name}"`, lifecycle);
+        const blocked = deletionBlockedError("This subject", lifecycle);
         throw new AppError(409, blocked.code, blocked.message, blocked.details);
       }
       await client.query(`delete from subjects where id = $1 and organisation_id = $2`, [
@@ -840,7 +861,9 @@ export function registerAcademicRoutes(app: SchoolappApi) {
       const existing = await loadClassRow(client, orgId, classId);
       if (!existing) throw new AppError(404, "not_found", "Not found");
       const status = isAcademicRecordStatus(existing.status) ? existing.status : "active";
-      const lifecycle = await loadAcademicLifecycle(client, "class", classId, orgId, status);
+      const lifecycle = await loadAcademicLifecycle(client, "class", classId, orgId, status, {
+        entityLabel: "This class",
+      });
       return c.json({ class: mapClass(existing), lifecycle });
     }),
   );
@@ -888,9 +911,11 @@ export function registerAcademicRoutes(app: SchoolappApi) {
       const existing = await loadClassRow(client, orgId, classId);
       if (!existing) throw new AppError(404, "not_found", "Not found");
       const status = isAcademicRecordStatus(existing.status) ? existing.status : "active";
-      const lifecycle = await loadAcademicLifecycle(client, "class", classId, orgId, status);
+      const lifecycle = await loadAcademicLifecycle(client, "class", classId, orgId, status, {
+        entityLabel: "This class",
+      });
       if (!lifecycle.canDelete) {
-        const blocked = deletionBlockedError(`Class "${existing.name}"`, lifecycle);
+        const blocked = deletionBlockedError("This class", lifecycle);
         throw new AppError(409, blocked.code, blocked.message, blocked.details);
       }
       await client.query(`delete from classes where id = $1 and organisation_id = $2`, [classId, orgId]);

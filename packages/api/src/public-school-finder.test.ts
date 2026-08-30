@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { schoolPublicOrigin } from "@schoolapp/core";
+import { SCHOOL_SEARCH_LIMIT } from "@schoolapp/domain";
 import { closePools } from "@schoolapp/db";
 import { addMembership, ensureMigrated, insertUser, testApp, testPools } from "./test-helpers";
 
@@ -70,6 +71,42 @@ describe("public school finder", () => {
     });
     const redirectBody = (await openRedirect.json()) as { schools: Array<{ loginUrl: string }> };
     expect(redirectBody.schools.every((row) => !row.loginUrl.includes("evil.example"))).toBe(true);
+
+    expect(Object.keys(match).sort()).toEqual(["hostname", "loginUrl", "logoUrl", "name", "slug"]);
+    expect(match).not.toHaveProperty("email");
+    expect(JSON.stringify(match)).not.toMatch(/admin|billing|staff/i);
+  });
+
+  it("rejects empty, one-character and wildcard-only searches and caps broad results", async () => {
+    const id = suffix();
+    const created = [];
+    for (let i = 0; i < 12; i += 1) {
+      created.push(await seedSchool(pools.owner, `${id}${i}`, `Academy Campus ${id} ${i}`));
+    }
+
+    const missing = await app.request("/api/v1/public/schools", { headers: { Host: "localhost:3000" } });
+    expect(((await missing.json()) as { schools: unknown[] }).schools).toEqual([]);
+
+    const empty = await app.request("/api/v1/public/schools?q=", { headers: { Host: "localhost:3000" } });
+    expect(((await empty.json()) as { schools: unknown[] }).schools).toEqual([]);
+
+    const oneChar = await app.request("/api/v1/public/schools?q=A", { headers: { Host: "localhost:3000" } });
+    expect(((await oneChar.json()) as { schools: unknown[] }).schools).toEqual([]);
+
+    const wildcard = await app.request("/api/v1/public/schools?q=%%", { headers: { Host: "localhost:3000" } });
+    expect(((await wildcard.json()) as { schools: unknown[] }).schools).toEqual([]);
+
+    const underscore = await app.request("/api/v1/public/schools?q=%_%", { headers: { Host: "localhost:3000" } });
+    expect(((await underscore.json()) as { schools: unknown[] }).schools).toEqual([]);
+
+    const broad = await app.request(`/api/v1/public/schools?q=Academy Campus ${id}`, {
+      headers: { Host: "localhost:3000" },
+    });
+    expect(broad.status).toBe(200);
+    const broadBody = (await broad.json()) as { schools: Array<{ slug: string; name: string }> };
+    expect(broadBody.schools.length).toBeGreaterThan(0);
+    expect(broadBody.schools.length).toBeLessThanOrEqual(SCHOOL_SEARCH_LIMIT);
+    expect(broadBody.schools.every((row) => created.some((school) => school.slug === row.slug))).toBe(true);
   });
 
   it("stays on the platform host and does not advertise itself on a school host", async () => {

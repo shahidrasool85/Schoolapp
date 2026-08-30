@@ -466,8 +466,8 @@ async function seedYearGroups(client: pg.Client, organisationId: string): Promis
   const map = new Map<string, string>();
   for (const row of codes) {
     const inserted = await client.query<IdRow>(
-      `insert into year_groups (organisation_id, code, name)
-       values ($1, $2, $3)
+      `insert into year_groups (organisation_id, code, name, origin)
+       values ($1, $2, $3, 'system')
        returning id`,
       [organisationId, row.code, row.name],
     );

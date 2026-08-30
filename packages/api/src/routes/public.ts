@@ -1,4 +1,10 @@
-import { AppError, schoolPublicOrigin } from "@schoolapp/core";
+import {
+  AppError,
+  MemoryRateLimiter,
+  hashClientIp,
+  schoolPublicOrigin,
+  trustedClientIp,
+} from "@schoolapp/core";
 import {
   DEFAULT_BRAND_ACCENT,
   DEFAULT_BRAND_PRIMARY,
@@ -9,6 +15,11 @@ import {
 import type { SchoolappApi } from "../types";
 import { publicTenantPayload, requirePlatformHost } from "../tenant-resolver";
 import { storageErrorToAppError, storageOf } from "../file-service";
+
+const schoolSearchLimiter = new MemoryRateLimiter();
+const SCHOOL_SEARCH_RATE_LIMIT = 40;
+const SCHOOL_SEARCH_RATE_WINDOW_MS = 60_000;
+
 
 export function registerPublicRoutes(app: SchoolappApi) {
   app.get("/public/tenant", async (c) => {
@@ -46,9 +57,27 @@ export function registerPublicRoutes(app: SchoolappApi) {
 
   app.get("/public/schools", async (c) => {
     requirePlatformHost(c);
+    const config = c.get("config");
+    const ipHash =
+      hashClientIp(
+        trustedClientIp({
+          trustProxy: config.trustProxy,
+          forwardedFor: c.req.header("x-forwarded-for"),
+          realIp: c.req.header("x-real-ip"),
+        }),
+      ) ?? "unknown";
+    const decision = schoolSearchLimiter.consume(
+      `school-search:${ipHash}`,
+      SCHOOL_SEARCH_RATE_LIMIT,
+      SCHOOL_SEARCH_RATE_WINDOW_MS,
+    );
+    if (!decision.allowed) {
+      throw new AppError(429, "rate_limited", "Too many school searches. Please try again later.", {
+        retryAfterSeconds: decision.retryAfterSeconds,
+      });
+    }
     const parsed = parseSchoolSearchQuery(c.req.query("q"));
     if (!parsed.ok) return c.json({ schools: [] });
-    const config = c.get("config");
     const host = c.get("tenantHost");
     const rows = await config.pools.app.query<{
       slug: string;
@@ -57,7 +86,7 @@ export function registerPublicRoutes(app: SchoolappApi) {
       logo_version: string | null;
     }>("select * from search_public_active_schools($1, $2)", [parsed.query, SCHOOL_SEARCH_LIMIT]);
     return c.json({
-      schools: rows.rows.map((row) => {
+      schools: rows.rows.slice(0, SCHOOL_SEARCH_LIMIT).map((row) => {
         const origin = schoolPublicOrigin(row.slug, config.platformDomain, { port: host.port });
         return {
           name: row.name,

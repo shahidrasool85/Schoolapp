@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PERMISSIONS } from "@schoolapp/domain";
+import { PERMISSIONS, parseSubjectCreateInput } from "@schoolapp/domain";
 import {
   AppError,
   assertAnyPermission,
@@ -43,12 +43,8 @@ const yearGroupSchema = z.object({
 });
 
 const subjectSchema = z.object({
-  key: z
-    .string()
-    .min(1)
-    .max(64)
-    .regex(/^[a-z0-9-]+$/),
-  name: z.string().min(1).max(80),
+  key: z.string().optional(),
+  name: z.string().optional(),
 });
 
 const classSchema = z.object({
@@ -344,10 +340,23 @@ export function registerAcademicRoutes(app: SchoolappApi) {
       assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
       const parsed = subjectSchema.safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid subject payload");
+      const subject = parseSubjectCreateInput(parsed.data);
+      if (!subject.ok) {
+        throw new AppError(400, "validation_failed", subject.error, { fieldKey: subject.field });
+      }
+      const existing = await client.query(
+        "select 1 from subjects where organisation_id = $1 and key = $2",
+        [orgId, subject.key],
+      );
+      if (existing.rows[0]) {
+        throw new AppError(409, "conflict", "A subject with this key already exists in this school.", {
+          fieldKey: "key",
+        });
+      }
       const inserted = await client.query(
         `insert into subjects (organisation_id, key, name) values ($1, $2, $3)
          returning id, key, name`,
-        [orgId, parsed.data.key, parsed.data.name],
+        [orgId, subject.key, subject.name],
       );
       await writeAudit(client, {
         organisationId: orgId,

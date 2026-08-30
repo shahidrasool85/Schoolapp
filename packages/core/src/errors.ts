@@ -279,6 +279,11 @@ export function pgErrorToAppError(error: unknown): AppError | null {
     if (message.includes("student_profiles_org_admission_number_idx")) {
       return new AppError(409, "conflict", "That admission number is already in use at this school.");
     }
+    if (message.includes("subjects_organisation_id_key_key")) {
+      return new AppError(409, "conflict", "A subject with this key already exists in this school.", {
+        fieldKey: "key",
+      });
+    }
     if (message.includes("student_statutory_profiles_upn_idx")) {
       return new AppError(409, "conflict", "That UPN is already in use at this school.", { fieldKey: "upn" });
     }

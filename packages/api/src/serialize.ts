@@ -7,6 +7,7 @@ export function mapAcademicYear(row: Record<string, unknown>) {
     startsOn: row.starts_on,
     endsOn: row.ends_on,
     isCurrent: row.is_current,
+    status: row.status ?? "active",
     createdAt: row.created_at,
   };
 }
@@ -98,6 +99,7 @@ export function mapYearGroup(row: Record<string, unknown>) {
     sortOrder: row.sort_order,
     studentLoginEnabled: row.student_login_enabled,
     studentPortalOverride: row.portal_override === undefined ? undefined : row.portal_override,
+    status: row.status ?? "active",
   };
 }
 
@@ -106,6 +108,7 @@ export function mapSubject(row: Record<string, unknown>) {
     id: row.id,
     key: row.key,
     name: row.name,
+    status: row.status ?? "active",
   };
 }
 
@@ -269,6 +272,7 @@ export function mapClass(row: Record<string, unknown>) {
     yearGroupId: row.year_group_id,
     yearGroupName: row.year_group_name ?? null,
     academicYearName: row.academic_year_name ?? null,
+    status: row.status ?? "active",
   };
 }
 

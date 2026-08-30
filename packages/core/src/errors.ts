@@ -12,6 +12,8 @@ export type AppErrorDetails = {
   sectionKey?: string;
   conflicts?: TimetableConflictDetail[];
   retryAfterSeconds?: number;
+  canArchive?: boolean;
+  usage?: Array<{ key: string; label: string; count: number }>;
 };
 
 export class AppError extends Error {

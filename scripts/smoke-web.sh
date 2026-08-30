@@ -69,6 +69,7 @@ expect_page() {
   fi
 }
 
+expect_page "/"
 expect_page "/login"
 expect_page "/forgot-password"
 expect_page "/reset-password"
@@ -217,4 +218,52 @@ if [ "${logo_code}" != "200" ]; then
   exit 1
 fi
 
-echo "web smoke ok (health 200, platform tenant, unknown host 404, login/school/parent/student/admissions/forms/campaigns/attendance/teaching/assessment/communications/pastoral/safeguarding/activities/finance/messages/statutory/reports/engagement pages 200)"
+home_code="$(curl -sS -o /tmp/schoolapp-smoke-home.html -w "%{http_code}" "http://127.0.0.1:${PORT}/")"
+if [ "${home_code}" != "200" ]; then
+  echo "/ returned ${home_code}" >&2
+  exit 1
+fi
+if ! grep -q "Find your school" /tmp/schoolapp-smoke-home.html; then
+  echo "/ HTML did not include the public school finder" >&2
+  exit 1
+fi
+if ! grep -q "luvlearn-logo.png" /tmp/schoolapp-smoke-home.html; then
+  echo "/ HTML did not include the LuvLearn logo" >&2
+  exit 1
+fi
+if grep -q "Platform Admin" /tmp/schoolapp-smoke-home.html; then
+  echo "/ HTML exposed Platform Admin" >&2
+  exit 1
+fi
+if grep -q "Health API" /tmp/schoolapp-smoke-home.html || grep -q "/api/v1/health" /tmp/schoolapp-smoke-home.html; then
+  echo "/ HTML exposed health/API developer links" >&2
+  exit 1
+fi
+if grep -q ">Schoolapp<" /tmp/schoolapp-smoke-home.html; then
+  echo "/ HTML still used the developer Schoolapp heading" >&2
+  exit 1
+fi
+
+favicon_code="$(curl -sS -o /dev/null -w "%{http_code}" "http://127.0.0.1:${PORT}/favicon.ico")"
+icon_code="$(curl -sS -o /dev/null -w "%{http_code}" "http://127.0.0.1:${PORT}/branding/luvlearn-icon.png")"
+apple_code="$(curl -sS -o /dev/null -w "%{http_code}" "http://127.0.0.1:${PORT}/branding/apple-touch-icon.png")"
+if [ "${favicon_code}" != "200" ] || [ "${icon_code}" != "200" ] || [ "${apple_code}" != "200" ]; then
+  echo "favicon/icon assets returned favicon=${favicon_code} icon=${icon_code} apple=${apple_code}" >&2
+  exit 1
+fi
+
+unknown_home="$(curl -sS -o /tmp/schoolapp-smoke-unknown.html -w "%{http_code}" -H "Host: foo.bar.localhost:${PORT}" "http://127.0.0.1:${PORT}/")"
+if [ "${unknown_home}" != "200" ]; then
+  echo "unknown host / returned ${unknown_home}" >&2
+  exit 1
+fi
+if ! grep -q "School not found" /tmp/schoolapp-smoke-unknown.html; then
+  echo "unknown host / did not render a safe school-not-found page" >&2
+  exit 1
+fi
+if grep -q "Platform Admin" /tmp/schoolapp-smoke-unknown.html; then
+  echo "unknown host / leaked Platform Admin" >&2
+  exit 1
+fi
+
+echo "web smoke ok (health 200, platform tenant, unknown host 404, public landing, favicon, login/school/parent/student/admissions/forms/campaigns/attendance/teaching/assessment/communications/pastoral/safeguarding/activities/finance/messages/statutory/reports/engagement pages 200)"

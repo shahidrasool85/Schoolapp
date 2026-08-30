@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { parseSubjectCreateInput, validateSubjectKey } from "@schoolapp/domain";
+import {
+  parseSchoolSearchQuery,
+  parseSubjectCreateInput,
+  parseSubjectUpdateInput,
+  safeRelativeNext,
+  summarizeAcademicUsage,
+  validateSubjectKey,
+} from "@schoolapp/domain";
 
 describe("subject key rules", () => {
   it("trims and lowercases keys so Eng and ENG become eng", () => {
@@ -39,5 +46,41 @@ describe("subject key rules", () => {
   it("rejects empty and oversized names", () => {
     expect(parseSubjectCreateInput({ name: "  ", key: "eng" }).ok).toBe(false);
     expect(parseSubjectCreateInput({ name: "A".repeat(81), key: "eng" }).ok).toBe(false);
+  });
+
+  it("lets a School Admin correct a subject name and key", () => {
+    expect(parseSubjectUpdateInput({ name: "Mathematics", key: "maths" })).toEqual({
+      ok: true,
+      name: "Mathematics",
+      key: "maths",
+    });
+    expect(parseSubjectUpdateInput({ name: "Mathematics" })).toEqual({
+      ok: true,
+      name: "Mathematics",
+    });
+    const invalid = parseSubjectUpdateInput({ key: "Math!" });
+    expect(invalid.ok).toBe(false);
+  });
+});
+
+describe("public school finder query", () => {
+  it("requires a short typed query and does not treat URLs as destinations", () => {
+    expect(parseSchoolSearchQuery("K")).toEqual({ ok: false, query: "" });
+    expect(parseSchoolSearchQuery("Kingswood")).toEqual({ ok: true, query: "Kingswood" });
+    expect(parseSchoolSearchQuery("https://evil.example/login").ok).toBe(true);
+    expect(safeRelativeNext("https://evil.example/login")).toBeNull();
+    expect(safeRelativeNext("//evil.example")).toBeNull();
+    expect(safeRelativeNext("/invite")).toBe("/invite");
+  });
+});
+
+describe("academic usage copy", () => {
+  it("explains why a referenced record cannot be deleted", () => {
+    expect(
+      summarizeAcademicUsage(
+        [{ key: "classes", label: "classes", count: 4 }],
+        "Year 3",
+      ),
+    ).toMatch(/cannot be deleted because 4 classes use it/i);
   });
 });

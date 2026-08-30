@@ -296,10 +296,28 @@ export {
   SUBJECT_NAME_MAX_LENGTH,
   normalizeSubjectKey,
   parseSubjectCreateInput,
+  parseSubjectUpdateInput,
   validateSubjectKey,
   type SubjectCreateInput,
   type SubjectField,
+  type SubjectUpdateInput,
 } from "./subjects.js";
+
+export {
+  ACADEMIC_RECORD_STATUSES,
+  SCHOOL_SEARCH_LIMIT,
+  SCHOOL_SEARCH_MAX_LENGTH,
+  SCHOOL_SEARCH_MIN_LENGTH,
+  academicLifecycleFromUsage,
+  isAcademicRecordStatus,
+  parseSchoolSearchQuery,
+  safeRelativeNext,
+  summarizeAcademicUsage,
+  trustedSchoolLoginPath,
+  type AcademicLifecycle,
+  type AcademicRecordStatus,
+  type AcademicUsageCount,
+} from "./academic-lifecycle.js";
 
 export {
   SCHOOL_SETTINGS_ADMIN_PERMISSIONS,

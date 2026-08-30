@@ -12,6 +12,8 @@ export function ConfirmationDialog({
   description,
   confirmLabel = "Confirm",
   danger = false,
+  secondaryLabel,
+  onSecondary,
   onConfirm,
   onClose,
 }: {
@@ -20,6 +22,8 @@ export function ConfirmationDialog({
   description: string;
   confirmLabel?: string;
   danger?: boolean;
+  secondaryLabel?: string;
+  onSecondary?: () => void;
   onConfirm: () => void;
   onClose: () => void;
 }) {
@@ -92,6 +96,11 @@ export function ConfirmationDialog({
           <Button ref={cancelRef} type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
+          {secondaryLabel && onSecondary ? (
+            <Button type="button" variant="secondary" onClick={onSecondary}>
+              {secondaryLabel}
+            </Button>
+          ) : null}
           <Button type="button" variant={danger ? "danger" : "primary"} onClick={onConfirm}>
             {confirmLabel}
           </Button>

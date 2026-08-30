@@ -2,8 +2,7 @@ export const SUBJECT_KEY_MAX_LENGTH = 64;
 export const SUBJECT_NAME_MAX_LENGTH = 80;
 export const SUBJECT_KEY_PATTERN = /^[a-z0-9-]+$/;
 
-export const SUBJECT_KEY_HINT =
-  "Letters, numbers, and hyphens. Stored in lowercase — Eng becomes eng.";
+export const SUBJECT_KEY_HINT = "Key is stored lowercase. Letters, numbers and hyphens.";
 
 export type SubjectField = "name" | "key";
 
@@ -36,6 +35,35 @@ export function validateSubjectKey(raw: string): { ok: true; key: string } | { o
     };
   }
   return { ok: true, key };
+}
+
+export type SubjectUpdateInput =
+  | { ok: true; name?: string; key?: string }
+  | { ok: false; field: SubjectField; error: string };
+
+export function parseSubjectUpdateInput(input: { name?: unknown; key?: unknown }): SubjectUpdateInput {
+  const next: { name?: string; key?: string } = {};
+
+  if (input.name !== undefined) {
+    const name = typeof input.name === "string" ? input.name.trim() : "";
+    if (!name) return { ok: false, field: "name", error: "Enter a subject name." };
+    if (name.length > SUBJECT_NAME_MAX_LENGTH) {
+      return { ok: false, field: "name", error: `Subject name must be ${SUBJECT_NAME_MAX_LENGTH} characters or fewer.` };
+    }
+    next.name = name;
+  }
+
+  if (input.key !== undefined) {
+    const typedKey = typeof input.key === "string" ? input.key : "";
+    const parsed = validateSubjectKey(typedKey);
+    if (!parsed.ok) return { ok: false, field: "key", error: parsed.error };
+    next.key = parsed.key;
+  }
+
+  if (!next.name && !next.key) {
+    return { ok: false, field: "name", error: "Enter a subject name or key." };
+  }
+  return { ok: true, ...next };
 }
 
 export function parseSubjectCreateInput(input: { name?: unknown; key?: unknown }): SubjectCreateInput {

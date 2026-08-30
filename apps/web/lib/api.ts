@@ -26,7 +26,12 @@ export class ApiError extends Error {
     public status: number,
     public code: string,
     message: string,
-    public details?: { fieldKey?: string; sectionKey?: string },
+    public details?: {
+      fieldKey?: string;
+      sectionKey?: string;
+      canArchive?: boolean;
+      usage?: Array<{ key: string; label: string; count: number }>;
+    },
   ) {
     super(message);
   }
@@ -52,7 +57,16 @@ export async function api<T>(
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = (body as {
-      error?: { code?: string; message?: string; details?: { fieldKey?: string; sectionKey?: string } };
+      error?: {
+        code?: string;
+        message?: string;
+        details?: {
+          fieldKey?: string;
+          sectionKey?: string;
+          canArchive?: boolean;
+          usage?: Array<{ key: string; label: string; count: number }>;
+        };
+      };
     }).error;
     throw new ApiError(
       response.status,

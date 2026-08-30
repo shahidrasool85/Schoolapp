@@ -1,7 +1,13 @@
-import { AppError } from "@schoolapp/core";
-import { DEFAULT_BRAND_ACCENT, DEFAULT_BRAND_PRIMARY, publicBrandingAssetUrl } from "@schoolapp/domain";
+import { AppError, schoolPublicOrigin } from "@schoolapp/core";
+import {
+  DEFAULT_BRAND_ACCENT,
+  DEFAULT_BRAND_PRIMARY,
+  parseSchoolSearchQuery,
+  publicBrandingAssetUrl,
+  SCHOOL_SEARCH_LIMIT,
+} from "@schoolapp/domain";
 import type { SchoolappApi } from "../types";
-import { publicTenantPayload } from "../tenant-resolver";
+import { publicTenantPayload, requirePlatformHost } from "../tenant-resolver";
 import { storageErrorToAppError, storageOf } from "../file-service";
 
 export function registerPublicRoutes(app: SchoolappApi) {
@@ -35,6 +41,51 @@ export function registerPublicRoutes(app: SchoolappApi) {
           heroImageUrl: row?.has_hero ? publicBrandingAssetUrl("hero", row.hero_version) : null,
         },
       },
+    });
+  });
+
+  app.get("/public/schools", async (c) => {
+    requirePlatformHost(c);
+    const parsed = parseSchoolSearchQuery(c.req.query("q"));
+    if (!parsed.ok) return c.json({ schools: [] });
+    const escaped = parsed.query.replace(/[%_\\]/g, "\\$&");
+    const config = c.get("config");
+    const host = c.get("tenantHost");
+    const rows = await c.get("config").pools.app.query<{
+      slug: string;
+      name: string;
+      has_logo: boolean;
+      logo_version: string | null;
+    }>(
+      `select o.slug, o.name,
+              branding.has_logo,
+              branding.logo_version
+       from organisations o
+       join lateral get_public_school_branding(o.id) branding on true
+       where o.status = 'active'
+         and (o.name ilike $1 escape '\\' or o.slug ilike $2 escape '\\')
+       order by
+         case
+           when lower(o.name) = lower($3) then 0
+           when lower(o.slug) = lower($3) then 1
+           when o.name ilike $4 escape '\\' then 2
+           else 3
+         end,
+         o.name
+       limit $5`,
+      [`%${escaped}%`, `${escaped}%`, parsed.query, `${escaped}%`, SCHOOL_SEARCH_LIMIT],
+    );
+    return c.json({
+      schools: rows.rows.map((row) => {
+        const origin = schoolPublicOrigin(row.slug, config.platformDomain, { port: host.port });
+        return {
+          name: row.name,
+          slug: row.slug,
+          hostname: `${row.slug}.${config.platformDomain}`,
+          loginUrl: `${origin}/login`,
+          logoUrl: row.has_logo ? `${origin}${publicBrandingAssetUrl("logo", row.logo_version)}` : null,
+        };
+      }),
     });
   });
 

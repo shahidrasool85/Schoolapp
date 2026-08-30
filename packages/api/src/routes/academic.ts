@@ -133,13 +133,6 @@ export function registerAcademicRoutes(app: SchoolappApi) {
         throw new AppError(404, "not_found", "Not found");
       }
       const current = existing.rows[0];
-      if (current.is_current && parsed.data.isCurrent === false) {
-        throw new AppError(
-          409,
-          "cannot_clear_current",
-          "Set another academic year as current first. A school must keep exactly one current year.",
-        );
-      }
       const updated = await client.query(
         `update academic_years
          set name = $3, starts_on = $4, ends_on = $5, is_current = $6

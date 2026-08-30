@@ -305,15 +305,6 @@ describe("academic structure edit, archive and delete", () => {
         })
       ).status,
     ).toBe(409);
-    expect(
-      (
-        await app.request(`/api/v1/academic-years/${currentId}`, {
-          method: "PATCH",
-          headers: hdrs,
-          body: JSON.stringify({ isCurrent: false }),
-        })
-      ).status,
-    ).toBe(409);
 
     const custom = await app.request("/api/v1/year-groups", {
       method: "POST",
@@ -416,7 +407,7 @@ describe("academic structure edit, archive and delete", () => {
     );
   });
 
-  it("switches the current academic year atomically and never leaves zero current years", async () => {
+  it("switches the current academic year atomically so only one year is current", async () => {
     const id = suffix();
     const school = await createSchool(pools.owner, id);
     const token = await login(app, school.adminEmail, "password-12x");

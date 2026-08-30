@@ -81,32 +81,40 @@ export default function AcademicYearsPage() {
     event.preventDefault();
     if (!editing) return;
     const form = new FormData(event.currentTarget);
-    await api(`/api/v1/academic-years/${editing.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        name: form.get("name"),
-        startsOn: form.get("startsOn"),
-        endsOn: form.get("endsOn"),
-        isCurrent: form.get("isCurrent") === "on",
-      }),
-    });
-    setEditing(null);
-    setNotice("Academic year updated.");
-    await load();
+    try {
+      await api(`/api/v1/academic-years/${editing.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: form.get("name"),
+          startsOn: form.get("startsOn"),
+          endsOn: form.get("endsOn"),
+          isCurrent: editing.isCurrent ? true : form.get("isCurrent") === "on",
+        }),
+      });
+      setEditing(null);
+      setNotice("Academic year updated.");
+      await load();
+    } catch (err) {
+      setError(userFacingError(err, "Could not update academic year."));
+    }
   }
 
   async function makeCurrent(id: string, year: Year) {
-    await api(`/api/v1/academic-years/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        name: year.name,
-        startsOn: year.startsOn,
-        endsOn: year.endsOn,
-        isCurrent: true,
-      }),
-    });
-    setNotice(`${year.name} is now the current year.`);
-    await load();
+    try {
+      await api(`/api/v1/academic-years/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: year.name,
+          startsOn: year.startsOn,
+          endsOn: year.endsOn,
+          isCurrent: true,
+        }),
+      });
+      setNotice(`${year.name} is now the current year.`);
+      await load();
+    } catch (err) {
+      setError(userFacingError(err, "Could not set the current academic year."));
+    }
   }
 
   async function openLifecycle(year: Year, preferred: "delete" | "archive" | "restore") {
@@ -166,7 +174,13 @@ export default function AcademicYearsPage() {
             <Input name="endsOn" type="date" required />
           </FormField>
           <label className="checkbox-row">
-            <input name="isCurrent" type="checkbox" />
+            <input
+              key={years.length === 0 ? "first-year" : "later-year"}
+              name="isCurrent"
+              type="checkbox"
+              defaultChecked={years.length === 0}
+              disabled={years.length === 0}
+            />
             <span>Current year</span>
           </label>
         </div>
@@ -253,9 +267,17 @@ export default function AcademicYearsPage() {
               </FormField>
             </div>
             <label className="checkbox-row">
-              <input name="isCurrent" type="checkbox" defaultChecked={editing.isCurrent} />
+              <input
+                name="isCurrent"
+                type="checkbox"
+                defaultChecked={editing.isCurrent}
+                disabled={editing.isCurrent}
+              />
               <span>Current year</span>
             </label>
+            {editing.isCurrent ? (
+              <small className="muted">Select another academic year as current before removing this one.</small>
+            ) : null}
             <div className="dialog-actions">
               <Button type="button" variant="secondary" onClick={() => setEditing(null)}>
                 Cancel

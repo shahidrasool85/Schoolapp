@@ -6,6 +6,9 @@ import {
   isSystemYearGroup,
   parseSubjectCreateInput,
   parseSubjectUpdateInput,
+  rejectClearCurrentAcademicYear,
+  rejectSetArchivedAcademicYearCurrent,
+  resolveCreatedAcademicYearCurrent,
 } from "@schoolapp/domain";
 import {
   AppError,
@@ -91,18 +94,22 @@ export function registerAcademicRoutes(app: SchoolappApi) {
       if (parsed.data.endsOn < parsed.data.startsOn) {
         throw new AppError(400, "validation_failed", "Academic year end must be on or after start");
       }
+      const existing = await client.query<{ n: string }>(
+        `select count(*)::text as n from academic_years where organisation_id = $1`,
+        [orgId],
+      );
+      // First year must be current. Do not silently pick a current year when
+      // years already exist with none marked current (legacy / pre-invariant).
+      const isCurrent = resolveCreatedAcademicYearCurrent(
+        Number(existing.rows[0]?.n ?? 0),
+        parsed.data.isCurrent,
+      );
       const inserted = await client.query(
         `insert into academic_years (
            organisation_id, name, starts_on, ends_on, is_current
          ) values ($1, $2, $3, $4, $5)
          returning id, name, starts_on::text, ends_on::text, is_current, status, created_at`,
-        [
-          orgId,
-          parsed.data.name,
-          parsed.data.startsOn,
-          parsed.data.endsOn,
-          parsed.data.isCurrent ?? false,
-        ],
+        [orgId, parsed.data.name, parsed.data.startsOn, parsed.data.endsOn, isCurrent],
       );
       const row = inserted.rows[0]!;
       await writeAudit(client, {
@@ -133,6 +140,15 @@ export function registerAcademicRoutes(app: SchoolappApi) {
         throw new AppError(404, "not_found", "Not found");
       }
       const current = existing.rows[0];
+      const clearCurrent = rejectClearCurrentAcademicYear(Boolean(current.is_current), parsed.data.isCurrent);
+      if (clearCurrent.reject) {
+        throw new AppError(409, clearCurrent.code, clearCurrent.message);
+      }
+      const status = isAcademicRecordStatus(current.status) ? current.status : "active";
+      const archivedCurrent = rejectSetArchivedAcademicYearCurrent(status, parsed.data.isCurrent);
+      if (archivedCurrent.reject) {
+        throw new AppError(409, archivedCurrent.code, archivedCurrent.message);
+      }
       const updated = await client.query(
         `update academic_years
          set name = $3, starts_on = $4, ends_on = $5, is_current = $6

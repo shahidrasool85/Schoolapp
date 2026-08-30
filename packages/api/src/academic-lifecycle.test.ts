@@ -275,22 +275,24 @@ describe("academic structure edit, archive and delete", () => {
     const token = await login(app, school.adminEmail, "password-12x");
     const hdrs = jsonHeaders(token, school.orgId);
 
-    const emptyYear = await app.request("/api/v1/academic-years", {
-      method: "POST",
-      headers: hdrs,
-      body: JSON.stringify({ name: "Accidental", startsOn: "2025-09-01", endsOn: "2026-08-31" }),
-    });
-    const emptyYearId = ((await emptyYear.json()) as { academicYear: { id: string } }).academicYear.id;
-    expect((await app.request(`/api/v1/academic-years/${emptyYearId}`, { method: "DELETE", headers: hdrs })).status).toBe(
-      200,
-    );
-
     const current = await app.request("/api/v1/academic-years", {
       method: "POST",
       headers: hdrs,
       body: JSON.stringify({ name: "2026/27", startsOn: "2026-09-01", endsOn: "2027-08-31", isCurrent: true }),
     });
     const currentId = ((await current.json()) as { academicYear: { id: string } }).academicYear.id;
+
+    const emptyYear = await app.request("/api/v1/academic-years", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ name: "Accidental", startsOn: "2025-09-01", endsOn: "2026-08-31" }),
+    });
+    const emptyYearBody = (await emptyYear.json()) as { academicYear: { id: string; isCurrent: boolean } };
+    expect(emptyYearBody.academicYear.isCurrent).toBe(false);
+    expect(
+      (await app.request(`/api/v1/academic-years/${emptyYearBody.academicYear.id}`, { method: "DELETE", headers: hdrs }))
+        .status,
+    ).toBe(200);
     const currentDelete = await app.request(`/api/v1/academic-years/${currentId}`, { method: "DELETE", headers: hdrs });
     expect(currentDelete.status).toBe(409);
     expect(((await currentDelete.json()) as { error: { message: string } }).error.message).toMatch(
@@ -457,6 +459,184 @@ describe("academic structure edit, archive and delete", () => {
       [school.orgId],
     );
     expect(currentCount.rows[0]?.n).toBe("1");
+  });
+
+  it("cannot unset the only current year and switches current status atomically", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = jsonHeaders(token, school.orgId);
+
+    const emptyList = (await (await app.request("/api/v1/academic-years", { headers: hdrs })).json()) as {
+      academicYears: unknown[];
+    };
+    expect(emptyList.academicYears).toEqual([]);
+    const emptyDashboard = (await (await app.request("/api/v1/dashboard", { headers: hdrs })).json()) as {
+      currentAcademicYear: { id: string } | null;
+    };
+    expect(emptyDashboard.currentAcademicYear).toBeNull();
+
+    const first = await app.request("/api/v1/academic-years", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ name: "2025/26", startsOn: "2025-09-01", endsOn: "2026-08-31", isCurrent: false }),
+    });
+    expect(first.status).toBe(201);
+    const firstBody = (await first.json()) as { academicYear: { id: string; isCurrent: boolean } };
+    expect(firstBody.academicYear.isCurrent).toBe(true);
+
+    const unset = await app.request(`/api/v1/academic-years/${firstBody.academicYear.id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ isCurrent: false }),
+    });
+    expect(unset.status).toBe(409);
+    const unsetBody = (await unset.json()) as { error: { code: string; message: string } };
+    expect(unsetBody.error.code).toBe("cannot_clear_current");
+    expect(unsetBody.error.message).toMatch(/Select another academic year as current before removing this one/i);
+
+    expect(
+      (await app.request(`/api/v1/academic-years/${firstBody.academicYear.id}/archive`, {
+        method: "POST",
+        headers: hdrs,
+        body: "{}",
+      })).status,
+    ).toBe(409);
+    expect(
+      (await app.request(`/api/v1/academic-years/${firstBody.academicYear.id}`, { method: "DELETE", headers: hdrs }))
+        .status,
+    ).toBe(409);
+
+    const second = await app.request("/api/v1/academic-years", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ name: "2026/27", startsOn: "2026-09-01", endsOn: "2027-08-31" }),
+    });
+    const secondBody = (await second.json()) as { academicYear: { id: string; isCurrent: boolean } };
+    expect(secondBody.academicYear.isCurrent).toBe(false);
+
+    const switched = await app.request(`/api/v1/academic-years/${secondBody.academicYear.id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ isCurrent: true }),
+    });
+    expect(switched.status).toBe(200);
+    expect(((await switched.json()) as { academicYear: { isCurrent: boolean } }).academicYear.isCurrent).toBe(true);
+
+    const list = (await (await app.request("/api/v1/academic-years", { headers: hdrs })).json()) as {
+      academicYears: Array<{ id: string; isCurrent: boolean; status: string }>;
+    };
+    const currentRows = list.academicYears.filter((row) => row.isCurrent);
+    expect(currentRows).toHaveLength(1);
+    expect(currentRows[0]?.id).toBe(secondBody.academicYear.id);
+    expect(list.academicYears.find((row) => row.id === firstBody.academicYear.id)?.isCurrent).toBe(false);
+    const currentCount = await pools.owner.query<{ n: string }>(
+      "select count(*)::text as n from academic_years where organisation_id = $1 and is_current",
+      [school.orgId],
+    );
+    expect(currentCount.rows[0]?.n).toBe("1");
+
+    const archived = await app.request(`/api/v1/academic-years/${firstBody.academicYear.id}/archive`, {
+      method: "POST",
+      headers: hdrs,
+      body: "{}",
+    });
+    expect(archived.status).toBe(200);
+    const setArchivedCurrent = await app.request(`/api/v1/academic-years/${firstBody.academicYear.id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ isCurrent: true }),
+    });
+    expect(setArchivedCurrent.status).toBe(409);
+    expect(((await setArchivedCurrent.json()) as { error: { code: string } }).error.code).toBe(
+      "cannot_set_archived_current",
+    );
+
+    const attendanceLookup = await pools.owner.query<{ id: string }>(
+      `select id from academic_years where organisation_id = $1 and is_current limit 1`,
+      [school.orgId],
+    );
+    expect(attendanceLookup.rows[0]?.id).toBe(secondBody.academicYear.id);
+    const financeLookup = await pools.owner.query<{ id: string }>(
+      `select id from academic_years where organisation_id = $1 and is_current limit 1`,
+      [school.orgId],
+    );
+    expect(financeLookup.rows[0]?.id).toBe(secondBody.academicYear.id);
+
+    const dashboard = (await (await app.request("/api/v1/dashboard", { headers: hdrs })).json()) as {
+      currentAcademicYear: { id: string } | null;
+    };
+    expect(dashboard.currentAcademicYear?.id).toBe(secondBody.academicYear.id);
+    expect((await app.request("/api/v1/attendance/session-types", { headers: hdrs })).status).toBe(200);
+    expect((await app.request("/api/v1/finance/settings", { headers: hdrs })).status).toBe(200);
+  });
+
+  it("keeps current-year changes isolated between organisations", async () => {
+    const id = suffix();
+    const schoolA = await createSchool(pools.owner, `${id}a`, `School A ${id}`);
+    const schoolB = await createSchool(pools.owner, `${id}b`, `School B ${id}`);
+    const adminA = await login(app, schoolA.adminEmail, "password-12x");
+    const adminB = await login(app, schoolB.adminEmail, "password-12x");
+    const hdrsA = jsonHeaders(adminA, schoolA.orgId);
+    const hdrsB = jsonHeaders(adminB, schoolB.orgId);
+
+    const yearA1 = await app.request("/api/v1/academic-years", {
+      method: "POST",
+      headers: hdrsA,
+      body: JSON.stringify({ name: "2025/26", startsOn: "2025-09-01", endsOn: "2026-08-31", isCurrent: true }),
+    });
+    const yearA1Id = ((await yearA1.json()) as { academicYear: { id: string } }).academicYear.id;
+    const yearA2 = await app.request("/api/v1/academic-years", {
+      method: "POST",
+      headers: hdrsA,
+      body: JSON.stringify({ name: "2026/27", startsOn: "2026-09-01", endsOn: "2027-08-31" }),
+    });
+    const yearA2Id = ((await yearA2.json()) as { academicYear: { id: string } }).academicYear.id;
+    const yearB = await app.request("/api/v1/academic-years", {
+      method: "POST",
+      headers: hdrsB,
+      body: JSON.stringify({ name: "2025/26", startsOn: "2025-09-01", endsOn: "2026-08-31", isCurrent: true }),
+    });
+    const yearBId = ((await yearB.json()) as { academicYear: { id: string } }).academicYear.id;
+
+    expect(
+      (await app.request(`/api/v1/academic-years/${yearA2Id}`, {
+        method: "PATCH",
+        headers: hdrsB,
+        body: JSON.stringify({ isCurrent: true }),
+      })).status,
+    ).toBeGreaterThanOrEqual(400);
+    expect(
+      (await app.request(`/api/v1/academic-years/${yearBId}`, {
+        method: "PATCH",
+        headers: hdrsA,
+        body: JSON.stringify({ isCurrent: true }),
+      })).status,
+    ).toBeGreaterThanOrEqual(400);
+
+    expect(
+      (
+        await app.request(`/api/v1/academic-years/${yearA2Id}`, {
+          method: "PATCH",
+          headers: hdrsA,
+          body: JSON.stringify({ isCurrent: true }),
+        })
+      ).status,
+    ).toBe(200);
+
+    const currentA = await pools.owner.query<{ id: string }>(
+      `select id from academic_years where organisation_id = $1 and is_current`,
+      [schoolA.orgId],
+    );
+    const currentB = await pools.owner.query<{ id: string }>(
+      `select id from academic_years where organisation_id = $1 and is_current`,
+      [schoolB.orgId],
+    );
+    expect(currentA.rows).toHaveLength(1);
+    expect(currentA.rows[0]?.id).toBe(yearA2Id);
+    expect(currentB.rows).toHaveLength(1);
+    expect(currentB.rows[0]?.id).toBe(yearBId);
+    expect(yearA1Id).not.toBe(yearA2Id);
   });
 
   it("keeps destructive academic actions with School Admin and denies teachers and other tenants", async () => {

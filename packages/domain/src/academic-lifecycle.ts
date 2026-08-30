@@ -6,6 +6,34 @@ export type YearGroupOrigin = (typeof YEAR_GROUP_ORIGINS)[number];
 
 export const SYSTEM_YEAR_GROUP_DELETE_REASON =
   "This year group is a standard UK year group and cannot be permanently deleted. Archive it instead.";
+export const CANNOT_CLEAR_CURRENT_YEAR =
+  "Select another academic year as current before removing this one.";
+export const CANNOT_SET_ARCHIVED_CURRENT =
+  "Restore this academic year before setting it as current.";
+
+export function resolveCreatedAcademicYearCurrent(existingYearCount: number, requested?: boolean): boolean {
+  return existingYearCount === 0 ? true : Boolean(requested);
+}
+
+export function rejectClearCurrentAcademicYear(
+  isCurrentlyCurrent: boolean,
+  requestedCurrent: boolean | undefined,
+): { reject: true; code: "cannot_clear_current"; message: string } | { reject: false } {
+  if (isCurrentlyCurrent && requestedCurrent === false) {
+    return { reject: true, code: "cannot_clear_current", message: CANNOT_CLEAR_CURRENT_YEAR };
+  }
+  return { reject: false };
+}
+
+export function rejectSetArchivedAcademicYearCurrent(
+  status: AcademicRecordStatus,
+  requestedCurrent: boolean | undefined,
+): { reject: true; code: "cannot_set_archived_current"; message: string } | { reject: false } {
+  if (requestedCurrent === true && status === "archived") {
+    return { reject: true, code: "cannot_set_archived_current", message: CANNOT_SET_ARCHIVED_CURRENT };
+  }
+  return { reject: false };
+}
 
 export type AcademicUsageCount = {
   key: string;

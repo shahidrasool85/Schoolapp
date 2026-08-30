@@ -1144,7 +1144,7 @@ describe("Phase 2 people and school structure", () => {
     expect(body.classMemberships.find((m) => m.className === "4A")?.endedOn).toBeNull();
   });
 
-  it("hides current form when no academic year is current, and closes class seats when a primary enrolment ends", async () => {
+  it("rejects clearing the current academic year and hides current form when a primary enrolment ends", async () => {
     const id = suffix();
     const school = await createSchool(pools.owner, id);
     const adminToken = await login(app, school.adminEmail, "password-12x");
@@ -1225,18 +1225,15 @@ describe("Phase 2 people and school structure", () => {
       headers,
       body: JSON.stringify({ isCurrent: false }),
     });
-    expect(unset.status).toBe(200);
-    const withoutCurrent = (await (
+    expect(unset.status).toBe(409);
+    const unsetBody = (await unset.json()) as { error: { code: string; message: string } };
+    expect(unsetBody.error.code).toBe("cannot_clear_current");
+    expect(unsetBody.error.message).toMatch(/Select another academic year as current before removing this one/i);
+    const stillCurrent = (await (
       await app.request(`/api/v1/students/${student.student.id}`, { headers })
     ).json()) as { student: { currentFormClassName: string | null; currentYearGroupName: string | null } };
-    expect(withoutCurrent.student.currentFormClassName).toBeNull();
-    expect(withoutCurrent.student.currentYearGroupName).toBeNull();
-
-    await app.request(`/api/v1/academic-years/${year.academicYear.id}`, {
-      method: "PATCH",
-      headers,
-      body: JSON.stringify({ isCurrent: true }),
-    });
+    expect(stillCurrent.student.currentFormClassName).toBe("2A");
+    expect(stillCurrent.student.currentYearGroupName).not.toBeNull();
     const enrolments = (await (
       await app.request(`/api/v1/students/${student.student.id}`, { headers })
     ).json()) as { enrolments: Array<{ id: string; endedOn: string | null }> };

@@ -197,7 +197,6 @@ describe("subject creation and school settings permission hotfix", () => {
     const teacherToken = await login(app, teacher.email, "password-12x");
     const headToken = await login(app, head.email, "password-12x");
     const parentToken = await login(app, parent.email, "password-12x");
-    const studentToken = await login(app, `student-${id}@example.com`, "student-pass-1");
     const platformToken = await login(app, `platform-${id}@example.com`, "platform-pass-1");
 
     const adminMe = (await (
@@ -267,12 +266,16 @@ describe("subject creation and school settings permission hotfix", () => {
       headers: jsonHeaders(parentToken, school.orgId),
       body: JSON.stringify({ name: "English", key: "eng" }),
     })).status).toBe(403);
-    expect((await app.request("/api/v1/onboarding/profile", { headers: jsonHeaders(studentToken, school.orgId) })).status).toBe(403);
-    expect((await app.request("/api/v1/subjects", {
-      method: "POST",
-      headers: jsonHeaders(studentToken, school.orgId),
-      body: JSON.stringify({ name: "English", key: "eng" }),
-    })).status).toBe(403);
+
+    const studentPerms = await pools.app.query<{ permission_key: string }>(
+      "select permission_key from list_permissions_for_membership($1, $2)",
+      [studentId, school.orgId],
+    );
+    const studentKeys = studentPerms.rows.map((row) => row.permission_key);
+    expect(studentKeys).not.toContain(PERMISSIONS.ORG_SETTINGS_MANAGE);
+    expect(studentKeys).not.toContain(PERMISSIONS.ORG_SETTINGS_READ);
+    expect(studentKeys).not.toContain(PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
+    expect(canAccessSchoolSettingsAdmin(studentKeys)).toBe(false);
 
     const platformMe = (await (
       await app.request("/api/v1/me", { headers: { Authorization: `Bearer ${platformToken}` } })

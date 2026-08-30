@@ -514,11 +514,15 @@ async function loadReadinessCounts(
     schoolName: String(row.name ?? "").trim(),
     hasName: Boolean(String(row.name ?? "").trim()),
     hasTimezone: Boolean(String(row.timezone ?? "").trim()),
-    academicYears: await q("select count(*)::int as n from academic_years where organisation_id = $1"),
+    academicYears: await q(
+      "select count(*)::int as n from academic_years where organisation_id = $1 and status = 'active'",
+    ),
     terms: await q("select count(*)::int as n from terms where organisation_id = $1"),
-    yearGroups: await q("select count(*)::int as n from year_groups where organisation_id = $1"),
-    classes: await q("select count(*)::int as n from classes where organisation_id = $1"),
-    subjects: await q("select count(*)::int as n from subjects where organisation_id = $1"),
+    yearGroups: await q(
+      "select count(*)::int as n from year_groups where organisation_id = $1 and status = 'active'",
+    ),
+    classes: await q("select count(*)::int as n from classes where organisation_id = $1 and status = 'active'"),
+    subjects: await q("select count(*)::int as n from subjects where organisation_id = $1 and status = 'active'"),
     schoolDayProfiles: await q(
       "select count(*)::int as n from school_day_profiles where organisation_id = $1",
     ),

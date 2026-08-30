@@ -1,67 +1,24 @@
-"use client";
+import { redirect } from "next/navigation";
+import { readLoginHostKind } from "../lib/login-host-kind";
+import { tenantLoginPath } from "../lib/safe-next";
+import { PublicLandingPage } from "./public-landing";
+import { SchoolNotFoundPage } from "./school-not-found";
 
-import { useEffect, useState } from "react";
-import { loadPublicTenant, type PublicTenant } from "../lib/tenant";
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string | string[] }>;
+}) {
+  const hostKind = await readLoginHostKind();
+  const params = await searchParams;
 
-export default function HomePage() {
-  const [tenant, setTenant] = useState<PublicTenant | { kind: "unknown" } | null>(null);
-
-  useEffect(() => {
-    loadPublicTenant()
-      .then(setTenant)
-      .catch(() => setTenant({ kind: "unknown" }));
-  }, []);
-
-  if (tenant?.kind === "unknown") {
-    return (
-      <main style={{ fontFamily: "system-ui", maxWidth: 720, margin: "2rem auto", padding: 16 }}>
-        <h1>School not found</h1>
-        <p>This address is not an active school on the platform.</p>
-      </main>
-    );
+  if (hostKind === "school") {
+    redirect(tenantLoginPath(params.next));
   }
 
-  if (tenant?.kind === "school") {
-    return (
-      <main style={{ fontFamily: "system-ui", maxWidth: 720, margin: "2rem auto", padding: 16 }}>
-        <h1>{tenant.organisation.name}</h1>
-        <p>Sign in to your school.</p>
-        <ul>
-          <li>
-            <a href="/login">Sign in</a>
-          </li>
-        </ul>
-      </main>
-    );
+  if (hostKind === "unknown") {
+    return <SchoolNotFoundPage />;
   }
 
-  return (
-    <main style={{ fontFamily: "system-ui", maxWidth: 720, margin: "2rem auto", padding: 16 }}>
-      <h1>Schoolapp</h1>
-      <p>
-        Multi-tenant school platform. Each school uses the same application on its own subdomain.
-        This is the platform entry point.
-      </p>
-      <ul>
-        <li>
-          <a href="/login">Sign in</a>
-        </li>
-        <li>
-          <a href="/platform">Platform Admin</a>
-        </li>
-        <li>
-          <a href="/school">School Admin</a>
-        </li>
-        <li>
-          <a href="/parent">Parent Portal</a>
-        </li>
-        <li>
-          <a href="/student">Student Portal</a>
-        </li>
-        <li>
-          Health: <code>GET /api/v1/health</code>
-        </li>
-      </ul>
-    </main>
-  );
+  return <PublicLandingPage platformDomain={(process.env.PLATFORM_DOMAIN ?? "localhost").trim() || "localhost"} />;
 }

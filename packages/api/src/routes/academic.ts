@@ -1,11 +1,25 @@
 import { z } from "zod";
-import { PERMISSIONS, parseSubjectCreateInput } from "@schoolapp/domain";
+import {
+  PERMISSIONS,
+  SYSTEM_YEAR_GROUP_DELETE_REASON,
+  isAcademicRecordStatus,
+  isSystemYearGroup,
+  parseSubjectCreateInput,
+  parseSubjectUpdateInput,
+  rejectClearCurrentAcademicYear,
+  rejectSetArchivedAcademicYearCurrent,
+  resolveCreatedAcademicYearCurrent,
+} from "@schoolapp/domain";
 import {
   AppError,
   assertAnyPermission,
   assertPermission,
   canListAllStudents,
+  deleteConfigOnlyYearGroupLinks,
+  deletionBlockedError,
+  includeArchivedRequested,
   isAssignedToClass,
+  loadAcademicLifecycle,
   writeAudit,
 } from "@schoolapp/core";
 import { upsertYearGroupPortalOverride } from "./student-portal";
@@ -59,11 +73,12 @@ export function registerAcademicRoutes(app: SchoolappApi) {
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertAnyPermission(actor, academicReadPermissions);
       const rows = await client.query(
-        `select id, name, starts_on::text, ends_on::text, is_current, created_at
+        `select id, name, starts_on::text, ends_on::text, is_current, status, created_at
          from academic_years
          where organisation_id = $1
+           and ($2::boolean or status = 'active')
          order by starts_on desc`,
-        [orgId],
+        [orgId, includeArchivedRequested(c.req.query("includeArchived"))],
       );
       return c.json({ academicYears: rows.rows.map(mapAcademicYear) });
     }),
@@ -79,18 +94,22 @@ export function registerAcademicRoutes(app: SchoolappApi) {
       if (parsed.data.endsOn < parsed.data.startsOn) {
         throw new AppError(400, "validation_failed", "Academic year end must be on or after start");
       }
+      const existing = await client.query<{ n: string }>(
+        `select count(*)::text as n from academic_years where organisation_id = $1`,
+        [orgId],
+      );
+      // First year must be current. Do not silently pick a current year when
+      // years already exist with none marked current (legacy / pre-invariant).
+      const isCurrent = resolveCreatedAcademicYearCurrent(
+        Number(existing.rows[0]?.n ?? 0),
+        parsed.data.isCurrent,
+      );
       const inserted = await client.query(
         `insert into academic_years (
            organisation_id, name, starts_on, ends_on, is_current
          ) values ($1, $2, $3, $4, $5)
-         returning id, name, starts_on::text, ends_on::text, is_current, created_at`,
-        [
-          orgId,
-          parsed.data.name,
-          parsed.data.startsOn,
-          parsed.data.endsOn,
-          parsed.data.isCurrent ?? false,
-        ],
+         returning id, name, starts_on::text, ends_on::text, is_current, status, created_at`,
+        [orgId, parsed.data.name, parsed.data.startsOn, parsed.data.endsOn, isCurrent],
       );
       const row = inserted.rows[0]!;
       await writeAudit(client, {
@@ -113,21 +132,30 @@ export function registerAcademicRoutes(app: SchoolappApi) {
         throw new AppError(400, "validation_failed", "Invalid academic year payload");
       }
       const existing = await client.query(
-        `select id, name, starts_on::text, ends_on::text, is_current, created_at
+        `select id, name, starts_on::text, ends_on::text, is_current, status, created_at
          from academic_years where id = $1 and organisation_id = $2`,
-        [c.req.param("id"), orgId],
+        [routeParam(c, "id"), orgId],
       );
       if (!existing.rows[0]) {
         throw new AppError(404, "not_found", "Not found");
       }
       const current = existing.rows[0];
+      const clearCurrent = rejectClearCurrentAcademicYear(Boolean(current.is_current), parsed.data.isCurrent);
+      if (clearCurrent.reject) {
+        throw new AppError(409, clearCurrent.code, clearCurrent.message);
+      }
+      const status = isAcademicRecordStatus(current.status) ? current.status : "active";
+      const archivedCurrent = rejectSetArchivedAcademicYearCurrent(status, parsed.data.isCurrent);
+      if (archivedCurrent.reject) {
+        throw new AppError(409, archivedCurrent.code, archivedCurrent.message);
+      }
       const updated = await client.query(
         `update academic_years
          set name = $3, starts_on = $4, ends_on = $5, is_current = $6
          where id = $1 and organisation_id = $2
-         returning id, name, starts_on::text, ends_on::text, is_current, created_at`,
+         returning id, name, starts_on::text, ends_on::text, is_current, status, created_at`,
         [
-          c.req.param("id"),
+          routeParam(c, "id"),
           orgId,
           parsed.data.name ?? current.name,
           parsed.data.startsOn ?? current.starts_on,
@@ -140,7 +168,7 @@ export function registerAcademicRoutes(app: SchoolappApi) {
         actorUserId: userId,
         action: "academic.year.updated",
         entityType: "academic_year",
-        entityId: c.req.param("id"),
+        entityId: routeParam(c, "id"),
         before: mapAcademicYear(existing.rows[0]),
         after: mapAcademicYear(updated.rows[0]!),
       });
@@ -148,11 +176,117 @@ export function registerAcademicRoutes(app: SchoolappApi) {
     }),
   );
 
+  app.get("/academic-years/:id/lifecycle", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertAnyPermission(actor, academicReadPermissions);
+      const existing = await client.query(
+        `select id, name, starts_on::text, ends_on::text, is_current, status, created_at
+         from academic_years where id = $1 and organisation_id = $2`,
+        [routeParam(c, "id"), orgId],
+      );
+      if (!existing.rows[0]) throw new AppError(404, "not_found", "Not found");
+      const status = isAcademicRecordStatus(existing.rows[0].status) ? existing.rows[0].status : "active";
+      const extra = existing.rows[0].is_current
+        ? ["The current academic year cannot be removed until another year is set as current."]
+        : [];
+      const lifecycle = await loadAcademicLifecycle(client, "academic_year", routeParam(c, "id"), orgId, status, {
+        extraBlockReasons: extra,
+        archiveBlockedReasons: extra,
+        entityLabel: "This academic year",
+      });
+      return c.json({ academicYear: mapAcademicYear(existing.rows[0]), lifecycle });
+    }),
+  );
+
+  app.post("/academic-years/:id/archive", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
+      const existing = await client.query(
+        `select id, name, starts_on::text, ends_on::text, is_current, status, created_at
+         from academic_years where id = $1 and organisation_id = $2`,
+        [routeParam(c, "id"), orgId],
+      );
+      if (!existing.rows[0]) throw new AppError(404, "not_found", "Not found");
+      if (existing.rows[0].is_current) {
+        throw new AppError(
+          409,
+          "cannot_archive",
+          "The current academic year cannot be archived. Set another year as current first.",
+        );
+      }
+      await setAcademicStatus(client, {
+        table: "academic_years",
+        id: routeParam(c, "id"),
+        orgId,
+        userId,
+        status: "archived",
+        entityType: "academic_year",
+        action: "academic.year.archived",
+        mapRow: mapAcademicYear,
+      });
+      return c.json({ academicYear: mapAcademicYear((await loadAcademicYearRow(client, orgId, routeParam(c, "id")))!) });
+    }),
+  );
+
+  app.post("/academic-years/:id/restore", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
+      await setAcademicStatus(client, {
+        table: "academic_years",
+        id: routeParam(c, "id"),
+        orgId,
+        userId,
+        status: "active",
+        entityType: "academic_year",
+        action: "academic.year.restored",
+        mapRow: mapAcademicYear,
+      });
+      return c.json({ academicYear: mapAcademicYear((await loadAcademicYearRow(client, orgId, routeParam(c, "id")))!) });
+    }),
+  );
+
+  app.delete("/academic-years/:id", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
+      const existing = await client.query(
+        `select id, name, starts_on::text, ends_on::text, is_current, status, created_at
+         from academic_years where id = $1 and organisation_id = $2`,
+        [routeParam(c, "id"), orgId],
+      );
+      if (!existing.rows[0]) throw new AppError(404, "not_found", "Not found");
+      const extra = existing.rows[0].is_current
+        ? ["The current academic year cannot be removed until another year is set as current."]
+        : [];
+      const status = isAcademicRecordStatus(existing.rows[0].status) ? existing.rows[0].status : "active";
+      const lifecycle = await loadAcademicLifecycle(client, "academic_year", routeParam(c, "id"), orgId, status, {
+        extraBlockReasons: extra,
+        entityLabel: "This academic year",
+      });
+      if (!lifecycle.canDelete) {
+        const blocked = deletionBlockedError("This academic year", lifecycle);
+        throw new AppError(409, blocked.code, blocked.message, blocked.details);
+      }
+      await client.query(`delete from academic_years where id = $1 and organisation_id = $2`, [
+        routeParam(c, "id"),
+        orgId,
+      ]);
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "academic.year.deleted",
+        entityType: "academic_year",
+        entityId: routeParam(c, "id"),
+        before: mapAcademicYear(existing.rows[0]),
+      });
+      return c.json({ ok: true });
+    }),
+  );
+
   app.get("/academic-years/:id/terms", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertAnyPermission(actor, academicReadPermissions);
       const year = await client.query("select id from academic_years where id = $1 and organisation_id = $2", [
-        c.req.param("id"),
+        routeParam(c, "id"),
         orgId,
       ]);
       if (!year.rows[0]) throw new AppError(404, "not_found", "Not found");
@@ -161,7 +295,7 @@ export function registerAcademicRoutes(app: SchoolappApi) {
          from terms
          where academic_year_id = $1 and organisation_id = $2
          order by sort_order, starts_on`,
-        [c.req.param("id"), orgId],
+        [routeParam(c, "id"), orgId],
       );
       return c.json({ terms: rows.rows.map(mapTerm) });
     }),
@@ -179,7 +313,7 @@ export function registerAcademicRoutes(app: SchoolappApi) {
          returning id, academic_year_id, key, name, starts_on::text, ends_on::text, sort_order`,
         [
           orgId,
-          c.req.param("id"),
+          routeParam(c, "id"),
           parsed.data.key,
           parsed.data.name,
           parsed.data.startsOn,
@@ -203,7 +337,7 @@ export function registerAcademicRoutes(app: SchoolappApi) {
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertAnyPermission(actor, academicReadPermissions);
       const rows = await client.query(
-        `select yg.id, yg.code, yg.name, yg.key_stage, yg.sort_order,
+        `select yg.id, yg.code, yg.name, yg.key_stage, yg.sort_order, yg.status, yg.origin,
                 ovr.enabled as portal_override,
                 coalesce(ovr.enabled, pol.default_enabled, false) as student_login_enabled
          from year_groups yg
@@ -211,8 +345,9 @@ export function registerAcademicRoutes(app: SchoolappApi) {
            on ovr.year_group_id = yg.id and ovr.organisation_id = yg.organisation_id
          left join student_portal_policies pol on pol.organisation_id = yg.organisation_id
          where yg.organisation_id = $1
+           and ($2::boolean or yg.status = 'active')
          order by yg.sort_order, yg.code`,
-        [orgId],
+        [orgId, includeArchivedRequested(c.req.query("includeArchived"))],
       );
       return c.json({ yearGroups: rows.rows.map(mapYearGroup) });
     }),
@@ -224,9 +359,9 @@ export function registerAcademicRoutes(app: SchoolappApi) {
       const parsed = yearGroupSchema.safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid year group payload");
       const inserted = await client.query(
-        `insert into year_groups (organisation_id, code, name, student_login_enabled, sort_order)
-         values ($1, $2, $3, $4, coalesce((select year_group_code_rank($2)), 0))
-         returning id, code, name, key_stage, sort_order, student_login_enabled`,
+        `insert into year_groups (organisation_id, code, name, student_login_enabled, sort_order, origin)
+         values ($1, $2, $3, $4, coalesce((select year_group_code_rank($2)), 0), 'custom')
+         returning id, code, name, key_stage, sort_order, student_login_enabled, status, origin`,
         [
           orgId,
           parsed.data.code,
@@ -262,7 +397,7 @@ export function registerAcademicRoutes(app: SchoolappApi) {
         [userId, orgId],
       );
       const rows = await client.query(
-        `select yg.id, yg.code, yg.name, yg.key_stage, yg.sort_order,
+        `select yg.id, yg.code, yg.name, yg.key_stage, yg.sort_order, yg.status, yg.origin,
                 ovr.enabled as portal_override,
                 coalesce(ovr.enabled, pol.default_enabled, false) as student_login_enabled
          from year_groups yg
@@ -285,9 +420,9 @@ export function registerAcademicRoutes(app: SchoolappApi) {
       const parsed = yearGroupSchema.partial().safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid year group payload");
       const existing = await client.query(
-        `select id, code, name, key_stage, sort_order, student_login_enabled
+        `select id, code, name, key_stage, sort_order, student_login_enabled, status, origin
          from year_groups where id = $1 and organisation_id = $2`,
-        [c.req.param("id"), orgId],
+        [routeParam(c, "id"), orgId],
       );
       if (!existing.rows[0]) throw new AppError(404, "not_found", "Not found");
       const updated = await client.query(
@@ -295,9 +430,9 @@ export function registerAcademicRoutes(app: SchoolappApi) {
          set name = coalesce($3, name),
              student_login_enabled = coalesce($4, student_login_enabled)
          where id = $1 and organisation_id = $2
-         returning id, code, name, key_stage, sort_order, student_login_enabled`,
+         returning id, code, name, key_stage, sort_order, student_login_enabled, status, origin`,
         [
-          c.req.param("id"),
+          routeParam(c, "id"),
           orgId,
           parsed.data.name ?? null,
           parsed.data.studentLoginEnabled ?? null,
@@ -316,7 +451,7 @@ export function registerAcademicRoutes(app: SchoolappApi) {
         actorUserId: userId,
         action: "academic.year_group.updated",
         entityType: "year_group",
-        entityId: c.req.param("id"),
+        entityId: routeParam(c, "id"),
         before: mapYearGroup(existing.rows[0]),
         after: mapYearGroup(updated.rows[0]!),
       });
@@ -324,12 +459,108 @@ export function registerAcademicRoutes(app: SchoolappApi) {
     }),
   );
 
+  app.get("/year-groups/:id/lifecycle", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertAnyPermission(actor, academicReadPermissions);
+      const existing = await client.query(
+        `select id, code, name, key_stage, sort_order, student_login_enabled, status, origin
+         from year_groups where id = $1 and organisation_id = $2`,
+        [routeParam(c, "id"), orgId],
+      );
+      if (!existing.rows[0]) throw new AppError(404, "not_found", "Not found");
+      const status = isAcademicRecordStatus(existing.rows[0].status) ? existing.rows[0].status : "active";
+      const lifecycle = await loadAcademicLifecycle(client, "year_group", routeParam(c, "id"), orgId, status, {
+        extraBlockReasons: isSystemYearGroup(existing.rows[0].origin) ? [SYSTEM_YEAR_GROUP_DELETE_REASON] : [],
+        entityLabel: "This year group",
+      });
+      return c.json({ yearGroup: mapYearGroup(existing.rows[0]), lifecycle });
+    }),
+  );
+
+  app.post("/year-groups/:id/archive", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
+      return c.json({
+        yearGroup: mapYearGroup(
+          await setAcademicStatus(client, {
+            table: "year_groups",
+            id: routeParam(c, "id"),
+            orgId,
+            userId,
+            status: "archived",
+            entityType: "year_group",
+            action: "academic.year_group.archived",
+            mapRow: mapYearGroup,
+          }),
+        ),
+      });
+    }),
+  );
+
+  app.post("/year-groups/:id/restore", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
+      return c.json({
+        yearGroup: mapYearGroup(
+          await setAcademicStatus(client, {
+            table: "year_groups",
+            id: routeParam(c, "id"),
+            orgId,
+            userId,
+            status: "active",
+            entityType: "year_group",
+            action: "academic.year_group.restored",
+            mapRow: mapYearGroup,
+          }),
+        ),
+      });
+    }),
+  );
+
+  app.delete("/year-groups/:id", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
+      const existing = await client.query(
+        `select id, code, name, key_stage, sort_order, student_login_enabled, status, origin
+         from year_groups where id = $1 and organisation_id = $2`,
+        [routeParam(c, "id"), orgId],
+      );
+      if (!existing.rows[0]) throw new AppError(404, "not_found", "Not found");
+      const status = isAcademicRecordStatus(existing.rows[0].status) ? existing.rows[0].status : "active";
+      const lifecycle = await loadAcademicLifecycle(client, "year_group", routeParam(c, "id"), orgId, status, {
+        extraBlockReasons: isSystemYearGroup(existing.rows[0].origin) ? [SYSTEM_YEAR_GROUP_DELETE_REASON] : [],
+        entityLabel: "This year group",
+      });
+      if (!lifecycle.canDelete) {
+        const blocked = deletionBlockedError("This year group", lifecycle);
+        throw new AppError(409, blocked.code, blocked.message, blocked.details);
+      }
+      await deleteConfigOnlyYearGroupLinks(client, routeParam(c, "id"), orgId);
+      await client.query(`delete from year_groups where id = $1 and organisation_id = $2`, [
+        routeParam(c, "id"),
+        orgId,
+      ]);
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "academic.year_group.deleted",
+        entityType: "year_group",
+        entityId: routeParam(c, "id"),
+        before: mapYearGroup(existing.rows[0]),
+      });
+      return c.json({ ok: true });
+    }),
+  );
+
   app.get("/subjects", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertAnyPermission(actor, academicReadPermissions);
       const rows = await client.query(
-        `select id, key, name from subjects where organisation_id = $1 order by name`,
-        [orgId],
+        `select id, key, name, status from subjects
+         where organisation_id = $1
+           and ($2::boolean or status = 'active')
+         order by name`,
+        [orgId, includeArchivedRequested(c.req.query("includeArchived"))],
       );
       return c.json({ subjects: rows.rows.map(mapSubject) });
     }),
@@ -355,7 +586,7 @@ export function registerAcademicRoutes(app: SchoolappApi) {
       }
       const inserted = await client.query(
         `insert into subjects (organisation_id, key, name) values ($1, $2, $3)
-         returning id, key, name`,
+         returning id, key, name, status`,
         [orgId, subject.key, subject.name],
       );
       await writeAudit(client, {
@@ -371,16 +602,137 @@ export function registerAcademicRoutes(app: SchoolappApi) {
   );
 
   app.patch("/subjects/:id", requireUser, async (c) =>
-    withSchoolActor(c, async ({ client, actor, orgId }) => {
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
-      const parsed = z.object({ name: z.string().min(1).max(80) }).safeParse(await c.req.json());
+      const parsed = z
+        .object({ name: z.string().optional(), key: z.string().optional() })
+        .safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid subject payload");
-      const updated = await client.query(
-        `update subjects set name = $3 where id = $1 and organisation_id = $2 returning id, key, name`,
-        [c.req.param("id"), orgId, parsed.data.name],
+      const subject = parseSubjectUpdateInput(parsed.data);
+      if (!subject.ok) {
+        throw new AppError(400, "validation_failed", subject.error, { fieldKey: subject.field });
+      }
+      const existing = await client.query(
+        `select id, key, name, status from subjects where id = $1 and organisation_id = $2`,
+        [routeParam(c, "id"), orgId],
       );
-      if (!updated.rows[0]) throw new AppError(404, "not_found", "Not found");
-      return c.json({ subject: mapSubject(updated.rows[0]) });
+      if (!existing.rows[0]) throw new AppError(404, "not_found", "Not found");
+      if (subject.key && subject.key !== existing.rows[0].key) {
+        const clash = await client.query(
+          "select 1 from subjects where organisation_id = $1 and key = $2 and id <> $3",
+          [orgId, subject.key, routeParam(c, "id")],
+        );
+        if (clash.rows[0]) {
+          throw new AppError(409, "conflict", "A subject with this key already exists in this school.", {
+            fieldKey: "key",
+          });
+        }
+      }
+      const updated = await client.query(
+        `update subjects
+         set name = coalesce($3, name), key = coalesce($4, key)
+         where id = $1 and organisation_id = $2
+         returning id, key, name, status`,
+        [routeParam(c, "id"), orgId, subject.name ?? null, subject.key ?? null],
+      );
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "academic.subject.updated",
+        entityType: "subject",
+        entityId: routeParam(c, "id"),
+        before: mapSubject(existing.rows[0]),
+        after: mapSubject(updated.rows[0]!),
+      });
+      return c.json({ subject: mapSubject(updated.rows[0]!) });
+    }),
+  );
+
+  app.get("/subjects/:id/lifecycle", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertAnyPermission(actor, academicReadPermissions);
+      const existing = await client.query(
+        `select id, key, name, status from subjects where id = $1 and organisation_id = $2`,
+        [routeParam(c, "id"), orgId],
+      );
+      if (!existing.rows[0]) throw new AppError(404, "not_found", "Not found");
+      const status = isAcademicRecordStatus(existing.rows[0].status) ? existing.rows[0].status : "active";
+      const lifecycle = await loadAcademicLifecycle(client, "subject", routeParam(c, "id"), orgId, status, {
+        entityLabel: "This subject",
+      });
+      return c.json({ subject: mapSubject(existing.rows[0]), lifecycle });
+    }),
+  );
+
+  app.post("/subjects/:id/archive", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
+      return c.json({
+        subject: mapSubject(
+          await setAcademicStatus(client, {
+            table: "subjects",
+            id: routeParam(c, "id"),
+            orgId,
+            userId,
+            status: "archived",
+            entityType: "subject",
+            action: "academic.subject.archived",
+            mapRow: mapSubject,
+          }),
+        ),
+      });
+    }),
+  );
+
+  app.post("/subjects/:id/restore", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
+      return c.json({
+        subject: mapSubject(
+          await setAcademicStatus(client, {
+            table: "subjects",
+            id: routeParam(c, "id"),
+            orgId,
+            userId,
+            status: "active",
+            entityType: "subject",
+            action: "academic.subject.restored",
+            mapRow: mapSubject,
+          }),
+        ),
+      });
+    }),
+  );
+
+  app.delete("/subjects/:id", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
+      const existing = await client.query(
+        `select id, key, name, status from subjects where id = $1 and organisation_id = $2`,
+        [routeParam(c, "id"), orgId],
+      );
+      if (!existing.rows[0]) throw new AppError(404, "not_found", "Not found");
+      const status = isAcademicRecordStatus(existing.rows[0].status) ? existing.rows[0].status : "active";
+      const lifecycle = await loadAcademicLifecycle(client, "subject", routeParam(c, "id"), orgId, status, {
+        entityLabel: "This subject",
+      });
+      if (!lifecycle.canDelete) {
+        const blocked = deletionBlockedError("This subject", lifecycle);
+        throw new AppError(409, blocked.code, blocked.message, blocked.details);
+      }
+      await client.query(`delete from subjects where id = $1 and organisation_id = $2`, [
+        routeParam(c, "id"),
+        orgId,
+      ]);
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "academic.subject.deleted",
+        entityType: "subject",
+        entityId: routeParam(c, "id"),
+        before: mapSubject(existing.rows[0]),
+      });
+      return c.json({ ok: true });
     }),
   );
 
@@ -420,15 +772,16 @@ export function registerAcademicRoutes(app: SchoolappApi) {
       assertAnyPermission(actor, academicReadPermissions);
       const academicYearId = c.req.query("academicYearId");
       const rows = await client.query(
-        `select c.id, c.name, c.class_type, c.academic_year_id, c.year_group_id,
+        `select c.id, c.name, c.class_type, c.academic_year_id, c.year_group_id, c.status,
                 yg.name as year_group_name, ay.name as academic_year_name
          from classes c
          join academic_years ay on ay.id = c.academic_year_id
          left join year_groups yg on yg.id = c.year_group_id
          where c.organisation_id = $1
            and ($2::uuid is null or c.academic_year_id = $2)
+           and ($3::boolean or c.status = 'active')
          order by ay.starts_on desc, yg.sort_order nulls last, c.name`,
-        [orgId, academicYearId || null],
+        [orgId, academicYearId || null, includeArchivedRequested(c.req.query("includeArchived"))],
       );
       return c.json({ classes: rows.rows.map(mapClass) });
     }),
@@ -442,7 +795,7 @@ export function registerAcademicRoutes(app: SchoolappApi) {
       const inserted = await client.query(
         `insert into classes (organisation_id, academic_year_id, year_group_id, name, class_type)
          values ($1, $2, $3, $4, $5)
-         returning id, name, class_type, academic_year_id, year_group_id`,
+         returning id, name, class_type, academic_year_id, year_group_id, status`,
         [
           orgId,
           parsed.data.academicYearId,
@@ -463,12 +816,136 @@ export function registerAcademicRoutes(app: SchoolappApi) {
     }),
   );
 
+  app.patch("/classes/:id", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
+      const parsed = z
+        .object({
+          name: z.string().min(1).max(80).optional(),
+          yearGroupId: z.string().uuid().nullable().optional(),
+          classType: z.enum(["form", "teaching"]).optional(),
+        })
+        .safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid class payload");
+      const classId = routeParam(c, "id");
+      const existing = await loadClassRow(client, orgId, classId);
+      if (!existing) throw new AppError(404, "not_found", "Not found");
+      if (parsed.data.yearGroupId) {
+        const group = await client.query(
+          `select id from year_groups where id = $1 and organisation_id = $2`,
+          [parsed.data.yearGroupId, orgId],
+        );
+        if (!group.rows[0]) throw new AppError(400, "validation_failed", "Year group was not found in this school.");
+      }
+      const yearGroupId =
+        parsed.data.yearGroupId === undefined ? existing.year_group_id : parsed.data.yearGroupId;
+      const updated = await client.query(
+        `update classes
+         set name = coalesce($3, name),
+             year_group_id = $4,
+             class_type = coalesce($5, class_type)
+         where id = $1 and organisation_id = $2
+         returning id`,
+        [classId, orgId, parsed.data.name ?? null, yearGroupId, parsed.data.classType ?? null],
+      );
+      if (!updated.rows[0]) throw new AppError(404, "not_found", "Not found");
+      const row = await loadClassRow(client, orgId, classId);
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "academic.class.updated",
+        entityType: "class",
+        entityId: classId,
+        before: mapClass(existing),
+        after: mapClass(row!),
+      });
+      return c.json({ class: mapClass(row!) });
+    }),
+  );
+
+  app.get("/classes/:id/lifecycle", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertAnyPermission(actor, academicReadPermissions);
+      const classId = routeParam(c, "id");
+      const existing = await loadClassRow(client, orgId, classId);
+      if (!existing) throw new AppError(404, "not_found", "Not found");
+      const status = isAcademicRecordStatus(existing.status) ? existing.status : "active";
+      const lifecycle = await loadAcademicLifecycle(client, "class", classId, orgId, status, {
+        entityLabel: "This class",
+      });
+      return c.json({ class: mapClass(existing), lifecycle });
+    }),
+  );
+
+  app.post("/classes/:id/archive", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
+      const classId = routeParam(c, "id");
+      await setAcademicStatus(client, {
+        table: "classes",
+        id: classId,
+        orgId,
+        userId,
+        status: "archived",
+        entityType: "class",
+        action: "academic.class.archived",
+        mapRow: (row) => row,
+      });
+      return c.json({ class: mapClass((await loadClassRow(client, orgId, classId))!) });
+    }),
+  );
+
+  app.post("/classes/:id/restore", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
+      const classId = routeParam(c, "id");
+      await setAcademicStatus(client, {
+        table: "classes",
+        id: classId,
+        orgId,
+        userId,
+        status: "active",
+        entityType: "class",
+        action: "academic.class.restored",
+        mapRow: (row) => row,
+      });
+      return c.json({ class: mapClass((await loadClassRow(client, orgId, classId))!) });
+    }),
+  );
+
+  app.delete("/classes/:id", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
+      const classId = routeParam(c, "id");
+      const existing = await loadClassRow(client, orgId, classId);
+      if (!existing) throw new AppError(404, "not_found", "Not found");
+      const status = isAcademicRecordStatus(existing.status) ? existing.status : "active";
+      const lifecycle = await loadAcademicLifecycle(client, "class", classId, orgId, status, {
+        entityLabel: "This class",
+      });
+      if (!lifecycle.canDelete) {
+        const blocked = deletionBlockedError("This class", lifecycle);
+        throw new AppError(409, blocked.code, blocked.message, blocked.details);
+      }
+      await client.query(`delete from classes where id = $1 and organisation_id = $2`, [classId, orgId]);
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "academic.class.deleted",
+        entityType: "class",
+        entityId: classId,
+        before: mapClass(existing),
+      });
+      return c.json({ ok: true });
+    }),
+  );
+
   app.get("/classes/:id", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       assertAnyPermission(actor, academicReadPermissions);
       const classId = routeParam(c, "id");
       const cls = await client.query(
-        `select c.id, c.name, c.class_type, c.academic_year_id, c.year_group_id,
+        `select c.id, c.name, c.class_type, c.academic_year_id, c.year_group_id, c.status,
                 yg.name as year_group_name, ay.name as academic_year_name
          from classes c
          join academic_years ay on ay.id = c.academic_year_id
@@ -478,7 +955,7 @@ export function registerAcademicRoutes(app: SchoolappApi) {
       );
       if (!cls.rows[0]) throw new AppError(404, "not_found", "Not found");
       const subjects = await client.query(
-        `select s.id, s.key, s.name
+        `select s.id, s.key, s.name, s.status
          from class_subjects cs
          join subjects s on s.id = cs.subject_id
          where cs.class_id = $1 and cs.organisation_id = $2
@@ -542,7 +1019,7 @@ export function registerAcademicRoutes(app: SchoolappApi) {
         `insert into class_subjects (organisation_id, class_id, subject_id)
          values ($1, $2, $3)
          returning id, class_id, subject_id`,
-        [orgId, c.req.param("id"), parsed.data.subjectId],
+        [orgId, routeParam(c, "id"), parsed.data.subjectId],
       );
       return c.json({ classSubject: inserted.rows[0] }, 201);
     }),
@@ -555,7 +1032,7 @@ export function registerAcademicRoutes(app: SchoolappApi) {
         `delete from class_subjects
          where organisation_id = $1 and class_id = $2 and subject_id = $3
          returning id`,
-        [orgId, c.req.param("id"), c.req.param("subjectId")],
+        [orgId, routeParam(c, "id"), c.req.param("subjectId")],
       );
       if (!deleted.rows[0]) throw new AppError(404, "not_found", "Not found");
       return c.json({ ok: true });
@@ -585,7 +1062,7 @@ export function registerAcademicRoutes(app: SchoolappApi) {
          returning id, class_id, staff_profile_id, assignment_role, started_on::text, ended_on::text`,
         [
           orgId,
-          c.req.param("id"),
+          routeParam(c, "id"),
           parsed.data.staffProfileId,
           parsed.data.assignmentRole,
           startedOn,
@@ -613,7 +1090,7 @@ export function registerAcademicRoutes(app: SchoolappApi) {
          set ended_on = $3::date
          where id = $1 and organisation_id = $2 and ended_on is null
          returning id, class_id, staff_profile_id, assignment_role, started_on::text, ended_on::text`,
-        [c.req.param("id"), orgId, parsed.data.endedOn],
+        [routeParam(c, "id"), orgId, parsed.data.endedOn],
       );
       if (!updated.rows[0]) throw new AppError(404, "not_found", "Not found");
       await writeAudit(client, {
@@ -621,12 +1098,77 @@ export function registerAcademicRoutes(app: SchoolappApi) {
         actorUserId: userId,
         action: "academic.class_staff.ended",
         entityType: "class_staff_assignment",
-        entityId: c.req.param("id"),
+        entityId: routeParam(c, "id"),
         after: updated.rows[0],
       });
       return c.json({ assignment: updated.rows[0] });
     }),
   );
+}
+
+async function loadAcademicYearRow(
+  client: import("pg").PoolClient,
+  orgId: string,
+  yearId: string,
+): Promise<Record<string, unknown> | null> {
+  const result = await client.query(
+    `select id, name, starts_on::text, ends_on::text, is_current, status, created_at
+     from academic_years where id = $1 and organisation_id = $2`,
+    [yearId, orgId],
+  );
+  return result.rows[0] ?? null;
+}
+
+async function loadClassRow(
+  client: import("pg").PoolClient,
+  orgId: string,
+  classId: string,
+): Promise<Record<string, unknown> | null> {
+  const result = await client.query(
+    `select c.id, c.name, c.class_type, c.academic_year_id, c.year_group_id, c.status,
+            yg.name as year_group_name, ay.name as academic_year_name
+     from classes c
+     join academic_years ay on ay.id = c.academic_year_id
+     left join year_groups yg on yg.id = c.year_group_id
+     where c.id = $1 and c.organisation_id = $2`,
+    [classId, orgId],
+  );
+  return result.rows[0] ?? null;
+}
+
+async function setAcademicStatus(
+  client: import("pg").PoolClient,
+  input: {
+    table: "subjects" | "classes" | "year_groups" | "academic_years";
+    id: string;
+    orgId: string;
+    userId: string;
+    status: "active" | "archived";
+    entityType: string;
+    action: string;
+    mapRow: (row: Record<string, unknown>) => unknown;
+  },
+): Promise<Record<string, unknown>> {
+  const existing = await client.query(`select * from ${input.table} where id = $1 and organisation_id = $2`, [
+    input.id,
+    input.orgId,
+  ]);
+  if (!existing.rows[0]) throw new AppError(404, "not_found", "Not found");
+  const updated = await client.query(
+    `update ${input.table} set status = $3 where id = $1 and organisation_id = $2 returning *`,
+    [input.id, input.orgId, input.status],
+  );
+  const row = updated.rows[0]!;
+  await writeAudit(client, {
+    organisationId: input.orgId,
+    actorUserId: input.userId,
+    action: input.action,
+    entityType: input.entityType,
+    entityId: input.id,
+    before: input.mapRow(existing.rows[0]),
+    after: input.mapRow(row),
+  });
+  return row;
 }
 
 function defaultYearName(code: string): string {

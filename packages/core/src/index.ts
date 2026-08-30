@@ -71,6 +71,15 @@ export {
 } from "./academic.js";
 
 export {
+  countForeignKeyUsage,
+  deleteConfigOnlyYearGroupLinks,
+  deletionBlockedError,
+  includeArchivedRequested,
+  loadAcademicLifecycle,
+  type AcademicEntityKind,
+} from "./academic-lifecycle.js";
+
+export {
   comingLater,
   PORTAL_STUDENT_SQL,
   mapPortalStudent,

@@ -67,7 +67,7 @@ export async function countForeignKeyUsage(
        on a.attrelid = c.conrelid
       and a.attnum = any (c.conkey)
      where c.contype = 'f'
-       and c.confrelid = $1::regclass`
+       and c.confrelid = $1::regclass`,
     [target],
   );
   const counts = new Map<string, AcademicUsageCount>();

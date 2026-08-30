@@ -223,7 +223,7 @@ function SubjectsAdmin() {
                             Edit
                           </Button>
                           <Button type="button" variant="ghost" onClick={() => openLifecycle(row, "delete")}>
-                            {row.status === "archived" ? "Restore" : "Archive/Delete"}
+                            Archive/Delete
                           </Button>
                         </>
                       ) : (

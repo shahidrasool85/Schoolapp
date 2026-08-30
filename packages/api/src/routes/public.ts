@@ -48,33 +48,14 @@ export function registerPublicRoutes(app: SchoolappApi) {
     requirePlatformHost(c);
     const parsed = parseSchoolSearchQuery(c.req.query("q"));
     if (!parsed.ok) return c.json({ schools: [] });
-    const escaped = parsed.query.replace(/[%_\\]/g, "\\$&");
     const config = c.get("config");
     const host = c.get("tenantHost");
-    const rows = await c.get("config").pools.app.query<{
+    const rows = await config.pools.app.query<{
       slug: string;
       name: string;
       has_logo: boolean;
       logo_version: string | null;
-    }>(
-      `select o.slug, o.name,
-              branding.has_logo,
-              branding.logo_version
-       from organisations o
-       join lateral get_public_school_branding(o.id) branding on true
-       where o.status = 'active'
-         and (o.name ilike $1 escape '\\' or o.slug ilike $2 escape '\\')
-       order by
-         case
-           when lower(o.name) = lower($3) then 0
-           when lower(o.slug) = lower($3) then 1
-           when o.name ilike $4 escape '\\' then 2
-           else 3
-         end,
-         o.name
-       limit $5`,
-      [`%${escaped}%`, `${escaped}%`, parsed.query, `${escaped}%`, SCHOOL_SEARCH_LIMIT],
-    );
+    }>("select * from search_public_active_schools($1, $2)", [parsed.query, SCHOOL_SEARCH_LIMIT]);
     return c.json({
       schools: rows.rows.map((row) => {
         const origin = schoolPublicOrigin(row.slug, config.platformDomain, { port: host.port });

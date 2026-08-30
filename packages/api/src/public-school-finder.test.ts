@@ -79,7 +79,7 @@ describe("public school finder", () => {
 
   it("rejects empty, one-character and wildcard-only searches and caps broad results", async () => {
     const id = suffix();
-    const created = [];
+    const created: Array<{ slug: string; name: string }> = [];
     for (let i = 0; i < 12; i += 1) {
       created.push(await seedSchool(pools.owner, `${id}${i}`, `Academy Campus ${id} ${i}`));
     }

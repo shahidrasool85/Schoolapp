@@ -1,5 +1,9 @@
 import type { NavIconName } from "../components/icons";
-import { hasAnyPermission, hasPermissionPrefix } from "@schoolapp/domain";
+import {
+  SCHOOL_SETTINGS_ADMIN_PERMISSIONS,
+  hasAnyPermission,
+  hasPermissionPrefix,
+} from "@schoolapp/domain";
 
 export type StaffNavLink = {
   href: string;
@@ -384,7 +388,7 @@ export const STAFF_NAV_SECTIONS: StaffNavSection[] = [
         href: "/school/settings",
         label: "School settings",
         icon: "layers",
-        permissions: ["org.settings.read", "org.settings.manage"],
+        permissions: [...SCHOOL_SETTINGS_ADMIN_PERMISSIONS],
       },
       {
         href: "/school/imports",

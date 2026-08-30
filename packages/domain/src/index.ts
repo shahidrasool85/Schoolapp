@@ -290,6 +290,25 @@ export {
 export { captureSubmitTarget, resetFormSafely } from "./forms.js";
 
 export {
+  SUBJECT_KEY_HINT,
+  SUBJECT_KEY_MAX_LENGTH,
+  SUBJECT_KEY_PATTERN,
+  SUBJECT_NAME_MAX_LENGTH,
+  normalizeSubjectKey,
+  parseSubjectCreateInput,
+  validateSubjectKey,
+  type SubjectCreateInput,
+  type SubjectField,
+} from "./subjects.js";
+
+export {
+  SCHOOL_SETTINGS_ADMIN_PERMISSIONS,
+  SCHOOL_SETTINGS_PROFILE_READ_PERMISSIONS,
+  canAccessSchoolSettingsAdmin,
+  canReadSchoolSettingsProfile,
+} from "./school-settings-access.js";
+
+export {
   PUPIL_RECORD_TABS,
   describeEnrolmentChange,
   enrolmentFormInitialState,

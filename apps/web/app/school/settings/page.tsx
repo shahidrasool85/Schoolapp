@@ -14,6 +14,8 @@ import {
   SectionCard,
   StatusBadge,
 } from "../../../components/ui";
+import { SCHOOL_SETTINGS_ADMIN_PERMISSIONS } from "@schoolapp/domain";
+import { RequirePermission } from "../../../components/require-permission";
 import { SchoolBrandingForm } from "../../../components/school-branding-form";
 import { api } from "../../../lib/api";
 import { userFacingError } from "../../../lib/errors";
@@ -53,6 +55,14 @@ type ReadinessItem = {
 };
 
 export default function SchoolSettingsPage() {
+  return (
+    <RequirePermission anyOf={[...SCHOOL_SETTINGS_ADMIN_PERMISSIONS]}>
+      <SchoolSettingsAdmin />
+    </RequirePermission>
+  );
+}
+
+function SchoolSettingsAdmin() {
   const permissions = usePermissions();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [items, setItems] = useState<ReadinessItem[]>([]);

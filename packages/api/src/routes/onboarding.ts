@@ -5,6 +5,7 @@ import {
   HEX_COLOR_PATTERN,
   ONBOARDING_STEPS,
   PERMISSIONS,
+  SCHOOL_SETTINGS_PROFILE_READ_PERMISSIONS,
   publicBrandingAssetUrl,
   isOnboardingStep,
 } from "@schoolapp/domain";
@@ -203,7 +204,7 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
 
   app.get("/onboarding/profile", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
-      assertAnyPermission(actor, [PERMISSIONS.ORG_SETTINGS_READ, PERMISSIONS.ONBOARDING_READ]);
+      assertAnyPermission(actor, SCHOOL_SETTINGS_PROFILE_READ_PERMISSIONS);
       const row = await client.query(
         `select o.id, o.slug, o.name, o.legal_name, o.school_code, o.timezone, o.country_code, o.status,
                 s.locale, s.default_currency, s.contact_telephone, s.contact_email, s.website,

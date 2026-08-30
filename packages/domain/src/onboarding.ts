@@ -123,6 +123,13 @@ export function setupStepHref(step: OnboardingStep): string {
   return `${SETUP_PATH}?step=${step}`;
 }
 
+export function setupWelcomePrimaryHref(input: {
+  status: SetupStatus;
+  resumeStep: OnboardingStep;
+}): string {
+  return input.status === "completed" ? SETUP_PATH : setupStepHref(input.resumeStep);
+}
+
 export function mergeCompletedSteps(
   existing: readonly string[],
   add: OnboardingStep | readonly OnboardingStep[],
@@ -310,12 +317,16 @@ export function evaluateSetupProgress(input: SetupProgressInput): SetupProgressV
   };
 }
 
+/**
+ * School setup completion and intro presentation are separate.
+ * A completed school with no per-admin dismissal still receives the welcome once.
+ */
 export function shouldAutoLaunchOnboarding(input: {
   canManageSetup: boolean;
   setupStatus: SetupStatus;
   automaticOnboardingDismissed: boolean;
 }): boolean {
-  return input.canManageSetup && input.setupStatus !== "completed" && !input.automaticOnboardingDismissed;
+  return input.canManageSetup && !input.automaticOnboardingDismissed;
 }
 
 export function shouldShowDashboardOnboardingCard(input: {
@@ -323,7 +334,11 @@ export function shouldShowDashboardOnboardingCard(input: {
   setupStatus: SetupStatus;
   automaticOnboardingDismissed: boolean;
 }): boolean {
-  return shouldAutoLaunchOnboarding(input);
+  return (
+    input.canManageSetup &&
+    input.setupStatus !== "completed" &&
+    !input.automaticOnboardingDismissed
+  );
 }
 
 export function buildOnboardingPresentation(input: {
@@ -331,13 +346,15 @@ export function buildOnboardingPresentation(input: {
   setupStatus: SetupStatus;
   automaticOnboardingDismissed: boolean;
 }): OnboardingPresentation {
-  const shouldAutoLaunch = shouldAutoLaunchOnboarding(input);
   return {
     automaticOnboardingDismissed: input.automaticOnboardingDismissed,
-    shouldAutoLaunch,
-    showDashboardCard: shouldAutoLaunch,
+    shouldAutoLaunch: shouldAutoLaunchOnboarding(input),
+    showDashboardCard: shouldShowDashboardOnboardingCard(input),
   };
 }
+
+export const ONBOARDING_DISMISS_LABEL = "Don't show this again";
+export const SETUP_COMPLETE_BADGE = "School setup complete ✓";
 
 export function onboardingWelcomeCopy(input: {
   schoolName: string;
@@ -351,8 +368,22 @@ export function onboardingWelcomeCopy(input: {
   title: string;
   lede: string;
   primaryLabel: string;
+  showProgress: boolean;
+  completeBadge: string | null;
+  dismissLabel: string;
 } {
   const name = input.schoolName.trim() || "your school";
+  if (input.status === "completed") {
+    return {
+      heading: "Welcome to LuvLearn",
+      title: `${name} is already set up.`,
+      lede: "You can review your school setup at any time or continue to your dashboard.",
+      primaryLabel: "Review School Setup",
+      showProgress: false,
+      completeBadge: SETUP_COMPLETE_BADGE,
+      dismissLabel: ONBOARDING_DISMISS_LABEL,
+    };
+  }
   const unusedWizard =
     (input.completedSteps ?? []).length === 0 &&
     (!input.currentStep || input.currentStep === "school_details");
@@ -366,13 +397,19 @@ export function onboardingWelcomeCopy(input: {
       title: `Let's set up ${name}`,
       lede: "We'll guide you through the essentials so your staff, parents and pupils can start using the system.",
       primaryLabel: "Start school setup",
+      showProgress: input.status !== "not_started" || input.completedCount > 0,
+      completeBadge: null,
+      dismissLabel: ONBOARDING_DISMISS_LABEL,
     };
   }
   return {
     heading: "Welcome back",
     title: `Continue setting up ${name}`,
     lede: `Your school setup is ${Math.round((input.completedCount / input.totalSteps) * 100)}% complete.`,
-    primaryLabel: "Continue setup",
+    primaryLabel: "Continue School Setup",
+    showProgress: true,
+    completeBadge: null,
+    dismissLabel: ONBOARDING_DISMISS_LABEL,
   };
 }
 

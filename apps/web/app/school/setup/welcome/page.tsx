@@ -62,6 +62,7 @@ function WelcomeExperience() {
     completedSteps: data.progress.completedSteps,
   });
   const continueHref = setupContinueHref(data.setup);
+  const showProgress = copy.showProgress;
 
   return (
     <div className="setup-welcome">
@@ -71,7 +72,12 @@ function WelcomeExperience() {
         <h1 id="setup-welcome-heading">{copy.heading}</h1>
         <p className="setup-welcome-title">{copy.title}</p>
         <p className="muted">{copy.lede}</p>
-        {data.setup.status !== "not_started" || data.setup.completedCount > 0 ? (
+        {copy.completeBadge ? (
+          <p className="setup-welcome-complete" role="status">
+            {copy.completeBadge}
+          </p>
+        ) : null}
+        {showProgress ? (
           <p className="setup-welcome-progress" aria-label={setupProgressLabel(data.setup)}>
             {setupProgressLabel(data.setup)}
             <span className="setup-welcome-percent">{data.setup.percent}%</span>
@@ -88,7 +94,7 @@ function WelcomeExperience() {
         {error ? <Alert tone="danger">{error}</Alert> : null}
         <div className="setup-welcome-dismiss">
           <Button type="button" variant="ghost" onClick={() => void dismissAutomatic()} disabled={busy}>
-            {busy ? "Saving…" : "Don't show setup automatically again"}
+            {busy ? "Saving…" : copy.dismissLabel}
           </Button>
           <p className="muted">You can always reopen School Setup from the menu.</p>
         </div>

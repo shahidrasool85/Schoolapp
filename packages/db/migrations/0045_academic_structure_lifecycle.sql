@@ -37,14 +37,66 @@ create index if not exists academic_years_org_status_idx
 grant delete on subjects, classes, year_groups, academic_years to schoolapp_app;
 
 -- Explicit origin so seeded UK year groups are never identified by display name.
--- Existing rows (including live Kingswood seed data) are backfilled once while
--- origin is still null. Later custom inserts keep the default 'custom'.
+-- Historical rows become system ONLY when they match the exact identity
+-- seed_standard_year_groups() writes: code + canonical name + sort_order
+-- (+ key_stage when present). Unknown or custom rows fail toward custom.
 
 alter table year_groups add column if not exists origin text;
 
+create or replace function is_standard_seeded_year_group(
+  p_code text,
+  p_name text,
+  p_key_stage smallint,
+  p_sort_order integer
+) returns boolean
+language sql
+immutable
+as $$
+  select exists (
+    select 1
+    from (
+      values
+        ('N', 'Nursery', 0::smallint, -1),
+        ('R', 'Reception', 0::smallint, 0),
+        ('1', 'Year 1', 1::smallint, 1),
+        ('2', 'Year 2', 1::smallint, 2),
+        ('3', 'Year 3', 2::smallint, 3),
+        ('4', 'Year 4', 2::smallint, 4),
+        ('5', 'Year 5', 2::smallint, 5),
+        ('6', 'Year 6', 2::smallint, 6),
+        ('7', 'Year 7', 3::smallint, 7),
+        ('8', 'Year 8', 3::smallint, 8),
+        ('9', 'Year 9', 3::smallint, 9),
+        ('10', 'Year 10', 4::smallint, 10),
+        ('11', 'Year 11', 4::smallint, 11),
+        ('12', 'Year 12', 5::smallint, 12),
+        ('13', 'Year 13', 5::smallint, 13)
+    ) as seed(code, name, key_stage, sort_order)
+    where seed.code = p_code
+      and seed.name = p_name
+      and seed.sort_order = p_sort_order
+      and (p_key_stage is null or p_key_stage = seed.key_stage)
+  );
+$$;
+
+revoke all on function is_standard_seeded_year_group(text, text, smallint, integer) from public;
+grant execute on function is_standard_seeded_year_group(text, text, smallint, integer) to schoolapp_app;
+
+-- Classify remaining nulls. Also repair the unreleased all-null→system backfill
+-- so non-canonical rows are not left permanently protected.
+
 update year_groups
 set origin = 'system'
-where origin is null;
+where (origin is null or origin = 'system')
+  and is_standard_seeded_year_group(code, name, key_stage, sort_order);
+
+update year_groups
+set origin = 'custom'
+where origin is null
+   or (
+     origin = 'system'
+     and not is_standard_seeded_year_group(code, name, key_stage, sort_order)
+   );
 
 alter table year_groups
   alter column origin set default 'custom';

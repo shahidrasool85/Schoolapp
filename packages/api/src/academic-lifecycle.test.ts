@@ -405,6 +405,28 @@ describe("academic structure edit, archive and delete", () => {
     expect((await app.request(`/api/v1/year-groups/${customBody.yearGroup.id}`, { method: "DELETE", headers: hdrs })).status).toBe(
       200,
     );
+
+    const forged = await app.request("/api/v1/year-groups", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ code: "12", name: "Lower Prep", origin: "system" }),
+    });
+    expect(forged.status).toBe(201);
+    const forgedBody = (await forged.json()) as { yearGroup: { id: string; origin: string } };
+    expect(forgedBody.yearGroup.origin).toBe("custom");
+    const patched = await app.request(`/api/v1/year-groups/${forgedBody.yearGroup.id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ name: "Form X", origin: "system" }),
+    });
+    expect(patched.status).toBe(200);
+    expect(((await patched.json()) as { yearGroup: { origin: string; name: string } }).yearGroup).toMatchObject({
+      origin: "custom",
+      name: "Form X",
+    });
+    expect((await app.request(`/api/v1/year-groups/${forgedBody.yearGroup.id}`, { method: "DELETE", headers: hdrs })).status).toBe(
+      200,
+    );
   });
 
   it("switches the current academic year atomically so only one year is current", async () => {

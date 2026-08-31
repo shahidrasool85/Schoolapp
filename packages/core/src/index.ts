@@ -203,6 +203,7 @@ export {
   assertClassInTeacherScope,
   assertYearGroupInTeacherScope,
   assertSubjectInTeacherScope,
+  allowedSubjectIdsForClasses,
   type TeacherAcademicScope,
 } from "./teacher-scope.js";
 

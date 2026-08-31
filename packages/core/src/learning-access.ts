@@ -162,8 +162,9 @@ export async function assertCanAssignSubject(
   client: pg.PoolClient,
   actor: Actor,
   subjectId: string,
+  options?: { academicYearId?: string | null; classIds?: string[] },
 ): Promise<void> {
-  await assertSubjectInTeacherScope(client, actor, subjectId);
+  await assertSubjectInTeacherScope(client, actor, subjectId, options);
 }
 
 export async function loadAuthorisedLearningClassIds(
@@ -190,7 +191,7 @@ export async function loadAuthorisedLearningSubjectIds(
 ): Promise<Set<string> | null> {
   if (canReadSchoolLearning(actor) || canManageSchoolLearning(actor)) return null;
   const scope = await loadTeacherAcademicScope(client, actor.userId, actor.organisationId!);
-  return scope.subjectIds.size > 0 ? scope.subjectIds : null;
+  return scope.subjectIds;
 }
 
 export async function loadAuthorisedLearningStudentIds(

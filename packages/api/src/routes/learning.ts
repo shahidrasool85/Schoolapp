@@ -422,12 +422,18 @@ export function registerLearningRoutes(app: SchoolappApi) {
         academicYearId = current.rows[0]?.id ?? null;
       }
       if (!academicYearId) throw new AppError(400, "validation_failed", "An academic year is required");
-      if (parsed.data.subjectId) {
-        await assertCanAssignSubject(client, actor, parsed.data.subjectId);
-      }
       const targetClassIds =
         parsed.data.targets?.filter((target) => target.targetType === "class" && target.classId).map((target) => target.classId!) ??
         [];
+      for (const classId of targetClassIds) {
+        await assertCanTargetClass(client, actor, classId);
+      }
+      if (parsed.data.subjectId) {
+        await assertCanAssignSubject(client, actor, parsed.data.subjectId, {
+          academicYearId,
+          classIds: targetClassIds,
+        });
+      }
       if (parsed.data.intendedYearGroupId) {
         await assertCanSetIntendedYearGroup(client, actor, parsed.data.intendedYearGroupId, targetClassIds);
       }
@@ -528,12 +534,24 @@ export function registerLearningRoutes(app: SchoolappApi) {
       if (existing.status !== "draft" && workTypeId !== String(existing.work_type_id)) {
         throw new AppError(409, "conflict", "Work type can only be changed while the assignment is a draft");
       }
-      if (parsed.data.subjectId) {
-        await assertCanAssignSubject(client, actor, parsed.data.subjectId);
-      }
       const patchTargetClassIds =
         parsed.data.targets?.filter((target) => target.targetType === "class" && target.classId).map((target) => target.classId!) ??
         [];
+      for (const classId of patchTargetClassIds) {
+        await assertCanTargetClass(client, actor, classId);
+      }
+      const subjectClassIds =
+        parsed.data.targets !== undefined
+          ? patchTargetClassIds
+          : (await loadTargets(client, orgId, id))
+              .map((target) => target.classId)
+              .filter((classId): classId is string => Boolean(classId));
+      if (parsed.data.subjectId) {
+        await assertCanAssignSubject(client, actor, parsed.data.subjectId, {
+          academicYearId: String(existing.academic_year_id),
+          classIds: subjectClassIds,
+        });
+      }
       if (parsed.data.intendedYearGroupId) {
         await assertCanSetIntendedYearGroup(client, actor, parsed.data.intendedYearGroupId, patchTargetClassIds);
       }

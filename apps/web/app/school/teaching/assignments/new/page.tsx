@@ -95,8 +95,9 @@ export default function NewAssignmentPage() {
           </select>
         </label>
         <p className="muted span-2">
-          Classes and year groups listed here are limited to those you are assigned to teach.
-          School administrators can assign work school-wide.
+          Classes, year groups and subjects listed here are limited to classes you are assigned
+          to teach and the subjects attached to those classes. Work can still be created without
+          a subject. School administrators can assign work school-wide.
         </p>
         <label>Due date/time<input name="dueAt" type="datetime-local" /></label>
         <label>Available from<input name="availableFrom" type="datetime-local" /></label>

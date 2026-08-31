@@ -287,6 +287,25 @@ describe("teacher scope, timetable and learning hotfix", () => {
       body: JSON.stringify({ name: "Hall", shortCode: "HALL" }),
     });
     expect(createdRoom.status).toBe(201);
+    const hall = (await createdRoom.json()) as { room: { id: string } };
+    expect(
+      (
+        await app.request(`/api/v1/timetable/rooms/${hall.room.id}`, {
+          method: "PATCH",
+          headers: teacherHdrs,
+          body: JSON.stringify({ name: "Hijacked Hall" }),
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await app.request(`/api/v1/timetable/rooms/${hall.room.id}`, {
+          method: "PATCH",
+          headers: teacherHdrs,
+          body: JSON.stringify({ isActive: false }),
+        })
+      ).status,
+    ).toBe(403);
 
     const parentId = await insertUser(pools.owner, {
       email: `parent-${id}@example.com`,
@@ -373,11 +392,97 @@ describe("teacher scope, timetable and learning hotfix", () => {
     const contextBody = (await context.json()) as {
       classes: Array<{ id: string; name: string }>;
       yearGroups: Array<{ id: string }>;
+      subjects: Array<{ id: string; name: string }>;
       canTargetYearGroups: boolean;
     };
     expect(contextBody.classes.map((row) => row.id)).toEqual([seeded.classAId]);
     expect(contextBody.yearGroups.map((row) => row.id)).toEqual([seeded.year3Id]);
+    expect(contextBody.subjects.map((row) => row.id)).toEqual([]);
     expect(contextBody.canTargetYearGroups).toBe(false);
+
+    expect(
+      (
+        await app.request("/api/v1/learning/assignments", {
+          method: "POST",
+          headers: teacherHdrs,
+          body: JSON.stringify({
+            title: "Forged subject",
+            workTypeKey: "homework",
+            subjectId: seeded.subjectId,
+            targets: [{ targetType: "class", classId: seeded.classAId }],
+          }),
+        })
+      ).status,
+    ).toBe(403);
+
+    const french = (await (
+      await app.request("/api/v1/subjects", {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({ key: "french", name: "French" }),
+      })
+    ).json()) as { subject: { id: string } };
+    expect(french.subject?.id).toBeTruthy();
+    expect(
+      (
+        await app.request(`/api/v1/classes/${seeded.classAId}/subjects`, {
+          method: "POST",
+          headers: hdrs,
+          body: JSON.stringify({ subjectId: seeded.subjectId }),
+        })
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await app.request(`/api/v1/classes/${seeded.class7Id}/subjects`, {
+          method: "POST",
+          headers: hdrs,
+          body: JSON.stringify({ subjectId: french.subject.id }),
+        })
+      ).status,
+    ).toBe(201);
+
+    const scopedContext = (await (
+      await app.request("/api/v1/learning/context", { headers: teacherHdrs })
+    ).json()) as { subjects: Array<{ id: string }> };
+    expect(scopedContext.subjects.map((row) => row.id)).toEqual([seeded.subjectId]);
+
+    const mathsOk = await app.request("/api/v1/learning/assignments", {
+      method: "POST",
+      headers: teacherHdrs,
+      body: JSON.stringify({
+        title: "Maths for 3A",
+        workTypeKey: "homework",
+        subjectId: seeded.subjectId,
+        targets: [{ targetType: "class", classId: seeded.classAId }],
+      }),
+    });
+    expect(mathsOk.status).toBe(201);
+    expect(
+      (
+        await app.request("/api/v1/learning/assignments", {
+          method: "POST",
+          headers: teacherHdrs,
+          body: JSON.stringify({
+            title: "French forge",
+            workTypeKey: "homework",
+            subjectId: french.subject.id,
+            targets: [{ targetType: "class", classId: seeded.classAId }],
+          }),
+        })
+      ).status,
+    ).toBe(403);
+    const adminFrench = await app.request("/api/v1/learning/assignments", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        title: "Admin French",
+        workTypeKey: "homework",
+        subjectId: french.subject.id,
+        targets: [{ targetType: "class", classId: seeded.class7Id }],
+      }),
+    });
+    expect(adminFrench.status).toBe(201);
 
     const ok = await app.request("/api/v1/learning/assignments", {
       method: "POST",
@@ -467,6 +572,12 @@ describe("teacher scope, timetable and learning hotfix", () => {
       headers: studentHdrs,
     });
     expect(detail.status).toBe(200);
+    const tooEarly = await app.request(`/api/v1/student/assignments/${assignment.assignment.id}/submissions`, {
+      method: "POST",
+      headers: studentHdrs,
+      body: JSON.stringify({ textResponse: "too early", submit: true }),
+    });
+    expect(tooEarly.status).toBe(409);
 
     const inbox = await app.request("/api/v1/notifications", { headers: studentHdrs });
     const inboxBody = (await inbox.json()) as { notifications: Array<{ body: string; type: string }> };

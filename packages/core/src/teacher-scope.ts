@@ -15,9 +15,43 @@ import { notFound } from "./permissions.js";
 export type TeacherAcademicScope = {
   classIds: Set<string>;
   yearGroupIds: Set<string>;
+  /** Union of class_subjects on assigned classes. Empty means no subjects, not all subjects. */
   subjectIds: Set<string>;
   classYearGroup: Map<string, string | null>;
+  classSubjectIds: Map<string, Set<string>>;
 };
+
+/**
+ * Subjects a teacher may attach to learning work.
+ * There is no teacher+class+subject assignment table; class_subjects is the
+ * curriculum attached to a class. Never fall back to every organisation subject.
+ */
+export function allowedSubjectIdsForClasses(
+  classSubjectIds: Map<string, Set<string>>,
+  classIds?: string[] | null,
+): Set<string> {
+  if (!classIds?.length) {
+    const all = new Set<string>();
+    for (const subjects of classSubjectIds.values()) {
+      for (const id of subjects) all.add(id);
+    }
+    return all;
+  }
+  let intersection: Set<string> | null = null;
+  for (const classId of classIds) {
+    const subjects = classSubjectIds.get(classId) ?? new Set<string>();
+    if (intersection === null) {
+      intersection = new Set(subjects);
+      continue;
+    }
+    const next = new Set<string>();
+    for (const id of intersection) {
+      if (subjects.has(id)) next.add(id);
+    }
+    intersection = next;
+  }
+  return intersection ?? new Set();
+}
 
 export async function loadTeacherAcademicScope(
   client: pg.PoolClient,
@@ -70,13 +104,18 @@ export async function loadTeacherAcademicScope(
   const yearGroupIds = new Set<string>();
   const subjectIds = new Set<string>();
   const classYearGroup = new Map<string, string | null>();
+  const classSubjectIds = new Map<string, Set<string>>();
   for (const row of result.rows) {
     classIds.add(row.class_id);
     classYearGroup.set(row.class_id, row.year_group_id);
+    if (!classSubjectIds.has(row.class_id)) classSubjectIds.set(row.class_id, new Set());
     if (row.year_group_id) yearGroupIds.add(row.year_group_id);
-    if (row.subject_id) subjectIds.add(row.subject_id);
+    if (row.subject_id) {
+      subjectIds.add(row.subject_id);
+      classSubjectIds.get(row.class_id)!.add(row.subject_id);
+    }
   }
-  return { classIds, yearGroupIds, subjectIds, classYearGroup };
+  return { classIds, yearGroupIds, subjectIds, classYearGroup, classSubjectIds };
 }
 
 export function actorHasSchoolWideTeachingScope(actor: Actor): boolean {
@@ -145,7 +184,7 @@ export async function assertSubjectInTeacherScope(
   client: pg.PoolClient,
   actor: Actor,
   subjectId: string,
-  options?: { academicYearId?: string | null },
+  options?: { academicYearId?: string | null; classIds?: string[] },
 ): Promise<void> {
   const row = await client.query(
     "select 1 from subjects where id = $1 and organisation_id = $2",
@@ -153,9 +192,15 @@ export async function assertSubjectInTeacherScope(
   );
   if (!row.rows[0]) notFound();
   if (actor.permissions.has(PERMISSIONS.LMS_ASSIGNMENTS_MANAGE)) return;
-  const scope = await loadTeacherAcademicScope(client, actor.userId, actor.organisationId!, options);
-  if (scope.subjectIds.size === 0) return;
-  if (!scope.subjectIds.has(subjectId)) {
-    throw new AppError(403, "forbidden", "You can only assign work for subjects you are authorised to teach");
+  const scope = await loadTeacherAcademicScope(client, actor.userId, actor.organisationId!, {
+    academicYearId: options?.academicYearId,
+  });
+  const allowed = allowedSubjectIdsForClasses(scope.classSubjectIds, options?.classIds);
+  if (!allowed.has(subjectId)) {
+    throw new AppError(
+      403,
+      "forbidden",
+      "You can only assign work for subjects attached to classes you are assigned to teach",
+    );
   }
 }

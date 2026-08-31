@@ -632,8 +632,12 @@ export default function TimetableSchedulePage() {
         <>
           <h2>Recurring definitions</h2>
           <p className="muted">
-            {entries.length} recurring definition{entries.length === 1 ? "" : "s"} match the current filters. Actions
-            apply to the recurrence, not a single generated lesson.
+            {entries.length} recurring definition{entries.length === 1 ? "" : "s"} match the current filters
+            {entries.filter((entry) => entry.lifecycleStatus === "ended").length > 0
+              ? `, including ${entries.filter((entry) => entry.lifecycleStatus === "ended").length} ended`
+              : ""}
+            . Status is taken from the effective dates, not a raw active flag. Actions apply to the recurrence, not a
+            single generated lesson.
           </p>
           <DataTable
             headers={

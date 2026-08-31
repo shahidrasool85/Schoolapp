@@ -68,6 +68,22 @@ describe("recurrence lifecycle", () => {
     expect(ended.canDelete).toBe(false);
     expect(ended.canEnd).toBe(false);
     expect(ended.message).toMatch(/Past timetable history remains readable/i);
+    expect(
+      computeRecurrenceStatus({
+        effectiveFrom: "2026-08-01",
+        effectiveUntil: "2026-09-10",
+        isActive: true,
+        today: "2026-08-31",
+      }),
+    ).toBe("active");
+    expect(
+      computeRecurrenceStatus({
+        effectiveFrom: "2026-08-01",
+        effectiveUntil: "2026-09-10",
+        isActive: true,
+        today: "2026-09-11",
+      }),
+    ).toBe("ended");
   });
 
   it("stops from a date without rewriting the past", () => {

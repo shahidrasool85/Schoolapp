@@ -35,6 +35,13 @@ export type RecurrenceLifecycle = {
   message: string;
 };
 
+/**
+ * timetable_entries.is_active means "not administratively withdrawn".
+ * Ending a recurrence keeps is_active=true and writes effective_until so
+ * historical lessons, covers and conflict windows stay attached.
+ * Lesson generation, clashes and "currently effective" status use
+ * effective_from / effective_until (and today), not is_active alone.
+ */
 export function computeRecurrenceStatus(input: {
   effectiveFrom: string;
   effectiveUntil: string | null;

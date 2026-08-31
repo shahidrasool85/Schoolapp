@@ -97,12 +97,37 @@ describe("term date validation", () => {
     expect(termKeyFromName("Autumn")).toBe("autumn");
     expect(uniqueTermKey("autumn", ["autumn"])).toBe("autumn-2");
   });
+
+  it("allows adjacent non-overlapping UK terms", () => {
+    const autumn = { startsOn: "2026-09-03", endsOn: "2026-12-18" };
+    expect(
+      validateTermDates({
+        startsOn: "2027-01-04",
+        endsOn: "2027-03-31",
+        yearStartsOn: "2026-09-03",
+        yearEndsOn: "2027-07-22",
+        otherTerms: [autumn],
+      }).ok,
+    ).toBe(true);
+    expect(
+      validateTermDates({
+        startsOn: "2026-12-18",
+        endsOn: "2027-03-31",
+        yearStartsOn: "2026-09-03",
+        yearEndsOn: "2027-07-22",
+        otherTerms: [autumn],
+      }).ok,
+    ).toBe(false);
+  });
 });
 
 describe("fee schedule amounts", () => {
   it("parses pounds and checks annual totals", () => {
     expect(parseGbpPoundsToMinor("600.00")).toEqual({ ok: true, amount: 60000 });
     expect(parseGbpPoundsToMinor("£1,200.50")).toEqual({ ok: true, amount: 120050 });
+    expect(parseGbpPoundsToMinor("£2,000")).toEqual({ ok: true, amount: 200000 });
+    expect(parseGbpPoundsToMinor("2000")).toEqual({ ok: true, amount: 200000 });
+    expect(parseGbpPoundsToMinor("2,000.00")).toEqual({ ok: true, amount: 200000 });
     expect(parseGbpPoundsToMinor("nope").ok).toBe(false);
     expect(
       feeScheduleAnnualMatchesInstalments({
@@ -118,6 +143,20 @@ describe("fee schedule amounts", () => {
         annualAmountMinor: 500000,
       }).ok,
     ).toBe(false);
+    expect(
+      feeScheduleAnnualMatchesInstalments({
+        amountMinor: 60000,
+        instalmentCount: 10,
+        annualAmountMinor: null,
+      }).ok,
+    ).toBe(true);
+    expect(
+      feeScheduleAnnualMatchesInstalments({
+        amountMinor: 60000,
+        instalmentCount: null,
+        annualAmountMinor: null,
+      }).ok,
+    ).toBe(true);
   });
 });
 

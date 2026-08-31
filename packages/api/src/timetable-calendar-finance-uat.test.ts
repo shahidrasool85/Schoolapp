@@ -11,6 +11,7 @@ import {
   ensureMigrated,
   insertUser,
   login,
+  loginAlias,
   testApp,
   testPools,
 } from "./test-helpers";
@@ -138,6 +139,27 @@ async function inviteTeacher(
     });
   }
   return { email: `teacher-${id}@example.com`, staffProfileId: staff.staffProfileId };
+}
+
+async function createStudent(
+  app: ReturnType<typeof testApp>,
+  hdrs: ReturnType<typeof headers>,
+  input: {
+    legalName: string;
+    academicYearId: string;
+    yearGroupId: string;
+    classId: string;
+    loginAlias: string;
+    password: string;
+  },
+) {
+  const created = await app.request("/api/v1/students", {
+    method: "POST",
+    headers: hdrs,
+    body: JSON.stringify(input),
+  });
+  expect(created.status).toBe(201);
+  return json<{ student: { id: string } }>(created);
 }
 
 describe("Timetable calendar finance UAT hotfix", () => {
@@ -346,6 +368,152 @@ describe("Timetable calendar finance UAT hotfix", () => {
     expect(afterEnd.entry.effectiveUntil).toBe("2026-08-30");
   });
 
+  it("lets a replacement recurrence start the day after an ended one without hiding history", async () => {
+    const school = await createSchool(pools.owner, suffix());
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(token, school.orgId);
+    const structure = await seedYear(app, hdrs, {
+      startsOn: "2026-08-01",
+      endsOn: "2027-07-22",
+    });
+    const teacher = await inviteTeacher(app, hdrs, suffix(), structure.classAId);
+    const replacementTeacher = await inviteTeacher(app, hdrs, suffix(), structure.classAId);
+    const created = await json<{ entry: { id: string } }>(
+      await app.request("/api/v1/timetable/entries", {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({
+          academicYearId: structure.yearId,
+          weekday: 1,
+          startsAt: "09:00",
+          endsAt: "10:00",
+          classId: structure.classAId,
+          subjectId: structure.subjectId,
+          effectiveFrom: "2026-08-01",
+          teachers: [{ staffProfileId: teacher.staffProfileId, isPrimary: true }],
+        }),
+      }),
+    );
+
+    const ended = await app.request(`/api/v1/timetable/entries/${created.entry.id}/end`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ stopFrom: "2026-09-11" }),
+    });
+    expect(ended.status).toBe(200);
+    const endedBody = await json<{ entry: { effectiveUntil: string; lifecycleStatus: string; isActive?: boolean } }>(
+      ended,
+    );
+    expect(endedBody.entry.effectiveUntil).toBe("2026-09-10");
+    expect(endedBody.entry.lifecycleStatus).toBe("active");
+
+    const overlap = await app.request("/api/v1/timetable/entries", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        academicYearId: structure.yearId,
+        weekday: 1,
+        startsAt: "09:00",
+        endsAt: "10:00",
+        classId: structure.classAId,
+        subjectId: structure.subjectId,
+        effectiveFrom: "2026-09-10",
+        teachers: [{ staffProfileId: replacementTeacher.staffProfileId, isPrimary: true }],
+      }),
+    });
+    expect(overlap.status).toBe(409);
+
+    const replacement = await app.request("/api/v1/timetable/entries", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        academicYearId: structure.yearId,
+        weekday: 1,
+        startsAt: "09:00",
+        endsAt: "10:00",
+        classId: structure.classAId,
+        subjectId: structure.subjectId,
+        effectiveFrom: "2026-09-11",
+        teachers: [{ staffProfileId: replacementTeacher.staffProfileId, isPrimary: true }],
+      }),
+    });
+    expect(replacement.status).toBe(201);
+    const replacementBody = await json<{ entry: { id: string } }>(replacement);
+
+    const history = await json<{ occurrences: Array<{ date: string; entryId: string }> }>(
+      await app.request(
+        `/api/v1/timetable/occurrences?from=2026-09-07&to=2026-09-07&classId=${structure.classAId}`,
+        { headers: hdrs },
+      ),
+    );
+    expect(history.occurrences).toEqual([
+      expect.objectContaining({ date: "2026-09-07", entryId: created.entry.id }),
+    ]);
+
+    const future = await json<{ occurrences: Array<{ date: string; entryId: string }> }>(
+      await app.request(
+        `/api/v1/timetable/occurrences?from=2026-09-14&to=2026-09-14&classId=${structure.classAId}`,
+        { headers: hdrs },
+      ),
+    );
+    expect(future.occurrences).toEqual([
+      expect.objectContaining({ date: "2026-09-14", entryId: replacementBody.entry.id }),
+    ]);
+
+    const teacherToken = await login(app, teacher.email, "teacher-pass-1");
+    const teacherH = headers(teacherToken, school.orgId);
+    const teacherPast = await json<{ occurrences: Array<{ entryId: string }> }>(
+      await app.request("/api/v1/timetable/occurrences?from=2026-09-07&to=2026-09-07&mine=true", {
+        headers: teacherH,
+      }),
+    );
+    expect(teacherPast.occurrences.some((item) => item.entryId === created.entry.id)).toBe(true);
+    const teacherFuture = await json<{ occurrences: Array<{ entryId: string }> }>(
+      await app.request("/api/v1/timetable/occurrences?from=2026-09-14&to=2026-09-14&mine=true", {
+        headers: teacherH,
+      }),
+    );
+    expect(teacherFuture.occurrences.some((item) => item.entryId === created.entry.id)).toBe(false);
+
+    await app.request(`/api/v1/year-groups/${structure.year3Id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ studentLoginEnabled: true }),
+    });
+    const alias = `pupil-${suffix()}`;
+    await createStudent(app, hdrs, {
+      legalName: "Pat Pupil",
+      academicYearId: structure.yearId,
+      yearGroupId: structure.year3Id,
+      classId: structure.classAId,
+      loginAlias: alias,
+      password: "student-pass-1",
+    });
+    const studentToken = await loginAlias(app, school.slug, alias, "student-pass-1");
+    const studentH = headers(studentToken, school.orgId);
+    const studentPast = await json<{ occurrences: Array<{ entryId: string; date: string }> }>(
+      await app.request("/api/v1/student/timetable?from=2026-09-07", { headers: studentH }),
+    );
+    expect(studentPast.occurrences.some((item) => item.entryId === created.entry.id && item.date === "2026-09-07")).toBe(
+      true,
+    );
+    const studentFuture = await json<{ occurrences: Array<{ entryId: string; date: string }> }>(
+      await app.request("/api/v1/student/timetable?from=2026-09-14", { headers: studentH }),
+    );
+    expect(studentFuture.occurrences.some((item) => item.entryId === created.entry.id)).toBe(false);
+    expect(
+      studentFuture.occurrences.some((item) => item.entryId === replacementBody.entry.id && item.date === "2026-09-14"),
+    ).toBe(true);
+
+    const listed = await json<{ entries: Array<{ id: string; lifecycleStatus: string }> }>(
+      await app.request("/api/v1/timetable/entries", { headers: hdrs }),
+    );
+    expect(listed.entries).toHaveLength(2);
+    expect(listed.entries.find((entry) => entry.id === created.entry.id)?.lifecycleStatus).toBe("active");
+    expect(listed.entries.find((entry) => entry.id === replacementBody.entry.id)?.lifecycleStatus).toBe("future");
+    expect(listed.entries.filter((entry) => entry.lifecycleStatus === "ended")).toHaveLength(0);
+  });
+
   it("forbids teachers from mutating recurrences, terms, and fee schedules", async () => {
     const school = await createSchool(pools.owner, suffix());
     const token = await login(app, school.adminEmail, "password-12x");
@@ -476,10 +644,27 @@ describe("Timetable calendar finance UAT hotfix", () => {
       }),
     });
     expect(created.status).toBe(201);
+
+    const withoutAnnual = await app.request("/api/v1/finance/fee-schedules", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        name: "Year 3 monthly no annual",
+        academicYearId: structure.yearId,
+        yearGroupId: structure.year3Id,
+        amountMinor: 200000,
+        billingFrequency: "monthly",
+        instalmentCount: 10,
+        effectiveFrom: "2026-09-03",
+      }),
+    });
+    expect(withoutAnnual.status).toBe(201);
+
     const listed = await json<{ schedules: Array<{ name: string }> }>(
       await app.request("/api/v1/finance/fee-schedules", { headers: hdrs }),
     );
     expect(listed.schedules.some((schedule) => schedule.name === "Year 3 monthly")).toBe(true);
+    expect(listed.schedules.some((schedule) => schedule.name === "Year 3 monthly no annual")).toBe(true);
   });
 
   it("does not recreate an existing academic year in setup, still creates the first year, and manages terms", async () => {
@@ -539,7 +724,7 @@ describe("Timetable calendar finance UAT hotfix", () => {
     const spring = await app.request(`/api/v1/academic-years/${year.academicYear.id}/terms`, {
       method: "POST",
       headers: hdrs,
-      body: JSON.stringify({ name: "Spring", startsOn: "2027-01-05", endsOn: "2027-03-26" }),
+      body: JSON.stringify({ name: "Spring", startsOn: "2027-01-04", endsOn: "2027-03-31" }),
     });
     expect(spring.status).toBe(201);
 

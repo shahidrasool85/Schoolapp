@@ -28,6 +28,7 @@ import {
   resolveAttendanceRegisterTarget,
   resolveTimetableOccurrences,
   startOfIsoWeek,
+  timetableConflictMessage,
   writeAudit,
 } from "@schoolapp/core";
 import type { SchoolappApi } from "../types";
@@ -1153,22 +1154,7 @@ async function friendlyTimetableConflict(
       if (row.rows[0]) (conflict as { roomName?: string }).roomName = row.rows[0].name;
     }
   }
-  const first = conflicts[0]!;
-  const firstAny = first as {
-    className?: string;
-    teacherName?: string;
-    roomName?: string;
-    kind: string;
-  };
-  let message = "This timetable change conflicts with an existing lesson";
-  if (firstAny.kind === "teacher" && firstAny.teacherName) {
-    message = `${firstAny.teacherName} already has a lesson during this period.`;
-  } else if (firstAny.kind === "class" && firstAny.className) {
-    message = `Class ${firstAny.className} already has a lesson during this period.`;
-  } else if (firstAny.kind === "room" && firstAny.roomName) {
-    message = `${firstAny.roomName} is already booked during this period.`;
-  }
-  throw new AppError(409, "conflict", message, { conflicts });
+  throw new AppError(409, "conflict", timetableConflictMessage(conflicts), { conflicts });
 }
 
 async function insertTimetableEntry(
@@ -1198,6 +1184,7 @@ async function insertTimetableEntry(
   if (!startsAt || !endsAt) {
     throw new AppError(400, "validation_failed", "Start and end times are required");
   }
+  await client.query("savepoint timetable_entry_write");
   try {
     const inserted = await client.query<{ id: string }>(
       `insert into timetable_entries (
@@ -1227,8 +1214,10 @@ async function insertTimetableEntry(
       ],
     );
     await insertTeachers(client, orgId, inserted.rows[0]!.id, body.teachers);
+    await client.query("release savepoint timetable_entry_write");
     return mapTimetableEntry(await loadEntryRow(client, orgId, inserted.rows[0]!.id));
   } catch (error) {
+    await client.query("rollback to savepoint timetable_entry_write");
     return await friendlyTimetableConflict(client, orgId, error);
   }
 }

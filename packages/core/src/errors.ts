@@ -31,6 +31,20 @@ export class AppError extends Error {
   }
 }
 
+export function timetableConflictMessage(conflicts?: TimetableConflictDetail[] | null): string {
+  const first = conflicts?.[0];
+  if (first?.kind === "teacher" && first.teacherName) {
+    return `${first.teacherName} already has a lesson during this period.`;
+  }
+  if (first?.kind === "class" && first.className) {
+    return `Class ${first.className} already has a lesson during this period.`;
+  }
+  if (first?.kind === "room" && first.roomName) {
+    return `${first.roomName} is already booked during this period.`;
+  }
+  return "This timetable change conflicts with an existing lesson";
+}
+
 export function pgErrorToAppError(error: unknown): AppError | null {
   if (!error || typeof error !== "object" || !("code" in error)) {
     return null;
@@ -180,7 +194,7 @@ export function pgErrorToAppError(error: unknown): AppError | null {
     } catch {
       conflicts = undefined;
     }
-    return new AppError(409, "conflict", "This timetable change conflicts with an existing lesson", {
+    return new AppError(409, "conflict", timetableConflictMessage(conflicts), {
       conflicts,
     });
   }

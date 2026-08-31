@@ -130,8 +130,11 @@ describe("safe form reset after async submit", () => {
     event.currentTarget = null;
     expect(() => {
       const target = event.currentTarget;
+      if (!target) {
+        throw new TypeError("Cannot read properties of null (reading 'reset')");
+      }
       target.reset();
-    }).toThrow();
+    }).toThrow(/null/);
     expect(() => resetFormSafely(captured)).not.toThrow();
     expect(() => resetFormSafely(null)).not.toThrow();
     expect(calls).toEqual(["reset"]);

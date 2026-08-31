@@ -29,27 +29,25 @@ export async function countRecurrenceUsage(
   organisationId: string,
   entry: { id: string; classId: string; weekday: number; effectiveFrom: string; effectiveUntil: string | null },
 ): Promise<RecurrenceUsageCount[]> {
-  const [exceptions, covers, attendance] = await Promise.all([
-    client.query(
-      `select count(*)::int as n from timetable_exceptions
-       where organisation_id = $1 and timetable_entry_id = $2`,
-      [organisationId, entry.id],
-    ),
-    client.query(
-      `select count(*)::int as n from timetable_covers
-       where organisation_id = $1 and timetable_entry_id = $2`,
-      [organisationId, entry.id],
-    ),
-    client.query(
-      `select count(*)::int as n from attendance_marks
-       where organisation_id = $1
-         and class_id = $2
-         and mark_date >= $3::date
-         and ($4::date is null or mark_date <= $4::date)
-         and extract(isodow from mark_date)::int = $5`,
-      [organisationId, entry.classId, entry.effectiveFrom, entry.effectiveUntil, entry.weekday],
-    ),
-  ]);
+  const exceptions = await client.query(
+    `select count(*)::int as n from timetable_exceptions
+     where organisation_id = $1 and timetable_entry_id = $2`,
+    [organisationId, entry.id],
+  );
+  const covers = await client.query(
+    `select count(*)::int as n from timetable_covers
+     where organisation_id = $1 and timetable_entry_id = $2`,
+    [organisationId, entry.id],
+  );
+  const attendance = await client.query(
+    `select count(*)::int as n from attendance_marks
+     where organisation_id = $1
+       and class_id = $2
+       and mark_date >= $3::date
+       and ($4::date is null or mark_date <= $4::date)
+       and extract(isodow from mark_date)::int = $5`,
+    [organisationId, entry.classId, entry.effectiveFrom, entry.effectiveUntil, entry.weekday],
+  );
   return [
     { key: "timetable_exceptions", label: "cover or timetable changes", count: Number(exceptions.rows[0]?.n ?? 0) },
     { key: "timetable_covers", label: "cover assignments", count: Number(covers.rows[0]?.n ?? 0) },
@@ -86,27 +84,25 @@ export async function loadTermLifecycle(
   organisationId: string,
   termId: string,
 ): Promise<{ canDelete: boolean; usage: RecurrenceUsageCount[]; message: string }> {
-  const [entries, halfTerms, reporting, assessments] = await Promise.all([
-    client.query(
-      `select count(*)::int as n from timetable_entries where organisation_id = $1 and term_id = $2`,
-      [organisationId, termId],
-    ),
-    client.query(
-      `select count(*)::int as n from half_terms where organisation_id = $1 and term_id = $2`,
-      [organisationId, termId],
-    ),
-    client.query(
-      `select count(*)::int as n from academic_reporting_periods where organisation_id = $1 and term_id = $2`,
-      [organisationId, termId],
-    ),
-    client.query(
-      `select count(*)::int as n from academic_assessments
-       where organisation_id = $1 and reporting_period_id in (
-         select id from academic_reporting_periods where organisation_id = $1 and term_id = $2
-       )`,
-      [organisationId, termId],
-    ),
-  ]);
+  const entries = await client.query(
+    `select count(*)::int as n from timetable_entries where organisation_id = $1 and term_id = $2`,
+    [organisationId, termId],
+  );
+  const halfTerms = await client.query(
+    `select count(*)::int as n from half_terms where organisation_id = $1 and term_id = $2`,
+    [organisationId, termId],
+  );
+  const reporting = await client.query(
+    `select count(*)::int as n from academic_reporting_periods where organisation_id = $1 and term_id = $2`,
+    [organisationId, termId],
+  );
+  const assessments = await client.query(
+    `select count(*)::int as n from academic_assessments
+     where organisation_id = $1 and reporting_period_id in (
+       select id from academic_reporting_periods where organisation_id = $1 and term_id = $2
+     )`,
+    [organisationId, termId],
+  );
   const usage: RecurrenceUsageCount[] = [
     { key: "timetable_entries", label: "timetable entries", count: Number(entries.rows[0]?.n ?? 0) },
     { key: "half_terms", label: "half terms", count: Number(halfTerms.rows[0]?.n ?? 0) },

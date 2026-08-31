@@ -318,7 +318,7 @@ describe("Timetable calendar finance UAT hotfix", () => {
     const ended = await app.request(`/api/v1/timetable/entries/${created.entry.id}/end`, {
       method: "POST",
       headers: hdrs,
-      body: JSON.stringify({ stopFrom: "2026-09-01" }),
+      body: JSON.stringify({ stopFrom: "2026-08-31" }),
     });
     expect(ended.status).toBe(200);
 
@@ -343,7 +343,7 @@ describe("Timetable calendar finance UAT hotfix", () => {
       await app.request(`/api/v1/timetable/entries/${created.entry.id}`, { headers: hdrs }),
     );
     expect(afterEnd.entry.lifecycleStatus).toBe("ended");
-    expect(afterEnd.entry.effectiveUntil).toBe("2026-08-31");
+    expect(afterEnd.entry.effectiveUntil).toBe("2026-08-30");
   });
 
   it("forbids teachers from mutating recurrences, terms, and fee schedules", async () => {

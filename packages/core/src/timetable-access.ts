@@ -124,6 +124,9 @@ export async function participatingClassIds(
   actorUserId: string,
   organisationId: string,
 ): Promise<Set<string>> {
+  // is_active here means the definition is not withdrawn. Ended recurrences
+  // keep is_active=true so teachers retain historical class access. Lesson
+  // generation still respects effective_until in resolveTimetableOccurrences.
   const result = await client.query<{ class_id: string }>(
     `select distinct te.class_id
      from timetable_entry_teachers tet
@@ -326,6 +329,14 @@ export async function loadTermWindows(
   }));
 }
 
+/**
+ * School dates for timetable expansion.
+ * - If the entry (or query) is bound to a term, only that term window counts.
+ * - If terms exist and no term is bound, any term window counts. Dates between
+ *   terms (holidays) are intentionally excluded.
+ * - If no terms exist, fall back to the academic-year window so a school can
+ *   timetable before term dates are entered (zero terms must not mean zero lessons).
+ */
 export function dateIsSchoolDate(
   date: string,
   terms: Array<{ id: string; startsOn: string; endsOn: string }>,
@@ -463,6 +474,10 @@ export async function resolveTimetableOccurrences(
 
   const terms = await loadTermWindows(client, input.organisationId, year);
   const closures = await loadSchoolClosureDates(client, input.organisationId, input.from, input.to);
+  // is_active = definition not withdrawn. effective_from/until decide whether
+  // this week can still generate lessons. Ended recurrences stay is_active so
+  // past weeks remain visible; dates after effective_until are excluded here
+  // and again by dateInRange below.
   const entries = await client.query<EntryRow>(
     `select
        te.id,

@@ -2,6 +2,7 @@ import type pg from "pg";
 import {
   PERMISSIONS,
   STAFF_ROLE_KEYS,
+  feeScheduleAnnualMatchesInstalments,
   type Actor,
   type SchoolBillingFrequency,
   type SchoolDiscountStackingMode,
@@ -304,6 +305,14 @@ export async function createFeeSchedule(
 ) {
   if (!isSchoolBillingFrequency(input.billingFrequency)) {
     throw new AppError(400, "validation_failed", "Invalid billing frequency");
+  }
+  const annualCheck = feeScheduleAnnualMatchesInstalments({
+    amountMinor: input.amountMinor,
+    instalmentCount: input.instalmentCount,
+    annualAmountMinor: input.annualAmountMinor,
+  });
+  if (!annualCheck.ok) {
+    throw new AppError(400, "validation_failed", annualCheck.error, { fieldKey: "annualAmountMinor" });
   }
   const settings = await loadFinanceSettings(client, input.organisationId);
   const created = await client.query(

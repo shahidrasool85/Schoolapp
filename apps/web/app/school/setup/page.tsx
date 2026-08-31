@@ -9,6 +9,7 @@ import {
   parseSetupStep,
   resetFormSafely,
   seedYearGroupsMessage,
+  shouldOfferAcademicYearCreate,
   readinessTierLabel,
   setupProgressLabel,
   setupStatusLabel,
@@ -264,7 +265,7 @@ function SchoolSetupWizard() {
         <SchoolDetailsStep profile={profile} onSaved={load} />
       ) : null}
       {step === "branding" ? <BrandingStep profile={profile} onSaved={load} /> : null}
-      {step === "academic_year" ? <AcademicYearStep /> : null}
+      {step === "academic_year" ? <AcademicYearStep setupStatus={setupStatus} /> : null}
       {step === "academic_structure" ? <AcademicStructureStep /> : null}
       {step === "school_day" ? <SchoolDayStep /> : null}
       {step === "rooms" ? <RoomsStep /> : null}
@@ -400,13 +401,32 @@ function BrandingStep({ profile, onSaved }: { profile: Profile; onSaved: () => P
   );
 }
 
-function AcademicYearStep() {
+function AcademicYearStep({ setupStatus }: { setupStatus: SetupStatus }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
+  const [years, setYears] = useState<
+    Array<{ id: string; name: string; startsOn: string; endsOn: string; isCurrent: boolean; status?: string }>
+  >([]);
+  const [loaded, setLoaded] = useState(false);
+
+  async function loadYears() {
+    const body = await api<{
+      academicYears: Array<{ id: string; name: string; startsOn: string; endsOn: string; isCurrent: boolean; status?: string }>;
+    }>("/api/v1/academic-years");
+    setYears(body.academicYears);
+  }
+
+  useEffect(() => {
+    loadYears()
+      .catch((err: Error) => setError(userFacingError(err, "Could not load academic years.")))
+      .finally(() => setLoaded(true));
+  }, []);
+
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formEl = captureSubmitTarget(event);
+    const form = new FormData(formEl);
     setSaving(true);
     setError("");
     setNotice("");
@@ -424,22 +444,69 @@ function AcademicYearStep() {
         await api(`/api/v1/academic-years/${year.academicYear.id}/terms`, {
           method: "POST",
           body: JSON.stringify({
-            key: "t1",
             name: form.get("termName"),
             startsOn: form.get("termStartsOn"),
             endsOn: form.get("termEndsOn"),
           }),
         });
       }
+      resetFormSafely(formEl);
       setNotice("Academic year created.");
+      await loadYears();
     } catch (err) {
       setError(userFacingError(err, "Could not create the academic year. You can also use Academic setup."));
     } finally {
       setSaving(false);
     }
   }
+
+  const current = years.find((year) => year.isCurrent) ?? years[0];
+  const offerCreate = shouldOfferAcademicYearCreate(years.length);
+  const reviewing = setupStatus === "completed" && !offerCreate;
+
+  if (!loaded && !error) {
+    return (
+      <WizardPanel title="Academic year" description="Checking whether this school already has an academic year.">
+        <LoadingState label="Loading academic years…" />
+      </WizardPanel>
+    );
+  }
+
+  if (!offerCreate && current) {
+    return (
+      <WizardPanel
+        title={reviewing ? "Academic year" : "Academic year"}
+        description={
+          reviewing
+            ? "School setup is complete. Review the current academic year here; do not recreate it."
+            : "This school already has an academic year. Continue, or open Academic years to manage dates and terms."
+        }
+      >
+        <div className="card">
+          <p>
+            <strong>{current.name}</strong>
+            {current.isCurrent ? " · Current" : ""}
+            {current.status ? ` · ${current.status}` : ""}
+          </p>
+          <p className="muted">
+            {current.startsOn} → {current.endsOn}
+          </p>
+          {years.length > 1 ? <p className="muted">{years.length} academic years are configured for this school.</p> : null}
+        </div>
+        {error ? <Alert tone="danger">{error}</Alert> : null}
+        {notice ? <Alert tone="success">{notice}</Alert> : null}
+        <p>
+          <Link className="button secondary" href={withSetupReturn("/school/academic-years", "academic_year")}>
+            Open Academic years
+          </Link>
+        </p>
+        <p className="muted">Use Continue to keep moving through setup. Term dates are managed under Academic years → Terms.</p>
+      </WizardPanel>
+    );
+  }
+
   return (
-    <WizardPanel title="Academic year" description="Creates the current year using the existing academic-year API. Add term dates here or later.">
+    <WizardPanel title="Academic year" description="Creates the first current year using the existing academic-year API. Add term dates here or later under Academic years.">
       <form className="form-grid" onSubmit={onSubmit}>
         <FormField label="Year name"><Input name="name" placeholder="2026/27" required /></FormField>
         <FormField label="Starts"><Input name="startsOn" type="date" required /></FormField>

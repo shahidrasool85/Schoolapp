@@ -544,6 +544,14 @@ export {
 } from "./timetable-access.js";
 
 export {
+  countRecurrenceUsage,
+  loadOrganisationTimezone,
+  loadRecurrenceLifecycle,
+  loadTermLifecycle,
+  schoolToday,
+} from "./timetable-lifecycle.js";
+
+export {
   isSchoolActivityStatus,
   isSchoolActivityTypeKey,
   isSchoolActivityTargetType,

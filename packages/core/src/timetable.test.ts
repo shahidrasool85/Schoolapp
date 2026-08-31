@@ -39,6 +39,8 @@ describe("timetable date helpers", () => {
     expect(timesOverlap("09:00", "10:00", "09:45", "10:45")).toBe(true);
     expect(timesOverlap("09:00", "10:00", "10:00", "11:00")).toBe(false);
     expect(dateWindowsOverlap("2026-09-01", "2026-01-31", "2026-02-01", null)).toBe(false);
+    expect(dateWindowsOverlap("2026-08-01", "2026-09-10", "2026-09-11", null)).toBe(false);
+    expect(dateWindowsOverlap("2026-08-01", "2026-09-10", "2026-09-10", null)).toBe(true);
     expect(dateWindowsOverlap("2026-09-01", null, "2026-10-01", "2026-10-31")).toBe(true);
     expect(dateInRange("2026-09-07", "2026-09-01", "2026-12-18")).toBe(true);
     expect(dateInRange("2026-12-19", "2026-09-01", "2026-12-18")).toBe(false);
@@ -69,6 +71,18 @@ describe("timetable date helpers", () => {
     const year = { startsOn: "2026-09-01", endsOn: "2027-07-31" };
     expect(dateIsSchoolDate("2026-09-07", [], null, new Set(), year)).toBe(true);
     expect(dateIsSchoolDate("2026-08-20", [], null, new Set(), year)).toBe(false);
+  });
+
+  it("skips between-term holidays once terms exist (intentional, not a zero-occurrence bug)", () => {
+    const terms = [
+      { id: "autumn", startsOn: "2026-09-03", endsOn: "2026-12-18" },
+      { id: "spring", startsOn: "2027-01-05", endsOn: "2027-03-26" },
+    ];
+    const year = { startsOn: "2026-09-03", endsOn: "2027-07-22" };
+    expect(dateIsSchoolDate("2026-12-22", terms, null, new Set(), year)).toBe(false);
+    expect(dateIsSchoolDate("2027-01-06", terms, null, new Set(), year)).toBe(true);
+    expect(dateIsSchoolDate("2026-12-22", [], null, new Set(), year)).toBe(true);
+    expect(dateIsSchoolDate("2026-09-07", terms, null, new Set(["2026-09-07"]), year)).toBe(false);
   });
 
   it("maps exceptions and attendance session inference", () => {

@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
 import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
 import {
   Alert,
@@ -22,6 +23,7 @@ import {
   type AcademicStatus,
 } from "../../../lib/academic-lifecycle";
 import { userFacingError } from "../../../lib/errors";
+import { usePermissions } from "../../../lib/use-permissions";
 
 type Year = {
   id: string;
@@ -33,6 +35,8 @@ type Year = {
 };
 
 export default function AcademicYearsPage() {
+  const permissions = usePermissions();
+  const canManage = permissions.has("academic.structure.manage");
   const [years, setYears] = useState<Year[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -153,7 +157,7 @@ export default function AcademicYearsPage() {
       <SetupReturnBanner />
       <PageHeader
         title="Academic years"
-        description="Academic years hold classes, enrolments and historical school records."
+        description="Academic years hold classes, enrolments and historical school records. Open Terms to manage term dates for a year."
         actions={
           <label className="checkbox-row">
             <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
@@ -161,6 +165,7 @@ export default function AcademicYearsPage() {
           </label>
         }
       />
+      {canManage ? (
       <form className="card academic-create-form" onSubmit={onSubmit}>
         <h2>Add academic year</h2>
         <div className="academic-create-fields is-four">
@@ -188,6 +193,9 @@ export default function AcademicYearsPage() {
           <Button type="submit">Add academic year</Button>
         </div>
       </form>
+      ) : (
+        <p className="muted">Academic years are managed by school administration. You can still read the current year.</p>
+      )}
       {notice ? <Alert tone="success">{notice}</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {years.length === 0 ? (
@@ -220,7 +228,10 @@ export default function AcademicYearsPage() {
                   </td>
                   <td className="num">
                     <div className="table-actions">
-                      {year.status !== "archived" ? (
+                      <Link className="button secondary" href={`/school/academic-years/${year.id}/terms`}>
+                        Terms
+                      </Link>
+                      {canManage && year.status !== "archived" ? (
                         <>
                           <Button type="button" variant="secondary" onClick={() => setEditing(year)}>
                             Edit
@@ -234,11 +245,11 @@ export default function AcademicYearsPage() {
                             Archive/Delete
                           </Button>
                         </>
-                      ) : (
+                      ) : canManage ? (
                         <Button type="button" variant="secondary" onClick={() => openLifecycle(year, "restore")}>
                           Restore
                         </Button>
-                      )}
+                      ) : null}
                     </div>
                   </td>
                 </tr>

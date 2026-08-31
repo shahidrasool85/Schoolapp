@@ -1,3 +1,5 @@
+import { parseGbpPoundsToMinor } from "@schoolapp/domain";
+
 export function formatMinor(amountMinor: number, currency = "GBP"): string {
   const safe = Number.isInteger(amountMinor) ? amountMinor : 0;
   try {
@@ -14,10 +16,7 @@ export function formatMinor(amountMinor: number, currency = "GBP"): string {
 }
 
 export function poundsToMinor(value: string): number {
-  const trimmed = value.trim();
-  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) {
-    throw new Error("Enter an amount such as 8.00");
-  }
-  const [whole, fraction = ""] = trimmed.split(".");
-  return Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+  const parsed = parseGbpPoundsToMinor(value);
+  if (!parsed.ok) throw new Error(parsed.error);
+  return parsed.amount;
 }

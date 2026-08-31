@@ -1,5 +1,12 @@
 import { z } from "zod";
-import { PERMISSIONS } from "@schoolapp/domain";
+import {
+  PERMISSIONS,
+  RECURRENCE_DELETE_BLOCKED,
+  RECURRENCE_STRUCTURAL_EDIT_BLOCKED,
+  computeRecurrenceStatus,
+  recurrencePatchTouchesStructure,
+  validateRecurrenceStopFrom,
+} from "@schoolapp/domain";
 import {
   AppError,
   assertAnyPermission,
@@ -21,12 +28,14 @@ import {
   isoDate,
   isoWeekdayFromDate,
   isoWeekRange,
+  loadRecurrenceLifecycle,
   loadStudentClassMembershipsOverlapping,
   pgErrorToAppError,
   recurringLessonSavedMessage,
   requireOrgRow,
   resolveAttendanceRegisterTarget,
   resolveTimetableOccurrences,
+  schoolToday,
   startOfIsoWeek,
   timetableConflictMessage,
   writeAudit,
@@ -182,6 +191,51 @@ async function loadEntryRow(client: Parameters<typeof requireOrgRow>[0], organis
   const row = result.rows[0];
   if (!row) throw new AppError(404, "not_found", "Not found");
   return { ...row, teachers: await loadEntryTeachers(client, organisationId, entryId) };
+}
+
+function entryLifecycleFields(row: Record<string, unknown>, today: string) {
+  const effectiveFrom = String(row.effective_from ?? row.effectiveFrom);
+  const effectiveUntil = (row.effective_until ?? row.effectiveUntil ?? null) as string | null;
+  const isActive = Boolean(row.is_active ?? row.isActive);
+  return {
+    lifecycleStatus: computeRecurrenceStatus({
+      effectiveFrom,
+      effectiveUntil,
+      isActive,
+      today,
+    }),
+    effectiveFrom,
+    effectiveUntil,
+    isActive,
+  };
+}
+
+async function mapManagedEntry(
+  client: Parameters<typeof requireOrgRow>[0],
+  organisationId: string,
+  row: Record<string, unknown>,
+  today: string,
+  options?: { includeLifecycle?: boolean },
+) {
+  const entry = mapTimetableEntry(row);
+  const fields = entryLifecycleFields(row, today);
+  if (!options?.includeLifecycle) {
+    return { ...entry, lifecycleStatus: fields.lifecycleStatus };
+  }
+  const lifecycle = await loadRecurrenceLifecycle(
+    client,
+    organisationId,
+    {
+      id: String(row.id),
+      classId: String(row.class_id),
+      weekday: Number(row.weekday),
+      effectiveFrom: fields.effectiveFrom,
+      effectiveUntil: fields.effectiveUntil,
+      isActive: fields.isActive,
+    },
+    today,
+  );
+  return { ...entry, lifecycleStatus: lifecycle.status, lifecycle };
 }
 
 export function registerTimetableRoutes(app: SchoolappApi) {
@@ -616,16 +670,19 @@ export function registerTimetableRoutes(app: SchoolappApi) {
           staffProfileId ?? null,
         ],
       );
+      const today = await schoolToday(client, orgId);
       const mapped = [];
       for (const row of rows.rows) {
         mapped.push(
-          mapTimetableEntry({
-            ...row,
-            teachers: await loadEntryTeachers(client, orgId, String(row.id)),
-          }),
+          await mapManagedEntry(
+            client,
+            orgId,
+            { ...row, teachers: await loadEntryTeachers(client, orgId, String(row.id)) },
+            today,
+          ),
         );
       }
-      return c.json({ entries: mapped });
+      return c.json({ entries: mapped, today });
     }),
   );
 
@@ -644,7 +701,11 @@ export function registerTimetableRoutes(app: SchoolappApi) {
           throw new AppError(404, "not_found", "Not found");
         }
       }
-      return c.json({ entry: mapTimetableEntry(entry) });
+      const today = await schoolToday(client, orgId);
+      return c.json({
+        entry: await mapManagedEntry(client, orgId, entry, today, { includeLifecycle: true }),
+        today,
+      });
     }),
   );
 
@@ -689,6 +750,30 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       const id = uuidRouteParam(c, "id");
       const existing = await loadEntryRow(client, orgId, id);
       const body = parseBody(entrySchema.partial(), await c.req.json());
+      const today = await schoolToday(client, orgId);
+      const lifecycle = await loadRecurrenceLifecycle(
+        client,
+        orgId,
+        {
+          id,
+          classId: String(existing.class_id),
+          weekday: Number(existing.weekday),
+          effectiveFrom: String(existing.effective_from),
+          effectiveUntil: (existing.effective_until as string | null) ?? null,
+          isActive: Boolean(existing.is_active),
+        },
+        today,
+      );
+      if (!lifecycle.canEditStructure && recurrencePatchTouchesStructure(body as Record<string, unknown>)) {
+        throw new AppError(409, "cannot_edit", RECURRENCE_STRUCTURAL_EDIT_BLOCKED, {
+          usage: lifecycle.usage.filter((item) => item.count > 0),
+        });
+      }
+      if (body.isActive === false && !lifecycle.canDelete) {
+        throw new AppError(409, "cannot_edit", RECURRENCE_DELETE_BLOCKED, {
+          usage: lifecycle.usage.filter((item) => item.count > 0),
+        });
+      }
       let startsAt = body.startsAt ?? String(existing.starts_at);
       let endsAt = body.endsAt ?? String(existing.ends_at);
       const periodId = body.schoolDayPeriodId ?? String(existing.school_day_period_id ?? "");
@@ -752,7 +837,9 @@ export function registerTimetableRoutes(app: SchoolappApi) {
         ]);
         await insertTeachers(client, orgId, updated.rows[0]!.id, body.teachers);
       }
-      const entry = mapTimetableEntry(await loadEntryRow(client, orgId, id));
+      const entry = await mapManagedEntry(client, orgId, await loadEntryRow(client, orgId, id), today, {
+        includeLifecycle: true,
+      });
       await writeAudit(client, {
         organisationId: orgId,
         actorUserId: userId,
@@ -762,6 +849,121 @@ export function registerTimetableRoutes(app: SchoolappApi) {
         after: entry,
       });
       return c.json({ entry });
+    }),
+  );
+
+  app.get("/timetable/entries/:id/lifecycle", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      await assertCanManageTimetable(actor);
+      const id = uuidRouteParam(c, "id");
+      const existing = await loadEntryRow(client, orgId, id);
+      const today = await schoolToday(client, orgId);
+      const entry = await mapManagedEntry(client, orgId, existing, today, { includeLifecycle: true });
+      return c.json({ entry, today });
+    }),
+  );
+
+  app.post("/timetable/entries/:id/end", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      await assertCanManageTimetable(actor);
+      const id = uuidRouteParam(c, "id");
+      const existing = await loadEntryRow(client, orgId, id);
+      const parsed = z.object({ stopFrom: dateSchema }).safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "A stop date is required");
+      const today = await schoolToday(client, orgId);
+      const lifecycle = await loadRecurrenceLifecycle(
+        client,
+        orgId,
+        {
+          id,
+          classId: String(existing.class_id),
+          weekday: Number(existing.weekday),
+          effectiveFrom: String(existing.effective_from),
+          effectiveUntil: (existing.effective_until as string | null) ?? null,
+          isActive: Boolean(existing.is_active),
+        },
+        today,
+      );
+      if (!lifecycle.canEnd) {
+        throw new AppError(
+          409,
+          "cannot_end",
+          lifecycle.status === "ended"
+            ? "This recurring lesson has already ended."
+            : "Delete a future unused recurrence instead of ending it.",
+        );
+      }
+      const year = await client.query<{ ends_on: string }>(
+        `select ends_on::text from academic_years where id = $1 and organisation_id = $2`,
+        [existing.academic_year_id, orgId],
+      );
+      if (!year.rows[0]) throw new AppError(404, "not_found", "Not found");
+      const stop = validateRecurrenceStopFrom({
+        stopFrom: parsed.data.stopFrom,
+        effectiveFrom: String(existing.effective_from),
+        today,
+        yearEndsOn: year.rows[0].ends_on,
+      });
+      if (!stop.ok) throw new AppError(400, "validation_failed", stop.error);
+      await client.query(
+        `update timetable_entries
+         set effective_until = $3::date, is_active = true
+         where id = $1 and organisation_id = $2`,
+        [id, orgId, stop.effectiveUntil],
+      );
+      const entry = await mapManagedEntry(client, orgId, await loadEntryRow(client, orgId, id), today, {
+        includeLifecycle: true,
+      });
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "timetable.entry.ended",
+        entityType: "timetable_entry",
+        entityId: id,
+        before: { effectiveUntil: existing.effective_until },
+        after: { effectiveUntil: stop.effectiveUntil, stopFrom: parsed.data.stopFrom },
+      });
+      return c.json({
+        entry,
+        message: `Recurrence ended. Lessons on or after ${parsed.data.stopFrom} will not be generated. Past timetable history is kept.`,
+      });
+    }),
+  );
+
+  app.delete("/timetable/entries/:id", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      await assertCanManageTimetable(actor);
+      const id = uuidRouteParam(c, "id");
+      const existing = await loadEntryRow(client, orgId, id);
+      const today = await schoolToday(client, orgId);
+      const lifecycle = await loadRecurrenceLifecycle(
+        client,
+        orgId,
+        {
+          id,
+          classId: String(existing.class_id),
+          weekday: Number(existing.weekday),
+          effectiveFrom: String(existing.effective_from),
+          effectiveUntil: (existing.effective_until as string | null) ?? null,
+          isActive: Boolean(existing.is_active),
+        },
+        today,
+      );
+      if (!lifecycle.canDelete) {
+        throw new AppError(409, "cannot_delete", lifecycle.message || RECURRENCE_DELETE_BLOCKED, {
+          usage: lifecycle.usage.filter((item) => item.count > 0),
+        });
+      }
+      await client.query(`delete from timetable_entries where id = $1 and organisation_id = $2`, [id, orgId]);
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "timetable.entry.deleted",
+        entityType: "timetable_entry",
+        entityId: id,
+        before: mapTimetableEntry(existing),
+      });
+      return c.json({ ok: true });
     }),
   );
 

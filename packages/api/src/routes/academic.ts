@@ -9,6 +9,9 @@ import {
   rejectClearCurrentAcademicYear,
   rejectSetArchivedAcademicYearCurrent,
   resolveCreatedAcademicYearCurrent,
+  termKeyFromName,
+  uniqueTermKey,
+  validateTermDates,
 } from "@schoolapp/domain";
 import {
   AppError,
@@ -20,6 +23,7 @@ import {
   includeArchivedRequested,
   isAssignedToClass,
   loadAcademicLifecycle,
+  loadTermLifecycle,
   writeAudit,
 } from "@schoolapp/core";
 import { upsertYearGroupPortalOverride } from "./student-portal";
@@ -43,7 +47,7 @@ const yearSchema = z.object({
 });
 
 const termSchema = z.object({
-  key: z.string().min(1).max(32),
+  key: z.string().min(1).max(32).optional(),
   name: z.string().min(1).max(80),
   startsOn: z.string().date(),
   endsOn: z.string().date(),
@@ -285,19 +289,10 @@ export function registerAcademicRoutes(app: SchoolappApi) {
   app.get("/academic-years/:id/terms", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertAnyPermission(actor, academicReadPermissions);
-      const year = await client.query("select id from academic_years where id = $1 and organisation_id = $2", [
-        routeParam(c, "id"),
-        orgId,
-      ]);
-      if (!year.rows[0]) throw new AppError(404, "not_found", "Not found");
-      const rows = await client.query(
-        `select id, academic_year_id, key, name, starts_on::text, ends_on::text, sort_order
-         from terms
-         where academic_year_id = $1 and organisation_id = $2
-         order by sort_order, starts_on`,
-        [routeParam(c, "id"), orgId],
-      );
-      return c.json({ terms: rows.rows.map(mapTerm) });
+      const year = await loadAcademicYearRow(client, orgId, routeParam(c, "id"));
+      if (!year) throw new AppError(404, "not_found", "Not found");
+      const rows = await listTermsForYear(client, orgId, routeParam(c, "id"));
+      return c.json({ academicYear: mapAcademicYear(year), terms: rows.map(mapTerm) });
     }),
   );
 
@@ -306,20 +301,38 @@ export function registerAcademicRoutes(app: SchoolappApi) {
       assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
       const parsed = termSchema.safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid term payload");
+      const year = await loadAcademicYearRow(client, orgId, routeParam(c, "id"));
+      if (!year) throw new AppError(404, "not_found", "Not found");
+      const status = isAcademicRecordStatus(year.status) ? year.status : "active";
+      if (status === "archived") {
+        throw new AppError(409, "cannot_create", "Archived academic years cannot receive new terms.");
+      }
+      const existingTerms = await listTermsForYear(client, orgId, String(year.id));
+      const bounds = validateTermDates({
+        startsOn: parsed.data.startsOn,
+        endsOn: parsed.data.endsOn,
+        yearStartsOn: String(year.starts_on),
+        yearEndsOn: String(year.ends_on),
+        otherTerms: existingTerms.map((term) => ({
+          id: String(term.id),
+          startsOn: String(term.starts_on),
+          endsOn: String(term.ends_on),
+        })),
+      });
+      if (!bounds.ok) throw new AppError(400, "validation_failed", bounds.error);
+      const key = uniqueTermKey(
+        parsed.data.key?.trim() || termKeyFromName(parsed.data.name),
+        existingTerms.map((term) => String(term.key)),
+      );
+      const sortOrder =
+        parsed.data.sortOrder ??
+        existingTerms.reduce((max, term) => Math.max(max, Number(term.sort_order) || 0), 0) + 1;
       const inserted = await client.query(
         `insert into terms (
            organisation_id, academic_year_id, key, name, starts_on, ends_on, sort_order
          ) values ($1, $2, $3, $4, $5, $6, $7)
          returning id, academic_year_id, key, name, starts_on::text, ends_on::text, sort_order`,
-        [
-          orgId,
-          routeParam(c, "id"),
-          parsed.data.key,
-          parsed.data.name,
-          parsed.data.startsOn,
-          parsed.data.endsOn,
-          parsed.data.sortOrder ?? 0,
-        ],
+        [orgId, year.id, key, parsed.data.name, parsed.data.startsOn, parsed.data.endsOn, sortOrder],
       );
       await writeAudit(client, {
         organisationId: orgId,
@@ -330,6 +343,107 @@ export function registerAcademicRoutes(app: SchoolappApi) {
         after: mapTerm(inserted.rows[0]!),
       });
       return c.json({ term: mapTerm(inserted.rows[0]!) }, 201);
+    }),
+  );
+
+  app.get("/terms/:id/lifecycle", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertAnyPermission(actor, academicReadPermissions);
+      const term = await loadTermRow(client, orgId, routeParam(c, "id"));
+      if (!term) throw new AppError(404, "not_found", "Not found");
+      const lifecycle = await loadTermLifecycle(client, orgId, String(term.id));
+      return c.json({ term: mapTerm(term), lifecycle });
+    }),
+  );
+
+  app.patch("/terms/:id", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
+      const parsed = termSchema.partial().safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid term payload");
+      const existing = await loadTermRow(client, orgId, routeParam(c, "id"));
+      if (!existing) throw new AppError(404, "not_found", "Not found");
+      const year = await loadAcademicYearRow(client, orgId, String(existing.academic_year_id));
+      if (!year) throw new AppError(404, "not_found", "Not found");
+      const startsOn = parsed.data.startsOn ?? String(existing.starts_on);
+      const endsOn = parsed.data.endsOn ?? String(existing.ends_on);
+      const others = await listTermsForYear(client, orgId, String(existing.academic_year_id));
+      const bounds = validateTermDates({
+        startsOn,
+        endsOn,
+        yearStartsOn: String(year.starts_on),
+        yearEndsOn: String(year.ends_on),
+        otherTerms: others.map((term) => ({
+          id: String(term.id),
+          startsOn: String(term.starts_on),
+          endsOn: String(term.ends_on),
+        })),
+        ignoreTermId: String(existing.id),
+      });
+      if (!bounds.ok) throw new AppError(400, "validation_failed", bounds.error);
+      const updated = await client.query(
+        `update terms
+         set name = coalesce($3, name),
+             key = coalesce($4, key),
+             starts_on = $5,
+             ends_on = $6,
+             sort_order = coalesce($7, sort_order)
+         where id = $1 and organisation_id = $2
+         returning id, academic_year_id, key, name, starts_on::text, ends_on::text, sort_order`,
+        [
+          existing.id,
+          orgId,
+          parsed.data.name ?? null,
+          parsed.data.key ?? null,
+          startsOn,
+          endsOn,
+          parsed.data.sortOrder ?? null,
+        ],
+      );
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "academic.term.updated",
+        entityType: "term",
+        entityId: String(existing.id),
+        before: mapTerm(existing),
+        after: mapTerm(updated.rows[0]!),
+      });
+      return c.json({ term: mapTerm(updated.rows[0]!) });
+    }),
+  );
+
+  app.delete("/terms/:id", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
+      const existing = await loadTermRow(client, orgId, routeParam(c, "id"));
+      if (!existing) throw new AppError(404, "not_found", "Not found");
+      const lifecycle = await loadTermLifecycle(client, orgId, String(existing.id));
+      if (!lifecycle.canDelete) {
+        throw new AppError(409, "cannot_delete", lifecycle.message, {
+          canArchive: false,
+          usage: lifecycle.usage,
+        });
+      }
+      await client.query(`delete from terms where id = $1 and organisation_id = $2`, [existing.id, orgId]);
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "academic.term.deleted",
+        entityType: "term",
+        entityId: String(existing.id),
+        before: mapTerm(existing),
+      });
+      return c.json({ ok: true });
+    }),
+  );
+
+  app.get("/academic-years/:id", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertAnyPermission(actor, academicReadPermissions);
+      const year = await loadAcademicYearRow(client, orgId, routeParam(c, "id"));
+      if (!year) throw new AppError(404, "not_found", "Not found");
+      return c.json({ academicYear: mapAcademicYear(year) });
     }),
   );
 
@@ -1121,6 +1235,34 @@ async function loadAcademicYearRow(
     `select id, name, starts_on::text, ends_on::text, is_current, status, created_at
      from academic_years where id = $1 and organisation_id = $2`,
     [yearId, orgId],
+  );
+  return result.rows[0] ?? null;
+}
+
+async function listTermsForYear(
+  client: import("pg").PoolClient,
+  orgId: string,
+  yearId: string,
+): Promise<Record<string, unknown>[]> {
+  const rows = await client.query(
+    `select id, academic_year_id, key, name, starts_on::text, ends_on::text, sort_order
+     from terms
+     where academic_year_id = $1 and organisation_id = $2
+     order by sort_order, starts_on`,
+    [yearId, orgId],
+  );
+  return rows.rows;
+}
+
+async function loadTermRow(
+  client: import("pg").PoolClient,
+  orgId: string,
+  termId: string,
+): Promise<Record<string, unknown> | null> {
+  const result = await client.query(
+    `select id, academic_year_id, key, name, starts_on::text, ends_on::text, sort_order
+     from terms where id = $1 and organisation_id = $2`,
+    [termId, orgId],
   );
   return result.rows[0] ?? null;
 }

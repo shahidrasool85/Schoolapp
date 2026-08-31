@@ -128,7 +128,9 @@ export function registerTuitionRoutes(app: SchoolappApi) {
             .optional(),
         })
         .safeParse(await c.req.json());
-      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid fee schedule");
+      if (!parsed.success) {
+        throw new AppError(400, "validation_failed", feeScheduleValidationMessage(parsed.error));
+      }
       const schedule = await createFeeSchedule(client, {
         organisationId: orgId,
         actorUserId: userId,
@@ -543,4 +545,30 @@ export function registerTuitionRoutes(app: SchoolappApi) {
       return c.json({ items: await listArrears(client, orgId, c.req.query("bucket") || undefined) });
     }),
   );
+}
+
+function feeScheduleValidationMessage(error: z.ZodError): string {
+  const issue = error.issues[0];
+  if (!issue) return "The fee schedule is invalid.";
+  const field = String(issue.path[0] ?? "");
+  const labels: Record<string, string> = {
+    name: "Name",
+    academicYearId: "Academic year",
+    yearGroupId: "Year group",
+    amountMinor: "Amount per invoice",
+    annualAmountMinor: "Annual total",
+    billingFrequency: "Frequency",
+    instalmentCount: "Instalments per year",
+    effectiveFrom: "Effective from",
+  };
+  const label = labels[field];
+  if (field === "academicYearId") return "Select an academic year.";
+  if (field === "amountMinor") return "Enter a valid amount per invoice in pounds, such as 600.00.";
+  if (field === "annualAmountMinor") return "Enter a valid annual total, or leave it blank.";
+  if (field === "instalmentCount") return "Instalments per year must be a whole number between 1 and 24.";
+  if (field === "effectiveFrom") return "Effective from must be a valid date.";
+  if (field === "billingFrequency") return "Select a billing frequency.";
+  if (label && (issue.code === "too_small" || issue.code === "invalid_type")) return `${label} is required.`;
+  if (label) return `${label} is invalid.`;
+  return "The fee schedule is invalid.";
 }

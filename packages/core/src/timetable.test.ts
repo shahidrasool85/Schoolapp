@@ -71,6 +71,17 @@ describe("timetable date helpers", () => {
     expect(dateIsSchoolDate("2026-08-20", [], null, new Set(), year)).toBe(false);
   });
 
+  it("skips between-term holidays once terms exist (intentional, not a zero-occurrence bug)", () => {
+    const terms = [
+      { id: "autumn", startsOn: "2026-09-03", endsOn: "2026-12-18" },
+      { id: "spring", startsOn: "2027-01-05", endsOn: "2027-03-26" },
+    ];
+    const year = { startsOn: "2026-09-03", endsOn: "2027-07-22" };
+    expect(dateIsSchoolDate("2026-12-22", terms, null, new Set(), year)).toBe(false);
+    expect(dateIsSchoolDate("2027-01-06", terms, null, new Set(), year)).toBe(true);
+    expect(dateIsSchoolDate("2026-12-22", [], null, new Set(), year)).toBe(true);
+  });
+
   it("maps exceptions and attendance session inference", () => {
     expect(occurrenceStatusFromException("cancelled", false)).toBe("cancelled");
     expect(occurrenceStatusFromException(null, true)).toBe("covered");

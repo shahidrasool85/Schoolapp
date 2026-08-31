@@ -326,6 +326,14 @@ export async function loadTermWindows(
   }));
 }
 
+/**
+ * School dates for timetable expansion.
+ * - If the entry (or query) is bound to a term, only that term window counts.
+ * - If terms exist and no term is bound, any term window counts. Dates between
+ *   terms (holidays) are intentionally excluded.
+ * - If no terms exist, fall back to the academic-year window so a school can
+ *   timetable before term dates are entered (zero terms must not mean zero lessons).
+ */
 export function dateIsSchoolDate(
   date: string,
   terms: Array<{ id: string; startsOn: string; endsOn: string }>,

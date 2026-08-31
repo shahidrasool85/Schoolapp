@@ -290,6 +290,39 @@ export {
 export { captureSubmitTarget, resetFormSafely } from "./forms.js";
 
 export {
+  DEFAULT_SCHOOL_TIMEZONE,
+  datesOverlapInclusive,
+  defaultRecurrenceEffectiveFrom,
+  effectiveFromBeforeAcademicYear,
+  feeScheduleAnnualMatchesInstalments,
+  isIsoDate,
+  parseGbpPoundsToMinor,
+  shouldOfferAcademicYearCreate,
+  termKeyFromName,
+  todayInTimeZone,
+  uniqueTermKey,
+  validateTermDates,
+} from "./academic-calendar.js";
+
+export {
+  RECURRENCE_DELETE_BLOCKED,
+  RECURRENCE_LIFECYCLE_STATUSES,
+  RECURRENCE_STRUCTURAL_EDIT_BLOCKED,
+  STRUCTURAL_RECURRENCE_PATCH_KEYS,
+  addIsoDaysUtc,
+  computeRecurrenceStatus,
+  defaultStopFromDate,
+  effectiveUntilFromStopFrom,
+  recurrenceLifecycleFromState,
+  recurrencePatchTouchesStructure,
+  summarizeRecurrenceUsage,
+  validateRecurrenceStopFrom,
+  type RecurrenceLifecycle,
+  type RecurrenceLifecycleStatus,
+  type RecurrenceUsageCount,
+} from "./recurrence-lifecycle.js";
+
+export {
   SUBJECT_KEY_HINT,
   SUBJECT_KEY_MAX_LENGTH,
   SUBJECT_KEY_PATTERN,

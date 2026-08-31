@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Alert, EmptyState, FilterBar, PageHeader, StatusBadge } from "../../../components/ui";
 import { api } from "../../../lib/api";
+import { isoWeekRange, startOfIsoWeek } from "../../../lib/dates";
 import { userFacingError } from "../../../lib/errors";
 
 type Occurrence = {
@@ -21,13 +22,15 @@ type Occurrence = {
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 export default function StudentTimetablePage() {
-  const [from, setFrom] = useState("2026-09-07");
+  const [from, setFrom] = useState(() => startOfIsoWeek("2026-09-07"));
   const [items, setItems] = useState<Occurrence[]>([]);
   const [error, setError] = useState("");
 
   async function load(nextFrom = from) {
-    const to = addDays(nextFrom, 6);
-    const body = await api<{ occurrences: Occurrence[] }>(`/api/v1/student/timetable?from=${nextFrom}&to=${to}`);
+    const week = isoWeekRange(nextFrom);
+    const body = await api<{ occurrences: Occurrence[] }>(
+      `/api/v1/student/timetable?week=${week.from}&from=${week.from}`,
+    );
     setItems(body.occurrences);
   }
 
@@ -46,8 +49,13 @@ export default function StudentTimetablePage() {
         actions={<button type="submit">Show week</button>}
       >
         <label htmlFor="student-week">
-          Week starting
-          <input id="student-week" type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+          Week commencing
+          <input
+            id="student-week"
+            type="date"
+            value={from}
+            onChange={(event) => setFrom(startOfIsoWeek(event.target.value))}
+          />
         </label>
       </FilterBar>
       {error ? <Alert tone="danger">{error}</Alert> : null}
@@ -85,10 +93,4 @@ export default function StudentTimetablePage() {
       )}
     </>
   );
-}
-
-function addDays(iso: string, days: number): string {
-  const date = new Date(`${iso}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
 }

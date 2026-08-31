@@ -17,13 +17,18 @@ import {
   canReadCover,
   canReadRooms,
   canReadSchoolTimetable,
+  firstTimetableOccurrence,
   isoDate,
   isoWeekdayFromDate,
+  isoWeekRange,
   loadStudentClassMembershipsOverlapping,
+  pgErrorToAppError,
+  recurringLessonSavedMessage,
   requireOrgRow,
   resolveAttendanceRegisterTarget,
   resolveTimetableOccurrences,
   startOfIsoWeek,
+  timetableConflictMessage,
   writeAudit,
 } from "@schoolapp/core";
 import type { SchoolappApi } from "../types";
@@ -61,6 +66,7 @@ const periodSchema = z.object({
   endsAt: timeSchema,
   sortOrder: z.number().int().optional(),
   attendanceSessionTypeId: z.string().uuid().nullable().optional(),
+  isActive: z.boolean().optional(),
 });
 
 const roomSchema = z.object({
@@ -83,6 +89,7 @@ const entrySchema = z.object({
   academicYearId: z.string().uuid(),
   termId: z.string().uuid().nullable().optional(),
   schoolDayPeriodId: z.string().uuid().nullable().optional(),
+  customTime: z.boolean().optional(),
   weekday: weekdaySchema,
   startsAt: timeSchema.optional(),
   endsAt: timeSchema.optional(),
@@ -264,7 +271,7 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       );
       const periods = await client.query(
         `select id, school_day_profile_id, name, short_code, period_type, starts_at::text, ends_at::text,
-                sort_order, attendance_session_type_id
+                sort_order, attendance_session_type_id, is_active
          from school_day_periods
          where organisation_id = $1
          order by sort_order, starts_at`,
@@ -357,10 +364,10 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       const inserted = await client.query(
         `insert into school_day_periods (
            organisation_id, school_day_profile_id, name, short_code, period_type,
-           starts_at, ends_at, sort_order, attendance_session_type_id, created_by
-         ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+           starts_at, ends_at, sort_order, attendance_session_type_id, is_active, created_by
+         ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
          returning id, school_day_profile_id, name, short_code, period_type, starts_at::text, ends_at::text,
-                   sort_order, attendance_session_type_id`,
+                   sort_order, attendance_session_type_id, is_active`,
         [
           orgId,
           profileId,
@@ -371,6 +378,7 @@ export function registerTimetableRoutes(app: SchoolappApi) {
           body.endsAt,
           body.sortOrder ?? 0,
           body.attendanceSessionTypeId ?? null,
+          body.isActive ?? true,
           userId,
         ],
       );
@@ -395,10 +403,11 @@ export function registerTimetableRoutes(app: SchoolappApi) {
            starts_at = coalesce($6, starts_at),
            ends_at = coalesce($7, ends_at),
            sort_order = coalesce($8, sort_order),
-           attendance_session_type_id = coalesce($9, attendance_session_type_id)
+           attendance_session_type_id = coalesce($9, attendance_session_type_id),
+           is_active = coalesce($10, is_active)
          where id = $1 and organisation_id = $2
          returning id, school_day_profile_id, name, short_code, period_type, starts_at::text, ends_at::text,
-                   sort_order, attendance_session_type_id`,
+                   sort_order, attendance_session_type_id, is_active`,
         [
           id,
           orgId,
@@ -409,9 +418,42 @@ export function registerTimetableRoutes(app: SchoolappApi) {
           body.endsAt ?? null,
           body.sortOrder ?? null,
           body.attendanceSessionTypeId ?? null,
+          body.isActive ?? null,
         ],
       );
       return c.json({ period: mapSchoolDayPeriod(updated.rows[0]!) });
+    }),
+  );
+
+  app.delete("/timetable/periods/:id", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageSchoolDay(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      const id = uuidRouteParam(c, "id");
+      const period = await requireOrgRow(client, "school_day_periods", id, orgId);
+      const usage = await client.query<{ n: number }>(
+        `select count(*)::int as n from timetable_entries
+         where organisation_id = $1 and school_day_period_id = $2`,
+        [orgId, id],
+      );
+      const count = usage.rows[0]?.n ?? 0;
+      if (count > 0) {
+        throw new AppError(
+          409,
+          "cannot_delete",
+          `This period is used by ${count} timetable lesson${count === 1 ? "" : "s"} and cannot be deleted.`,
+          { canArchive: true, usage: [{ key: "timetable_entries", label: "timetable lessons", count }] },
+        );
+      }
+      await client.query("delete from school_day_periods where id = $1 and organisation_id = $2", [id, orgId]);
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "timetable.period.deleted",
+        entityType: "school_day_period",
+        entityId: id,
+        before: period,
+      });
+      return c.json({ deleted: true });
     }),
   );
 
@@ -422,8 +464,9 @@ export function registerTimetableRoutes(app: SchoolappApi) {
         `select id, name, short_code, building, location_detail, capacity, location_type, is_active
          from rooms
          where organisation_id = $1
+           and ($2::boolean or is_active)
          order by name`,
-        [orgId],
+        [orgId, canManageRooms(actor)],
       );
       return c.json({ rooms: rows.rows.map(mapRoom) });
     }),
@@ -610,6 +653,15 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       await assertCanManageTimetable(actor);
       const body = parseBody(entrySchema, await c.req.json());
       const created = await insertTimetableEntry(client, orgId, userId, body);
+      const firstOccurrence = await firstTimetableOccurrence(client, orgId, {
+        academicYearId: body.academicYearId,
+        termId: body.termId ?? null,
+        weekday: body.weekday,
+        effectiveFrom: body.effectiveFrom,
+        effectiveUntil: body.effectiveUntil ?? null,
+        startsAt: String(created.startsAt),
+        endsAt: String(created.endsAt),
+      });
       await writeAudit(client, {
         organisationId: orgId,
         actorUserId: userId,
@@ -618,7 +670,16 @@ export function registerTimetableRoutes(app: SchoolappApi) {
         entityId: created.id,
         after: created,
       });
-      return c.json({ entry: created }, 201);
+      return c.json(
+        {
+          entry: created,
+          firstOccurrence,
+          message: firstOccurrence
+            ? recurringLessonSavedMessage(firstOccurrence)
+            : "Recurring lesson saved. It has no lesson in the current academic year window.",
+        },
+        201,
+      );
     }),
   );
 
@@ -630,10 +691,11 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       const body = parseBody(entrySchema.partial(), await c.req.json());
       let startsAt = body.startsAt ?? String(existing.starts_at);
       let endsAt = body.endsAt ?? String(existing.ends_at);
-      if (body.schoolDayPeriodId) {
-        const period = await requireOrgRow(client, "school_day_periods", body.schoolDayPeriodId, orgId);
-        if (!body.startsAt) startsAt = String(period.starts_at);
-        if (!body.endsAt) endsAt = String(period.ends_at);
+      const periodId = body.schoolDayPeriodId ?? String(existing.school_day_period_id ?? "");
+      if (periodId && body.customTime !== true) {
+        const period = await requireOrgRow(client, "school_day_periods", periodId, orgId);
+        startsAt = String(period.starts_at);
+        endsAt = String(period.ends_at);
       }
       if (body.academicYearId) await requireOrgRow(client, "academic_years", body.academicYearId, orgId);
       if (body.termId) await requireOrgRow(client, "terms", body.termId, orgId);
@@ -710,8 +772,11 @@ export function registerTimetableRoutes(app: SchoolappApi) {
         PERMISSIONS.TIMETABLE_READ_ASSIGNED,
         PERMISSIONS.TIMETABLE_MANAGE,
       ]);
-      const from = c.req.query("from") ?? isoDate();
-      const to = c.req.query("to") ?? addDaysSafe(from, 6);
+      const fromQuery = c.req.query("from");
+      const weekQuery = c.req.query("week");
+      const week = isoWeekRange(weekQuery || fromQuery || isoDate());
+      const from = weekQuery || !fromQuery ? week.from : fromQuery;
+      const to = c.req.query("to") ?? (weekQuery || !fromQuery ? week.to : addDaysSafe(from, 6));
       const classId = c.req.query("classId");
       const staffProfileId = c.req.query("staffProfileId");
       const roomId = c.req.query("roomId");
@@ -750,6 +815,7 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       return c.json({
         from,
         to,
+        weekCommencing: startOfIsoWeek(from),
         occurrences: visible.map((item) => mapTimetableOccurrence(item)),
       });
     }),
@@ -1041,6 +1107,56 @@ export function registerTimetableRoutes(app: SchoolappApi) {
   );
 }
 
+async function friendlyTimetableConflict(
+  client: Parameters<typeof requireOrgRow>[0],
+  orgId: string,
+  error: unknown,
+): Promise<never> {
+  const appError = error instanceof AppError ? error : pgErrorToAppError(error);
+  if (!(appError instanceof AppError) || appError.code !== "conflict" || !appError.details?.conflicts?.length) {
+    throw appError ?? error;
+  }
+  const conflicts = [...appError.details.conflicts];
+  for (const conflict of conflicts) {
+    if (conflict.kind === "class" && (conflict.classId || conflict.entryId)) {
+      const row = conflict.classId
+        ? await client.query<{ name: string }>(
+            "select name from classes where id = $1 and organisation_id = $2",
+            [conflict.classId, orgId],
+          )
+        : await client.query<{ name: string }>(
+            `select c.name from timetable_entries te
+             join classes c on c.id = te.class_id
+             where te.id = $1 and te.organisation_id = $2`,
+            [conflict.entryId, orgId],
+          );
+      if (row.rows[0]) {
+        (conflict as { className?: string }).className = row.rows[0].name;
+      }
+    }
+    if (conflict.kind === "teacher" && conflict.staffProfileId) {
+      const row = await client.query<{ full_name: string }>(
+        `select u.full_name
+         from staff_profiles sp
+         join users u on u.id = sp.user_id
+         where sp.id = $1 and sp.organisation_id = $2`,
+        [conflict.staffProfileId, orgId],
+      );
+      if (row.rows[0]) {
+        (conflict as { teacherName?: string }).teacherName = row.rows[0].full_name;
+      }
+    }
+    if (conflict.kind === "room" && conflict.roomId) {
+      const row = await client.query<{ name: string }>(
+        "select name from rooms where id = $1 and organisation_id = $2",
+        [conflict.roomId, orgId],
+      );
+      if (row.rows[0]) (conflict as { roomName?: string }).roomName = row.rows[0].name;
+    }
+  }
+  throw new AppError(409, "conflict", timetableConflictMessage(conflicts), { conflicts });
+}
+
 async function insertTimetableEntry(
   client: Parameters<typeof requireOrgRow>[0],
   orgId: string,
@@ -1055,7 +1171,12 @@ async function insertTimetableEntry(
   if (body.yearGroupId) await requireOrgRow(client, "year_groups", body.yearGroupId, orgId);
   let startsAt = body.startsAt;
   let endsAt = body.endsAt;
-  if (body.schoolDayPeriodId) {
+  const customTime = body.customTime === true || !body.schoolDayPeriodId;
+  if (body.schoolDayPeriodId && !customTime) {
+    const period = await requireOrgRow(client, "school_day_periods", body.schoolDayPeriodId, orgId);
+    startsAt = String(period.starts_at);
+    endsAt = String(period.ends_at);
+  } else if (body.schoolDayPeriodId) {
     const period = await requireOrgRow(client, "school_day_periods", body.schoolDayPeriodId, orgId);
     startsAt = startsAt ?? String(period.starts_at);
     endsAt = endsAt ?? String(period.ends_at);
@@ -1063,35 +1184,42 @@ async function insertTimetableEntry(
   if (!startsAt || !endsAt) {
     throw new AppError(400, "validation_failed", "Start and end times are required");
   }
-  const inserted = await client.query<{ id: string }>(
-    `insert into timetable_entries (
-       organisation_id, academic_year_id, term_id, school_day_period_id, weekday,
-       starts_at, ends_at, class_id, year_group_id, subject_id, room_id, lesson_type,
-       is_active, effective_from, effective_until, staff_notes, created_by
-     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
-     returning id`,
-    [
-      orgId,
-      body.academicYearId,
-      body.termId ?? null,
-      body.schoolDayPeriodId ?? null,
-      body.weekday,
-      startsAt,
-      endsAt,
-      body.classId,
-      body.yearGroupId ?? null,
-      body.subjectId ?? null,
-      body.roomId ?? null,
-      body.lessonType ?? "lesson",
-      body.isActive ?? true,
-      body.effectiveFrom,
-      body.effectiveUntil ?? null,
-      body.staffNotes ?? null,
-      userId,
-    ],
-  );
-  await insertTeachers(client, orgId, inserted.rows[0]!.id, body.teachers);
-  return mapTimetableEntry(await loadEntryRow(client, orgId, inserted.rows[0]!.id));
+  await client.query("savepoint timetable_entry_write");
+  try {
+    const inserted = await client.query<{ id: string }>(
+      `insert into timetable_entries (
+         organisation_id, academic_year_id, term_id, school_day_period_id, weekday,
+         starts_at, ends_at, class_id, year_group_id, subject_id, room_id, lesson_type,
+         is_active, effective_from, effective_until, staff_notes, created_by
+       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+       returning id`,
+      [
+        orgId,
+        body.academicYearId,
+        body.termId ?? null,
+        body.schoolDayPeriodId ?? null,
+        body.weekday,
+        startsAt,
+        endsAt,
+        body.classId,
+        body.yearGroupId ?? null,
+        body.subjectId ?? null,
+        body.roomId ?? null,
+        body.lessonType ?? "lesson",
+        body.isActive ?? true,
+        body.effectiveFrom,
+        body.effectiveUntil ?? null,
+        body.staffNotes ?? null,
+        userId,
+      ],
+    );
+    await insertTeachers(client, orgId, inserted.rows[0]!.id, body.teachers);
+    await client.query("release savepoint timetable_entry_write");
+    return mapTimetableEntry(await loadEntryRow(client, orgId, inserted.rows[0]!.id));
+  } catch (error) {
+    await client.query("rollback to savepoint timetable_entry_write");
+    return await friendlyTimetableConflict(client, orgId, error);
+  }
 }
 
 async function insertTeachers(

@@ -358,6 +358,9 @@ export function registerAcademicRoutes(app: SchoolappApi) {
       assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
       const parsed = yearGroupSchema.safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid year group payload");
+      if (parsed.data.studentLoginEnabled !== undefined) {
+        assertPermission(actor, PERMISSIONS.STUDENTS_PORTAL_ACCESS_MANAGE);
+      }
       const inserted = await client.query(
         `insert into year_groups (organisation_id, code, name, student_login_enabled, sort_order, origin)
          values ($1, $2, $3, $4, coalesce((select year_group_code_rank($2)), 0), 'custom')
@@ -419,6 +422,9 @@ export function registerAcademicRoutes(app: SchoolappApi) {
       assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
       const parsed = yearGroupSchema.partial().safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid year group payload");
+      if (parsed.data.studentLoginEnabled !== undefined) {
+        assertPermission(actor, PERMISSIONS.STUDENTS_PORTAL_ACCESS_MANAGE);
+      }
       const existing = await client.query(
         `select id, code, name, key_stage, sort_order, student_login_enabled, status, origin
          from year_groups where id = $1 and organisation_id = $2`,

@@ -269,7 +269,7 @@ describe("Phase 7 teaching and learning", () => {
         targets: [{ targetType: "class", classId: seededA.classBId }],
       }),
     });
-    expect(foreign.status).toBe(404);
+    expect(foreign.status).toBe(403);
 
     const yearGroup = await app.request("/api/v1/learning/assignments", {
       method: "POST",

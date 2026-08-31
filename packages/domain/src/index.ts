@@ -339,6 +339,11 @@ export {
 } from "./school-settings-access.js";
 
 export {
+  STUDENT_PORTAL_POLICY_MANAGE_PERMISSIONS,
+  canManageStudentPortalPolicy,
+} from "./portal-policy-access.js";
+
+export {
   PUPIL_RECORD_TABS,
   describeEnrolmentChange,
   enrolmentFormInitialState,

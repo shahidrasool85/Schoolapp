@@ -35,7 +35,7 @@ export {
   auditAdmissions,
 } from "./admissions.js";
 
-export { AppError, pgErrorToAppError, type AppErrorDetails } from "./errors.js";
+export { AppError, pgErrorToAppError, timetableConflictMessage, type AppErrorDetails, type TimetableConflictDetail } from "./errors.js";
 
 export {
   normalizePlatformDomain,
@@ -151,6 +151,7 @@ export {
   isScoreInRange,
   summariseLearningProgress,
   isLearningVisibleToPupil,
+  isLearningAssignedForNotification,
   studentLearningBuckets,
   parentLearningStatus,
   learningNotificationBody,
@@ -177,7 +178,11 @@ export {
   assertCanTargetClass,
   assertCanTargetStudent,
   assertCanTargetYearGroup,
+  assertCanSetIntendedYearGroup,
+  assertCanAssignSubject,
   loadAuthorisedLearningClassIds,
+  loadAuthorisedLearningYearGroupIds,
+  loadAuthorisedLearningSubjectIds,
   loadAuthorisedLearningStudentIds,
   assertCanReadAssignment,
   assertCanManageAssignment,
@@ -190,6 +195,17 @@ export {
   buildLearningResourceKey,
   buildSubmissionAttachmentKey,
 } from "./learning-access.js";
+
+export {
+  loadTeacherAcademicScope,
+  loadScopedTeachingClasses,
+  actorHasSchoolWideTeachingScope,
+  assertClassInTeacherScope,
+  assertYearGroupInTeacherScope,
+  assertSubjectInTeacherScope,
+  allowedSubjectIdsForClasses,
+  type TeacherAcademicScope,
+} from "./teacher-scope.js";
 
 export {
   isFormalAssessmentStatus,
@@ -481,6 +497,11 @@ export {
   dateWindowsOverlap,
   dateInRange,
   startOfIsoWeek,
+  isoWeekRange,
+  firstWeekdayOnOrAfter,
+  formatUkLongDate,
+  formatUkTimeRange,
+  recurringLessonSavedMessage,
   weekdayLabel,
   occurrenceStatusFromException,
   inferAttendanceSessionKey,
@@ -514,6 +535,7 @@ export {
   loadTermWindows,
   dateIsSchoolDate,
   resolveTimetableOccurrences,
+  firstTimetableOccurrence,
   resolveAttendanceRegisterTarget,
   loadStudentClassIdsAsOf,
   loadStudentClassMembershipsOverlapping,

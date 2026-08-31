@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { Alert, EmptyState, FilterBar, PageHeader, StatusBadge } from "../../../../components/ui";
 import { api } from "../../../../lib/api";
+import { isoWeekRange, startOfIsoWeek } from "../../../../lib/dates";
 import { userFacingError } from "../../../../lib/errors";
 
 type Occurrence = {
@@ -24,15 +25,15 @@ type Occurrence = {
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 export default function MyTimetablePage() {
-  const [from, setFrom] = useState("2026-09-07");
+  const [from, setFrom] = useState(() => startOfIsoWeek("2026-09-07"));
   const [items, setItems] = useState<Occurrence[]>([]);
   const [error, setError] = useState("");
   const [registerError, setRegisterError] = useState("");
 
   async function load(nextFrom = from) {
-    const to = addDays(nextFrom, 6);
+    const week = isoWeekRange(nextFrom);
     const body = await api<{ occurrences: Occurrence[] }>(
-      `/api/v1/timetable/occurrences?from=${nextFrom}&to=${to}&mine=true&includeCancelled=true`,
+      `/api/v1/timetable/occurrences?week=${week.from}&from=${week.from}&to=${week.to}&mine=true&includeCancelled=true`,
     );
     setItems(body.occurrences);
   }
@@ -61,8 +62,13 @@ export default function MyTimetablePage() {
         actions={<button type="submit">Show week</button>}
       >
         <label htmlFor="timetable-week">
-          Week starting
-          <input id="timetable-week" type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+          Week commencing
+          <input
+            id="timetable-week"
+            type="date"
+            value={from}
+            onChange={(event) => setFrom(startOfIsoWeek(event.target.value))}
+          />
         </label>
       </FilterBar>
       {error ? <Alert tone="danger">{error}</Alert> : null}
@@ -125,10 +131,4 @@ export default function MyTimetablePage() {
       )}
     </>
   );
-}
-
-function addDays(iso: string, days: number): string {
-  const date = new Date(`${iso}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
 }

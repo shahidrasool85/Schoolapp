@@ -7,6 +7,7 @@ import {
   dateInRange,
   inferAttendanceSessionKey,
   isoWeekdayFromDate,
+  firstWeekdayOnOrAfter,
   type ResolvedOccurrenceStatus,
 } from "./timetable.js";
 
@@ -330,13 +331,20 @@ export function dateIsSchoolDate(
   terms: Array<{ id: string; startsOn: string; endsOn: string }>,
   termId: string | null,
   closures: ClosureDateSet,
+  academicYear?: { startsOn: string; endsOn: string } | null,
 ): boolean {
   if (closures.has(date)) return false;
   if (termId) {
     const term = terms.find((item) => item.id === termId);
     return Boolean(term && dateInRange(date, term.startsOn, term.endsOn));
   }
-  return terms.some((term) => dateInRange(date, term.startsOn, term.endsOn));
+  if (terms.length > 0) {
+    return terms.some((term) => dateInRange(date, term.startsOn, term.endsOn));
+  }
+  if (academicYear) {
+    return dateInRange(date, academicYear.startsOn, academicYear.endsOn);
+  }
+  return true;
 }
 
 export type OccurrenceTeacher = {
@@ -426,12 +434,32 @@ export async function resolveTimetableOccurrences(
     (
       await client.query<{ id: string }>(
         `select id from academic_years
+         where organisation_id = $1
+           and status = 'active'
+           and starts_on <= $2::date
+           and ends_on >= $2::date
+         order by is_current desc, starts_on desc
+         limit 1`,
+        [input.organisationId, input.from],
+      )
+    ).rows[0]?.id ??
+    (
+      await client.query<{ id: string }>(
+        `select id from academic_years
          where organisation_id = $1 and is_current
          limit 1`,
         [input.organisationId],
       )
     ).rows[0]?.id;
   if (!year) return [];
+
+  const yearWindow = await client.query<{ starts_on: string; ends_on: string }>(
+    `select starts_on::text, ends_on::text from academic_years where id = $1 and organisation_id = $2`,
+    [year, input.organisationId],
+  );
+  const academicYear = yearWindow.rows[0]
+    ? { startsOn: yearWindow.rows[0].starts_on, endsOn: yearWindow.rows[0].ends_on }
+    : null;
 
   const terms = await loadTermWindows(client, input.organisationId, year);
   const closures = await loadSchoolClosureDates(client, input.organisationId, input.from, input.to);
@@ -613,7 +641,7 @@ export async function resolveTimetableOccurrences(
       if (
         isoWeekdayFromDate(cursor) === entry.weekday &&
         dateInRange(cursor, entry.effective_from, entry.effective_until) &&
-        dateIsSchoolDate(cursor, terms, entry.term_id ?? input.termId ?? null, closures)
+        dateIsSchoolDate(cursor, terms, entry.term_id ?? input.termId ?? null, closures, academicYear)
       ) {
         const dayExceptions = exceptions.rows.filter(
           (item) => item.timetable_entry_id === entry.id && item.exception_date === cursor,
@@ -706,6 +734,54 @@ export async function resolveTimetableOccurrences(
 
   out.sort((a, b) => a.date.localeCompare(b.date) || a.startsAt.localeCompare(b.startsAt) || a.className.localeCompare(b.className));
   return out;
+}
+
+export async function firstTimetableOccurrence(
+  client: pg.PoolClient,
+  organisationId: string,
+  entry: {
+    academicYearId: string;
+    termId: string | null;
+    weekday: number;
+    effectiveFrom: string;
+    effectiveUntil: string | null;
+    startsAt: string;
+    endsAt: string;
+  },
+): Promise<{ date: string; weekday: number; startsAt: string; endsAt: string } | null> {
+  const yearWindow = await client.query<{ starts_on: string; ends_on: string }>(
+    `select starts_on::text, ends_on::text from academic_years
+     where id = $1 and organisation_id = $2`,
+    [entry.academicYearId, organisationId],
+  );
+  const academicYear = yearWindow.rows[0]
+    ? { startsOn: yearWindow.rows[0].starts_on, endsOn: yearWindow.rows[0].ends_on }
+    : null;
+  const searchTo = entry.effectiveUntil ?? academicYear?.endsOn ?? addDaysSafeLocal(entry.effectiveFrom, 120);
+  const terms = await loadTermWindows(client, organisationId, entry.academicYearId);
+  const closures = await loadSchoolClosureDates(client, organisationId, entry.effectiveFrom, searchTo);
+  let cursor = firstWeekdayOnOrAfter(entry.weekday, entry.effectiveFrom);
+  while (cursor <= searchTo) {
+    if (
+      dateInRange(cursor, entry.effectiveFrom, entry.effectiveUntil) &&
+      dateIsSchoolDate(cursor, terms, entry.termId, closures, academicYear)
+    ) {
+      return {
+        date: cursor,
+        weekday: entry.weekday,
+        startsAt: entry.startsAt,
+        endsAt: entry.endsAt,
+      };
+    }
+    cursor = addDaysSafeLocal(cursor, 7);
+  }
+  return null;
+}
+
+function addDaysSafeLocal(isoDate: string, days: number): string {
+  const date = new Date(`${isoDate}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }
 
 function nextDate(isoDate: string): string {

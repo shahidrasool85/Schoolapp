@@ -4,9 +4,12 @@ import {
   dateInRange,
   dateWindowsOverlap,
   eachDateInclusive,
+  firstWeekdayOnOrAfter,
   inferAttendanceSessionKey,
   isoWeekdayFromDate,
+  isoWeekRange,
   occurrenceStatusFromException,
+  recurringLessonSavedMessage,
   startOfIsoWeek,
   timesOverlap,
   weekdayLabel,
@@ -19,6 +22,7 @@ describe("timetable date helpers", () => {
     expect(isoWeekdayFromDate("2026-09-11")).toBe(5);
     expect(isoWeekdayFromDate("2026-09-13")).toBe(7);
     expect(startOfIsoWeek("2026-09-09")).toBe("2026-09-07");
+    expect(startOfIsoWeek("2026-09-03")).toBe("2026-08-31");
     expect(weekdayLabel(1)).toBe("Monday");
   });
 
@@ -40,12 +44,31 @@ describe("timetable date helpers", () => {
     expect(dateInRange("2026-12-19", "2026-09-01", "2026-12-18")).toBe(false);
   });
 
+  it("normalizes mid-week dates to Monday–Sunday and finds the first matching weekday", () => {
+    expect(isoWeekRange("2026-09-03")).toEqual({ from: "2026-08-31", to: "2026-09-06" });
+    expect(firstWeekdayOnOrAfter(1, "2026-09-03")).toBe("2026-09-07");
+    expect(firstWeekdayOnOrAfter(4, "2026-09-03")).toBe("2026-09-03");
+    expect(
+      recurringLessonSavedMessage({
+        date: "2026-09-07",
+        startsAt: "09:00:00",
+        endsAt: "11:00:00",
+      }),
+    ).toBe("Recurring lesson saved. First lesson: Monday 7 September, 09:00–11:00.");
+  });
+
   it("keeps lessons inside terms and outside closures", () => {
     const terms = [{ id: "autumn", startsOn: "2026-09-01", endsOn: "2026-12-18" }];
     expect(dateIsSchoolDate("2026-09-07", terms, null, new Set())).toBe(true);
     expect(dateIsSchoolDate("2026-12-20", terms, null, new Set())).toBe(false);
     expect(dateIsSchoolDate("2026-09-07", terms, null, new Set(["2026-09-07"]))).toBe(false);
     expect(dateIsSchoolDate("2026-09-07", terms, "spring", new Set())).toBe(false);
+  });
+
+  it("falls back to the academic year when no terms exist", () => {
+    const year = { startsOn: "2026-09-01", endsOn: "2027-07-31" };
+    expect(dateIsSchoolDate("2026-09-07", [], null, new Set(), year)).toBe(true);
+    expect(dateIsSchoolDate("2026-08-20", [], null, new Set(), year)).toBe(false);
   });
 
   it("maps exceptions and attendance session inference", () => {

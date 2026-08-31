@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   isAllowedLearningUrl,
   isAssignmentStatusTransitionAllowed,
+  isLearningAssignedForNotification,
+  isLearningVisibleToPupil,
   isScoreInRange,
   isSubmissionStatusTransitionAllowed,
   learningNotificationBody,
@@ -105,7 +107,25 @@ describe("learning visibility buckets", () => {
     ).toEqual(["submitted", "returned", "completed"]);
   });
 
+  it("keeps published assigned work visible even when availableFrom is in the future", () => {
+    const now = new Date("2026-08-31T12:00:00.000Z");
+    const input = {
+      assignmentStatus: "published" as const,
+      availableFrom: "2026-09-07T09:00:00.000Z",
+      dueAt: "2026-09-10T09:00:00.000Z",
+      submissionStatus: null,
+      releasedToStudent: false,
+      now,
+    };
+    expect(isLearningVisibleToPupil(input)).toBe(true);
+    expect(isLearningAssignedForNotification(input)).toBe(isLearningVisibleToPupil(input));
+    expect(studentLearningBuckets(input)).toContain("assigned");
+    expect(pupilCanWriteOnAssignment("published", "not_started", "submit", input.availableFrom, now)).toBe(false);
+    expect(pupilCanWriteOnAssignment("published", "not_started", "submit", null, now)).toBe(true);
+  });
+
   it("keeps unreleased feedback out of the returned and completed buckets", () => {
+    const now = new Date("2026-09-10T12:00:00.000Z");
     expect(
       studentLearningBuckets({
         assignmentStatus: "published",

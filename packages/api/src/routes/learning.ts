@@ -10,6 +10,8 @@ import {
   assertCanTargetClass,
   assertCanTargetStudent,
   assertCanTargetYearGroup,
+  assertCanSetIntendedYearGroup,
+  assertCanAssignSubject,
   canManageSchoolLearning,
   canMarkAssignedLearning,
   canMarkSchoolLearning,
@@ -21,6 +23,8 @@ import {
   LMS_READ_SUBMISSION_PERMISSIONS,
   LMS_READ_WORK_PERMISSIONS,
   loadAuthorisedLearningClassIds,
+  loadAuthorisedLearningYearGroupIds,
+  loadAuthorisedLearningSubjectIds,
   canSeeLearningRecipient,
   notifyLearningAssigned,
   notifyLearningFeedback,
@@ -307,36 +311,49 @@ export function registerLearningRoutes(app: SchoolappApi) {
            where organisation_id = $1 order by sort_order`,
           [orgId],
         ),
-        client.query(`select id, name from subjects where organisation_id = $1 order by name`, [orgId]),
+        client.query(`select id, name from subjects where organisation_id = $1 and status = 'active' order by name`, [
+          orgId,
+        ]),
         client.query(
           `select id, name, is_current from academic_years where organisation_id = $1 order by starts_on desc`,
           [orgId],
         ),
-        client.query(`select id, code, name from year_groups where organisation_id = $1 order by sort_order`, [
-          orgId,
-        ]),
         client.query(
-          `select c.id, c.name, c.class_type, yg.name as year_group_name, c.academic_year_id
+          `select id, code, name from year_groups where organisation_id = $1 and status = 'active' order by sort_order`,
+          [orgId],
+        ),
+        client.query(
+          `select c.id, c.name, c.class_type, c.year_group_id, yg.name as year_group_name, c.academic_year_id
            from classes c
            left join year_groups yg on yg.id = c.year_group_id
            where c.organisation_id = $1
+             and c.status = 'active'
            order by c.name`,
           [orgId],
         ),
       ]);
       const authorisedClasses = await loadAuthorisedLearningClassIds(client, actor);
+      const authorisedYearGroups = await loadAuthorisedLearningYearGroupIds(client, actor);
+      const authorisedSubjects = await loadAuthorisedLearningSubjectIds(client, actor);
       const visibleClasses = classes.rows.filter(
         (row) => authorisedClasses === null || authorisedClasses.has(String(row.id)),
       );
+      const visibleYearGroups = yearGroups.rows.filter(
+        (row) => authorisedYearGroups === null || authorisedYearGroups.has(String(row.id)),
+      );
+      const visibleSubjects = subjects.rows.filter(
+        (row) => authorisedSubjects === null || authorisedSubjects.has(String(row.id)),
+      );
       return c.json({
         workTypes: workTypes.rows.map((row) => mapLearningWorkType(row as Record<string, unknown>)),
-        subjects: subjects.rows.map((row) => ({ id: row.id, name: row.name })),
+        subjects: visibleSubjects.map((row) => ({ id: row.id, name: row.name })),
         academicYears: years.rows,
-        yearGroups: yearGroups.rows,
+        yearGroups: visibleYearGroups,
         classes: visibleClasses.map((row) => ({
           id: row.id,
           name: row.name,
           classType: row.class_type,
+          yearGroupId: row.year_group_id,
           yearGroupName: row.year_group_name,
           academicYearId: row.academic_year_id,
         })),
@@ -405,12 +422,20 @@ export function registerLearningRoutes(app: SchoolappApi) {
         academicYearId = current.rows[0]?.id ?? null;
       }
       if (!academicYearId) throw new AppError(400, "validation_failed", "An academic year is required");
+      const targetClassIds =
+        parsed.data.targets?.filter((target) => target.targetType === "class" && target.classId).map((target) => target.classId!) ??
+        [];
+      for (const classId of targetClassIds) {
+        await assertCanTargetClass(client, actor, classId);
+      }
       if (parsed.data.subjectId) {
-        const subject = await client.query(
-          "select 1 from subjects where id = $1 and organisation_id = $2",
-          [parsed.data.subjectId, orgId],
-        );
-        if (!subject.rows[0]) throw new AppError(404, "not_found", "Not found");
+        await assertCanAssignSubject(client, actor, parsed.data.subjectId, {
+          academicYearId,
+          classIds: targetClassIds,
+        });
+      }
+      if (parsed.data.intendedYearGroupId) {
+        await assertCanSetIntendedYearGroup(client, actor, parsed.data.intendedYearGroupId, targetClassIds);
       }
       const created = await client.query<{ id: string }>(
         `insert into learning_assignments (
@@ -508,6 +533,27 @@ export function registerLearningRoutes(app: SchoolappApi) {
           : String(existing.work_type_id);
       if (existing.status !== "draft" && workTypeId !== String(existing.work_type_id)) {
         throw new AppError(409, "conflict", "Work type can only be changed while the assignment is a draft");
+      }
+      const patchTargetClassIds =
+        parsed.data.targets?.filter((target) => target.targetType === "class" && target.classId).map((target) => target.classId!) ??
+        [];
+      for (const classId of patchTargetClassIds) {
+        await assertCanTargetClass(client, actor, classId);
+      }
+      const subjectClassIds =
+        parsed.data.targets !== undefined
+          ? patchTargetClassIds
+          : (await loadTargets(client, orgId, id))
+              .map((target) => target.classId)
+              .filter((classId): classId is string => Boolean(classId));
+      if (parsed.data.subjectId) {
+        await assertCanAssignSubject(client, actor, parsed.data.subjectId, {
+          academicYearId: String(existing.academic_year_id),
+          classIds: subjectClassIds,
+        });
+      }
+      if (parsed.data.intendedYearGroupId) {
+        await assertCanSetIntendedYearGroup(client, actor, parsed.data.intendedYearGroupId, patchTargetClassIds);
       }
       const updated = await client.query(
         `update learning_assignments set

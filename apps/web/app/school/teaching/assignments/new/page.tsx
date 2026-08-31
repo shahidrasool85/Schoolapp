@@ -94,6 +94,11 @@ export default function NewAssignmentPage() {
             {ctx.yearGroups.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
           </select>
         </label>
+        <p className="muted span-2">
+          Classes, year groups and subjects listed here are limited to classes you are assigned
+          to teach and the subjects attached to those classes. Work can still be created without
+          a subject. School administrators can assign work school-wide.
+        </p>
         <label>Due date/time<input name="dueAt" type="datetime-local" /></label>
         <label>Available from<input name="availableFrom" type="datetime-local" /></label>
         <label>Estimated minutes<input name="estimatedDurationMinutes" type="number" min={1} /></label>

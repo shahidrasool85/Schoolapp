@@ -5,6 +5,7 @@ import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
 import { EmptyState } from "../../../../components/ui";
 import { SetupReturnBanner } from "../../../../components/setup-return-banner";
 import { api } from "../../../../lib/api";
+import { usePermissions } from "../../../../lib/use-permissions";
 
 type Room = {
   id: string;
@@ -20,6 +21,8 @@ type Room = {
 export default function RoomsPage() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [error, setError] = useState("");
+  const permissions = usePermissions();
+  const canManage = permissions.has("timetable.rooms.manage");
 
   async function load() {
     const body = await api<{ rooms: Room[] }>("/api/v1/timetable/rooms");
@@ -53,6 +56,7 @@ export default function RoomsPage() {
     <>
       <SetupReturnBanner />
       <h1>Rooms</h1>
+      {!permissions.ready ? null : canManage ? (
       <form className="card form-grid" onSubmit={onSubmit}>
         <label>
           Name
@@ -85,6 +89,12 @@ export default function RoomsPage() {
           <button type="submit">Add room</button>
         </div>
       </form>
+      ) : (
+        <p className="muted">
+          Room master data is managed by school administration. You can view active rooms used for
+          timetabling.
+        </p>
+      )}
       {error ? <p className="error">{error}</p> : null}
       {rooms.length === 0 ? (
         <EmptyState title="No rooms yet" description="Add teaching rooms so timetable lessons can be placed." />

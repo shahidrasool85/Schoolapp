@@ -23,6 +23,7 @@ import {
   type AcademicStatus,
 } from "../../../lib/academic-lifecycle";
 import { userFacingError } from "../../../lib/errors";
+import { usePermissions } from "../../../lib/use-permissions";
 
 type YearGroup = {
   id: string;
@@ -35,6 +36,8 @@ type YearGroup = {
 };
 
 export default function YearGroupsPage() {
+  const permissions = usePermissions();
+  const canManagePortal = permissions.has("students.portal_access.manage");
   const [groups, setGroups] = useState<YearGroup[]>([]);
   const [maxCode, setMaxCode] = useState("8");
   const [error, setError] = useState("");
@@ -87,7 +90,7 @@ export default function YearGroupsPage() {
         body: JSON.stringify({
           code: form.get("code"),
           name: form.get("name") || undefined,
-          studentLoginEnabled: form.get("studentLoginEnabled") === "on",
+          ...(canManagePortal ? { studentLoginEnabled: form.get("studentLoginEnabled") === "on" } : {}),
         }),
       });
       resetFormSafely(formEl);
@@ -192,10 +195,12 @@ export default function YearGroupsPage() {
           <FormField label="Name">
             <Input name="name" placeholder="Year 6" />
           </FormField>
-          <label className="checkbox-row">
-            <input name="studentLoginEnabled" type="checkbox" />
-            <span>Student login</span>
-          </label>
+          {canManagePortal ? (
+            <label className="checkbox-row">
+              <input name="studentLoginEnabled" type="checkbox" />
+              <span>Student login</span>
+            </label>
+          ) : null}
         </div>
         <div className="academic-create-actions">
           <Button type="submit">Add year group</Button>
@@ -241,13 +246,15 @@ export default function YearGroupsPage() {
                           <Button type="button" variant="secondary" onClick={() => setEditing(row)}>
                             Edit
                           </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            onClick={() => toggleLogin(row.id, row.studentLoginEnabled)}
-                          >
-                            Toggle login
-                          </Button>
+                          {canManagePortal ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              onClick={() => toggleLogin(row.id, row.studentLoginEnabled)}
+                            >
+                              Toggle login
+                            </Button>
+                          ) : null}
                           <Button type="button" variant="ghost" onClick={() => openLifecycle(row, "delete")}>
                             {row.origin === "system" ? "Archive" : "Archive/Delete"}
                           </Button>

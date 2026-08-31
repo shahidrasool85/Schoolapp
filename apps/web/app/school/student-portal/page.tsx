@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { EmptyState } from "../../../components/ui";
+import { RequirePermission } from "../../../components/require-permission";
 import { SetupReturnBanner } from "../../../components/setup-return-banner";
 import { api } from "../../../lib/api";
 
@@ -14,6 +15,14 @@ type YearGroup = {
 };
 
 export default function StudentPortalPolicyPage() {
+  return (
+    <RequirePermission anyOf={["students.portal_access.manage"]}>
+      <StudentPortalPolicyBody />
+    </RequirePermission>
+  );
+}
+
+function StudentPortalPolicyBody() {
   const [defaultEnabled, setDefaultEnabled] = useState(false);
   const [yearGroups, setYearGroups] = useState<YearGroup[]>([]);
   const [error, setError] = useState("");

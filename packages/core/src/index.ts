@@ -151,6 +151,7 @@ export {
   isScoreInRange,
   summariseLearningProgress,
   isLearningVisibleToPupil,
+  isLearningAssignedForNotification,
   studentLearningBuckets,
   parentLearningStatus,
   learningNotificationBody,
@@ -177,7 +178,11 @@ export {
   assertCanTargetClass,
   assertCanTargetStudent,
   assertCanTargetYearGroup,
+  assertCanSetIntendedYearGroup,
+  assertCanAssignSubject,
   loadAuthorisedLearningClassIds,
+  loadAuthorisedLearningYearGroupIds,
+  loadAuthorisedLearningSubjectIds,
   loadAuthorisedLearningStudentIds,
   assertCanReadAssignment,
   assertCanManageAssignment,
@@ -190,6 +195,16 @@ export {
   buildLearningResourceKey,
   buildSubmissionAttachmentKey,
 } from "./learning-access.js";
+
+export {
+  loadTeacherAcademicScope,
+  loadScopedTeachingClasses,
+  actorHasSchoolWideTeachingScope,
+  assertClassInTeacherScope,
+  assertYearGroupInTeacherScope,
+  assertSubjectInTeacherScope,
+  type TeacherAcademicScope,
+} from "./teacher-scope.js";
 
 export {
   isFormalAssessmentStatus,
@@ -481,6 +496,11 @@ export {
   dateWindowsOverlap,
   dateInRange,
   startOfIsoWeek,
+  isoWeekRange,
+  firstWeekdayOnOrAfter,
+  formatUkLongDate,
+  formatUkTimeRange,
+  recurringLessonSavedMessage,
   weekdayLabel,
   occurrenceStatusFromException,
   inferAttendanceSessionKey,
@@ -514,6 +534,7 @@ export {
   loadTermWindows,
   dateIsSchoolDate,
   resolveTimetableOccurrences,
+  firstTimetableOccurrence,
   resolveAttendanceRegisterTarget,
   loadStudentClassIdsAsOf,
   loadStudentClassMembershipsOverlapping,

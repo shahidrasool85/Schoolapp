@@ -3,8 +3,11 @@ export type TimetableConflictDetail = {
   message: string;
   entryId?: string;
   classId?: string;
+  className?: string;
   roomId?: string;
+  roomName?: string;
   staffProfileId?: string;
+  teacherName?: string;
 };
 
 export type AppErrorDetails = {

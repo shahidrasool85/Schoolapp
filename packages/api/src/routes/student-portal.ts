@@ -69,9 +69,6 @@ export function registerStudentPortalRoutes(app: SchoolappApi) {
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertAnyPermission(actor, [
         PERMISSIONS.STUDENTS_PORTAL_ACCESS_MANAGE,
-        PERMISSIONS.ORG_SETTINGS_MANAGE,
-        PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE,
-        PERMISSIONS.ACADEMIC_STRUCTURE_READ,
       ]);
       await client.query("select ensure_organisation_phase6_defaults($1)", [orgId]);
       const policy = await client.query<{ default_enabled: boolean; updated_at: string }>(

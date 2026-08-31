@@ -1310,6 +1310,7 @@ export function mapSchoolDayPeriod(row: Record<string, unknown>) {
     endsAt: row.ends_at,
     sortOrder: row.sort_order,
     attendanceSessionTypeId: row.attendance_session_type_id ?? null,
+    isActive: row.is_active !== false,
   };
 }
 

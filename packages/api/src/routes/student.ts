@@ -13,6 +13,7 @@ import {
   STUDENT_DASHBOARD_SECTIONS,
   summariseAttendanceMarks,
   isoDate,
+  isoWeekRange,
   listCalendarActivities,
   loadEffectiveEngagementPolicy,
   loadPupilYearGroupId,
@@ -200,8 +201,12 @@ export function registerStudentRoutes(app: SchoolappApi) {
         })
         .safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid submission");
-      const assignment = await client.query<{ status: string; submission_required: boolean }>(
-        "select status, submission_required from learning_assignments where id = $1 and organisation_id = $2",
+      const assignment = await client.query<{
+        status: string;
+        submission_required: boolean;
+        available_from: Date | string | null;
+      }>(
+        "select status, submission_required, available_from from learning_assignments where id = $1 and organisation_id = $2",
         [assignmentId, orgId],
       );
       const assignmentStatus = assignment.rows[0]?.status ?? "";
@@ -220,7 +225,12 @@ export function registerStudentRoutes(app: SchoolappApi) {
       const current = existing.rows[0] ?? (await ensurePupilSubmission(client, orgId, assignmentId, studentProfileId));
       if (
         !isLearningSubmissionStatus(current.status) ||
-        !pupilCanWriteOnAssignment(assignmentStatus, current.status, submit ? "submit" : "save")
+        !pupilCanWriteOnAssignment(
+          assignmentStatus,
+          current.status,
+          submit ? "submit" : "save",
+          assignment.rows[0]?.available_from ?? null,
+        )
       ) {
         throw new AppError(
           409,
@@ -545,12 +555,14 @@ export function registerStudentRoutes(app: SchoolappApi) {
       if (requestedStudentId && requestedStudentId !== studentProfileId) {
         throw new AppError(404, "not_found", "Not found");
       }
-      const from = c.req.query("from") ?? isoDate();
-      const to = c.req.query("to") ?? addDaysSafe(from, 6);
+      const week = isoWeekRange(c.req.query("week") || c.req.query("from") || isoDate());
+      const from = week.from;
+      const to = week.to;
       const lessons = await listPupilTimetable(client, orgId, studentProfileId, from, to);
       return c.json({
         from,
         to,
+        weekCommencing: from,
         occurrences: lessons.map((item) => mapTimetableOccurrence(item, { includeInternal: false })),
       });
     }),

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { api, ApiError } from "../../../../../lib/api";
+import { isoWeekRange, startOfIsoWeek } from "../../../../../lib/dates";
 
 type Occurrence = {
   date: string;
@@ -22,15 +23,15 @@ const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
 
 export default function ParentChildTimetablePage() {
   const params = useParams<{ id: string }>();
-  const [from, setFrom] = useState("2026-09-07");
+  const [from, setFrom] = useState(() => startOfIsoWeek("2026-09-07"));
   const [items, setItems] = useState<Occurrence[]>([]);
   const [error, setError] = useState("");
 
   async function load(nextFrom = from) {
     if (!params.id) return;
-    const to = addDays(nextFrom, 6);
+    const week = isoWeekRange(nextFrom);
     const body = await api<{ occurrences: Occurrence[] }>(
-      `/api/v1/parent/children/${params.id}/timetable?from=${nextFrom}&to=${to}`,
+      `/api/v1/parent/children/${params.id}/timetable?week=${week.from}&from=${week.from}`,
     );
     setItems(body.occurrences);
   }
@@ -55,8 +56,8 @@ export default function ParentChildTimetablePage() {
         }}
       >
         <label>
-          Week starting
-          <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+          Week commencing
+          <input type="date" value={from} onChange={(event) => setFrom(startOfIsoWeek(event.target.value))} />
         </label>
         <button type="submit">Show week</button>
       </form>
@@ -93,10 +94,4 @@ export default function ParentChildTimetablePage() {
       ) : null}
     </>
   );
-}
-
-function addDays(iso: string, days: number): string {
-  const date = new Date(`${iso}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
 }

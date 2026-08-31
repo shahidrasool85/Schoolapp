@@ -80,9 +80,14 @@ export function pupilCanWriteOnAssignment(
   assignmentStatus: string,
   submissionStatus: LearningSubmissionStatus,
   mode: "save" | "submit",
+  availableFrom?: Date | string | null,
+  now?: Date,
 ): boolean {
   const allowedFrom = mode === "submit" ? pupilCanSubmitFrom(submissionStatus) : pupilCanSaveDraftFrom(submissionStatus);
   if (!allowedFrom) return false;
+  const available = asDate(availableFrom ?? null);
+  const current = now ?? new Date();
+  if (available && available.getTime() > current.getTime()) return false;
   if (assignmentStatus === "published") return true;
   return (
     assignmentStatus === "closed" &&
@@ -160,10 +165,12 @@ function asDate(value: Date | string | null | undefined): Date | null {
 export function isLearningVisibleToPupil(input: StudentLearningVisibilityInput): boolean {
   if (input.assignmentStatus === "draft") return false;
   if (!["published", "closed", "archived"].includes(input.assignmentStatus)) return false;
-  const now = input.now ?? new Date();
-  const availableFrom = asDate(input.availableFrom);
-  if (availableFrom && availableFrom.getTime() > now.getTime()) return false;
   return true;
+}
+
+/** Same rule as My Learning: published (or closed/archived) assigned work is visible. */
+export function isLearningAssignedForNotification(input: StudentLearningVisibilityInput): boolean {
+  return isLearningVisibleToPupil(input);
 }
 
 export function studentLearningBuckets(

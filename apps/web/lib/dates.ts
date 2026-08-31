@@ -51,3 +51,21 @@ export function displayValue(value: unknown, empty = "Not provided"): string {
   if (value == null || value === "") return empty;
   return String(value);
 }
+
+export function addIsoDays(isoDate: string, days: number): string {
+  const date = new Date(`${isoDate}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+export function startOfIsoWeek(isoDate: string): string {
+  const date = new Date(`${isoDate}T00:00:00Z`);
+  const day = date.getUTCDay();
+  const isoWeekday = day === 0 ? 7 : day;
+  return addIsoDays(isoDate, 1 - isoWeekday);
+}
+
+export function isoWeekRange(isoDate: string): { from: string; to: string } {
+  const from = startOfIsoWeek(isoDate);
+  return { from, to: addIsoDays(from, 6) };
+}

@@ -90,6 +90,40 @@ export function startOfIsoWeek(isoDate: string): string {
   return addDays(isoDate, 1 - weekday);
 }
 
+export function isoWeekRange(isoDate: string): { from: string; to: string } {
+  const from = startOfIsoWeek(isoDate);
+  return { from, to: addDays(from, 6) };
+}
+
+/** First calendar date on `weekday` on or after `effectiveFrom` (ISO dates). */
+export function firstWeekdayOnOrAfter(weekday: number, effectiveFrom: string): string {
+  const fromWeekday = isoWeekdayFromDate(effectiveFrom);
+  const delta = (weekday - fromWeekday + 7) % 7;
+  return addDays(effectiveFrom, delta);
+}
+
+export function formatUkLongDate(isoDate: string): string {
+  const date = new Date(`${isoDate}T00:00:00Z`);
+  return new Intl.DateTimeFormat("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    timeZone: "UTC",
+  }).format(date);
+}
+
+export function formatUkTimeRange(startsAt: string, endsAt: string): string {
+  return `${startsAt.slice(0, 5)}–${endsAt.slice(0, 5)}`;
+}
+
+export function recurringLessonSavedMessage(input: {
+  date: string;
+  startsAt: string;
+  endsAt: string;
+}): string {
+  return `Recurring lesson saved. First lesson: ${formatUkLongDate(input.date)}, ${formatUkTimeRange(input.startsAt, input.endsAt)}.`;
+}
+
 export function weekdayLabel(weekday: number): string {
   return ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][weekday - 1] ?? "Unknown";
 }

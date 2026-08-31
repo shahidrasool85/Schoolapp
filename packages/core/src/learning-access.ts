@@ -2,9 +2,15 @@ import { PERMISSIONS, type Actor } from "@schoolapp/domain";
 import type pg from "pg";
 import { AppError } from "./errors.js";
 import { createInboxNotification } from "./admissions.js";
-import { learningNotificationBody } from "./learning.js";
+import { isLearningAssignedForNotification, learningNotificationBody } from "./learning.js";
 import { assignedClassIds, assignedStudentIds, isAssignedToClass } from "./students-access.js";
 import { assertAnyPermission, notFound } from "./permissions.js";
+import {
+  assertClassInTeacherScope,
+  assertSubjectInTeacherScope,
+  assertYearGroupInTeacherScope,
+  loadTeacherAcademicScope,
+} from "./teacher-scope.js";
 
 export const LMS_SCHOOL_READ_PERMISSIONS = [
   PERMISSIONS.LMS_ASSIGNMENTS_READ,
@@ -112,10 +118,7 @@ export async function assertCanTargetClass(
   classId: string,
 ): Promise<void> {
   assertAnyPermission(actor, LMS_ASSIGN_PERMISSIONS);
-  if (canManageSchoolLearning(actor)) return;
-  if (!(await isAssignedToClass(client, actor.userId, actor.organisationId!, classId))) {
-    notFound();
-  }
+  await assertClassInTeacherScope(client, actor, classId);
 }
 
 export async function assertCanTargetStudent(
@@ -141,11 +144,26 @@ export async function assertCanTargetYearGroup(
       "Year-group targeting requires school-wide learning management",
     );
   }
-  const row = await client.query(
-    "select 1 from year_groups where id = $1 and organisation_id = $2",
-    [yearGroupId, actor.organisationId],
-  );
-  if (!row.rows[0]) notFound();
+  await assertYearGroupInTeacherScope(client, actor, yearGroupId);
+}
+
+export async function assertCanSetIntendedYearGroup(
+  client: pg.PoolClient,
+  actor: Actor,
+  yearGroupId: string,
+  targetClassIds: string[] = [],
+): Promise<void> {
+  await assertYearGroupInTeacherScope(client, actor, yearGroupId, {
+    allowedClassIds: targetClassIds,
+  });
+}
+
+export async function assertCanAssignSubject(
+  client: pg.PoolClient,
+  actor: Actor,
+  subjectId: string,
+): Promise<void> {
+  await assertSubjectInTeacherScope(client, actor, subjectId);
 }
 
 export async function loadAuthorisedLearningClassIds(
@@ -153,7 +171,26 @@ export async function loadAuthorisedLearningClassIds(
   actor: Actor,
 ): Promise<Set<string> | null> {
   if (canReadSchoolLearning(actor) || canManageSchoolLearning(actor)) return null;
-  return assignedClassIds(client, actor.userId, actor.organisationId!);
+  const scope = await loadTeacherAcademicScope(client, actor.userId, actor.organisationId!);
+  return scope.classIds;
+}
+
+export async function loadAuthorisedLearningYearGroupIds(
+  client: pg.PoolClient,
+  actor: Actor,
+): Promise<Set<string> | null> {
+  if (canReadSchoolLearning(actor) || canManageSchoolLearning(actor)) return null;
+  const scope = await loadTeacherAcademicScope(client, actor.userId, actor.organisationId!);
+  return scope.yearGroupIds;
+}
+
+export async function loadAuthorisedLearningSubjectIds(
+  client: pg.PoolClient,
+  actor: Actor,
+): Promise<Set<string> | null> {
+  if (canReadSchoolLearning(actor) || canManageSchoolLearning(actor)) return null;
+  const scope = await loadTeacherAcademicScope(client, actor.userId, actor.organisationId!);
+  return scope.subjectIds.size > 0 ? scope.subjectIds : null;
 }
 
 export async function loadAuthorisedLearningStudentIds(
@@ -285,8 +322,9 @@ export async function resolveTargetRecipients(
        join classes c on c.id = cm.class_id
        where cm.organisation_id = $1
          and cm.class_id = $2
+         and cm.academic_year_id = $3
          and cm.ended_on is null`,
-      [organisationId, target.classId],
+      [organisationId, target.classId, academicYearId],
     );
     return rows.rows.map((row) => ({
       studentProfileId: row.student_profile_id,
@@ -475,6 +513,28 @@ export async function notifyLearningAssigned(
     dueAt: string | null;
   },
 ): Promise<void> {
+  const assignment = await client.query<{
+    status: string;
+    available_from: Date | string | null;
+    due_at: Date | string | null;
+  }>(
+    `select status, available_from, due_at from learning_assignments
+     where id = $1 and organisation_id = $2`,
+    [input.assignmentId, input.organisationId],
+  );
+  const row = assignment.rows[0];
+  if (
+    !row ||
+    !isLearningAssignedForNotification({
+      assignmentStatus: row.status,
+      availableFrom: row.available_from,
+      dueAt: row.due_at,
+      submissionStatus: null,
+      releasedToStudent: false,
+    })
+  ) {
+    return;
+  }
   const students = await recipientUsers(client, input.organisationId, input.assignmentId);
   const parents = await parentUsersForStudents(
     client,

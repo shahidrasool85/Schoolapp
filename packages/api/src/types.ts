@@ -1,8 +1,7 @@
-import type { MailProvider } from "@schoolapp/core";
+import type { EmailDeliveryProvider, EmailRuntimeConfig, MailProvider, PaymentProvider, PaymentRuntimeConfig } from "@schoolapp/core";
 import type { Hono } from "hono";
 import type { DbPools } from "@schoolapp/db";
 import type { FileScanner, ObjectStoragePort } from "@schoolapp/storage";
-import type { PaymentProvider, PaymentRuntimeConfig } from "@schoolapp/core";
 
 export type ApiConfig = {
   pools: DbPools;
@@ -15,6 +14,9 @@ export type ApiConfig = {
   payments?: PaymentRuntimeConfig;
   paymentProvider?: PaymentProvider;
   mailProvider?: MailProvider;
+  email?: EmailRuntimeConfig;
+  emailDeliveryProvider?: EmailDeliveryProvider;
+  emailWorkerSecret?: string | null;
 };
 
 export type ApiEnv = {

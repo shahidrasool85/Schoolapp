@@ -13,6 +13,8 @@ import {
   normalizeFormSlug,
   publicFormIsAccepting,
   isSafeHttpUrl,
+  isValidUkPostcode,
+  publicFieldRequiredMessage,
   safePrivacyNoticeUrl,
   sanitizePlainText,
   validatePublicAnswers,
@@ -242,5 +244,27 @@ describe("admissions forms", () => {
     expect(limiter.consume("k", 1, 60_000).allowed).toBe(true);
     expect(limiter.consume("k", 1, 60_000).allowed).toBe(false);
     expect(() => assertPublicFormPayloadSize({ contentLength: "999999" })).toThrow(AppError);
+  });
+
+  it("uses parent-facing required messages and UK postcode checks", () => {
+    const fields = defaultFormTemplate("application").flatMap((section) => section.fields);
+    const legal = fields.find((field) => field.fieldKey === "child.legal_name")!;
+    expect(publicFieldRequiredMessage(legal)).toBe("Enter the child's legal name.");
+    expect(isValidUkPostcode("SW1A 1AA")).toBe(true);
+    expect(isValidUkPostcode("not-a-postcode")).toBe(false);
+    expect(() =>
+      validatePublicAnswers(
+        fields.filter((field) => field.fieldKey === "child.address"),
+        { "child.address": { line1: "1 High Street", town: "London", postcode: "NOPE" } },
+        { countryCode: "GB" },
+      ),
+    ).toThrow(/UK postcode/i);
+    expect(
+      validatePublicAnswers(
+        fields.filter((field) => field.fieldKey === "child.address"),
+        { "child.address": { line1: "1 High Street", town: "London", postcode: "SW1A 1AA" } },
+        { countryCode: "GB" },
+      )["child.address"],
+    ).toMatchObject({ postcode: "SW1A 1AA" });
   });
 });

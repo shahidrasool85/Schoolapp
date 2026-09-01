@@ -28,7 +28,7 @@ import {
   mapStaffAssignment,
   mapStudent,
 } from "../serialize";
-import { inviteAcceptPath, mailOf } from "../mail";
+import { mailOf, schoolInviteAbsoluteUrl } from "../mail";
 
 const studentCreateSchema = z.object({
   legalName: z.string().min(1).max(120),
@@ -796,8 +796,8 @@ export function registerPeopleRoutes(app: SchoolappApi) {
         invitationToken = row.invitation_token;
         guardianUserId = row.created_user_id;
         if (invitationToken) {
-          const org = await client.query<{ name: string }>(
-            "select name from organisations where id = $1",
+          const org = await client.query<{ name: string; slug: string }>(
+            "select name, slug from organisations where id = $1",
             [orgId],
           );
           await mailOf(c).send(
@@ -806,7 +806,8 @@ export function registerPeopleRoutes(app: SchoolappApi) {
               organisationName: org.rows[0]?.name ?? "School",
               toEmail: email,
               toName: parsed.data.fullName ?? email,
-              acceptPath: inviteAcceptPath(invitationToken),
+              acceptPath: schoolInviteAbsoluteUrl(c, org.rows[0]?.slug ?? "", invitationToken),
+              invitationId,
             }),
           );
         }
@@ -983,14 +984,15 @@ export function registerPeopleRoutes(app: SchoolappApi) {
         invitation_token: string;
         created_user_id: string;
       };
-      const org = await client.query<{ name: string }>("select name from organisations where id = $1", [orgId]);
+      const org = await client.query<{ name: string; slug: string }>("select name, slug from organisations where id = $1", [orgId]);
       await mailOf(c).send(
         staffInviteMail({
           organisationId: orgId,
           organisationName: org.rows[0]?.name ?? "School",
           toEmail: parsed.data.email.toLowerCase(),
           toName: parsed.data.fullName,
-          acceptPath: inviteAcceptPath(row.invitation_token),
+          acceptPath: schoolInviteAbsoluteUrl(c, org.rows[0]?.slug ?? "", row.invitation_token),
+          invitationId: row.invitation_id,
         }),
       );
       return c.json(
@@ -1110,14 +1112,18 @@ export function registerPeopleRoutes(app: SchoolappApi) {
         [userId, orgId, staff.rows[0].email, staff.rows[0].role_keys],
       );
       const token = issued.rows[0].invitation_token as string;
-      const org = await client.query<{ name: string }>("select name from organisations where id = $1", [orgId]);
+      const org = await client.query<{ name: string; slug: string }>(
+        "select name, slug from organisations where id = $1",
+        [orgId],
+      );
       await mailOf(c).send(
         staffInviteMail({
           organisationId: orgId,
           organisationName: org.rows[0]?.name ?? "School",
           toEmail: staff.rows[0].email,
           toName: staff.rows[0].full_name,
-          acceptPath: inviteAcceptPath(token),
+          acceptPath: schoolInviteAbsoluteUrl(c, org.rows[0]?.slug ?? "", token),
+          invitationId: String(issued.rows[0].invitation_id),
         }),
       );
       return c.json({ invitationId: issued.rows[0].invitation_id, invitationToken: token }, 201);
@@ -1219,14 +1225,18 @@ export function registerPeopleRoutes(app: SchoolappApi) {
         [userId, orgId, guardian.rows[0].email, ["school.parent"]],
       );
       const token = issued.rows[0].invitation_token as string;
-      const org = await client.query<{ name: string }>("select name from organisations where id = $1", [orgId]);
+      const org = await client.query<{ name: string; slug: string }>(
+        "select name, slug from organisations where id = $1",
+        [orgId],
+      );
       await mailOf(c).send(
         parentInviteMail({
           organisationId: orgId,
           organisationName: org.rows[0]?.name ?? "School",
           toEmail: guardian.rows[0].email,
           toName: guardian.rows[0].full_name,
-          acceptPath: inviteAcceptPath(token),
+          acceptPath: schoolInviteAbsoluteUrl(c, org.rows[0]?.slug ?? "", token),
+          invitationId: String(issued.rows[0].invitation_id),
         }),
       );
       return c.json({ invitationId: issued.rows[0].invitation_id, invitationToken: token }, 201);

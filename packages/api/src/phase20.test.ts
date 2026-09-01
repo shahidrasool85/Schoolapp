@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PERMISSIONS } from "@schoolapp/domain";
+import { FakeEmailProvider } from "@schoolapp/core";
 import { closePools, withTenantContext } from "@schoolapp/db";
 import {
   addMembership,
@@ -507,6 +508,8 @@ describe("Phase 20 onboarding and account lifecycle", () => {
     const other = await createSchool(pools.owner, `${id}x`, "rstx");
     const host = `${school.slug}.localhost:3000`;
 
+    const email = new FakeEmailProvider();
+    const app = testApp(pools, { emailDeliveryProvider: email });
     const unknown = await app.request("/api/v1/auth/forgot-password", {
       method: "POST",
       headers: { "Content-Type": "application/json", Host: host },
@@ -539,7 +542,9 @@ describe("Phase 20 onboarding and account lifecycle", () => {
     const resetMail = mail.messages.find((message) => message.purpose === "password_reset");
     expect(resetMail?.toEmail).toBe(school.adminEmail);
     expect(resetMail?.bodyText.toLowerCase()).not.toContain("password-12x");
-    const resetToken = tokenFromPath(resetMail?.bodyText ?? "", "/reset-password");
+    expect(resetMail?.bodyText).not.toMatch(/token=[A-Za-z0-9_-]{10,}/);
+    const resetMailSent = email.sent.find((row) => row.subject.toLowerCase().includes("password reset"));
+    const resetToken = tokenFromPath(resetMailSent?.text ?? "", "/reset-password");
     expect(resetToken).toBeTruthy();
 
     const hashes = await pools.owner.query("select token_hash from account_tokens where purpose = 'password_reset'");
@@ -565,15 +570,11 @@ describe("Phase 20 onboarding and account lifecycle", () => {
       body: JSON.stringify({ email: school.adminEmail }),
     });
     expect(expiredForgot.status).toBe(200);
-    const mail2 = (await (
-      await app.request("/api/v1/onboarding/mail", {
-        headers: jsonHeaders(await login(app, school.adminEmail, "password-99x"), school.orgId),
-      })
-    ).json()) as { messages: Array<{ purpose: string; bodyText: string }> };
-    const nextToken = tokenFromPath(
-      mail2.messages.find((message) => message.purpose === "password_reset")?.bodyText ?? "",
-      "/reset-password",
-    );
+    await app.request("/api/v1/onboarding/mail", {
+      headers: jsonHeaders(await login(app, school.adminEmail, "password-99x"), school.orgId),
+    });
+    const nextSent = [...email.sent].reverse().find((row) => row.subject.toLowerCase().includes("password reset"));
+    const nextToken = tokenFromPath(nextSent?.text ?? "", "/reset-password");
     await pools.owner.query(
       `update account_tokens
           set expires_at = now() - interval '1 minute'

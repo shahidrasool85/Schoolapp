@@ -20,6 +20,27 @@ export function formTypeFromPublicKind(kind: string): PublicFormType | null {
   return (PUBLIC_FORM_TYPES as readonly string[]).includes(kind) ? (kind as PublicFormType) : null;
 }
 
+const UK_POSTCODE_RE = /^(GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})$/i;
+
+const PUBLIC_LABELS: Record<string, string> = {
+  "child.legal_name": "Legal name",
+  "child.preferred_name": "Preferred name",
+  "child.date_of_birth": "Date of birth",
+  "child.gender": "Gender",
+  "child.address": "Home address",
+  "child.intended_academic_year_id": "Intended academic year",
+  "child.intended_year_group_id": "Intended year group",
+  "child.proposed_start_date": "Proposed start date",
+  "child.current_school": "Current school",
+  "child.previous_school": "Previous school",
+};
+
+const PUBLIC_HELP: Record<string, string> = {
+  "child.legal_name": "The child's full legal name, as on their birth certificate or passport.",
+  "child.current_school": "The school the child attends now, if any.",
+  "child.previous_school": "A school the child attended before the current school, if different.",
+};
+
 type PublicField = {
   fieldKey: string;
   questionType: string;
@@ -48,8 +69,8 @@ type PublicFormPayload = {
     allowedAcademicYearIds: string[];
     allowedYearGroupIds: string[];
   };
-  organisation: { name: string };
-  branding?: { primaryColor?: string };
+  organisation: { name: string; slug?: string; countryCode?: string };
+  branding?: { primaryColor?: string; logoUrl?: string | null; hasLogo?: boolean; tagline?: string | null };
   academicYears?: YearOption[];
   yearGroups?: YearOption[];
   sections: PublicSection[];
@@ -100,6 +121,144 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
+function isBlank(value: unknown): boolean {
+  if (value == null) return true;
+  if (typeof value === "boolean") return false;
+  if (Array.isArray(value)) return value.every((item) => isBlank(item));
+  if (typeof value === "object") return Object.values(value as Record<string, unknown>).every(isBlank);
+  return String(value).trim() === "";
+}
+
+function fieldLabel(field: PublicField): string {
+  return PUBLIC_LABELS[field.fieldKey] ?? field.label;
+}
+
+function requiredMessage(field: PublicField): string {
+  const key = field.fieldKey;
+  if (key === "child.legal_name") return "Enter the child's legal name.";
+  if (key === "child.date_of_birth") return "Enter the child's date of birth.";
+  if (key === "child.intended_academic_year_id") return "Select the intended academic year.";
+  if (key === "child.intended_year_group_id") return "Select the intended year group.";
+  if (key === "child.address") return "Enter the child's home address.";
+  if (key === "guardians") return "Enter at least one parent or guardian.";
+  return `Enter ${fieldLabel(field).toLowerCase()}.`;
+}
+
+function usesUkPostcode(countryCode?: string | null): boolean {
+  const code = (countryCode ?? "GB").trim().toUpperCase();
+  return code === "GB" || code === "UK";
+}
+
+function collectAnswers(form: FormData, sections: PublicSection[]): Record<string, unknown> {
+  const answers: Record<string, unknown> = {};
+  for (const section of sections) {
+    for (const field of section.fields) {
+      answers[field.fieldKey] = fieldValue(field.questionType, form, field.fieldKey);
+    }
+  }
+  return answers;
+}
+
+function sectionComplete(section: PublicSection, answers: Record<string, unknown>): boolean {
+  return section.fields.every((field) => !field.required || !isBlank(answers[field.fieldKey]));
+}
+
+function validateSection(
+  section: PublicSection,
+  answers: Record<string, unknown>,
+  countryCode?: string | null,
+): Record<string, string> {
+  const errors: Record<string, string> = {};
+  for (const field of section.fields) {
+    const value = answers[field.fieldKey];
+    if (field.required && isBlank(value)) {
+      errors[field.fieldKey] = requiredMessage(field);
+      continue;
+    }
+    if (field.questionType === "email" && !isBlank(value)) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value))) {
+        errors[field.fieldKey] = "Enter a valid email address.";
+      }
+    }
+    if (field.questionType === "address_group" && !isBlank(value)) {
+      const rec = asRecord(value);
+      const postcode = String(rec?.postcode ?? "").trim();
+      if (postcode && usesUkPostcode(countryCode) && !UK_POSTCODE_RE.test(postcode)) {
+        errors[field.fieldKey] = "Enter a valid UK postcode.";
+      }
+    }
+    if (field.questionType === "guardian_group" && field.required) {
+      const rows = Array.isArray(value) ? value : [];
+      const filled = rows.filter((row) => !isBlank(asRecord(row)?.fullName));
+      if (!filled.length) errors[field.fieldKey] = requiredMessage(field);
+      else if (!filled.some((row) => String(asRecord(row)?.email ?? "").trim())) {
+        errors[field.fieldKey] = "Enter at least one parent or guardian email address.";
+      }
+    }
+  }
+  return errors;
+}
+
+function displayAnswer(
+  field: PublicField,
+  value: unknown,
+  years: YearOption[],
+  groups: YearOption[],
+): string {
+  if (isBlank(value)) return "Not provided";
+  if (field.questionType === "yes_no" || field.questionType === "declaration") {
+    return value === true || value === "true" ? "Yes" : "No";
+  }
+  if (field.fieldKey === "child.intended_academic_year_id") {
+    return years.find((row) => row.id === String(value))?.name ?? "Selected";
+  }
+  if (field.fieldKey === "child.intended_year_group_id") {
+    return groups.find((row) => row.id === String(value))?.name ?? "Selected";
+  }
+  if (field.questionType === "address_group") {
+    const rec = asRecord(value);
+    return [rec?.line1, rec?.line2, rec?.town, rec?.postcode].filter(Boolean).join(", ") || "Not provided";
+  }
+  if (field.questionType === "guardian_group") {
+    const rows = Array.isArray(value) ? value : [];
+    return rows
+      .map((row) => asRecord(row))
+      .filter((row) => row && String(row.fullName ?? "").trim())
+      .map((row) => `${row!.fullName}${row!.email ? ` (${row!.email})` : ""}`)
+      .join("; ") || "Not provided";
+  }
+  if (field.questionType === "file") {
+    const rec = asRecord(value);
+    return rec?.filename ? String(rec.filename) : "Uploaded";
+  }
+  if (Array.isArray(value)) return value.map(String).join(", ");
+  if (field.options?.length) {
+    return field.options.find((option) => option.value === String(value))?.label ?? String(value);
+  }
+  return String(value);
+}
+
+function childGroups(fields: PublicField[]): Array<{ title: string; keys: string[] }> {
+  return [
+    {
+      title: "Child information",
+      keys: ["child.legal_name", "child.preferred_name", "child.date_of_birth", "child.gender"],
+    },
+    { title: "Home address", keys: ["child.address"] },
+    {
+      title: "Application information",
+      keys: [
+        "child.intended_academic_year_id",
+        "child.intended_year_group_id",
+        "child.proposed_start_date",
+        "child.current_school",
+        "child.previous_school",
+      ],
+    },
+  ].map((group) => ({ ...group, keys: group.keys.filter((key) => fields.some((field) => field.fieldKey === key)) }))
+    .filter((group) => group.keys.length);
+}
+
 function FileUploadField({
   field,
   describedBy,
@@ -111,6 +270,7 @@ function FileUploadField({
   continuation,
   publicId,
   ensureDraft,
+  error,
 }: {
   field: PublicField;
   describedBy?: string;
@@ -122,6 +282,7 @@ function FileUploadField({
   continuation: string | null;
   publicId: string | null;
   ensureDraft: () => Promise<{ continuationToken: string; publicId: string }>;
+  error?: string;
 }) {
   const initialRec = asRecord(initial);
   const [status, setStatus] = useState<"idle" | "uploading" | "complete" | "failed">(
@@ -183,10 +344,10 @@ function FileUploadField({
   async function onRemove() {
     if (meta.documentId) {
       const token = draftTokens.continuationToken;
-      const publicId = draftTokens.publicId;
-      if (token && publicId) {
+      const id = draftTokens.publicId;
+      if (token && id) {
         await api(
-          `/api/v1/public/admissions/forms/${formType}/${slug}/documents/${meta.documentId}?continuationToken=${encodeURIComponent(token)}&publicId=${encodeURIComponent(publicId)}`,
+          `/api/v1/public/admissions/forms/${formType}/${slug}/documents/${meta.documentId}?continuationToken=${encodeURIComponent(token)}&publicId=${encodeURIComponent(id)}`,
           { method: "DELETE", orgId: mode === "staff" ? undefined : null },
         ).catch(() => undefined);
       }
@@ -196,10 +357,13 @@ function FileUploadField({
     setMessage("");
   }
 
+  const errorId = `${field.fieldKey}-error`;
   return (
-    <label className="span-2" data-upload-state={status}>
-      {field.label}
-      {requiredMark}
+    <div className={`admissions-field span-2${error ? " is-invalid" : ""}`} data-upload-state={status}>
+      <span>
+        {fieldLabel(field)}
+        {requiredMark}
+      </span>
       <input type="hidden" name={`${field.fieldKey}.documentId`} value={meta.documentId} />
       <input type="hidden" name={`${field.fieldKey}.filename`} value={meta.filename} />
       <input type="hidden" name={`${field.fieldKey}.contentType`} value={meta.contentType} />
@@ -209,7 +373,8 @@ function FileUploadField({
         name={field.fieldKey}
         type="file"
         required={field.required && !meta.documentId}
-        aria-describedby={describedBy}
+        aria-describedby={[describedBy, error ? errorId : null].filter(Boolean).join(" ") || undefined}
+        aria-invalid={error ? true : undefined}
         accept=".pdf,.png,.jpg,.jpeg,.webp,.docx,application/pdf,image/jpeg,image/png,image/webp,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         onChange={(event) => void onFile(event)}
         disabled={status === "uploading"}
@@ -225,12 +390,11 @@ function FileUploadField({
           </button>
         </small>
       ) : null}
-      {status === "failed" ? <small className="error">{message}</small> : null}
-      {status === "idle" ? (
-        <small className="muted">PDF, JPEG, PNG, WebP or DOCX, up to 8 MB.</small>
-      ) : null}
+      {status === "failed" ? <small className="admissions-error">{message}</small> : null}
+      {status === "idle" ? <small className="muted">PDF, JPEG, PNG, WebP or DOCX, up to 8 MB.</small> : null}
       {field.helperText ? <small id={`${field.fieldKey}-help`} className="muted">{field.helperText}</small> : null}
-    </label>
+      {error ? <small id={errorId} className="admissions-error" role="alert">{error}</small> : null}
+    </div>
   );
 }
 
@@ -245,6 +409,8 @@ function FieldInput({
   continuation,
   publicId,
   ensureDraft,
+  error,
+  countryCode,
 }: {
   field: PublicField;
   years: YearOption[];
@@ -256,131 +422,222 @@ function FieldInput({
   continuation: string | null;
   publicId: string | null;
   ensureDraft: () => Promise<{ continuationToken: string; publicId: string }>;
+  error?: string;
+  countryCode?: string | null;
 }) {
-  const requiredMark = field.required ? <span aria-hidden="true"> *</span> : null;
-  const describedBy = field.helperText ? `${field.fieldKey}-help` : undefined;
+  const label = fieldLabel(field);
+  const helper = field.helperText || PUBLIC_HELP[field.fieldKey] || null;
+  const requiredMark = field.required ? (
+    <span className="admissions-req"> (required)</span>
+  ) : (
+    <span className="admissions-opt"> (optional)</span>
+  );
+  const describedBy = [helper ? `${field.fieldKey}-help` : null, error ? `${field.fieldKey}-error` : null]
+    .filter(Boolean)
+    .join(" ") || undefined;
+  const help = helper ? <small id={`${field.fieldKey}-help`} className="muted">{helper}</small> : null;
+  const err = error ? (
+    <small id={`${field.fieldKey}-error`} className="admissions-error" role="alert">
+      {error}
+    </small>
+  ) : null;
+  const invalid = Boolean(error);
+
   if (field.questionType === "long_text") {
     return (
-      <label className="span-2">
-        {field.label}
-        {requiredMark}
-        <textarea id={field.fieldKey} name={field.fieldKey} required={field.required} aria-describedby={describedBy} rows={4} defaultValue={initial == null ? "" : String(initial)} />
-        {field.helperText ? <small id={`${field.fieldKey}-help`} className="muted">{field.helperText}</small> : null}
+      <label className={`admissions-field span-2${invalid ? " is-invalid" : ""}`}>
+        <span>
+          {label}
+          {requiredMark}
+        </span>
+        <textarea
+          id={field.fieldKey}
+          name={field.fieldKey}
+          required={field.required}
+          aria-describedby={describedBy}
+          aria-invalid={invalid || undefined}
+          rows={4}
+          defaultValue={initial == null ? "" : String(initial)}
+        />
+        {help}
+        {err}
       </label>
     );
   }
   if (field.questionType === "yes_no" || field.questionType === "declaration") {
     return (
-      <label className="span-2" style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <input type="checkbox" name={field.fieldKey} value="true" required={field.required} aria-describedby={describedBy} defaultChecked={initial === true || initial === "true"} />
+      <label className={`admissions-field span-2 checkbox-row${invalid ? " is-invalid" : ""}`}>
+        <input
+          type="checkbox"
+          id={field.fieldKey}
+          name={field.fieldKey}
+          value="true"
+          required={field.required}
+          aria-describedby={describedBy}
+          aria-invalid={invalid || undefined}
+          defaultChecked={initial === true || initial === "true"}
+        />
         <span>
-          {field.label}
-          {requiredMark}
+          {label}
+          {field.required ? <span className="admissions-req"> (required)</span> : null}
         </span>
+        {help}
+        {err}
       </label>
     );
   }
   if (field.questionType === "address_group") {
+    const rec = asRecord(initial);
     return (
-      <fieldset className="span-2">
-        <legend>
-          {field.label}
+      <div className={`admissions-field span-2${invalid ? " is-invalid" : ""}`} role="group" aria-labelledby={`${field.fieldKey}-legend`}>
+        <span id={`${field.fieldKey}-legend`}>
+          {label}
           {requiredMark}
-        </legend>
-        <div className="form-grid">
-          <label>Line 1<input name={`${field.fieldKey}.line1`} required={field.required} defaultValue={String(asRecord(initial)?.line1 ?? "")} /></label>
-          <label>Line 2<input name={`${field.fieldKey}.line2`} defaultValue={String(asRecord(initial)?.line2 ?? "")} /></label>
-          <label>Town<input name={`${field.fieldKey}.town`} defaultValue={String(asRecord(initial)?.town ?? "")} /></label>
-          <label>Postcode<input name={`${field.fieldKey}.postcode`} defaultValue={String(asRecord(initial)?.postcode ?? "")} /></label>
+        </span>
+        <div className="admissions-grid">
+          <label className="admissions-field span-2">
+            <span>Address line 1{field.required ? <span className="admissions-req"> (required)</span> : null}</span>
+            <input name={`${field.fieldKey}.line1`} required={field.required} autoComplete="address-line1" defaultValue={String(rec?.line1 ?? "")} />
+          </label>
+          <label className="admissions-field span-2">
+            <span>Address line 2<span className="admissions-opt"> (optional)</span></span>
+            <input name={`${field.fieldKey}.line2`} autoComplete="address-line2" defaultValue={String(rec?.line2 ?? "")} />
+          </label>
+          <label className="admissions-field">
+            <span>Town / city</span>
+            <input name={`${field.fieldKey}.town`} autoComplete="address-level2" defaultValue={String(rec?.town ?? "")} />
+          </label>
+          <label className="admissions-field">
+            <span>Postcode</span>
+            <input
+              name={`${field.fieldKey}.postcode`}
+              autoComplete="postal-code"
+              defaultValue={String(rec?.postcode ?? "")}
+              inputMode="text"
+              aria-describedby={describedBy}
+            />
+          </label>
         </div>
-      </fieldset>
+        {usesUkPostcode(countryCode) ? <small className="muted">Use a UK postcode, for example SW1A 1AA.</small> : null}
+        {help}
+        {err}
+      </div>
     );
   }
   if (field.questionType === "guardian_group") {
     return (
-      <fieldset className="span-2">
-        <legend>
-          {field.label}
+      <div className={`admissions-field span-2${invalid ? " is-invalid" : ""}`} role="group" aria-labelledby={`${field.fieldKey}-legend`}>
+        <span id={`${field.fieldKey}-legend`}>
+          {label}
           {requiredMark}
-        </legend>
+        </span>
         {[0, 1].map((index) => {
           const row = Array.isArray(initial) ? asRecord(initial[index]) : null;
           return (
-          <div key={index} className="form-grid" style={{ marginBottom: 12 }}>
-            <label>Name<input name={`${field.fieldKey}.fullName`} required={field.required && index === 0} defaultValue={String(row?.fullName ?? "")} /></label>
-            <label>Email<input type="email" name={`${field.fieldKey}.email`} required={field.required && index === 0} defaultValue={String(row?.email ?? "")} /></label>
-            <label>Telephone<input name={`${field.fieldKey}.phone`} defaultValue={String(row?.phone ?? "")} /></label>
-            <label>Relationship<input name={`${field.fieldKey}.relationship`} defaultValue={String(row?.relationship ?? "")} /></label>
-            <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input type="checkbox" name={`${field.fieldKey}.parentalResponsibility`} defaultChecked={row?.parentalResponsibility === true} /> Parental responsibility
-            </label>
-            <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input type="checkbox" name={`${field.fieldKey}.primaryContact`} defaultChecked={row?.primaryContact === true || (!row && index === 0)} /> Primary contact
-            </label>
-          </div>
+            <div key={index} className="admissions-subsection">
+              <h3>{index === 0 ? "Primary parent / guardian" : "Additional parent / guardian"}</h3>
+              <div className="admissions-grid">
+                <label className="admissions-field">
+                  <span>Name{field.required && index === 0 ? <span className="admissions-req"> (required)</span> : <span className="admissions-opt"> (optional)</span>}</span>
+                  <input name={`${field.fieldKey}.fullName`} required={field.required && index === 0} defaultValue={String(row?.fullName ?? "")} autoComplete="name" />
+                </label>
+                <label className="admissions-field">
+                  <span>Email{field.required && index === 0 ? <span className="admissions-req"> (required)</span> : <span className="admissions-opt"> (optional)</span>}</span>
+                  <input type="email" name={`${field.fieldKey}.email`} required={field.required && index === 0} defaultValue={String(row?.email ?? "")} autoComplete="email" />
+                </label>
+                <label className="admissions-field">
+                  <span>Telephone<span className="admissions-opt"> (optional)</span></span>
+                  <input name={`${field.fieldKey}.phone`} defaultValue={String(row?.phone ?? "")} autoComplete="tel" />
+                </label>
+                <label className="admissions-field">
+                  <span>Relationship<span className="admissions-opt"> (optional)</span></span>
+                  <input name={`${field.fieldKey}.relationship`} defaultValue={String(row?.relationship ?? "")} />
+                </label>
+                <label className="admissions-field checkbox-row">
+                  <input type="checkbox" name={`${field.fieldKey}.parentalResponsibility`} defaultChecked={row?.parentalResponsibility === true} />
+                  <span>Parental responsibility</span>
+                </label>
+                <label className="admissions-field checkbox-row">
+                  <input type="checkbox" name={`${field.fieldKey}.primaryContact`} defaultChecked={row?.primaryContact === true || (!row && index === 0)} />
+                  <span>Primary contact</span>
+                </label>
+              </div>
+            </div>
           );
         })}
-      </fieldset>
+        {help}
+        {err}
+      </div>
     );
   }
-  if (field.fieldKey === "child.intended_academic_year_id") {
+  if (field.fieldKey === "child.intended_academic_year_id" || field.fieldKey === "child.intended_year_group_id") {
+    const options = field.fieldKey === "child.intended_academic_year_id" ? years : groups;
     return (
-      <label>
-        {field.label}
-        {requiredMark}
-        <select name={field.fieldKey} required={field.required} aria-describedby={describedBy} defaultValue={initial == null ? "" : String(initial)}>
+      <label className={`admissions-field${invalid ? " is-invalid" : ""}`}>
+        <span>
+          {label}
+          {requiredMark}
+        </span>
+        <select
+          name={field.fieldKey}
+          id={field.fieldKey}
+          required={field.required}
+          aria-describedby={describedBy}
+          aria-invalid={invalid || undefined}
+          defaultValue={initial == null ? "" : String(initial)}
+        >
           <option value="">Select</option>
-          {years.map((year) => (
-            <option key={year.id} value={year.id}>{year.name}</option>
+          {options.map((option) => (
+            <option key={option.id} value={option.id}>{option.name}</option>
           ))}
         </select>
-      </label>
-    );
-  }
-  if (field.fieldKey === "child.intended_year_group_id") {
-    return (
-      <label>
-        {field.label}
-        {requiredMark}
-        <select name={field.fieldKey} required={field.required} aria-describedby={describedBy} defaultValue={initial == null ? "" : String(initial)}>
-          <option value="">Select</option>
-          {groups.map((group) => (
-            <option key={group.id} value={group.id}>{group.name}</option>
-          ))}
-        </select>
+        {help}
+        {err}
       </label>
     );
   }
   if (field.questionType === "single_choice") {
     return (
-      <label>
-        {field.label}
-        {requiredMark}
-        <select name={field.fieldKey} required={field.required} aria-describedby={describedBy} defaultValue={initial == null ? "" : String(initial)}>
+      <label className={`admissions-field${invalid ? " is-invalid" : ""}`}>
+        <span>
+          {label}
+          {requiredMark}
+        </span>
+        <select
+          name={field.fieldKey}
+          id={field.fieldKey}
+          required={field.required}
+          aria-describedby={describedBy}
+          aria-invalid={invalid || undefined}
+          defaultValue={initial == null ? "" : String(initial)}
+        >
           <option value="">Select</option>
           {field.options.map((option) => (
             <option key={option.value} value={option.value}>{option.label}</option>
           ))}
         </select>
+        {help}
+        {err}
       </label>
     );
   }
   if (field.questionType === "multiple_choice") {
     const selected = new Set(Array.isArray(initial) ? initial.map(String) : []);
     return (
-      <fieldset className="span-2">
-        <legend>
-          {field.label}
+      <div className={`admissions-field span-2${invalid ? " is-invalid" : ""}`} role="group" aria-labelledby={`${field.fieldKey}-legend`}>
+        <span id={`${field.fieldKey}-legend`}>
+          {label}
           {requiredMark}
-        </legend>
+        </span>
         {field.options.map((option) => (
-          <label key={option.value} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <label key={option.value} className="checkbox-row">
             <input type="checkbox" name={field.fieldKey} value={option.value} defaultChecked={selected.has(option.value)} />
             {option.label}
           </label>
         ))}
-        {field.helperText ? <small id={`${field.fieldKey}-help`} className="muted">{field.helperText}</small> : null}
-      </fieldset>
+        {help}
+        {err}
+      </div>
     );
   }
   if (field.questionType === "file") {
@@ -396,16 +653,28 @@ function FieldInput({
         continuation={continuation}
         publicId={publicId}
         ensureDraft={ensureDraft}
+        error={error}
       />
     );
   }
   const inputType = field.questionType === "email" ? "email" : field.questionType === "date" ? "date" : field.questionType === "number" ? "number" : "text";
   return (
-    <label>
-      {field.label}
-      {requiredMark}
-      <input id={field.fieldKey} name={field.fieldKey} type={inputType} required={field.required} aria-describedby={describedBy} defaultValue={initial == null ? "" : String(initial)} />
-      {field.helperText ? <small id={`${field.fieldKey}-help`} className="muted">{field.helperText}</small> : null}
+    <label className={`admissions-field${invalid ? " is-invalid" : ""}`}>
+      <span>
+        {label}
+        {requiredMark}
+      </span>
+      <input
+        id={field.fieldKey}
+        name={field.fieldKey}
+        type={inputType}
+        required={field.required}
+        aria-describedby={describedBy}
+        aria-invalid={invalid || undefined}
+        defaultValue={initial == null ? "" : String(initial)}
+      />
+      {help}
+      {err}
     </label>
   );
 }
@@ -434,10 +703,14 @@ export function PublicAdmissionsForm({
   const [step, setStep] = useState(0);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [done, setDone] = useState<{ title: string; text: string; reference?: string } | null>(null);
   const [continuation, setContinuation] = useState<string | null>(null);
   const [publicId, setPublicId] = useState<string | null>(null);
   const [draftAnswers, setDraftAnswers] = useState<Record<string, unknown>>({});
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [submitting, setSubmitting] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const continuationRef = useRef<string | null>(null);
   const publicIdRef = useRef<string | null>(null);
@@ -449,6 +722,9 @@ export function PublicAdmissionsForm({
 
   const sections = payload?.sections ?? [];
   const isMulti = formType !== "enquiry" && sections.length > 1;
+  const reviewIndex = isMulti ? sections.length : -1;
+  const totalSteps = isMulti ? sections.length + 1 : Math.max(sections.length, 1);
+  const onReview = isMulti && step === reviewIndex;
   const privacyUrl =
     payload?.form.privacyNoticeUrl && /^https?:\/\//i.test(payload.form.privacyNoticeUrl)
       ? payload.form.privacyNoticeUrl
@@ -517,6 +793,16 @@ export function PublicAdmissionsForm({
     load().catch((err: Error) => setError(err.message));
   }, [formType, slug, mode, formId]);
 
+  useEffect(() => {
+    const onLeave = (event: BeforeUnloadEvent) => {
+      if (!dirty || done) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onLeave);
+    return () => window.removeEventListener("beforeunload", onLeave);
+  }, [dirty, done]);
+
   const brandStyle = useMemo(
     () =>
       payload?.branding?.primaryColor
@@ -527,18 +813,26 @@ export function PublicAdmissionsForm({
 
   const years = payload?.academicYears ?? [];
   const groups = payload?.yearGroups ?? [];
+  const liveAnswers = formRef.current ? collectAnswers(new FormData(formRef.current), sections) : draftAnswers;
+  const mergedAnswers = { ...draftAnswers, ...liveAnswers };
+  const completed = new Set(
+    sections
+      .map((section, index) => (sectionComplete(section, mergedAnswers) ? index : -1))
+      .filter((index) => index >= 0),
+  );
+  const currentSection = onReview ? null : sections[step];
+  const progressCurrent = Math.min(step, totalSteps - 1);
+  const progressPercent = totalSteps <= 1 ? 100 : Math.round(((progressCurrent + (onReview ? 1 : 0)) / totalSteps) * 100);
 
   async function persistDraft(silent = false) {
     const formEl = formRef.current;
     if (!payload || !formEl) throw new Error("Form is not ready");
-    if (!silent) setError("");
-    const form = new FormData(formEl);
-    const answers: Record<string, unknown> = {};
-    for (const section of sections) {
-      for (const field of section.fields) {
-        answers[field.fieldKey] = fieldValue(field.questionType, form, field.fieldKey);
-      }
+    if (!silent) {
+      setError("");
+      setSaveState("saving");
     }
+    const answers = collectAnswers(new FormData(formEl), sections);
+    setDraftAnswers(answers);
     const source = new URLSearchParams(window.location.search).get("source") ?? undefined;
     const requestBody: Record<string, unknown> = {
       answers,
@@ -559,6 +853,7 @@ export function PublicAdmissionsForm({
       submission: {
         publicId?: string;
         continuationToken?: string;
+        applicationReference?: string;
       };
     }>(path, {
       method: "POST",
@@ -577,14 +872,40 @@ export function PublicAdmissionsForm({
       next.searchParams.set("continue", nextToken);
       window.history.replaceState({}, "", next.toString());
     }
+    setDirty(false);
     if (!silent) {
       setError("");
-      setNotice(mode === "staff" ? "Draft saved." : "Draft saved. Keep this page or the continuation link to resume later.");
+      setSaveState("saved");
+      setNotice(
+        mode === "staff"
+          ? "Draft saved."
+          : "Draft saved. Keep this page open, or bookmark the link in the address bar to return later. You do not need an account.",
+      );
     }
     if (!publicIdRef.current || !continuationRef.current) {
       throw new Error("A saved draft is required before uploading a file");
     }
     return { continuationToken: continuationRef.current, publicId: publicIdRef.current };
+  }
+
+  function applyServerError(err: unknown) {
+    const message = err instanceof Error ? err.message : "Could not submit the form";
+    const looksRaw = /zod|invalid_type|too_small|P0002|sql/i.test(message);
+    setError(looksRaw ? "Please check the highlighted fields and try again." : message);
+    const fieldKey = err instanceof ApiError ? err.details?.fieldKey : undefined;
+    const sectionKey = err instanceof ApiError ? err.details?.sectionKey : undefined;
+    if (fieldKey) setFieldErrors({ [fieldKey]: looksRaw ? requiredMessage({ fieldKey, label: fieldKey, questionType: "short_text", helperText: null, required: true, options: [] }) : message });
+    const index = sections.findIndex(
+      (section) =>
+        section.sectionKey === sectionKey ||
+        section.fields.some((field) => field.fieldKey === fieldKey),
+    );
+    if (index >= 0) setStep(index);
+    queueMicrotask(() => {
+      const target = document.getElementById(fieldKey ?? `${sectionKey ?? ""}-section`);
+      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (target instanceof HTMLElement) target.focus();
+    });
   }
 
   async function submitFromForm(draft = false) {
@@ -594,20 +915,17 @@ export function PublicAdmissionsForm({
       setError("Please wait for the file upload to finish.");
       return;
     }
+    if (submitting || saveState === "saving") return;
     setError("");
     setNotice("");
-    const form = new FormData(formEl);
-    const answers: Record<string, unknown> = {};
-    for (const section of sections) {
-      for (const field of section.fields) {
-        answers[field.fieldKey] = fieldValue(field.questionType, form, field.fieldKey);
-      }
-    }
+    const answers = collectAnswers(new FormData(formEl), sections);
+    setDraftAnswers(answers);
     try {
       if (draft) {
         await persistDraft(false);
         return;
       }
+      setSubmitting(true);
       const source = new URLSearchParams(window.location.search).get("source") ?? undefined;
       const requestBody: Record<string, unknown> = {
         answers,
@@ -637,6 +955,7 @@ export function PublicAdmissionsForm({
         body: JSON.stringify(requestBody),
       });
       if (body.submission.publicId) setPublicId(body.submission.publicId);
+      setDirty(false);
       onCreated?.({
         applicationId: body.submission.applicationId,
         applicationReference: body.submission.applicationReference,
@@ -650,62 +969,171 @@ export function PublicAdmissionsForm({
         reference: body.submission.enquiryReference ?? body.submission.applicationReference,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Could not submit the form";
-      setError(message);
-      const fieldKey = err instanceof ApiError ? err.details?.fieldKey : undefined;
-      const sectionKey = err instanceof ApiError ? err.details?.sectionKey : undefined;
-      const index = sections.findIndex(
-        (section) =>
-          section.sectionKey === sectionKey ||
-          section.fields.some((field) => field.fieldKey === fieldKey),
-      );
-      if (index >= 0) setStep(index);
-      queueMicrotask(() => {
-        const target = document.getElementById(fieldKey ?? `${sectionKey ?? ""}-section`);
-        target?.scrollIntoView({ behavior: "smooth", block: "center" });
-        if (target instanceof HTMLElement) target.focus();
-      });
+      applyServerError(err);
+    } finally {
+      setSubmitting(false);
     }
+  }
+
+  function goNext() {
+    const section = sections[step];
+    if (!section || !formRef.current) return;
+    const answers = collectAnswers(new FormData(formRef.current), sections);
+    setDraftAnswers(answers);
+    const errors = validateSection(section, answers, payload?.organisation.countryCode);
+    if (Object.keys(errors).length) {
+      setFieldErrors(errors);
+      const firstKey = Object.keys(errors)[0];
+      document.getElementById(firstKey ?? `${section.sectionKey}-section`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    const root = document.getElementById(`${section.sectionKey}-section`);
+    const firstInvalid = root?.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(":invalid");
+    if (firstInvalid) {
+      firstInvalid.reportValidity();
+      return;
+    }
+    setFieldErrors({});
+    setError("");
+    setNotice("");
+    setStep((value) => Math.min(value + 1, totalSteps - 1));
+  }
+
+  function goToStep(index: number) {
+    if (index < 0 || index >= totalSteps) return;
+    if (index > step) {
+      const blocked = sections.slice(0, index).some((section, sectionIndex) => !completed.has(sectionIndex));
+      if (blocked && index !== step + 1) return;
+    }
+    setFieldErrors({});
+    setError("");
+    setNotice("");
+    setStep(index);
   }
 
   if (error && !payload) {
     return (
-      <main className={`public-form${embed ? " embed" : ""}`}>
+      <main className={`admissions-app${embed ? " embed" : ""}`}>
         <h1>Form unavailable</h1>
         <p>This form is not available.</p>
       </main>
     );
   }
-  if (!payload) return <main className="public-form"><p>Loading…</p></main>;
+  if (!payload) return <main className="admissions-app"><p>Loading…</p></main>;
   if (done) {
     return (
-      <main className={`public-form${embed ? " embed" : ""}`} style={brandStyle}>
-        <p className="muted">{payload.organisation.name}</p>
-        <h1>{done.title}</h1>
-        <p>{done.text}</p>
-        {done.reference ? <p className="muted">Reference: {done.reference}</p> : null}
+      <main className={`admissions-app${embed ? " embed" : ""}`} style={brandStyle}>
+        <div className="admissions-success">
+          <p className="admissions-kicker">{payload.organisation.name}</p>
+          <h1>{done.title}</h1>
+          <p>{done.text}</p>
+          {done.reference ? <p className="admissions-ref">Application reference: {done.reference}</p> : null}
+        </div>
       </main>
     );
   }
 
+  const fieldProps = {
+    years,
+    groups,
+    mode,
+    formType,
+    slug,
+    continuation,
+    publicId,
+    ensureDraft: () => persistDraft(true),
+    countryCode: payload.organisation.countryCode,
+  };
+  const currentTitle = onReview ? "Review" : currentSection?.title ?? payload.form.name;
+  const logoUrl = payload.branding?.logoUrl;
+
   return (
-    <main className={`public-form${embed ? " embed" : ""}`} style={brandStyle}>
-      {mode === "public" ? <p className="muted">{payload.organisation.name}</p> : null}
-      <h1>{payload.form.name}</h1>
-      {payload.form.description ? <p>{payload.form.description}</p> : null}
+    <main className={`admissions-app${embed ? " embed" : ""}`} style={brandStyle}>
+      <header className="admissions-header">
+        {mode === "public" ? (
+          <div className="admissions-header-brand">
+            {logoUrl ? <img className="admissions-logo" src={logoUrl} alt="" /> : null}
+            <div>
+              <p className="admissions-kicker">{payload.organisation.name}</p>
+              <h1>Admissions application</h1>
+            </div>
+          </div>
+        ) : (
+          <h1>{payload.form.name}</h1>
+        )}
+        {mode === "public" ? (
+          <p className="admissions-lede">
+            {payload.form.description ||
+              "Complete the sections below. You can save your application and return later using the link in the address bar. You do not need an account."}
+          </p>
+        ) : payload.form.description ? (
+          <p className="admissions-lede">{payload.form.description}</p>
+        ) : null}
+        {publicId ? <p className="admissions-ref">Draft reference {publicId.slice(0, 8)}</p> : null}
+      </header>
+
       {isMulti ? (
-        <ol className="form-steps" aria-label="Application steps">
-          {sections.map((section, index) => (
-            <li
-              key={section.sectionKey}
-              aria-current={index === step ? "step" : undefined}
-              className={index < step ? "is-complete" : undefined}
-            >
-              {section.title}
+        <nav className="admissions-stepper" aria-label="Application progress">
+          <div className="admissions-stepper-meta">
+            <strong>
+              Step {Math.min(step + 1, totalSteps)} of {totalSteps}
+            </strong>
+            <span>{currentTitle}</span>
+          </div>
+          <div className="admissions-progress" aria-hidden="true">
+            <span style={{ width: `${progressPercent}%` }} />
+          </div>
+          <ol className="admissions-steps">
+            {sections.map((section, index) => {
+              const current = index === step;
+              const doneStep = !current && completed.has(index);
+              return (
+                <li key={section.sectionKey}>
+                  <button
+                    type="button"
+                    className={`admissions-step${current ? " is-current" : ""}${doneStep ? " is-complete" : ""}`}
+                    aria-current={current ? "step" : undefined}
+                    onClick={() => goToStep(index)}
+                  >
+                    <span className="admissions-step-index">{doneStep ? "✓" : index + 1}</span>
+                    <span className="admissions-step-label">{section.title}</span>
+                  </button>
+                </li>
+              );
+            })}
+            <li>
+              <button
+                type="button"
+                className={`admissions-step${onReview ? " is-current" : ""}`}
+                aria-current={onReview ? "step" : undefined}
+                onClick={() => goToStep(reviewIndex)}
+              >
+                <span className="admissions-step-index">{sections.length + 1}</span>
+                <span className="admissions-step-label">Review</span>
+              </button>
             </li>
-          ))}
-        </ol>
+          </ol>
+          <div className="admissions-stepper-mobile">
+            <label>
+              Jump to section
+              <select
+                value={step}
+                onChange={(event) => goToStep(Number(event.target.value))}
+                aria-label="Application section"
+              >
+                {sections.map((section, index) => (
+                  <option key={section.sectionKey} value={index}>
+                    Step {index + 1} of {totalSteps} — {section.title}
+                    {completed.has(index) ? " (complete)" : ""}
+                  </option>
+                ))}
+                <option value={reviewIndex}>Step {totalSteps} of {totalSteps} — Review</option>
+              </select>
+            </label>
+          </div>
+        </nav>
       ) : null}
+
       {notice ? (
         <div className="alert alert-success" role="status">
           {notice}
@@ -716,81 +1144,159 @@ export function PublicAdmissionsForm({
           {error}
         </div>
       ) : null}
+
       <form
         ref={formRef}
         onSubmit={(event) => {
           event.preventDefault();
+          if (isMulti && !onReview) {
+            goNext();
+            return;
+          }
           void submitFromForm(false);
         }}
+        onChange={() => {
+          setDirty(true);
+          if (saveState === "saved") setSaveState("idle");
+        }}
       >
-        {sections.map((section, index) => (
-          <section
-            id={`${section.sectionKey}-section`}
-            key={section.sectionKey}
-            className="card"
-            aria-labelledby={`${section.sectionKey}-heading`}
-            hidden={isMulti && index !== step}
-          >
-            <h2 id={`${section.sectionKey}-heading`}>{section.title}</h2>
-            {section.helperText ? <p className="muted">{section.helperText}</p> : null}
-            <div className="form-grid">
-              {section.fields.map((field) => (
-                <FieldInput
-                  key={field.fieldKey}
-                  field={field}
-                  years={years}
-                  groups={groups}
-                  initial={draftAnswers[field.fieldKey]}
-                  mode={mode}
-                  formType={formType}
-                  slug={slug}
-                  continuation={continuation}
-                  publicId={publicId}
-                  ensureDraft={() => persistDraft(true)}
-                />
+        {sections.map((section, index) => {
+          const child = section.sectionKey === "child";
+          const grouped = child ? childGroups(section.fields) : [];
+          const groupedKeys = new Set(grouped.flatMap((group) => group.keys));
+          const leftover = section.fields.filter((field) => !groupedKeys.has(field.fieldKey));
+          return (
+            <section
+              id={`${section.sectionKey}-section`}
+              key={section.sectionKey}
+              className="admissions-card"
+              aria-labelledby={`${section.sectionKey}-heading`}
+              hidden={isMulti && index !== step}
+            >
+              <h2 id={`${section.sectionKey}-heading`}>{section.title}</h2>
+              {section.helperText ? <p className="muted">{section.helperText}</p> : null}
+              {child && grouped.length ? (
+                grouped.map((group) => (
+                  <div key={group.title} className="admissions-subsection">
+                    <h3>{group.title}</h3>
+                    <div className="admissions-grid">
+                      {group.keys.map((key) => {
+                        const field = section.fields.find((item) => item.fieldKey === key);
+                        if (!field) return null;
+                        return (
+                          <FieldInput
+                            key={field.fieldKey}
+                            field={field}
+                            {...fieldProps}
+                            initial={draftAnswers[field.fieldKey]}
+                            error={fieldErrors[field.fieldKey]}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))
+              ) : null}
+              {child && leftover.length ? (
+                <div className="admissions-grid">
+                  {leftover.map((field) => (
+                    <FieldInput
+                      key={field.fieldKey}
+                      field={field}
+                      {...fieldProps}
+                      initial={draftAnswers[field.fieldKey]}
+                      error={fieldErrors[field.fieldKey]}
+                    />
+                  ))}
+                </div>
+              ) : null}
+              {!child ? (
+                <div className="admissions-grid">
+                  {section.fields.map((field) => (
+                    <FieldInput
+                      key={field.fieldKey}
+                      field={field}
+                      {...fieldProps}
+                      initial={draftAnswers[field.fieldKey]}
+                      error={fieldErrors[field.fieldKey]}
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </section>
+          );
+        })}
+
+        {onReview ? (
+          <section className="admissions-card" aria-labelledby="review-heading">
+            <h2 id="review-heading">Review your application</h2>
+            <p className="muted">Check each section before you submit. You can still edit anything that needs changing.</p>
+            <div className="admissions-review">
+              {sections.map((section, index) => (
+                <article key={section.sectionKey} className="admissions-review-block">
+                  <header>
+                    <h3>{section.title}</h3>
+                    <button type="button" className="secondary" onClick={() => goToStep(index)}>
+                      Edit
+                    </button>
+                  </header>
+                  <dl>
+                    {section.fields.map((field) => (
+                      <div key={field.fieldKey} style={{ display: "contents" }}>
+                        <dt>{fieldLabel(field)}</dt>
+                        <dd>{displayAnswer(field, mergedAnswers[field.fieldKey], years, groups)}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </article>
               ))}
             </div>
           </section>
-        ))}
+        ) : null}
+
         {payload.form.privacyNoticeText ? <p className="muted">{payload.form.privacyNoticeText}</p> : null}
         {privacyUrl ? (
           <p>
             <a href={privacyUrl} rel="noreferrer">Privacy notice</a>
           </p>
         ) : null}
-        <div className="toolbar">
+
+        <div className="admissions-actions">
           {isMulti && step > 0 ? (
-            <button type="button" className="secondary" onClick={() => { setError(""); setNotice(""); setStep((value) => value - 1); }}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                setError("");
+                setNotice("");
+                setFieldErrors({});
+                setStep((value) => value - 1);
+              }}
+            >
               Back
             </button>
           ) : (
             <span />
           )}
-          <div style={{ display: "flex", gap: 8 }}>
+          <div className="admissions-actions-end">
             {formType !== "enquiry" ? (
-              <button type="button" className="secondary" onClick={() => void submitFromForm(true)}>
-                Save draft
-              </button>
-            ) : null}
-            {isMulti && step < sections.length - 1 ? (
               <button
                 type="button"
-                onClick={() => {
-                  const root = document.getElementById(`${sections[step]?.sectionKey}-section`);
-                  const firstInvalid = root?.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(":invalid");
-                  if (firstInvalid) {
-                    firstInvalid.reportValidity();
-                    return;
-                  }
-                  setError("");
-                  setNotice("");
-                  setStep((value) => value + 1);
-                }}
+                className="secondary"
+                disabled={saveState === "saving" || submitting}
+                onClick={() => void submitFromForm(true)}
               >
+                {saveState === "saving" ? "Saving..." : saveState === "saved" ? "Saved" : "Save draft"}
+              </button>
+            ) : null}
+            {isMulti && !onReview ? (
+              <button type="button" onClick={goNext}>
                 Continue
               </button>
             ) : (
-              <button type="submit">Submit</button>
+              <button type="submit" disabled={submitting}>
+                {submitting ? "Submitting..." : isMulti ? "Submit application" : "Submit"}
+              </button>
             )}
           </div>
         </div>

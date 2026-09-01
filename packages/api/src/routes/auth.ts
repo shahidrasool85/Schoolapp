@@ -10,6 +10,7 @@ import {
 import {
   AppError,
   headerMatchesHostSlug,
+  hashContinuationToken,
   MemoryRateLimiter,
   passwordResetMail,
   pgErrorToAppError,
@@ -18,7 +19,7 @@ import {
 import { withTenantContext } from "@schoolapp/db";
 import type { SchoolappApi } from "../types";
 import { readAccessToken } from "../auth-middleware";
-import { mailOf, resetPasswordPath } from "../mail";
+import { mailOf, resetPasswordPath, absoluteAppPath } from "../mail";
 
 const forgotLimiter = new MemoryRateLimiter();
 
@@ -253,9 +254,11 @@ export function registerAuthRoutes(app: SchoolappApi) {
         await mailOf(c).send(
           passwordResetMail({
             organisationId: row.target_organisation_id,
+            organisationName: host.kind === "school" ? host.name : "LuvLearn",
             toEmail: parsed.data.email.toLowerCase(),
             toName: row.target_full_name,
-            resetPath: resetPasswordPath(row.reset_token),
+            resetPath: absoluteAppPath(c, resetPasswordPath(row.reset_token)),
+            tokenFingerprint: hashContinuationToken(row.reset_token),
           }),
         );
       }

@@ -645,8 +645,21 @@ export const MAIL_PURPOSES = [
   "password_reset",
   "account_activation",
   "student_activation",
+  "admissions_application_received",
+  "admissions_status_update",
 ] as const;
 export type MailPurpose = (typeof MAIL_PURPOSES)[number];
+
+export const EMAIL_TEMPLATE_KEYS = [
+  "account_invitation",
+  "password_reset",
+  "admissions_application_received",
+  "admissions_status_update",
+] as const;
+export type EmailTemplateKey = (typeof EMAIL_TEMPLATE_KEYS)[number];
+
+export const MAIL_OUTBOX_STATUSES = ["queued", "sending", "sent", "failed", "cancelled"] as const;
+export type MailOutboxStatus = (typeof MAIL_OUTBOX_STATUSES)[number];
 
 export const ACCOUNT_TOKEN_PURPOSES = ["password_reset", "student_activation", "student_reset"] as const;
 export type AccountTokenPurpose = (typeof ACCOUNT_TOKEN_PURPOSES)[number];

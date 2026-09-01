@@ -327,7 +327,7 @@ begin
   set status = 'queued',
       last_error_code = coalesce(last_error_code, 'stale_sending'),
       last_error_redacted = 'Recovered a stale sending lock'
-  where id = p_id
+  where mail_outbox.id = p_id
     and status = 'sending'
     and updated_at < now() - interval '5 minutes';
 
@@ -337,7 +337,6 @@ begin
     from mail_outbox mo
     where mo.id = p_id
       and mo.status = 'queued'
-      and (mo.next_retry_at is null or mo.next_retry_at <= now())
     for update skip locked
   )
   update mail_outbox mo

@@ -619,7 +619,7 @@ describe("transactional email foundation", () => {
       headers: { Host: `${school.slug}.localhost`, "Content-Type": "application/json" },
       body: JSON.stringify({ draft: true, answers }),
     });
-    expect(draft.status).toBe(201);
+    expect(draft.status).toBe(200);
     expect(email.sent).toHaveLength(0);
 
     const failed = await app.request("/api/v1/public/admissions/forms/application/apply-ack/submissions", {

@@ -1364,7 +1364,7 @@ describe("RLS catalog", () => {
     expect(updatable.rows[0]?.ok).toBe(false);
   });
 
-  it("claims queued mail atomically and does not reclain a live sending row", async () => {
+  it("claims queued mail atomically and does not reclaim a live sending row", async () => {
     const org = await pools.owner.query<{ id: string }>(
       "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
       [`mail-claim-${randomUUID().slice(0, 8)}`, "Claim School"],

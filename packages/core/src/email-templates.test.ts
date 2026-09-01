@@ -21,7 +21,8 @@ describe("transactional email templates", () => {
     );
     expect(rendered.html).not.toContain("<script>");
     expect(rendered.html).not.toContain("<img src=x");
-    expect(rendered.html).toContain("&lt;script&gt;");
+    expect(rendered.html).not.toContain("onerror=");
+    expect(rendered.html).toContain("alert(1)Maya");
     expect(rendered.text).toContain("Maya");
     expect(rendered.subject).toContain("Kingswood School");
   });

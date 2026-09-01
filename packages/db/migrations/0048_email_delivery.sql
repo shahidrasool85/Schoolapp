@@ -1,12 +1,15 @@
 -- Transactional email delivery: extend the existing mail_outbox (Phase 20)
--- with queued/sent/failed status, bounded retries, idempotency, and a
+-- with queued/sent/failed/cancelled status, bounded retries, idempotency, and a
 -- short-lived action URL that is wiped after send. Additive only.
 -- Does not rewrite 0047 or earlier. Does not introduce a second mail table.
+-- This is the complete unreleased email-delivery migration. There are no
+-- follow-up 0049+ repair files; production at 0047 and a fresh database both
+-- apply this file once.
 
-alter table mail_outbox
+alter table public.mail_outbox
   drop constraint if exists mail_outbox_purpose_check;
 
-alter table mail_outbox
+alter table public.mail_outbox
   add constraint mail_outbox_purpose_check
   check (purpose in (
     'staff_invite',
@@ -18,7 +21,7 @@ alter table mail_outbox
     'admissions_status_update'
   ));
 
-alter table mail_outbox
+alter table public.mail_outbox
   add column if not exists template_key text,
   add column if not exists status text not null default 'queued',
   add column if not exists provider_key text,
@@ -36,20 +39,27 @@ alter table mail_outbox
   add column if not exists action_url text,
   add column if not exists updated_at timestamptz not null default now();
 
-alter table mail_outbox
+alter table public.mail_outbox
   drop constraint if exists mail_outbox_status_check;
-alter table mail_outbox
+alter table public.mail_outbox
   add constraint mail_outbox_status_check
   check (status in ('queued', 'sending', 'sent', 'failed', 'cancelled'));
 
 -- Phase 20 rows were inspectable local records, never SMTP-delivered.
--- Do not treat them as live queued work after 0048.
+-- Do not treat them as live queued work after 0048. Invitation/reset tokens
+-- live in invitations/account_tokens and are unchanged. Use cancelled rather
+-- than sent so the row is not evidence that mail was actually delivered.
 update public.mail_outbox
 set
-  status = 'sent',
-  sent_at = coalesce(sent_at, created_at),
+  status = 'cancelled',
+  sent_at = null,
   provider_key = coalesce(nullif(provider_key, ''), 'legacy-phase20'),
   template_key = coalesce(template_key, 'legacy.outbox_record'),
+  last_error_code = coalesce(last_error_code, 'legacy_unsent'),
+  last_error_redacted = coalesce(
+    last_error_redacted,
+    'Local Phase 20 outbox record; email was not sent'
+  ),
   body_text = regexp_replace(body_text, '[?&]token=[^&\s#]+', '?token=redacted', 'gi'),
   action_url = null,
   updated_at = now()
@@ -57,34 +67,34 @@ where template_key is null
   and action_url is null
   and status = 'queued';
 
-alter table mail_outbox
+alter table public.mail_outbox
   drop constraint if exists mail_outbox_attempts_check;
-alter table mail_outbox
+alter table public.mail_outbox
   add constraint mail_outbox_attempts_check
   check (attempt_count >= 0 and max_attempts >= 1 and attempt_count <= 50);
 
 create unique index if not exists mail_outbox_idempotency_idx
-  on mail_outbox (coalesce(organisation_id, '00000000-0000-0000-0000-000000000000'), idempotency_key)
+  on public.mail_outbox (coalesce(organisation_id, '00000000-0000-0000-0000-000000000000'), idempotency_key)
   where idempotency_key is not null;
 
 create index if not exists mail_outbox_delivery_idx
-  on mail_outbox (status, next_retry_at, created_at)
+  on public.mail_outbox (status, next_retry_at, created_at)
   where status in ('queued', 'sending');
 
-drop trigger if exists mail_outbox_updated_at on mail_outbox;
-create trigger mail_outbox_updated_at before update on mail_outbox
-  for each row execute function set_updated_at();
+drop trigger if exists mail_outbox_updated_at on public.mail_outbox;
+create trigger mail_outbox_updated_at before update on public.mail_outbox
+  for each row execute function public.set_updated_at();
 
 -- App role must not read one-time action URLs. Column grants hide action_url;
 -- SECURITY DEFINER delivery functions can still read it until send completes.
-revoke select on mail_outbox from schoolapp_app;
+revoke select on public.mail_outbox from schoolapp_app;
 grant select (
   id, organisation_id, purpose, template_key, to_email, to_name, subject,
   body_text, metadata, created_at, updated_at, status, provider_key,
   provider_message_id, attempt_count, max_attempts, next_retry_at, sent_at,
   last_error_code, last_error_redacted, idempotency_key, from_address,
   from_name, reply_to
-) on mail_outbox to schoolapp_app;
+) on public.mail_outbox to schoolapp_app;
 
 create or replace function enqueue_transactional_email(
   p_organisation_id uuid,
@@ -111,12 +121,16 @@ declare
   v_existing uuid;
   v_text text;
 begin
+  if public.app_current_organisation_id() is not null
+     and p_organisation_id is distinct from public.app_current_organisation_id() then
+    raise exception 'forbidden' using errcode = '42501';
+  end if;
   if p_body_text ~* 'password\s*[:=]' or p_subject ~* 'password\s*[:=]' then
     raise exception 'mail_password_forbidden' using errcode = '22023';
   end if;
   if p_idempotency_key is not null then
     select id into v_existing
-    from mail_outbox
+    from public.mail_outbox
     where coalesce(organisation_id, '00000000-0000-0000-0000-000000000000')
           = coalesce(p_organisation_id, '00000000-0000-0000-0000-000000000000')
       and idempotency_key = p_idempotency_key;
@@ -131,7 +145,7 @@ begin
   v_text := regexp_replace(v_text, '[?&]token=[^&\s#]+', '?token=redacted', 'gi');
 
   begin
-    insert into mail_outbox (
+    insert into public.mail_outbox (
       organisation_id, purpose, template_key, to_email, to_name, subject, body_text,
       metadata, idempotency_key, action_url, reply_to, from_address, from_name, status
     ) values (
@@ -154,7 +168,7 @@ begin
   exception
     when unique_violation then
       select id into v_id
-      from mail_outbox
+      from public.mail_outbox
       where coalesce(organisation_id, '00000000-0000-0000-0000-000000000000')
             = coalesce(p_organisation_id, '00000000-0000-0000-0000-000000000000')
         and idempotency_key = p_idempotency_key;
@@ -168,7 +182,7 @@ begin
     'account_activation',
     'student_activation'
   ) then
-    update mail_outbox
+    update public.mail_outbox
     set status = 'cancelled',
         action_url = null,
         last_error_code = 'superseded',
@@ -237,7 +251,7 @@ security definer
 set search_path = pg_catalog, public
 as $$
 begin
-  update mail_outbox
+  update public.mail_outbox
   set status = 'cancelled',
       action_url = null,
       last_error_code = 'expired',
@@ -245,6 +259,10 @@ begin
       next_retry_at = null,
       body_text = regexp_replace(body_text, '[?&]token=[^&\s#]+', '?token=redacted', 'gi')
   where status in ('queued', 'sending')
+    and (
+      public.app_current_organisation_id() is null
+      or organisation_id is not distinct from public.app_current_organisation_id()
+    )
     and (
       (purpose = 'password_reset' and created_at < now() - interval '2 days')
       or (
@@ -256,6 +274,7 @@ end;
 $$;
 
 revoke all on function expire_stale_mail_outbox() from public;
+revoke all on function expire_stale_mail_outbox() from schoolapp_app;
 
 create or replace function claim_mail_outbox_messages(p_limit integer default 10)
 returns table (
@@ -284,26 +303,34 @@ begin
     p_limit := 10;
   end if;
 
-  perform expire_stale_mail_outbox();
+  perform public.expire_stale_mail_outbox();
 
-  update mail_outbox
+  update public.mail_outbox
   set status = 'queued',
       last_error_code = coalesce(last_error_code, 'stale_sending'),
       last_error_redacted = 'Recovered a stale sending lock'
   where status = 'sending'
-    and updated_at < now() - interval '5 minutes';
+    and updated_at < now() - interval '5 minutes'
+    and (
+      public.app_current_organisation_id() is null
+      or organisation_id is not distinct from public.app_current_organisation_id()
+    );
 
   return query
   with picked as (
     select mo.id
-    from mail_outbox mo
+    from public.mail_outbox mo
     where mo.status = 'queued'
       and (mo.next_retry_at is null or mo.next_retry_at <= now())
+      and (
+        public.app_current_organisation_id() is null
+        or mo.organisation_id is not distinct from public.app_current_organisation_id()
+      )
     order by mo.created_at
     limit p_limit
     for update skip locked
   )
-  update mail_outbox mo
+  update public.mail_outbox mo
   set status = 'sending',
       attempt_count = mo.attempt_count + 1
   from picked
@@ -353,27 +380,35 @@ security definer
 set search_path = pg_catalog, public
 as $$
 begin
-  perform expire_stale_mail_outbox();
+  perform public.expire_stale_mail_outbox();
 
   -- Recover only stale sending locks. A live sending row is owned by another
   -- worker and must not be claimed again (that would double-send).
-  update mail_outbox
+  update public.mail_outbox
   set status = 'queued',
       last_error_code = coalesce(last_error_code, 'stale_sending'),
       last_error_redacted = 'Recovered a stale sending lock'
-  where mail_outbox.id = p_id
+  where public.mail_outbox.id = p_id
     and status = 'sending'
-    and updated_at < now() - interval '5 minutes';
+    and updated_at < now() - interval '5 minutes'
+    and (
+      public.app_current_organisation_id() is null
+      or organisation_id is not distinct from public.app_current_organisation_id()
+    );
 
   return query
   with picked as (
     select mo.id
-    from mail_outbox mo
+    from public.mail_outbox mo
     where mo.id = p_id
       and mo.status = 'queued'
+      and (
+        public.app_current_organisation_id() is null
+        or mo.organisation_id is not distinct from public.app_current_organisation_id()
+      )
     for update skip locked
   )
-  update mail_outbox mo
+  update public.mail_outbox mo
   set status = 'sending',
       attempt_count = mo.attempt_count + 1
   from picked
@@ -411,7 +446,7 @@ security definer
 set search_path = pg_catalog, public
 as $$
 begin
-  update mail_outbox
+  update public.mail_outbox
   set status = 'sent',
       sent_at = now(),
       provider_key = nullif(p_provider_key, ''),
@@ -421,8 +456,12 @@ begin
       last_error_code = null,
       last_error_redacted = null,
       next_retry_at = null
-  where id = p_id
-    and status = 'sending';
+  where public.mail_outbox.id = p_id
+    and status = 'sending'
+    and (
+      public.app_current_organisation_id() is null
+      or organisation_id is not distinct from public.app_current_organisation_id()
+    );
 end;
 $$;
 
@@ -447,9 +486,13 @@ declare
   v_delay interval;
 begin
   select attempt_count, max_attempts into v_attempts, v_max
-  from mail_outbox
-  where id = p_id
-    and status = 'sending';
+  from public.mail_outbox
+  where public.mail_outbox.id = p_id
+    and status = 'sending'
+    and (
+      public.app_current_organisation_id() is null
+      or organisation_id is not distinct from public.app_current_organisation_id()
+    );
   if not found then
     return;
   end if;
@@ -463,7 +506,7 @@ begin
     else interval '8 hours'
   end;
 
-  update mail_outbox
+  update public.mail_outbox
   set status = case when v_retry then 'queued' else 'failed' end,
       next_retry_at = case when v_retry then now() + v_delay else null end,
       last_error_code = left(coalesce(nullif(p_error_code, ''), 'provider_error'), 80),
@@ -473,8 +516,12 @@ begin
         when v_retry then body_text
         else regexp_replace(body_text, '[?&]token=[^&\s#]+', '?token=redacted', 'gi')
       end
-  where id = p_id
-    and status = 'sending';
+  where public.mail_outbox.id = p_id
+    and status = 'sending'
+    and (
+      public.app_current_organisation_id() is null
+      or organisation_id is not distinct from public.app_current_organisation_id()
+    );
 end;
 $$;
 
@@ -522,7 +569,11 @@ as $$
   from organisations o
   join organisation_settings s on s.organisation_id = o.id
   where o.id = p_organisation_id
-    and o.status = 'active';
+    and o.status = 'active'
+    and (
+      public.app_current_organisation_id() is null
+      or o.id is not distinct from public.app_current_organisation_id()
+    );
 $$;
 
 revoke all on function get_transactional_mail_context(uuid) from public;
@@ -537,11 +588,15 @@ as $$
 declare
   v_updated integer;
 begin
-  update mail_outbox
+  if public.app_current_organisation_id() is not null
+     and p_organisation_id is distinct from public.app_current_organisation_id() then
+    return false;
+  end if;
+  update public.mail_outbox
   set status = 'queued',
       next_retry_at = now(),
       last_error_redacted = coalesce(last_error_redacted, 'Manually requeued')
-  where id = p_id
+  where public.mail_outbox.id = p_id
     and organisation_id = p_organisation_id
     and status in ('failed', 'queued')
     and (

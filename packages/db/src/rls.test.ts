@@ -1423,7 +1423,7 @@ describe("RLS catalog", () => {
     }
   });
 
-  it("marks pre-0048 outbox records sent so workers do not deliver them", async () => {
+  it("marks pre-0048 outbox records cancelled so workers do not deliver them", async () => {
     const org = await pools.owner.query<{ id: string }>(
       "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
       [`mail-legacy-${randomUUID().slice(0, 8)}`, "Legacy School"],
@@ -1437,10 +1437,12 @@ describe("RLS catalog", () => {
     );
     await pools.owner.query(
       `update mail_outbox
-       set status = 'sent',
-           sent_at = coalesce(sent_at, created_at),
+       set status = 'cancelled',
+           sent_at = null,
            provider_key = coalesce(nullif(provider_key, ''), 'legacy-phase20'),
            template_key = coalesce(template_key, 'legacy.outbox_record'),
+           last_error_code = coalesce(last_error_code, 'legacy_unsent'),
+           last_error_redacted = coalesce(last_error_redacted, 'Local Phase 20 outbox record; email was not sent'),
            body_text = regexp_replace(body_text, '[?&]token=[^&\\s#]+', '?token=redacted', 'gi'),
            action_url = null
        where id = $1
@@ -1449,14 +1451,111 @@ describe("RLS catalog", () => {
          and status = 'queued'`,
       [inserted.rows[0]!.id],
     );
-    const row = await pools.owner.query<{ status: string; provider_key: string | null; body_text: string }>(
-      "select status, provider_key, body_text from mail_outbox where id = $1",
+    const row = await pools.owner.query<{
+      status: string;
+      provider_key: string | null;
+      body_text: string;
+      sent_at: Date | null;
+    }>(
+      "select status, provider_key, body_text, sent_at from mail_outbox where id = $1",
       [inserted.rows[0]!.id],
     );
-    expect(row.rows[0]?.status).toBe("sent");
+    expect(row.rows[0]?.status).toBe("cancelled");
+    expect(row.rows[0]?.sent_at).toBeNull();
     expect(row.rows[0]?.provider_key).toBe("legacy-phase20");
     expect(row.rows[0]?.body_text).not.toContain("oldsecret");
     const claimed = await pools.app.query("select * from claim_mail_outbox_message($1)", [inserted.rows[0]!.id]);
     expect(claimed.rows).toHaveLength(0);
+  });
+
+  it("hardens SECURITY DEFINER mail functions and blocks cross-tenant claim", async () => {
+    const defs = await pools.owner.query<{
+      proname: string;
+      owner: string;
+      prosecdef: boolean;
+      proconfig: string[] | null;
+    }>(
+      `select p.proname, pg_get_userbyid(p.proowner) as owner, p.prosecdef, p.proconfig
+         from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public'
+          and p.proname in (
+            'claim_mail_outbox_message',
+            'claim_mail_outbox_messages',
+            'expire_stale_mail_outbox',
+            'enqueue_transactional_email',
+            'complete_mail_outbox_send',
+            'fail_mail_outbox_send',
+            'requeue_mail_outbox_message'
+          )`,
+    );
+    expect(defs.rows.length).toBeGreaterThanOrEqual(7);
+    for (const row of defs.rows) {
+      expect(row.owner).toBe("schoolapp_owner");
+      expect(row.prosecdef).toBe(true);
+      expect((row.proconfig ?? []).join(",")).toMatch(/search_path=pg_catalog,\s*public/);
+    }
+    const grants = await pools.owner.query<{
+      claim: boolean;
+      expire: boolean;
+      public_claim: boolean;
+    }>(
+      `select
+         has_function_privilege('schoolapp_app', 'claim_mail_outbox_message(uuid)', 'EXECUTE') as claim,
+         has_function_privilege('schoolapp_app', 'expire_stale_mail_outbox()', 'EXECUTE') as expire,
+         exists (
+           select 1
+           from pg_proc p
+           join pg_namespace n on n.oid = p.pronamespace
+           join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) acl on true
+           where n.nspname = 'public'
+             and p.proname = 'claim_mail_outbox_message'
+             and acl.privilege_type = 'EXECUTE'
+             and acl.grantee = 0
+         ) as public_claim`,
+    );
+    expect(grants.rows[0]?.claim).toBe(true);
+    expect(grants.rows[0]?.expire).toBe(false);
+    expect(grants.rows[0]?.public_claim).toBe(false);
+
+    const id = randomUUID().slice(0, 8);
+    const orgA = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`mail-a-${id}`, "Mail A"],
+    );
+    const orgB = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`mail-b-${id}`, "Mail B"],
+    );
+    const userA = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Admin A', 'staff', 'active') returning id`,
+      [`mail-a-${id}@example.com`],
+    );
+    await pools.owner.query(
+      `insert into organisation_memberships (organisation_id, user_id, status)
+       values ($1, $2, 'active')`,
+      [orgA.rows[0]!.id, userA.rows[0]!.id],
+    );
+    const secret = await pools.owner.query<{ id: string }>(
+      `insert into mail_outbox (
+         organisation_id, purpose, template_key, to_email, subject, body_text, status, action_url
+       ) values ($1, 'password_reset', 'password_reset', 'reset@example.com', 'Reset', 'Reset', 'queued', $2)
+       returning id`,
+      [orgB.rows[0]!.id, "https://school.test/reset-password?token=other-tenant-secret"],
+    );
+    await withTenantContext(pools.app, userA.rows[0]!.id, orgA.rows[0]!.id, async (client) => {
+      const stolen = await client.query<{ action_url: string | null }>(
+        "select * from claim_mail_outbox_message($1)",
+        [secret.rows[0]!.id],
+      );
+      expect(stolen.rows).toHaveLength(0);
+    });
+    const worker = await pools.app.query<{ action_url: string | null }>(
+      "select * from claim_mail_outbox_message($1)",
+      [secret.rows[0]!.id],
+    );
+    expect(worker.rows).toHaveLength(1);
+    expect(worker.rows[0]?.action_url).toContain("other-tenant-secret");
   });
 });

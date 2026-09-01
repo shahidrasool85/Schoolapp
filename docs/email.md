@@ -48,20 +48,22 @@ Tenant-specific From addresses wait until that domain is verified with the SMTP 
 
 ## Outbox, retries, idempotency
 
-`mail_outbox` (extended by `0048_email_delivery.sql`, hardened by `0049_email_delivery_hardening.sql`) stores:
+`mail_outbox` (extended by `0048_email_delivery.sql`) stores:
 
 - `queued` / `sending` / `sent` / `failed` / `cancelled`
 - attempt count, next retry time, redacted last error
 - idempotency key (invitation id, reset fingerprint, `admissions.application_received:{applicationId}`)
 - short-lived `action_url` for one-time links
 
-`action_url` is **not** selectable by `schoolapp_app` on the table. The delivery worker receives it only as the return value of `claim_mail_outbox_message` / `claim_mail_outbox_messages`, which are `SECURITY DEFINER` functions owned by `schoolapp_owner`. Ordinary application queries, `GET /onboarding/mail`, and tenant roles cannot read it. After a successful send or a permanent failure it is wiped. Superseded invitation/reset rows are `cancelled` and wiped. Invite rows older than 14 days and reset rows older than 2 days expire and are wiped. Stored `body_text` has `token=` values redacted.
+`action_url` is **not** selectable by `schoolapp_app` on the table. The delivery worker receives it only as the return value of `claim_mail_outbox_message` / `claim_mail_outbox_messages`, which are `SECURITY DEFINER` functions owned by `schoolapp_owner` with a fixed `search_path`. Ordinary application queries, `GET /onboarding/mail`, and tenant roles cannot read it. After a successful send or a permanent failure it is wiped. Superseded invitation/reset rows are `cancelled` and wiped. Invite rows older than 14 days and reset rows older than 2 days expire and are wiped. Stored `body_text` has `token=` values redacted.
+
+A tenant SQL session cannot claim another organisation's row. The worker uses the app pool without tenant GUC and can claim any queued row. `expire_stale_mail_outbox` is not executable by `schoolapp_app`.
 
 Queued → sending is an atomic `UPDATE ... FOR UPDATE SKIP LOCKED`. Two workers cannot claim the same row. A live `sending` row is not reclaimed; only `sending` rows idle for 5 minutes are returned to `queued`.
 
 Retryable provider failures (timeouts, 4xx rate limits, 5xx) re-queue with bounded backoff (1m / 5m / 25m / 2h / 8h, max 5 attempts) and **keep** `action_url` for the retry. Permanent failures (unknown mailbox, invalid recipient) mark `failed`, wipe `action_url`, and do not retry automatically.
 
-Pre-0048 Phase 20 outbox rows are backfilled to `sent` with `provider_key = legacy-phase20` so deploying 0048/0049 does not start emailing historical recipients.
+Pre-0048 Phase 20 outbox rows are backfilled to `cancelled` with `provider_key = legacy-phase20` and `legacy_unsent`. They were never SMTP-delivered. Invitation/reset **tokens** remain in `invitations` / `account_tokens` and can still be accepted or reissued. Reissue queues a new deliverable row.
 
 Duplicate application submits reuse the same admissions idempotency key, so one acknowledgement is queued. Drafts, continue-between-steps, and failed submits do not queue acknowledgements.
 
@@ -84,9 +86,9 @@ If `EMAIL_WORKER_SECRET` is set, a trusted scheduler may call:
 `POST /api/v1/internal/mail/deliver`  
 `Authorization: Bearer $EMAIL_WORKER_SECRET`
 
-That endpoint is disabled (404) when the secret is unset. It is not an open relay: it only sends already-queued tenant rows.
+That endpoint is disabled (404) when the secret is unset. It requires `Authorization: Bearer $EMAIL_WORKER_SECRET` (constant-time compare). It is not an open relay: it ignores request bodies, only drains already-queued outbox rows, caps `limit` at 50, and returns `{ processed, sent, failed }` only — never `action_url` or message content.
 
-School admins can inspect status at **School settings → Email delivery** and retry eligible failed/queued rows for their organisation only.
+School admins inspect status at **School settings → Email delivery** and retry eligible failed/queued rows for their organisation only. That page shows delivery status, recipient, subject, purpose, fixture template previews, and redacted last-error codes. It does **not** show SMTP credentials, worker secrets, action URLs, or live tokens. SMTP is platform/server env, not tenant configuration. Ordinary teachers cannot open the page or the API.
 
 ## Connected product events
 
@@ -129,14 +131,22 @@ Until those records pass the provider's verification, keep `EMAIL_DELIVERY_MODE=
 
 `nodemailer` is a **production** dependency of `@schoolapp/core` (not a devDependency). This PR adds it and updates `pnpm-lock.yaml`.
 
-If production currently runs Plesk Pull → Deploy → `pnpm build` **without** install, this change **requires**:
+Recommended production order after Plesk Pull / Deploy:
 
 ```bash
+cd /var/www/vhosts/app.luvlearn.co.uk/httpdocs
+export PATH="/opt/plesk/node/22/bin:/usr/local/bin:$PATH"   # use the server's Node/pnpm path
+set -a; source .env; set +a
 pnpm install --frozen-lockfile
+pnpm db:migrate
 pnpm build
+systemctl restart schoolapp
+systemctl status schoolapp --no-pager
 ```
 
-before restarting `schoolapp`. Skipping install will leave `nodemailer` missing; live SMTP then fails closed (`smtp_unavailable`) rather than sending.
+Install must run **before** build so `nodemailer` is present. Migrate applies `0048_email_delivery.sql` once against production currently at `0047`. Keep `EMAIL_DELIVERY_MODE` unset or `log` (and do not set `EMAIL_PROVIDER=smtp` with `live`) until SMTP is ready. First deployment then queues/log-delivers only and does **not** send real mail.
+
+Skipping install leaves `nodemailer` missing; live SMTP then fails closed (`smtp_unavailable`) rather than sending.
 
 Missing `EMAIL_DELIVERY_MODE` / `EMAIL_PROVIDER` defaults to log-only. Live SMTP also requires `SMTP_HOST` (or `SMTP_URL`) and `EMAIL_FROM_ADDRESS`. Tests inject `FakeEmailProvider` and never open a real SMTP connection.
 

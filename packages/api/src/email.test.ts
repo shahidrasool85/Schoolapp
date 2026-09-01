@@ -301,6 +301,29 @@ describe("transactional email foundation", () => {
     const internal = await app.request("/api/v1/internal/mail/deliver", { method: "POST" });
     expect(internal.status).toBe(404);
 
+    const worker = new FakeEmailProvider();
+    const workerApp = testApp(pools, {
+      emailDeliveryProvider: worker,
+      emailWorkerSecret: "worker-secret-worker-secret",
+    });
+    const unauthorized = await workerApp.request("/api/v1/internal/mail/deliver", {
+      method: "POST",
+      headers: { Authorization: "Bearer wrong-secret-wrong-secret" },
+      body: JSON.stringify({ to: "attacker@example.com", html: "<p>hi</p>" }),
+    });
+    expect(unauthorized.status).toBe(401);
+    const delivered = await workerApp.request("/api/v1/internal/mail/deliver?limit=5", {
+      method: "POST",
+      headers: { Authorization: "Bearer worker-secret-worker-secret", "Content-Type": "application/json" },
+      body: JSON.stringify({ to: "attacker@example.com", subject: "spoof", html: "<p>hi</p>" }),
+    });
+    expect(delivered.status).toBe(200);
+    const deliveredBody = (await delivered.json()) as Record<string, unknown>;
+    expect(Object.keys(deliveredBody).sort()).toEqual(["failed", "processed", "sent"]);
+    expect(JSON.stringify(deliveredBody)).not.toContain("action_url");
+    expect(JSON.stringify(deliveredBody)).not.toContain("token=");
+    expect(worker.sent.some((row) => row.to.address === "attacker@example.com")).toBe(false);
+
     await withTenantContext(pools.app, school.adminId, school.orgId, async (client) => {
       const leaked = await client.query("select id from mail_outbox where organisation_id = $1", [other.orgId]);
       expect(leaked.rows).toEqual([]);

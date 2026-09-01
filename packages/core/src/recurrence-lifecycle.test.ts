@@ -46,7 +46,8 @@ describe("recurrence lifecycle", () => {
     });
     expect(withCover.canDelete).toBe(false);
     expect(withCover.canEnd).toBe(true);
-    expect(withCover.message).toMatch(/End it instead/i);
+    expect(withCover.message).toMatch(/already has timetable history/i);
+    expect(withCover.message).toMatch(/End the recurrence instead/i);
   });
 
   it("marks ended recurrences as readable history", () => {

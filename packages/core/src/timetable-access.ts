@@ -4,6 +4,7 @@ import { AppError } from "./errors.js";
 import { notFound } from "./permissions.js";
 import { assignedClassIds, isAssignedToClass } from "./students-access.js";
 import {
+  addDays,
   dateInRange,
   inferAttendanceSessionKey,
   isoWeekdayFromDate,
@@ -356,6 +357,34 @@ export function dateIsSchoolDate(
     return dateInRange(date, academicYear.startsOn, academicYear.endsOn);
   }
   return true;
+}
+
+/** Valid teaching dates for a weekly recurrence, using the same rules as occurrence expansion. */
+export function listRecurrenceTeachingDates(input: {
+  weekday: number;
+  effectiveFrom: string;
+  effectiveUntil: string | null;
+  termId: string | null;
+  terms: Array<{ id: string; startsOn: string; endsOn: string }>;
+  closures: ClosureDateSet;
+  academicYear?: { startsOn: string; endsOn: string } | null;
+  limit?: number;
+}): string[] {
+  const searchTo =
+    input.effectiveUntil ?? input.academicYear?.endsOn ?? addDays(input.effectiveFrom, 120);
+  const dates: string[] = [];
+  let cursor = firstWeekdayOnOrAfter(input.weekday, input.effectiveFrom);
+  while (cursor <= searchTo) {
+    if (
+      dateInRange(cursor, input.effectiveFrom, input.effectiveUntil) &&
+      dateIsSchoolDate(cursor, input.terms, input.termId, input.closures, input.academicYear)
+    ) {
+      dates.push(cursor);
+      if (input.limit && dates.length >= input.limit) break;
+    }
+    cursor = addDays(cursor, 7);
+  }
+  return dates;
 }
 
 export type OccurrenceTeacher = {
@@ -772,31 +801,27 @@ export async function firstTimetableOccurrence(
   const academicYear = yearWindow.rows[0]
     ? { startsOn: yearWindow.rows[0].starts_on, endsOn: yearWindow.rows[0].ends_on }
     : null;
-  const searchTo = entry.effectiveUntil ?? academicYear?.endsOn ?? addDaysSafeLocal(entry.effectiveFrom, 120);
+  const searchTo = entry.effectiveUntil ?? academicYear?.endsOn ?? addDays(entry.effectiveFrom, 120);
   const terms = await loadTermWindows(client, organisationId, entry.academicYearId);
   const closures = await loadSchoolClosureDates(client, organisationId, entry.effectiveFrom, searchTo);
-  let cursor = firstWeekdayOnOrAfter(entry.weekday, entry.effectiveFrom);
-  while (cursor <= searchTo) {
-    if (
-      dateInRange(cursor, entry.effectiveFrom, entry.effectiveUntil) &&
-      dateIsSchoolDate(cursor, terms, entry.termId, closures, academicYear)
-    ) {
-      return {
-        date: cursor,
-        weekday: entry.weekday,
-        startsAt: entry.startsAt,
-        endsAt: entry.endsAt,
-      };
-    }
-    cursor = addDaysSafeLocal(cursor, 7);
-  }
-  return null;
-}
-
-function addDaysSafeLocal(isoDate: string, days: number): string {
-  const date = new Date(`${isoDate}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
+  const dates = listRecurrenceTeachingDates({
+    weekday: entry.weekday,
+    effectiveFrom: entry.effectiveFrom,
+    effectiveUntil: entry.effectiveUntil,
+    termId: entry.termId,
+    terms,
+    closures,
+    academicYear,
+    limit: 1,
+  });
+  const date = dates[0];
+  if (!date) return null;
+  return {
+    date,
+    weekday: entry.weekday,
+    startsAt: entry.startsAt,
+    endsAt: entry.endsAt,
+  };
 }
 
 function nextDate(isoDate: string): string {

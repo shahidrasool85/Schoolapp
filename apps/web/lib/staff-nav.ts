@@ -235,7 +235,7 @@ export const STAFF_NAV_SECTIONS: StaffNavSection[] = [
             label: "School day / Periods",
             permissions: ["timetable.read", "timetable.read_assigned", "timetable.manage_school"],
           },
-          { href: "/school/timetable/schedule", label: "Timetable", permissions: TIMETABLE_NAV_PERMISSIONS },
+          { href: "/school/timetable/schedule", label: "School Timetable", permissions: TIMETABLE_NAV_PERMISSIONS },
           { href: "/school/timetable/mine", label: "My Timetable", permissions: TIMETABLE_NAV_PERMISSIONS },
           { href: "/school/timetable/rooms", label: "Rooms", permissions: ["timetable.rooms.read", "timetable.rooms.manage"] },
           {

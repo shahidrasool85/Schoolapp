@@ -14,6 +14,7 @@ import {
   summariseAttendanceMarks,
   isoDate,
   isoWeekRange,
+  schoolToday,
   listCalendarActivities,
   loadEffectiveEngagementPolicy,
   loadPupilYearGroupId,
@@ -555,7 +556,9 @@ export function registerStudentRoutes(app: SchoolappApi) {
       if (requestedStudentId && requestedStudentId !== studentProfileId) {
         throw new AppError(404, "not_found", "Not found");
       }
-      const week = isoWeekRange(c.req.query("week") || c.req.query("from") || isoDate());
+      const week = isoWeekRange(
+        c.req.query("week") || c.req.query("from") || (await schoolToday(client, orgId)),
+      );
       const from = week.from;
       const to = week.to;
       const lessons = await listPupilTimetable(client, orgId, studentProfileId, from, to);

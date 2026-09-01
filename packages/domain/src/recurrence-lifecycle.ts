@@ -14,6 +14,8 @@ export const STRUCTURAL_RECURRENCE_PATCH_KEYS = [
   "roomId",
   "lessonType",
   "effectiveFrom",
+  "effectiveUntil",
+  "repeatUntil",
   "teachers",
   "customTime",
 ] as const;
@@ -130,7 +132,7 @@ export function recurrenceLifecycleFromState(input: {
   } else if (status === "ended") {
     message = "This recurring lesson has ended. Past timetable history remains readable.";
   } else if (!canDelete && referenced) {
-    message = `This recurring lesson cannot be deleted because it has ${summarizeRecurrenceUsage(used)}. End it instead so past history is kept.`;
+    message = "This recurring lesson already has timetable history and cannot be deleted. End the recurrence instead.";
   } else if (status === "active") {
     message = "This recurring lesson has already started. End it from a date to keep past timetable history.";
   }
@@ -154,4 +156,4 @@ export const RECURRENCE_STRUCTURAL_EDIT_BLOCKED =
   "This recurring lesson has history and cannot be structurally edited. End it from a date and create a new recurrence for future changes.";
 
 export const RECURRENCE_DELETE_BLOCKED =
-  "This recurring lesson cannot be permanently deleted because it has timetable history. End the recurrence instead.";
+  "This recurring lesson already has timetable history and cannot be deleted. End the recurrence instead.";

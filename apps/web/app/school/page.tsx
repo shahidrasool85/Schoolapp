@@ -458,7 +458,7 @@ export default function SchoolDashboardPage() {
             <EmptyState
               title="No lessons scheduled today"
               description="Open the timetable to view the school week."
-              action={<Link href="/school/timetable/schedule">View timetable</Link>}
+              action={<Link href="/school/timetable/schedule">View school timetable</Link>}
             />
           ) : (
             <div className="lesson-cards">

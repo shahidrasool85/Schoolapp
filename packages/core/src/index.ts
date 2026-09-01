@@ -534,6 +534,7 @@ export {
   loadSchoolClosureDates,
   loadTermWindows,
   dateIsSchoolDate,
+  listRecurrenceTeachingDates,
   resolveTimetableOccurrences,
   firstTimetableOccurrence,
   resolveAttendanceRegisterTarget,
@@ -550,6 +551,17 @@ export {
   loadTermLifecycle,
   schoolToday,
 } from "./timetable-lifecycle.js";
+
+export {
+  listResolvedRecurrenceDates,
+  loadNamedTermWindows,
+  loadRepeatUntilAcademicYear,
+  resolveRepeatUntilRule,
+  type RepeatUntilAcademicYear,
+  type RepeatUntilCalendarTerm,
+  type RepeatUntilError,
+  type ResolvedRepeatUntil,
+} from "./recurrence-repeat-until.js";
 
 export {
   isSchoolActivityStatus,

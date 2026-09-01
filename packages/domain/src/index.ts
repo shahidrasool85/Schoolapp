@@ -323,6 +323,29 @@ export {
 } from "./recurrence-lifecycle.js";
 
 export {
+  CUSTOM_DATE_BEFORE_START,
+  CUSTOM_DATE_OUTSIDE_YEAR,
+  MAX_OCCURRENCE_COUNT,
+  NO_TERMS_CONFIGURED,
+  NO_TERM_FOR_START,
+  OCCURRENCE_COUNT_TOO_FEW,
+  REPEAT_UNTIL_KINDS,
+  START_DATE_OUTSIDE_YEAR,
+  customDateLabel,
+  defaultRepeatUntilKind,
+  endOfAcademicYearLabel,
+  endOfTermLabel,
+  findTermContainingDate,
+  formatUkCalendarDate,
+  occurrenceCountLabel,
+  recurrenceEndsLabel,
+  validateCustomRepeatUntilDate,
+  validateOccurrenceCount,
+  type RepeatUntilInput,
+  type RepeatUntilKind,
+} from "./recurrence-repeat-until.js";
+
+export {
   SUBJECT_KEY_HINT,
   SUBJECT_KEY_MAX_LENGTH,
   SUBJECT_KEY_PATTERN,

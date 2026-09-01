@@ -14,7 +14,7 @@ import {
   timesOverlap,
   weekdayLabel,
 } from "./timetable.js";
-import { dateIsSchoolDate } from "./timetable-access.js";
+import { dateIsSchoolDate, listRecurrenceTeachingDates } from "./timetable-access.js";
 
 describe("timetable date helpers", () => {
   it("uses ISO weekdays (Monday = 1)", () => {
@@ -83,6 +83,29 @@ describe("timetable date helpers", () => {
     expect(dateIsSchoolDate("2027-01-06", terms, null, new Set(), year)).toBe(true);
     expect(dateIsSchoolDate("2026-12-22", [], null, new Set(), year)).toBe(true);
     expect(dateIsSchoolDate("2026-09-07", terms, null, new Set(["2026-09-07"]), year)).toBe(false);
+  });
+
+  it("lists weekly teaching dates with the same term, holiday and closure rules as expansion", () => {
+    const terms = [
+      { id: "autumn", startsOn: "2026-09-03", endsOn: "2026-12-18" },
+      { id: "spring", startsOn: "2027-01-04", endsOn: "2027-03-31" },
+    ];
+    const year = { startsOn: "2026-09-03", endsOn: "2027-07-23" };
+    const dates = listRecurrenceTeachingDates({
+      weekday: 1,
+      effectiveFrom: "2026-09-03",
+      effectiveUntil: "2027-07-23",
+      termId: null,
+      terms,
+      closures: new Set(["2026-09-14"]),
+      academicYear: year,
+    });
+    expect(dates[0]).toBe("2026-09-07");
+    expect(dates).not.toContain("2026-09-14");
+    expect(dates).not.toContain("2026-12-21");
+    expect(dates).toContain("2026-12-14");
+    expect(dates).toContain("2027-01-04");
+    expect(startOfIsoWeek("2026-09-01")).toBe("2026-08-31");
   });
 
   it("maps exceptions and attendance session inference", () => {

@@ -49,7 +49,7 @@ export function createApiApp(config: ApiConfig) {
     trustProxy: Boolean(config.trustProxy),
     email,
     emailDeliveryProvider: config.emailDeliveryProvider ?? createEmailDeliveryProvider(email),
-    emailWorkerSecret: config.emailWorkerSecret ?? process.env.EMAIL_WORKER_SECRET?.trim() || null,
+    emailWorkerSecret: config.emailWorkerSecret ?? (process.env.EMAIL_WORKER_SECRET?.trim() || null),
   };
   if (resolvedConfig.trustProxy && process.env.VITEST !== "true") {
     console.warn(

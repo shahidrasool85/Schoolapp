@@ -81,11 +81,11 @@ export function emailConfigFromEnv(env: NodeJS.ProcessEnv = process.env): EmailR
     fromName: env.EMAIL_FROM_NAME?.trim() || "LuvLearn",
     replyToFallback: env.EMAIL_REPLY_TO?.trim() || null,
     smtp: {
-      host: parsed?.host ?? env.SMTP_HOST?.trim() || null,
-      port: parsed?.port ?? Number(env.SMTP_PORT ?? 587) || 587,
+      host: parsed?.host ?? (env.SMTP_HOST?.trim() || null),
+      port: parsed?.port ?? (Number(env.SMTP_PORT ?? 587) || 587),
       secure: parsed?.secure ?? env.SMTP_SECURE === "true",
-      username: parsed?.username ?? env.SMTP_USERNAME?.trim() || null,
-      password: parsed?.password ?? env.SMTP_PASSWORD?.trim() || null,
+      username: parsed?.username ?? (env.SMTP_USERNAME?.trim() || null),
+      password: parsed?.password ?? (env.SMTP_PASSWORD?.trim() || null),
     },
   };
 }

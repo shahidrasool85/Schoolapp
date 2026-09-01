@@ -8,7 +8,7 @@ import { createPools, type DbPools } from "@schoolapp/db";
 import { FilesystemObjectStorage, NoopFileScanner } from "@schoolapp/storage";
 import { createPaymentProvider, paymentConfigFromEnv, FakeEmailProvider, type EmailDeliveryProvider } from "@schoolapp/core";
 import { createApiApp } from "./app";
-import type { SchoolappApi } from "./types";
+import type { ApiConfig, SchoolappApi } from "./types";
 
 const ownerUrl =
   process.env.TEST_DATABASE_OWNER_URL ??
@@ -43,7 +43,7 @@ export function testApiConfig(
     emailDeliveryProvider?: EmailDeliveryProvider;
     emailWorkerSecret?: string | null;
   } = {},
-) {
+): ApiConfig {
   return {
     pools,
     authSecret: TEST_AUTH_SECRET,

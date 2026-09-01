@@ -8,6 +8,7 @@ import {
   renderEmailTemplate,
   schoolPublicOrigin,
   type EmailDeliveryProvider,
+  type EmailRuntimeConfig,
   type MailMessage,
   type TransactionalBranding,
 } from "@schoolapp/core";
@@ -36,10 +37,10 @@ export function emailProviderForConfig(config: ApiConfig): EmailDeliveryProvider
   return createEmailDeliveryProvider(config.email ?? { ...defaultEmailConfig() });
 }
 
-function defaultEmailConfig() {
+function defaultEmailConfig(): EmailRuntimeConfig {
   return {
-    providerKey: "none" as const,
-    deliveryMode: "log" as const,
+    providerKey: "none",
+    deliveryMode: "log",
     fromAddress: null,
     fromName: "LuvLearn",
     replyToFallback: null,
@@ -129,7 +130,7 @@ async function loadBranding(
 
 function buildSendInput(
   row: ClaimedMail,
-  email: ReturnType<typeof defaultEmailConfig>,
+  email: EmailRuntimeConfig,
   branding: TransactionalBranding & { replyTo?: string | null; slug?: string | null },
 ) {
   const templateKey =

@@ -305,15 +305,17 @@ begin
 
   perform public.expire_stale_mail_outbox();
 
-  update public.mail_outbox
+  -- Qualify every RETURNS TABLE name. Unqualified organisation_id/id here
+  -- is ambiguous with the function's output columns.
+  update public.mail_outbox as mo
   set status = 'queued',
-      last_error_code = coalesce(last_error_code, 'stale_sending'),
+      last_error_code = coalesce(mo.last_error_code, 'stale_sending'),
       last_error_redacted = 'Recovered a stale sending lock'
-  where status = 'sending'
-    and updated_at < now() - interval '5 minutes'
+  where mo.status = 'sending'
+    and mo.updated_at < now() - interval '5 minutes'
     and (
       public.app_current_organisation_id() is null
-      or organisation_id is not distinct from public.app_current_organisation_id()
+      or mo.organisation_id is not distinct from public.app_current_organisation_id()
     );
 
   return query
@@ -384,16 +386,17 @@ begin
 
   -- Recover only stale sending locks. A live sending row is owned by another
   -- worker and must not be claimed again (that would double-send).
-  update public.mail_outbox
+  -- Qualify RETURNS TABLE names (id, organisation_id) against the table.
+  update public.mail_outbox as mo
   set status = 'queued',
-      last_error_code = coalesce(last_error_code, 'stale_sending'),
+      last_error_code = coalesce(mo.last_error_code, 'stale_sending'),
       last_error_redacted = 'Recovered a stale sending lock'
-  where public.mail_outbox.id = p_id
-    and status = 'sending'
-    and updated_at < now() - interval '5 minutes'
+  where mo.id = p_id
+    and mo.status = 'sending'
+    and mo.updated_at < now() - interval '5 minutes'
     and (
       public.app_current_organisation_id() is null
-      or organisation_id is not distinct from public.app_current_organisation_id()
+      or mo.organisation_id is not distinct from public.app_current_organisation_id()
     );
 
   return query

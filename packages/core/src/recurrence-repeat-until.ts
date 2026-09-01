@@ -43,10 +43,8 @@ export type ResolvedRepeatUntil = {
 
 export type RepeatUntilError = { ok: false; error: string };
 
-type Queryable = Pick<pg.PoolClient, "query">;
-
 export async function loadRepeatUntilAcademicYear(
-  client: Queryable,
+  client: pg.PoolClient,
   organisationId: string,
   academicYearId: string,
 ): Promise<RepeatUntilAcademicYear | null> {
@@ -67,7 +65,7 @@ export async function loadRepeatUntilAcademicYear(
 }
 
 export async function loadNamedTermWindows(
-  client: Queryable,
+  client: pg.PoolClient,
   organisationId: string,
   academicYearId: string,
 ): Promise<RepeatUntilCalendarTerm[]> {
@@ -87,7 +85,7 @@ export async function loadNamedTermWindows(
 }
 
 export async function listResolvedRecurrenceDates(
-  client: Queryable,
+  client: pg.PoolClient,
   organisationId: string,
   input: {
     academicYearId: string;
@@ -117,7 +115,7 @@ export async function listResolvedRecurrenceDates(
 }
 
 export async function resolveRepeatUntilRule(
-  client: Queryable,
+  client: pg.PoolClient,
   organisationId: string,
   input: {
     academicYearId: string;

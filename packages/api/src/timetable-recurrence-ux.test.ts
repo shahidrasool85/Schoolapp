@@ -157,7 +157,7 @@ async function addTerms(app: ReturnType<typeof testApp>, hdrs: ReturnType<typeof
 }
 
 function lessonBody(
-  structure: Awaited<ReturnType<typeof seedYear>>,
+  structure: { yearId: string; classAId: string; subjectId: string },
   teacherId: string,
   extra: Record<string, unknown> = {},
 ) {

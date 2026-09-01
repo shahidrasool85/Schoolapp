@@ -15,6 +15,7 @@ Architecture **accepted**. Phases 1–19 (foundation through student engagement 
 | [permissions-catalogue.md](./permissions-catalogue.md) | Seed RBAC matrix |
 | [demo.md](./demo.md) | Local browser demo: install, seed, start, URLs, and test logins |
 | [storage.md](./storage.md) | Object storage drivers, upload/download, limits, and security |
+| [email.md](./email.md) | Transactional email, SMTP, outbox retries, SPF/DKIM/DMARC |
 | [embed-admissions-forms.md](./embed-admissions-forms.md) | Website iframe embed instructions |
 | [security/public-admissions-forms.md](./security/public-admissions-forms.md) | Public-form threat model and deployment notes |
 

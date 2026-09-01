@@ -6,7 +6,7 @@ import pg from "pg";
 import { migrate } from "@schoolapp/db";
 import { createPools, type DbPools } from "@schoolapp/db";
 import { FilesystemObjectStorage, NoopFileScanner } from "@schoolapp/storage";
-import { createPaymentProvider, paymentConfigFromEnv } from "@schoolapp/core";
+import { createPaymentProvider, paymentConfigFromEnv, FakeEmailProvider, type EmailDeliveryProvider } from "@schoolapp/core";
 import { createApiApp } from "./app";
 import type { SchoolappApi } from "./types";
 
@@ -35,11 +35,16 @@ export function testPools(): DbPools {
   return createPools({ appUrl, ownerUrl });
 }
 
-export function testApp(
+export function testApiConfig(
   pools: DbPools,
-  options: { platformDomain?: string; trustProxy?: boolean } = {},
-): SchoolappApi {
-  return createApiApp({
+  options: {
+    platformDomain?: string;
+    trustProxy?: boolean;
+    emailDeliveryProvider?: EmailDeliveryProvider;
+    emailWorkerSecret?: string | null;
+  } = {},
+) {
+  return {
     pools,
     authSecret: TEST_AUTH_SECRET,
     tokenTtlSeconds: 3600,
@@ -47,6 +52,16 @@ export function testApp(
     trustProxy: options.trustProxy ?? false,
     storage: testObjectStorage,
     fileScanner: testFileScanner,
+    email: {
+      providerKey: "none" as const,
+      deliveryMode: "test" as const,
+      fromAddress: "notifications@luvlearn.test",
+      fromName: "LuvLearn",
+      replyToFallback: null,
+      smtp: { host: null, port: 587, secure: false, username: null, password: null },
+    },
+    emailDeliveryProvider: options.emailDeliveryProvider ?? new FakeEmailProvider(),
+    emailWorkerSecret: options.emailWorkerSecret ?? null,
     payments: {
       ...paymentConfigFromEnv({
         PAYMENT_PROVIDER: "fake",
@@ -62,7 +77,19 @@ export function testApp(
       stripeSecretKey: null,
       stripeWebhookSecret: null,
     }),
-  });
+  };
+}
+
+export function testApp(
+  pools: DbPools,
+  options: {
+    platformDomain?: string;
+    trustProxy?: boolean;
+    emailDeliveryProvider?: EmailDeliveryProvider;
+    emailWorkerSecret?: string | null;
+  } = {},
+): SchoolappApi {
+  return createApiApp(testApiConfig(pools, options));
 }
 
 export async function insertUser(

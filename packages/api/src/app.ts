@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { AppError, normalizePlatformDomain } from "@schoolapp/core";
+import { AppError, createEmailDeliveryProvider, emailConfigFromEnv, normalizePlatformDomain } from "@schoolapp/core";
 import type { ApiConfig, ApiEnv } from "./types";
 import { tenantResolver } from "./tenant-resolver";
 import { registerAuthRoutes } from "./routes/auth";
@@ -37,31 +37,19 @@ import { registerStatutoryRoutes } from "./routes/statutory";
 import { registerEngagementRoutes } from "./routes/engagement";
 import { registerOnboardingRoutes } from "./routes/onboarding";
 import { registerImportRoutes } from "./routes/imports";
-import { OutboxMailProvider } from "@schoolapp/core";
+import { registerInternalMailRoutes } from "./routes/internal-mail";
 
 export type { ApiConfig, ApiEnv, SchoolappApi } from "./types";
 
 export function createApiApp(config: ApiConfig) {
+  const email = config.email ?? emailConfigFromEnv();
   const resolvedConfig: ApiConfig = {
     ...config,
     platformDomain: normalizePlatformDomain(config.platformDomain),
     trustProxy: Boolean(config.trustProxy),
-    mailProvider:
-      config.mailProvider ??
-      new OutboxMailProvider(async (message) => {
-        await config.pools.app.query(
-          "select enqueue_mail_message($1, $2, $3, $4, $5, $6, $7::jsonb)",
-          [
-            message.organisationId,
-            message.purpose,
-            message.toEmail,
-            message.toName ?? null,
-            message.subject,
-            message.textBody,
-            JSON.stringify(message.metadata ?? {}),
-          ],
-        );
-      }),
+    email,
+    emailDeliveryProvider: config.emailDeliveryProvider ?? createEmailDeliveryProvider(email),
+    emailWorkerSecret: config.emailWorkerSecret ?? process.env.EMAIL_WORKER_SECRET?.trim() || null,
   };
   if (resolvedConfig.trustProxy && process.env.VITEST !== "true") {
     console.warn(
@@ -98,6 +86,7 @@ export function createApiApp(config: ApiConfig) {
 
   registerPublicRoutes(app);
   registerPublicFormRoutes(app);
+  registerInternalMailRoutes(app);
   registerAuthRoutes(app);
   registerMeRoutes(app);
   registerPlatformRoutes(app);

@@ -9,7 +9,19 @@
     "PLATFORM_DOMAIN",
     "TEST_DATABASE_OWNER_URL",
     "TEST_DATABASE_URL",
-    "TRUST_PROXY"
+    "TRUST_PROXY",
+    "EMAIL_PROVIDER",
+    "EMAIL_DELIVERY_MODE",
+    "EMAIL_FROM_ADDRESS",
+    "EMAIL_FROM_NAME",
+    "EMAIL_REPLY_TO",
+    "EMAIL_WORKER_SECRET",
+    "SMTP_HOST",
+    "SMTP_PORT",
+    "SMTP_SECURE",
+    "SMTP_USERNAME",
+    "SMTP_PASSWORD",
+    "SMTP_URL"
   ],
   "tasks": {
     "build": {

@@ -1344,4 +1344,19 @@ describe("RLS catalog", () => {
       ),
     ).rejects.toThrow(/organisation_mismatch/);
   });
+
+  it("hides mail_outbox action URLs from the app role", async () => {
+    const actionUrl = await pools.owner.query<{ ok: boolean }>(
+      "select has_column_privilege('schoolapp_app', 'mail_outbox', 'action_url', 'SELECT') as ok",
+    );
+    expect(actionUrl.rows[0]?.ok).toBe(false);
+    const toEmail = await pools.owner.query<{ ok: boolean }>(
+      "select has_column_privilege('schoolapp_app', 'mail_outbox', 'to_email', 'SELECT') as ok",
+    );
+    expect(toEmail.rows[0]?.ok).toBe(true);
+    const insertable = await pools.owner.query<{ ok: boolean }>(
+      "select has_table_privilege('schoolapp_app', 'mail_outbox', 'INSERT') as ok",
+    );
+    expect(insertable.rows[0]?.ok).toBe(false);
+  });
 });

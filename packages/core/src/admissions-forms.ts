@@ -155,11 +155,11 @@ const CANONICAL_TYPES: Record<AdmissionsCanonicalFieldKey, AdmissionsQuestionTyp
 };
 
 const CANONICAL_LABELS: Record<AdmissionsCanonicalFieldKey, string> = {
-  "child.legal_name": "Child's legal name",
+  "child.legal_name": "Legal name",
   "child.preferred_name": "Preferred name",
   "child.date_of_birth": "Date of birth",
   "child.gender": "Gender",
-  "child.address": "Child's address",
+  "child.address": "Home address",
   "child.intended_academic_year_id": "Intended academic year",
   "child.intended_year_group_id": "Intended year group",
   "child.proposed_start_date": "Proposed start date",
@@ -412,16 +412,25 @@ export function defaultFormTemplate(formType: AdmissionsFormType): FormSectionDe
 
   return [
     section("child", "Child details", [
-      fieldDefinitionForCanonical("child.legal_name", { required: true }),
+      fieldDefinitionForCanonical("child.legal_name", {
+        required: true,
+        helperText: "The child's full legal name, as on their birth certificate or passport.",
+      }),
       "child.preferred_name",
       fieldDefinitionForCanonical("child.date_of_birth", { required: true }),
       "child.gender",
-      "child.address",
+      fieldDefinitionForCanonical("child.address", {
+        helperText: "The child's home address.",
+      }),
       fieldDefinitionForCanonical("child.intended_academic_year_id", { required: true }),
       fieldDefinitionForCanonical("child.intended_year_group_id", { required: true }),
       "child.proposed_start_date",
-      "child.current_school",
-      "child.previous_school",
+      fieldDefinitionForCanonical("child.current_school", {
+        helperText: "The school the child attends now, if any.",
+      }),
+      fieldDefinitionForCanonical("child.previous_school", {
+        helperText: "A school the child attended before the current school, if different.",
+      }),
     ]),
     section(
       "guardians",
@@ -539,6 +548,31 @@ function fieldError(field: FormFieldDefinition, message: string): never {
   });
 }
 
+export const UK_POSTCODE_RE = /^(GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})$/i;
+
+export function isValidUkPostcode(value: string): boolean {
+  return UK_POSTCODE_RE.test(value.trim().replace(/\s+/g, " "));
+}
+
+export function publicFieldRequiredMessage(field: FormFieldDefinition): string {
+  const key = field.canonicalKey ?? field.fieldKey;
+  if (key === "child.legal_name") return "Enter the child's legal name.";
+  if (key === "child.date_of_birth") return "Enter the child's date of birth.";
+  if (key === "child.intended_academic_year_id") return "Select the intended academic year.";
+  if (key === "child.intended_year_group_id") return "Select the intended year group.";
+  if (key === "child.address") return "Enter the child's home address.";
+  if (key === "guardians") return "Enter at least one parent or guardian.";
+  if (key === "guardian.full_name") return "Enter the parent or guardian's name.";
+  if (key === "guardian.email") return "Enter a parent or guardian email address.";
+  if (key === "enquiry.notes") return "Enter your question or note.";
+  return `Enter ${field.label.toLowerCase()}.`;
+}
+
+export function countryUsesUkPostcode(countryCode?: string | null): boolean {
+  const code = (countryCode ?? "GB").trim().toUpperCase();
+  return code === "GB" || code === "UK";
+}
+
 function assertEmail(value: string, field: FormFieldDefinition, label = field.label) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) || value.length > 120) {
     fieldError(field, `${label} must be a valid email`);
@@ -561,7 +595,7 @@ export function validateFieldAnswer(field: FormFieldDefinition, raw: unknown): u
   if (!field.enabled) return undefined;
   if (isBlank(raw)) {
     if (field.required) {
-      fieldError(field, `${field.label} is required`);
+      fieldError(field, publicFieldRequiredMessage(field));
     }
     return undefined;
   }
@@ -628,7 +662,7 @@ export function validateFieldAnswer(field: FormFieldDefinition, raw: unknown): u
     case "address_group": {
       const address = parseAddress(raw);
       if (field.required && !address?.line1) {
-        fieldError(field, `${field.label} is required`);
+        fieldError(field, publicFieldRequiredMessage(field));
       }
       return address;
     }
@@ -710,7 +744,7 @@ export function isAllowedAdmissionsUpload(input: {
 export function validatePublicAnswers(
   fields: FormFieldDefinition[],
   answers: Record<string, unknown>,
-  options: { draft?: boolean } = {},
+  options: { draft?: boolean; countryCode?: string | null } = {},
 ): Record<string, unknown> {
   const enabled = fields.filter((field) => field.enabled);
   const cleaned: Record<string, unknown> = {};
@@ -727,6 +761,12 @@ export function validatePublicAnswers(
       options.draft ? { ...field, required: false } : field,
       raw,
     );
+    if (value !== undefined && field.questionType === "address_group") {
+      const address = value as AddressValue;
+      if (address.postcode && countryUsesUkPostcode(options.countryCode) && !isValidUkPostcode(address.postcode)) {
+        fieldError(field, "Enter a valid UK postcode.");
+      }
+    }
     if (value !== undefined) cleaned[field.fieldKey] = value;
   }
   return cleaned;

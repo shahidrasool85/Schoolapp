@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   DEFAULT_BRAND_ACCENT,
   DEFAULT_BRAND_PRIMARY,
+  EMAIL_TEMPLATE_KEYS,
   HEX_COLOR_PATTERN,
   ONBOARDING_STEPS,
   PERMISSIONS,
@@ -18,10 +19,13 @@ import {
   presentSchoolOnboarding,
   pgErrorToAppError,
   writeAudit,
+  fixturePreviewData,
+  renderEmailTemplate,
 } from "@schoolapp/core";
 import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
 import { withSchoolActor } from "../school-context";
+import { deliverQueuedMail } from "../email-delivery";
 import {
   insertPendingObject,
   profileForDomain,
@@ -425,7 +429,9 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertAnyPermission(actor, [PERMISSIONS.ONBOARDING_MANAGE, PERMISSIONS.ORG_SETTINGS_MANAGE]);
       const rows = await client.query(
-        `select id, purpose, to_email, to_name, subject, body_text, created_at
+        `select id, purpose, template_key, to_email, to_name, subject, body_text, created_at,
+                status, provider_key, provider_message_id, attempt_count, sent_at,
+                last_error_code, last_error_redacted, idempotency_key
          from mail_outbox
          where organisation_id = $1
          order by created_at desc
@@ -436,12 +442,75 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
         messages: rows.rows.map((row) => ({
           id: row.id,
           purpose: row.purpose,
+          templateKey: row.template_key,
           toEmail: row.to_email,
           toName: row.to_name,
           subject: row.subject,
-          bodyText: row.body_text,
+          bodyText: String(row.body_text ?? "").replace(/([?&]token=)[^&\s]+/gi, "$1redacted"),
           createdAt: row.created_at,
+          status: row.status,
+          providerKey: row.provider_key,
+          providerMessageId: row.provider_message_id,
+          attemptCount: row.attempt_count,
+          sentAt: row.sent_at,
+          lastErrorCode: row.last_error_code,
+          lastError: row.last_error_redacted,
         })),
+      });
+    }),
+  );
+
+  app.post("/onboarding/mail/:id/retry", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertAnyPermission(actor, [PERMISSIONS.ONBOARDING_MANAGE, PERMISSIONS.ORG_SETTINGS_MANAGE]);
+      const id = c.req.param("id");
+      const requeued = await client.query<{ requeue_mail_outbox_message: boolean }>(
+        "select requeue_mail_outbox_message($1, $2)",
+        [orgId, id],
+      );
+      if (!requeued.rows[0]?.requeue_mail_outbox_message) {
+        throw new AppError(404, "not_found", "This message cannot be retried");
+      }
+      await deliverQueuedMail(c.get("config"), { id }).catch(() => undefined);
+      const row = await client.query<{ status: string; last_error_code: string | null }>(
+        "select status, last_error_code from mail_outbox where id = $1 and organisation_id = $2",
+        [id, orgId],
+      );
+      return c.json({
+        id,
+        status: row.rows[0]?.status ?? "queued",
+        lastErrorCode: row.rows[0]?.last_error_code ?? null,
+      });
+    }),
+  );
+
+  app.get("/onboarding/mail/preview", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertAnyPermission(actor, [PERMISSIONS.ONBOARDING_MANAGE, PERMISSIONS.ORG_SETTINGS_MANAGE]);
+      const requested = String(c.req.query("template") ?? "account_invitation");
+      const template = (EMAIL_TEMPLATE_KEYS as readonly string[]).includes(requested)
+        ? (requested as (typeof EMAIL_TEMPLATE_KEYS)[number])
+        : "account_invitation";
+      const branding = await client.query<{
+        organisation_name: string;
+        primary_colour: string | null;
+        has_logo: boolean;
+        logo_version: string | null;
+      }>("select * from get_public_school_branding($1)", [orgId]);
+      const row = branding.rows[0];
+      const rendered = renderEmailTemplate(template, fixturePreviewData(template), {
+        schoolName: row?.organisation_name ?? "School",
+        primaryColor: row?.primary_colour,
+        logoUrl: row?.has_logo
+          ? publicBrandingAssetUrl("logo", row.logo_version)
+          : null,
+      });
+      return c.json({
+        template,
+        subject: rendered.subject,
+        html: rendered.html,
+        text: rendered.text,
+        fixture: true,
       });
     }),
   );

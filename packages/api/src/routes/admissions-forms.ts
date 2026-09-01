@@ -42,6 +42,7 @@ import { requireUser } from "../auth-middleware";
 import { uuidRouteParam, withSchoolActor } from "../school-context";
 import { mapAdmissionsCampaign, mapAdmissionsForm, mapFormSubmission } from "../serialize";
 import { assertPublicFormFileAnswers } from "../file-service";
+import { queueAdmissionsApplicationAck } from "../admissions-mail";
 
 const formSchema = z.object({
   formType: z.enum(ADMISSIONS_FORM_TYPES),
@@ -737,6 +738,16 @@ export function registerAdmissionsFormRoutes(app: SchoolappApi) {
         ],
       );
       const result = submitted.rows[0]!.submit_public_admissions_form;
+      if (!parsed.data.draft) {
+        const host = c.get("tenantHost");
+        await queueAdmissionsApplicationAck(c, {
+          organisationId: orgId,
+          organisationName: host.kind === "school" ? host.name : "School",
+          result,
+          canonical,
+          draft: false,
+        }).catch(() => undefined);
+      }
       return c.json(
         {
           submission: {

@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "cleanup-stored-objects": "tsx src/cleanup-stored-objects.ts"
+    "cleanup-stored-objects": "tsx src/cleanup-stored-objects.ts",
+    "deliver-mail": "tsx src/deliver-mail.ts"
   },
   "dependencies": {
     "@schoolapp/auth": "workspace:*",

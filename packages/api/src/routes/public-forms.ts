@@ -18,10 +18,12 @@ import {
   publicFormRateLimitKey,
   sanitizePlainText,
   validatePublicAnswers,
+  type CanonicalSnapshot,
   type FormFieldDefinition,
 } from "@schoolapp/core";
 import type { ApiEnv, SchoolappApi } from "../types";
 import { requestedOrganisationId } from "../auth-middleware";
+import { queueAdmissionsApplicationAck } from "../admissions-mail";
 import {
   readUploadedFile,
   scannerOf,
@@ -123,6 +125,16 @@ function publicSubmitSchemaError(error: z.ZodError): AppError {
   return new AppError(400, "validation_failed", "The submission could not be read");
 }
 
+function publicFormPayload(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  const payload = raw as Record<string, unknown>;
+  const org = payload.organisation;
+  if (!org || typeof org !== "object" || Array.isArray(org)) return payload;
+  const { id: _id, ...safeOrg } = org as Record<string, unknown>;
+  void _id;
+  return { ...payload, organisation: safeOrg };
+}
+
 export function registerPublicFormRoutes(app: SchoolappApi) {
   app.get("/public/admissions/forms/:formType/:slug", async (c) => {
     const school = requireSchoolHostOrg(c);
@@ -142,7 +154,7 @@ export function registerPublicFormRoutes(app: SchoolappApi) {
         "select get_published_admissions_form($1, $2, $3)",
         [school.organisationId, formType, slug],
       );
-      const payload = result.rows[0]?.get_published_admissions_form;
+      const payload = publicFormPayload(result.rows[0]?.get_published_admissions_form);
       if (!payload) throw new AppError(404, "not_found", "Not found");
       return c.json(payload);
     } catch (error) {
@@ -212,8 +224,11 @@ export function registerPublicFormRoutes(app: SchoolappApi) {
       const definition = published.rows[0]?.get_published_admissions_form;
       if (!definition) throw new AppError(404, "not_found", "Not found");
       const fields = mapPublicFields(definition as { sections?: Array<{ fields?: Array<Record<string, unknown>> }> });
-      const answers = validatePublicAnswers(fields, parsed.data.answers, { draft: parsed.data.draft });
-      const canonical = mapAnswersToCanonical(fields, answers);
+      const answers = validatePublicAnswers(fields, parsed.data.answers, {
+        draft: parsed.data.draft,
+        countryCode: String((definition.organisation as { countryCode?: string } | undefined)?.countryCode ?? "GB"),
+      });
+      const canonical = mapAnswersToCanonical(fields, answers) as CanonicalSnapshot;
       const completeness = computeCompleteness({ draft: Boolean(parsed.data.draft), fields, answers });
       const formMeta = definition.form as Record<string, unknown>;
       const declaration = parsed.data.draft
@@ -264,6 +279,23 @@ export function registerPublicFormRoutes(app: SchoolappApi) {
         ],
       );
       const result = submitted.rows[0]!.submit_public_admissions_form;
+      if (!parsed.data.draft) {
+        const years = Array.isArray(definition.academicYears)
+          ? (definition.academicYears as Array<{ id: string; name: string }>)
+          : [];
+        const groups = Array.isArray(definition.yearGroups)
+          ? (definition.yearGroups as Array<{ id: string; name: string }>)
+          : [];
+        await queueAdmissionsApplicationAck(c, {
+          organisationId: school.organisationId,
+          organisationName: school.name,
+          result,
+          canonical,
+          years,
+          groups,
+          draft: false,
+        }).catch(() => undefined);
+      }
       return c.json(
         {
           submission: {

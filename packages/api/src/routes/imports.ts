@@ -16,7 +16,7 @@ import {
 import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
 import { withSchoolActor } from "../school-context";
-import { mailOf, inviteAcceptPath } from "../mail";
+import { mailOf, schoolInviteAbsoluteUrl } from "../mail";
 import { parentInviteMail, staffInviteMail } from "@schoolapp/core";
 
 const kindSchema = z.enum(IMPORT_KINDS);
@@ -184,11 +184,12 @@ export function registerImportRoutes(app: SchoolappApi) {
          order by row_number`,
         [importJob.id, orgId],
       );
-      const org = await client.query<{ name: string }>(
-        "select name from organisations where id = $1",
+      const org = await client.query<{ name: string; slug: string }>(
+        "select name, slug from organisations where id = $1",
         [orgId],
       );
       const schoolName = org.rows[0]?.name ?? "School";
+      const schoolSlug = org.rows[0]?.slug ?? "";
       let imported = 0;
       let skipped = 0;
       let failed = 0;
@@ -220,6 +221,7 @@ export function registerImportRoutes(app: SchoolappApi) {
           await client.query(`update data_import_rows set status = 'imported' where id = $1`, [row.id]);
           report.push({ rowNumber: row.row_number, status: "imported" });
           if (result?.invitationToken && result.email) {
+            const acceptPath = schoolInviteAbsoluteUrl(c, schoolSlug, result.invitationToken);
             const message =
               importJob.kind === "guardians"
                 ? parentInviteMail({
@@ -227,14 +229,16 @@ export function registerImportRoutes(app: SchoolappApi) {
                     organisationName: schoolName,
                     toEmail: result.email,
                     toName: result.name ?? result.email,
-                    acceptPath: inviteAcceptPath(result.invitationToken),
+                    acceptPath,
+                    invitationId: result.invitationId,
                   })
                 : staffInviteMail({
                     organisationId: orgId,
                     organisationName: schoolName,
                     toEmail: result.email,
                     toName: result.name ?? result.email,
-                    acceptPath: inviteAcceptPath(result.invitationToken),
+                    acceptPath,
+                    invitationId: result.invitationId,
                   });
             try {
               await mail.send(message);
@@ -524,7 +528,7 @@ async function importValidRow(
     userId: string;
     payload: Record<string, string>;
   },
-): Promise<{ invitationToken?: string; email?: string; name?: string } | null> {
+): Promise<{ invitationToken?: string; invitationId?: string; email?: string; name?: string } | null> {
   if (input.kind === "staff") {
     const { roleKey } = validateStaffImportRow(input.payload);
     if (!roleKey) throw new AppError(400, "validation_failed", "Invalid staff role");
@@ -543,9 +547,10 @@ async function importValidRow(
         null,
       ],
     );
-    const row = created.rows[0] as { invitation_token?: string };
+    const row = created.rows[0] as { invitation_token?: string; invitation_id?: string };
     return {
       invitationToken: row.invitation_token,
+      invitationId: row.invitation_id,
       email,
       name: input.payload.full_name,
     };
@@ -637,9 +642,10 @@ async function importValidRow(
       1,
     ],
   );
-  const row = created.rows[0] as { invitation_token?: string | null };
+  const row = created.rows[0] as { invitation_token?: string | null; invitation_id?: string | null };
   return {
     invitationToken: row.invitation_token ?? undefined,
+    invitationId: row.invitation_id ?? undefined,
     email,
     name: input.payload.guardian_name,
   };

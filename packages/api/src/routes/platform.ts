@@ -4,7 +4,7 @@ import { AppError, pgErrorToAppError, schoolInviteUrl, staffInviteMail } from "@
 import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
 import { requirePlatformHost } from "../tenant-resolver";
-import { inviteAcceptPath, mailOf } from "../mail";
+import { mailOf } from "../mail";
 
 type SchoolAdminStateRow = {
   organisation_id: string;
@@ -119,7 +119,13 @@ export function registerPlatformRoutes(app: SchoolappApi) {
           organisationName: parsed.data.name,
           toEmail: parsed.data.adminEmail.toLowerCase(),
           toName: parsed.data.adminFullName,
-          acceptPath: inviteAcceptPath(row.invitation_token),
+          acceptPath: schoolInviteUrl(
+            slug.slug,
+            c.get("config").platformDomain,
+            row.invitation_token,
+            { port: c.get("tenantHost").port },
+          ),
+          invitationId: row.invitation_id,
         }),
       );
       return c.json(
@@ -165,7 +171,8 @@ export function registerPlatformRoutes(app: SchoolappApi) {
           organisationName: row.organisation_name || "School",
           toEmail: row.email,
           toName: row.invited_full_name,
-          acceptPath: inviteAcceptPath(row.invitation_token),
+          acceptPath: invitationUrl,
+          invitationId: row.invitation_id,
         }),
       );
       return c.json(

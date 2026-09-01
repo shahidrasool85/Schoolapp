@@ -188,10 +188,17 @@ function SchoolSettingsAdmin() {
         title="School settings"
         description="School identity and branding. Academic years, classes, timetable and portals stay on their own pages."
         actions={
-          permissions.has("onboarding.manage") ? (
-            <Link href="/school/setup" className="button secondary">
-              School setup wizard
-            </Link>
+          permissions.has("onboarding.manage") || permissions.has("org.settings.manage") ? (
+            <span style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+              {permissions.has("onboarding.manage") ? (
+                <Link href="/school/setup" className="button secondary">
+                  School setup wizard
+                </Link>
+              ) : null}
+              <Link href="/school/settings/email" className="button secondary">
+                Email delivery
+              </Link>
+            </span>
           ) : undefined
         }
       />

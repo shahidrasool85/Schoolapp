@@ -8,9 +8,12 @@ import {
   formatAddress,
   liveEmailSendingEnabled,
   LogEmailProvider,
+  parseSafeEmailAddress,
   platformFromAddress,
   redactActionUrls,
   redactEmailError,
+  sanitizeEmailSendInput,
+  sanitizeMailHeaderValue,
 } from "./email-provider.js";
 
 describe("email provider abstraction", () => {
@@ -22,6 +25,22 @@ describe("email provider abstraction", () => {
     expect(liveEmailSendingEnabled(config)).toBe(false);
     const provider = createEmailDeliveryProvider(config);
     expect(provider.key).toBe("log");
+  });
+
+  it("fails closed when email env is absent or live SMTP is incomplete", () => {
+    const missing = emailConfigFromEnv({});
+    expect(missing.providerKey).toBe("none");
+    expect(missing.deliveryMode).toBe("log");
+    expect(liveEmailSendingEnabled(missing)).toBe(false);
+    expect(createEmailDeliveryProvider(missing).key).toBe("log");
+
+    const liveWithoutHost = emailConfigFromEnv({
+      EMAIL_PROVIDER: "smtp",
+      EMAIL_DELIVERY_MODE: "live",
+      EMAIL_FROM_ADDRESS: "notifications@luvlearn.example",
+    });
+    expect(liveEmailSendingEnabled(liveWithoutHost)).toBe(false);
+    expect(createEmailDeliveryProvider(liveWithoutHost).key).toBe("log");
   });
 
   it("uses the fake provider in test delivery mode", () => {
@@ -85,6 +104,8 @@ describe("email provider abstraction", () => {
     expect(redactActionUrls("https://x.test/invite?token=secret123")).toContain("token=redacted");
     expect(redactEmailError("fail for parent@school.test token=abc")).not.toContain("parent@school.test");
     expect(redactEmailError("fail for parent@school.test token=abc")).not.toContain("abc");
+    expect(redactEmailError("smtp fail https://school.test/invite?token=secret123")).not.toContain("secret123");
+    expect(redactEmailError("smtp fail https://school.test/invite?token=secret123")).not.toContain("https://");
   });
 
   it("formats school-aware from names on the platform domain", () => {
@@ -98,6 +119,41 @@ describe("email provider abstraction", () => {
     expect(from.address).toBe("notifications@luvlearn.example");
     expect(from.name).toBe("Kingswood School via LuvLearn");
     expect(formatAddress(from)).toContain("Kingswood School via LuvLearn");
+  });
+
+  it("strips CR/LF from tenant names, subjects, and invalid reply-to values", () => {
+    const injected = "Kingswood\r\nBcc: stolen@evil.test";
+    expect(sanitizeMailHeaderValue(injected)).not.toMatch(/\r|\n/);
+    expect(formatAddress({ address: "n@example.com", name: injected })).not.toMatch(/\r|\n/);
+    expect(parseSafeEmailAddress("office@school.test\r\nBcc: stolen@evil.test")).toBeNull();
+    expect(parseSafeEmailAddress("not-an-email")).toBeNull();
+    expect(parseSafeEmailAddress("office@school.test")).toBe("office@school.test");
+    const safe = sanitizeEmailSendInput({
+      to: { address: "parent@example.com", name: "Pat\r\nCc: other@x.test" },
+      from: { address: "notifications@luvlearn.example", name: injected },
+      replyTo: "office@school.test\nBcc: stolen@evil.test",
+      subject: "Hello\r\nBcc: stolen@evil.test",
+      html: "<p>Hi</p>",
+      text: "Hi",
+      headers: {
+        Bcc: "stolen@evil.test",
+        "X-LuvLearn-Purpose": "staff_invite",
+      },
+    });
+    expect(safe.subject).not.toMatch(/\r|\n/);
+    expect(safe.from.name).not.toMatch(/\r|\n/);
+    expect(safe.replyTo).toBeNull();
+    expect(safe.headers).not.toHaveProperty("Bcc");
+    expect(safe.headers?.["X-LuvLearn-Purpose"]).toBe("staff_invite");
+    expect(() =>
+      sanitizeEmailSendInput({
+        to: { address: "not-an-email" },
+        from: { address: "notifications@luvlearn.example" },
+        subject: "Hello",
+        html: "<p>Hi</p>",
+        text: "Hi",
+      }),
+    ).toThrow(/Invalid email address/);
   });
 
   it("log provider never throws for local development", async () => {

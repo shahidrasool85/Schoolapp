@@ -67,6 +67,63 @@ const SECRET_ENV_KEYS = new Set([
   "EMAIL_SMTP_PASSWORD",
 ]);
 
+const HEADER_BREAKS = /[\r\n\u0000-\u001F\u007F]/g;
+const EMAIL_ADDRESS_PATTERN =
+  /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/;
+
+export function sanitizeMailHeaderValue(value: string, max = 200): string {
+  return value.replace(HEADER_BREAKS, " ").replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+export function parseSafeEmailAddress(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const cleaned = sanitizeMailHeaderValue(value, 254).replace(/[<>"]/g, "");
+  if (
+    !EMAIL_ADDRESS_PATTERN.test(cleaned) ||
+    cleaned.length > 254 ||
+    cleaned.includes("..") ||
+    cleaned.startsWith(".") ||
+    cleaned.includes("@.")
+  ) {
+    return null;
+  }
+  return cleaned;
+}
+
+export function requireSafeEmailAddress(
+  value: string,
+  code: string = "invalid_recipient",
+): string {
+  const parsed = parseSafeEmailAddress(value);
+  if (!parsed) {
+    throw new EmailDeliveryError("permanent", code, "Invalid email address");
+  }
+  return parsed;
+}
+
+export function sanitizeEmailSendInput(input: EmailSendInput): EmailSendInput {
+  const headers: Record<string, string> = {};
+  for (const [key, headerValue] of Object.entries(input.headers ?? {})) {
+    if (!/^X-LuvLearn-[A-Za-z0-9-]+$/.test(key)) continue;
+    headers[key] = sanitizeMailHeaderValue(headerValue, 120);
+  }
+  return {
+    to: {
+      address: requireSafeEmailAddress(input.to.address),
+      name: input.to.name ? sanitizeMailHeaderValue(input.to.name, 120) : null,
+    },
+    from: {
+      address: requireSafeEmailAddress(input.from.address, "provider_unconfigured"),
+      name: input.from.name ? sanitizeMailHeaderValue(input.from.name, 160) : null,
+    },
+    replyTo: parseSafeEmailAddress(input.replyTo ?? null),
+    subject: sanitizeMailHeaderValue(input.subject, 200),
+    html: input.html,
+    text: input.text,
+    headers,
+  };
+}
+
 export function emailConfigFromEnv(env: NodeJS.ProcessEnv = process.env): EmailRuntimeConfig {
   const provider = (env.EMAIL_PROVIDER ?? "none").trim().toLowerCase();
   const providerKey: EmailProviderKey = provider === "smtp" ? "smtp" : provider === "log" ? "log" : "none";
@@ -141,13 +198,14 @@ export class LogEmailProvider implements EmailDeliveryProvider {
   readonly sent: EmailSendInput[] = [];
 
   async send(input: EmailSendInput): Promise<EmailSendResult> {
-    this.sent.push(redactLoggedEmail(input));
+    const safe = sanitizeEmailSendInput(input);
+    this.sent.push(redactLoggedEmail(safe));
     const messageId = `log_${Date.now().toString(36)}`;
     if (process.env.VITEST !== "true") {
       console.info("email:log", {
-        to: input.to.address,
-        subject: input.subject,
-        from: input.from.address,
+        to: safe.to.address,
+        subject: safe.subject,
+        from: safe.from.address,
         messageId,
       });
     }
@@ -205,14 +263,15 @@ export class SmtpEmailProvider implements EmailDeliveryProvider {
           : undefined,
     });
     try {
+      const safe = sanitizeEmailSendInput(input);
       const info = await transport.sendMail({
-        from: formatAddress(input.from),
-        to: formatAddress(input.to),
-        replyTo: input.replyTo || undefined,
-        subject: input.subject,
-        text: input.text,
-        html: input.html,
-        headers: input.headers,
+        from: formatAddress(safe.from),
+        to: formatAddress(safe.to),
+        replyTo: safe.replyTo || undefined,
+        subject: safe.subject,
+        text: safe.text,
+        html: safe.html,
+        headers: safe.headers,
       });
       return { messageId: info.messageId ?? null };
     } catch (error) {
@@ -222,10 +281,10 @@ export class SmtpEmailProvider implements EmailDeliveryProvider {
 }
 
 export function formatAddress(input: EmailAddress): string {
-  const name = input.name?.trim();
-  if (!name) return input.address;
-  const safe = name.replace(/[\r\n<>"]/g, "");
-  return `"${safe}" <${input.address}>`;
+  const address = requireSafeEmailAddress(input.address);
+  const name = input.name ? sanitizeMailHeaderValue(input.name, 120) : "";
+  if (!name) return address;
+  return `"${name.replace(/"/g, "")}" <${address}>`;
 }
 
 export function platformFromAddress(
@@ -233,8 +292,8 @@ export function platformFromAddress(
   schoolName?: string | null,
 ): EmailAddress {
   const address = config.fromAddress || "notifications@localhost";
-  const school = schoolName?.trim();
-  const name = school ? `${school} via ${config.fromName}` : config.fromName;
+  const school = schoolName ? sanitizeMailHeaderValue(schoolName, 120) : "";
+  const name = school ? `${school} via ${sanitizeMailHeaderValue(config.fromName, 80)}` : config.fromName;
   return { address, name };
 }
 
@@ -289,6 +348,7 @@ export function classifyProviderError(error: unknown): EmailDeliveryError {
 
 export function redactEmailError(message: string): string {
   return message
+    .replace(/https?:\/\/[^\s"'<>]+/gi, "[url]")
     .replace(/token=[^&\s]+/gi, "token=redacted")
     .replace(/pass(?:word)?[=:]\s*\S+/gi, "password=redacted")
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[address]")

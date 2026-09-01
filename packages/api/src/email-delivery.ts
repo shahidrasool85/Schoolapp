@@ -6,6 +6,7 @@ import {
   purposeToTemplateKey,
   redactEmailError,
   renderEmailTemplate,
+  sanitizeEmailSendInput,
   schoolPublicOrigin,
   type EmailDeliveryProvider,
   type EmailRuntimeConfig,
@@ -86,12 +87,12 @@ export async function deliverQueuedMail(
       const classified =
         error instanceof EmailDeliveryError
           ? error
-          : new EmailDeliveryError("retryable", "provider_error", redactEmailError(String(error)));
+          : new EmailDeliveryError("retryable", "provider_error", String(error));
       await config.pools.app.query("select fail_mail_outbox_send($1, $2, $3, $4)", [
         row.id,
         classified.retryable,
         classified.code,
-        classified.message,
+        redactEmailError(classified.message),
       ]);
       failed += 1;
     }
@@ -149,7 +150,7 @@ function buildSendInput(
     primaryColor: branding.primaryColor,
   });
   const from = platformFromAddress(email, branding.schoolName);
-  return {
+  return sanitizeEmailSendInput({
     to: { address: row.to_email, name: row.to_name },
     from,
     replyTo: row.reply_to || branding.replyTo || email.replyToFallback,
@@ -160,5 +161,5 @@ function buildSendInput(
       "X-LuvLearn-Template": templateKey,
       "X-LuvLearn-Purpose": row.purpose,
     },
-  };
+  });
 }

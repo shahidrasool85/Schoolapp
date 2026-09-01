@@ -658,7 +658,7 @@ export const EMAIL_TEMPLATE_KEYS = [
 ] as const;
 export type EmailTemplateKey = (typeof EMAIL_TEMPLATE_KEYS)[number];
 
-export const MAIL_OUTBOX_STATUSES = ["queued", "sending", "sent", "failed"] as const;
+export const MAIL_OUTBOX_STATUSES = ["queued", "sending", "sent", "failed", "cancelled"] as const;
 export type MailOutboxStatus = (typeof MAIL_OUTBOX_STATUSES)[number];
 
 export const ACCOUNT_TOKEN_PURPOSES = ["password_reset", "student_activation", "student_reset"] as const;

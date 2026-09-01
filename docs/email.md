@@ -48,18 +48,22 @@ Tenant-specific From addresses wait until that domain is verified with the SMTP 
 
 ## Outbox, retries, idempotency
 
-`mail_outbox` (extended by `0048_email_delivery.sql`) stores:
+`mail_outbox` (extended by `0048_email_delivery.sql`, hardened by `0049_email_delivery_hardening.sql`) stores:
 
-- `queued` / `sending` / `sent` / `failed`
+- `queued` / `sending` / `sent` / `failed` / `cancelled`
 - attempt count, next retry time, redacted last error
 - idempotency key (invitation id, reset fingerprint, `admissions.application_received:{applicationId}`)
 - short-lived `action_url` for one-time links
 
-`action_url` is **not** selectable by `schoolapp_app`. After send or permanent failure it is wiped. Stored `body_text` has `token=` values redacted.
+`action_url` is **not** selectable by `schoolapp_app` on the table. The delivery worker receives it only as the return value of `claim_mail_outbox_message` / `claim_mail_outbox_messages`, which are `SECURITY DEFINER` functions owned by `schoolapp_owner`. Ordinary application queries, `GET /onboarding/mail`, and tenant roles cannot read it. After a successful send or a permanent failure it is wiped. Superseded invitation/reset rows are `cancelled` and wiped. Invite rows older than 14 days and reset rows older than 2 days expire and are wiped. Stored `body_text` has `token=` values redacted.
 
-Retryable provider failures (timeouts, 4xx rate limits, 5xx) re-queue with bounded backoff (1m / 5m / 25m / 2h / 8h, max 5 attempts). Permanent failures (unknown mailbox, invalid recipient) mark `failed` and do not retry automatically.
+Queued → sending is an atomic `UPDATE ... FOR UPDATE SKIP LOCKED`. Two workers cannot claim the same row. A live `sending` row is not reclaimed; only `sending` rows idle for 5 minutes are returned to `queued`.
 
-Duplicate application submits reuse the same admissions idempotency key, so one acknowledgement is queued.
+Retryable provider failures (timeouts, 4xx rate limits, 5xx) re-queue with bounded backoff (1m / 5m / 25m / 2h / 8h, max 5 attempts) and **keep** `action_url` for the retry. Permanent failures (unknown mailbox, invalid recipient) mark `failed`, wipe `action_url`, and do not retry automatically.
+
+Pre-0048 Phase 20 outbox rows are backfilled to `sent` with `provider_key = legacy-phase20` so deploying 0048/0049 does not start emailing historical recipients.
+
+Duplicate application submits reuse the same admissions idempotency key, so one acknowledgement is queued. Drafts, continue-between-steps, and failed submits do not queue acknowledgements.
 
 ## Delivery worker
 
@@ -120,6 +124,21 @@ Do **not** change DNS from this application. After choosing a verified sending d
 5. **Return-path / MAIL FROM** — if the provider uses a bounce subdomain, add that CNAME/MX as documented.
 
 Until those records pass the provider's verification, keep `EMAIL_DELIVERY_MODE=log`.
+
+## Production install
+
+`nodemailer` is a **production** dependency of `@schoolapp/core` (not a devDependency). This PR adds it and updates `pnpm-lock.yaml`.
+
+If production currently runs Plesk Pull → Deploy → `pnpm build` **without** install, this change **requires**:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm build
+```
+
+before restarting `schoolapp`. Skipping install will leave `nodemailer` missing; live SMTP then fails closed (`smtp_unavailable`) rather than sending.
+
+Missing `EMAIL_DELIVERY_MODE` / `EMAIL_PROVIDER` defaults to log-only. Live SMTP also requires `SMTP_HOST` (or `SMTP_URL`) and `EMAIL_FROM_ADDRESS`. Tests inject `FakeEmailProvider` and never open a real SMTP connection.
 
 ## Abuse protection
 

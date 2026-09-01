@@ -45,6 +45,22 @@ describe("transactional email templates", () => {
     expect(rendered.html).toContain("Powered by LuvLearn");
   });
 
+  it("does not honour javascript or header-breaking action URLs or school names", () => {
+    const rendered = renderEmailTemplate(
+      "account_invitation",
+      {
+        recipientName: "Alex",
+        purposeLabel: "join the school",
+        actionUrl: "javascript:alert(1)",
+        expiresLabel: "14 days",
+      },
+      { schoolName: "Kingswood\r\nBcc: stolen@evil.test" },
+    );
+    expect(rendered.html).not.toContain("javascript:");
+    expect(rendered.html).toContain('href="#"');
+    expect(rendered.subject).not.toMatch(/\r|\n/);
+  });
+
   it("renders password reset with ignore wording and no account enumeration copy", () => {
     const rendered = renderEmailTemplate(
       "password_reset",

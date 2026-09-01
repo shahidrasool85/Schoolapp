@@ -241,9 +241,9 @@ function renderShell(input: {
   const heading = safeEmailText(input.heading, 120);
   const footerNote = input.footerNote ? safeEmailText(input.footerNote, 240) : "";
   const signoff = input.signoff ? safeEmailText(input.signoff, 160) : `Regards\n${school}`;
-  const button = input.button
-    ? { label: safeEmailText(input.button.label, 40), url: safeHttpUrl(input.button.url) || input.button.url }
-    : null;
+  const button = input.    button
+      ? { label: safeEmailText(input.button.label, 40), url: safeHttpUrl(input.button.url) ?? "#" }
+      : null;
 
   const htmlParts = [
     `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(input.subject)}</title></head>`,
@@ -296,10 +296,14 @@ function renderShell(input: {
   ];
 
   return {
-    subject: input.subject,
+    subject: stripHeaderBreaks(input.subject).slice(0, 200),
     html: htmlParts.join(""),
     text: textLines.join("\n"),
   };
+}
+
+function stripHeaderBreaks(value: string): string {
+  return value.replace(/[\r\n\u0000-\u001F\u007F]/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function safeHex(value?: string | null): string | null {

@@ -12,9 +12,16 @@ import {
   StatusBadge,
 } from "../../../../components/ui";
 import { RequirePermission } from "../../../../components/require-permission";
-import { mailOutboxCanRetry } from "@schoolapp/core";
 import { api } from "../../../../lib/api";
 import { userFacingError } from "../../../../lib/errors";
+
+function mailOutboxCanRetry(status: string, purpose: string): boolean {
+  if (status === "queued") return true;
+  return (
+    status === "failed" &&
+    (purpose === "admissions_application_received" || purpose === "admissions_status_update")
+  );
+}
 
 const TEMPLATES = [
   { key: "account_invitation", label: "Account invitation" },

@@ -93,6 +93,41 @@ export function validateRecurrenceStopFrom(input: {
   return { ok: true, effectiveUntil };
 }
 
+export const APPLY_FROM_AFTER_ORIGINAL_END =
+  "Choose a date on or before the original last lesson date. The replacement must keep that original end date.";
+
+export const APPLY_FROM_NO_REMAINING_LESSONS =
+  "This change date would not produce any remaining lessons before the original end date. Choose an earlier date, or end the recurrence instead.";
+
+/**
+ * Split an existing recurrence from applyFrom.
+ * The replacement inherits the stored effective_until. It must not infer
+ * end-of-term or end-of-year intent, and must not extend past the original end.
+ */
+export function validateRecurrenceApplyFrom(input: {
+  applyFrom: string;
+  effectiveFrom: string;
+  effectiveUntil: string | null;
+  today: string;
+  yearEndsOn: string;
+}): { ok: true; oldEffectiveUntil: string; inheritedUntil: string | null } | { ok: false; error: string } {
+  const stop = validateRecurrenceStopFrom({
+    stopFrom: input.applyFrom,
+    effectiveFrom: input.effectiveFrom,
+    today: input.today,
+    yearEndsOn: input.yearEndsOn,
+  });
+  if (!stop.ok) return stop;
+  if (input.effectiveUntil && input.applyFrom > input.effectiveUntil) {
+    return { ok: false, error: APPLY_FROM_AFTER_ORIGINAL_END };
+  }
+  return {
+    ok: true,
+    oldEffectiveUntil: stop.effectiveUntil,
+    inheritedUntil: input.effectiveUntil,
+  };
+}
+
 function formatUsage(item: RecurrenceUsageCount): string {
   if (item.count === 1) {
     if (item.label.endsWith("s")) return `1 ${item.label.slice(0, -1)}`;

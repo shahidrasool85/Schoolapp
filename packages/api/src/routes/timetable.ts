@@ -1,11 +1,13 @@
 import { z } from "zod";
 import {
+  APPLY_FROM_NO_REMAINING_LESSONS,
   PERMISSIONS,
   RECURRENCE_DELETE_BLOCKED,
   RECURRENCE_STRUCTURAL_EDIT_BLOCKED,
   computeRecurrenceStatus,
   effectiveUntilFromStopFrom,
   recurrencePatchTouchesStructure,
+  validateRecurrenceApplyFrom,
   validateRecurrenceStopFrom,
 } from "@schoolapp/domain";
 import {
@@ -1163,13 +1165,17 @@ export function registerTimetableRoutes(app: SchoolappApi) {
         [existing.academic_year_id, orgId],
       );
       if (!year.rows[0]) throw new AppError(404, "not_found", "Not found");
-      const stop = validateRecurrenceStopFrom({
-        stopFrom: body.applyFrom,
+      const originalUntil = (existing.effective_until as string | null) ?? null;
+      const stop = validateRecurrenceApplyFrom({
+        applyFrom: body.applyFrom,
         effectiveFrom: String(existing.effective_from),
+        effectiveUntil: originalUntil,
         today,
         yearEndsOn: year.rows[0].ends_on,
       });
       if (!stop.ok) throw new AppError(400, "validation_failed", stop.error);
+      // Client repeatUntil / effectiveUntil are ignored. The replacement always
+      // inherits the stored original end date (including a legacy open end).
       const replacementBody = parseBody(entrySchema, {
         academicYearId: body.academicYearId ?? String(existing.academic_year_id),
         termId: body.termId === undefined ? ((existing.term_id as string | null) ?? undefined) : body.termId,
@@ -1188,24 +1194,29 @@ export function registerTimetableRoutes(app: SchoolappApi) {
         roomId: body.roomId === undefined ? ((existing.room_id as string | null) ?? undefined) : body.roomId,
         lessonType: body.lessonType ?? String(existing.lesson_type),
         effectiveFrom: body.applyFrom,
-        effectiveUntil: body.effectiveUntil,
+        effectiveUntil: stop.inheritedUntil,
         staffNotes: body.staffNotes === undefined ? ((existing.staff_notes as string | null) ?? undefined) : body.staffNotes,
         teachers:
           body.teachers ??
           ((existing.teachers as Array<{ staffProfileId: string; participationRole?: string; isPrimary?: boolean }>) ?? []),
-        repeatUntil: body.repeatUntil,
       });
-      const window = await resolveEntryRepeatUntil(client, orgId, replacementBody);
+      const remaining = await listResolvedRecurrenceDates(client, orgId, {
+        academicYearId: replacementBody.academicYearId,
+        weekday: replacementBody.weekday,
+        effectiveFrom: replacementBody.effectiveFrom,
+        effectiveUntil: stop.inheritedUntil,
+        termId: replacementBody.termId ?? null,
+      });
+      if (remaining.dates.length === 0) {
+        throw new AppError(400, "validation_failed", APPLY_FROM_NO_REMAINING_LESSONS);
+      }
       await client.query(
         `update timetable_entries
          set effective_until = $3::date, is_active = true
          where id = $1 and organisation_id = $2`,
-        [id, orgId, stop.effectiveUntil],
+        [id, orgId, stop.oldEffectiveUntil],
       );
-      const created = await insertTimetableEntry(client, orgId, userId, {
-        ...replacementBody,
-        effectiveUntil: window.effectiveUntil,
-      });
+      const created = await insertTimetableEntry(client, orgId, userId, replacementBody);
       const ended = await mapManagedEntry(client, orgId, await loadEntryRow(client, orgId, id), today, {
         includeLifecycle: true,
       });
@@ -1215,14 +1226,20 @@ export function registerTimetableRoutes(app: SchoolappApi) {
         action: "timetable.entry.replaced",
         entityType: "timetable_entry",
         entityId: created.id,
-        before: { endedEntryId: id, effectiveUntil: stop.effectiveUntil, applyFrom: body.applyFrom },
+        before: {
+          endedEntryId: id,
+          effectiveUntil: stop.oldEffectiveUntil,
+          applyFrom: body.applyFrom,
+          inheritedUntil: stop.inheritedUntil,
+        },
         after: created,
       });
       return c.json({
         endedEntry: ended,
         entry: created,
-        message:
-          "The previous recurring lesson now ends before this date. The replacement starts from the chosen date. Past timetable history is kept.",
+        message: stop.inheritedUntil
+          ? `The previous recurring lesson now ends before this date. The replacement starts from the chosen date and keeps the original end date (${stop.inheritedUntil}). Past timetable history is kept.`
+          : "The previous recurring lesson now ends before this date. The replacement starts from the chosen date and keeps the original open end date. Past timetable history is kept.",
       });
     }),
   );

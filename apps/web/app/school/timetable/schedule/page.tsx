@@ -486,7 +486,6 @@ export default function TimetableSchedulePage() {
           subjectId: String(form.get("replaceSubjectId") ?? "") || null,
           roomId: String(form.get("replaceRoomId") ?? "") || null,
           teachers: [{ staffProfileId: String(form.get("replaceStaffProfileId") ?? ""), isPrimary: true }],
-          repeatUntil: { kind: "end_of_academic_year" },
         }),
       });
       setEditing(null);
@@ -528,15 +527,25 @@ export default function TimetableSchedulePage() {
     }
   }
 
+  function scrollToRecurringRule(entryId: string) {
+    document.getElementById(`recurrence-rule-${entryId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
   function RecurrenceActions({ entry }: { entry: Entry }) {
     if (!canManage) return null;
     const ended = entry.lifecycleStatus === "ended";
     const future = entry.lifecycleStatus === "future";
+    const active = entry.lifecycleStatus === "active";
     return (
       <div className="table-actions">
         {!ended ? (
           <Button type="button" variant="secondary" onClick={() => void openLifecycle(entry, "edit")}>
             Edit
+          </Button>
+        ) : null}
+        {active ? (
+          <Button type="button" variant="ghost" onClick={() => void openLifecycle(entry, "edit")}>
+            Apply change from
           </Button>
         ) : null}
         {!ended ? (
@@ -546,7 +555,7 @@ export default function TimetableSchedulePage() {
         ) : null}
         {future ? (
           <Button type="button" variant="ghost" onClick={() => void openLifecycle(entry, "delete")}>
-            Delete
+            Delete future recurrence
           </Button>
         ) : null}
       </div>
@@ -602,7 +611,10 @@ export default function TimetableSchedulePage() {
         </p>
       ) : null}
       <h2>Weekly school timetable</h2>
-      <p className="muted">Generated lessons for the selected week. These come from the recurring lesson rules below.</p>
+      <p className="muted">
+        Generated lessons for the selected week. Edit, apply a change from a date, end, or delete a rule in Recurring
+        lesson rules below.
+      </p>
       {occurrences.length === 0 ? (
         <EmptyState
           title="No lessons in this week"
@@ -642,7 +654,15 @@ export default function TimetableSchedulePage() {
                 </td>
                 {canManage ? (
                   <td className="num">
-                    {source ? <RecurrenceActions entry={source} /> : null}
+                    {source ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => scrollToRecurringRule(source.id)}
+                      >
+                        View rule
+                      </Button>
+                    ) : null}
                   </td>
                 ) : null}
               </tr>
@@ -944,8 +964,9 @@ export default function TimetableSchedulePage() {
       )}
       <h2>Recurring lesson rules</h2>
       <p className="muted">
-        Recurring lesson rules generate the weekly timetable automatically. Scheduled means it has not started yet,
-        Active means it is generating lessons now, and Ended means it has stopped. Past lessons stay in the timetable.
+        These rules generate the weekly timetable. This is where you edit a rule, apply a change from a date, end a
+        recurrence, or delete an unused future recurrence. Scheduled means it has not started yet, Active means it is
+        generating lessons now, and Ended means it has stopped. Past lessons stay in the timetable.
       </p>
       {entries.length > 0 ? (
         <DataTable
@@ -962,7 +983,7 @@ export default function TimetableSchedulePage() {
           }
         >
           {entries.map((entry) => (
-            <tr key={entry.id}>
+            <tr key={entry.id} id={`recurrence-rule-${entry.id}`}>
               <td>{DAYS[entry.weekday - 1]}</td>
               <td>
                 {hhmm(entry.startsAt)}–{hhmm(entry.endsAt)}
@@ -1071,11 +1092,19 @@ export default function TimetableSchedulePage() {
               <form className="academic-create-form is-dialog" onSubmit={applyStructuralChange}>
                 <h3>Apply change from</h3>
                 <p className="muted">
-                  The current rule will stop the day before this date. A replacement rule starts here. Past timetable,
-                  attendance, cover and learning history stay attached to the original rule.
+                  The current rule will stop the day before this date. The replacement starts here and keeps the original
+                  end date ({recurrenceEndsLabel(editing.effectiveUntil ?? null)}). Past timetable, attendance, cover and
+                  learning history stay attached to the original rule.
                 </p>
                 <FormField label="Apply change from">
-                  <Input type="date" value={applyFrom} min={today} onChange={(event) => setApplyFrom(event.target.value)} required />
+                  <Input
+                    type="date"
+                    value={applyFrom}
+                    min={today}
+                    max={editing.effectiveUntil ?? years.find((year) => year.id === editing.academicYearId)?.endsOn}
+                    onChange={(event) => setApplyFrom(event.target.value)}
+                    required
+                  />
                 </FormField>
                 <div className="academic-create-fields is-three">
                   <FormField label="Weekday">

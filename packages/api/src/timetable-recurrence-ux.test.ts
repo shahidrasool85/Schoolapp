@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { todayInTimeZone } from "@schoolapp/domain";
+import {
+  APPLY_FROM_AFTER_ORIGINAL_END,
+  APPLY_FROM_NO_REMAINING_LESSONS,
+  todayInTimeZone,
+} from "@schoolapp/domain";
 import { closePools } from "@schoolapp/db";
 import { startOfIsoWeek } from "@schoolapp/core";
 import {
@@ -154,6 +158,26 @@ async function addTerms(app: ReturnType<typeof testApp>, hdrs: ReturnType<typeof
     body: JSON.stringify({ name: "Summer Term", startsOn: "2027-04-19", endsOn: "2027-07-23" }),
   });
   return autumn.term;
+}
+
+async function addCover(
+  app: ReturnType<typeof testApp>,
+  hdrs: ReturnType<typeof headers>,
+  timetableEntryId: string,
+  coveringStaffProfileId: string,
+  date: string,
+) {
+  const cover = await app.request("/api/v1/timetable/covers", {
+    method: "POST",
+    headers: hdrs,
+    body: JSON.stringify({
+      timetableEntryId,
+      date,
+      coveringStaffProfileId,
+      reason: "Training",
+    }),
+  });
+  expect(cover.status).toBe(201);
 }
 
 function lessonBody(
@@ -704,7 +728,10 @@ describe("Timetable recurrence UX hotfix", () => {
         }),
       }),
     );
-    const replaced = await json<{ endedEntry: { id: string; effectiveUntil: string }; entry: { id: string } }>(
+    const replaced = await json<{
+      endedEntry: { id: string; effectiveUntil: string };
+      entry: { id: string; effectiveUntil: string | null };
+    }>(
       await app.request(`/api/v1/timetable/entries/${created.entry.id}/replace`, {
         method: "POST",
         headers: hdrs,
@@ -712,11 +739,13 @@ describe("Timetable recurrence UX hotfix", () => {
           applyFrom: "2026-09-14",
           teachers: [{ staffProfileId: nextTeacher.staffProfileId, isPrimary: true }],
           repeatUntil: { kind: "end_of_academic_year" },
+          effectiveUntil: "2027-07-22",
         }),
       }),
     );
     expect(replaced.endedEntry.effectiveUntil).toBe("2026-09-13");
     expect(replaced.entry.id).not.toBe(created.entry.id);
+    expect(replaced.entry.effectiveUntil).toBeNull();
     const past = await json<{ occurrences: Array<{ entryId: string; teachers: Array<{ staffProfileId: string }> }> }>(
       await app.request(
         `/api/v1/timetable/occurrences?from=2026-09-07&to=2026-09-07&classId=${classA.class.id}`,
@@ -735,5 +764,215 @@ describe("Timetable recurrence UX hotfix", () => {
     expect(future.occurrences[0]?.teachers.some((item) => item.staffProfileId === nextTeacher.staffProfileId)).toBe(
       true,
     );
+    const yearEnd = await json<{ occurrences: Array<{ date: string; entryId: string }> }>(
+      await app.request(
+        `/api/v1/timetable/occurrences?from=2027-07-19&to=2027-07-19&classId=${classA.class.id}`,
+        { headers: hdrs },
+      ),
+    );
+    expect(yearEnd.occurrences[0]?.entryId).toBe(replaced.entry.id);
+  });
+
+  it("inherits the original end date when applying a change from a date", async () => {
+    const school = await createSchool(pools.owner, suffix());
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(token, school.orgId);
+    const structure = await seedYear(app, hdrs);
+    const autumn = await addTerms(app, hdrs, structure.yearId);
+    expect(autumn.endsOn).toBe("2026-12-18");
+    const teacher = await inviteTeacher(app, hdrs, suffix(), structure.classAId);
+    const nextTeacher = await inviteTeacher(app, hdrs, suffix(), structure.classAId);
+    const coverTeacher = await inviteTeacher(app, hdrs, suffix(), structure.classAId);
+
+    const created = await json<{ entry: { id: string; effectiveUntil: string } }>(
+      await app.request("/api/v1/timetable/entries", {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({
+          ...lessonBody(structure, teacher.staffProfileId),
+          repeatUntil: { kind: "end_of_term" },
+        }),
+      }),
+    );
+    expect(created.entry.effectiveUntil).toBe("2026-12-18");
+    await addCover(app, hdrs, created.entry.id, coverTeacher.staffProfileId, "2026-09-07");
+
+    const afterEnd = await app.request(`/api/v1/timetable/entries/${created.entry.id}/replace`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        applyFrom: "2026-12-19",
+        teachers: [{ staffProfileId: nextTeacher.staffProfileId, isPrimary: true }],
+      }),
+    });
+    expect(afterEnd.status).toBe(400);
+    expect((await json<{ error: { message: string } }>(afterEnd)).error.message).toBe(APPLY_FROM_AFTER_ORIGINAL_END);
+
+    const replaced = await json<{
+      endedEntry: { id: string; effectiveUntil: string };
+      entry: { id: string; effectiveFrom: string; effectiveUntil: string | null };
+    }>(
+      await app.request(`/api/v1/timetable/entries/${created.entry.id}/replace`, {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({
+          applyFrom: "2026-11-01",
+          teachers: [{ staffProfileId: nextTeacher.staffProfileId, isPrimary: true }],
+          repeatUntil: { kind: "end_of_academic_year" },
+          effectiveUntil: structure.yearEndsOn,
+        }),
+      }),
+    );
+    expect(replaced.endedEntry.effectiveUntil).toBe("2026-10-31");
+    expect(replaced.entry.effectiveFrom).toBe("2026-11-01");
+    expect(replaced.entry.effectiveUntil).toBe("2026-12-18");
+    expect(replaced.entry.effectiveUntil).not.toBe(structure.yearEndsOn);
+    expect(replaced.entry.effectiveUntil).not.toMatch(/^2027-07-/);
+
+    const historical = await json<{
+      occurrences: Array<{ date: string; entryId: string; covered: boolean; teachers: Array<{ staffProfileId: string }> }>;
+    }>(
+      await app.request(
+        `/api/v1/timetable/occurrences?from=2026-09-07&to=2026-09-07&classId=${structure.classAId}`,
+        { headers: hdrs },
+      ),
+    );
+    expect(historical.occurrences[0]?.entryId).toBe(created.entry.id);
+    expect(historical.occurrences[0]?.covered).toBe(true);
+
+    const lastOld = await json<{
+      occurrences: Array<{ date: string; entryId: string; teachers: Array<{ staffProfileId: string }> }>;
+    }>(
+      await app.request(
+        `/api/v1/timetable/occurrences?from=2026-10-26&to=2026-10-26&classId=${structure.classAId}`,
+        { headers: hdrs },
+      ),
+    );
+    expect(lastOld.occurrences[0]?.entryId).toBe(created.entry.id);
+    expect(lastOld.occurrences[0]?.teachers.some((item) => item.staffProfileId === teacher.staffProfileId)).toBe(true);
+
+    const afterSplit = await json<{
+      occurrences: Array<{ date: string; entryId: string; teachers: Array<{ staffProfileId: string }> }>;
+    }>(
+      await app.request(
+        `/api/v1/timetable/occurrences?from=2026-11-02&to=2026-11-02&classId=${structure.classAId}`,
+        { headers: hdrs },
+      ),
+    );
+    expect(afterSplit.occurrences[0]?.entryId).toBe(replaced.entry.id);
+    expect(afterSplit.occurrences[0]?.teachers.some((item) => item.staffProfileId === nextTeacher.staffProfileId)).toBe(
+      true,
+    );
+
+    const lastAutumn = await json<{ occurrences: Array<{ date: string; entryId: string }> }>(
+      await app.request(
+        `/api/v1/timetable/occurrences?from=2026-12-14&to=2026-12-14&classId=${structure.classAId}`,
+        { headers: hdrs },
+      ),
+    );
+    expect(lastAutumn.occurrences[0]?.entryId).toBe(replaced.entry.id);
+
+    const spring = await json<{ occurrences: Array<{ date: string }> }>(
+      await app.request(
+        `/api/v1/timetable/occurrences?from=2027-01-04&to=2027-01-04&classId=${structure.classAId}`,
+        { headers: hdrs },
+      ),
+    );
+    expect(spring.occurrences).toHaveLength(0);
+
+    const july = await json<{ occurrences: Array<{ date: string }> }>(
+      await app.request(
+        `/api/v1/timetable/occurrences?from=2027-07-19&to=2027-07-19&classId=${structure.classAId}`,
+        { headers: hdrs },
+      ),
+    );
+    expect(july.occurrences).toHaveLength(0);
+
+    const overlappingReplacement = await app.request("/api/v1/timetable/entries", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        ...lessonBody(structure, teacher.staffProfileId, {
+          effectiveFrom: "2026-11-02",
+          repeatUntil: { kind: "custom_date", date: "2026-12-18" },
+        }),
+      }),
+    });
+    expect(overlappingReplacement.status).toBe(409);
+
+    const overlappingHistory = await app.request("/api/v1/timetable/entries", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        ...lessonBody(structure, teacher.staffProfileId, {
+          effectiveFrom: "2026-09-07",
+          repeatUntil: { kind: "custom_date", date: "2026-10-26" },
+        }),
+      }),
+    });
+    expect(overlappingHistory.status).toBe(409);
+  });
+
+  it("preserves a custom original end date and rejects an empty replacement window", async () => {
+    const school = await createSchool(pools.owner, suffix());
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(token, school.orgId);
+    const structure = await seedYear(app, hdrs);
+    await addTerms(app, hdrs, structure.yearId);
+    const teacher = await inviteTeacher(app, hdrs, suffix(), structure.classAId);
+    const nextTeacher = await inviteTeacher(app, hdrs, suffix(), structure.classAId);
+    const coverTeacher = await inviteTeacher(app, hdrs, suffix(), structure.classAId);
+
+    const custom = await json<{ entry: { id: string; effectiveUntil: string } }>(
+      await app.request("/api/v1/timetable/entries", {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({
+          ...lessonBody(structure, teacher.staffProfileId),
+          repeatUntil: { kind: "custom_date", date: "2026-11-20" },
+        }),
+      }),
+    );
+    expect(custom.entry.effectiveUntil).toBe("2026-11-20");
+    await addCover(app, hdrs, custom.entry.id, coverTeacher.staffProfileId, "2026-09-07");
+    const replaced = await json<{ entry: { effectiveUntil: string | null } }>(
+      await app.request(`/api/v1/timetable/entries/${custom.entry.id}/replace`, {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({
+          applyFrom: "2026-11-01",
+          teachers: [{ staffProfileId: nextTeacher.staffProfileId, isPrimary: true }],
+          repeatUntil: { kind: "end_of_academic_year" },
+        }),
+      }),
+    );
+    expect(replaced.entry.effectiveUntil).toBe("2026-11-20");
+
+    const emptyWindow = await json<{ entry: { id: string; effectiveUntil: string } }>(
+      await app.request("/api/v1/timetable/entries", {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({
+          ...lessonBody(structure, nextTeacher.staffProfileId, {
+            weekday: 2,
+            startsAt: "11:00",
+            endsAt: "12:00",
+            repeatUntil: { kind: "custom_date", date: "2026-11-01" },
+          }),
+        }),
+      }),
+    );
+    expect(emptyWindow.entry.effectiveUntil).toBe("2026-11-01");
+    await addCover(app, hdrs, emptyWindow.entry.id, coverTeacher.staffProfileId, "2026-09-08");
+    const noLessons = await app.request(`/api/v1/timetable/entries/${emptyWindow.entry.id}/replace`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        applyFrom: "2026-11-01",
+        teachers: [{ staffProfileId: teacher.staffProfileId, isPrimary: true }],
+      }),
+    });
+    expect(noLessons.status).toBe(400);
+    expect((await json<{ error: { message: string } }>(noLessons)).error.message).toBe(APPLY_FROM_NO_REMAINING_LESSONS);
   });
 });

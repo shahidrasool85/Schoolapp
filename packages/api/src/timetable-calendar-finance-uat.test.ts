@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  addIsoDaysUtc,
   defaultRecurrenceEffectiveFrom,
   resetFormSafely,
   shouldOfferAcademicYearCreate,
+  todayInTimeZone,
 } from "@schoolapp/domain";
 import { closePools, withTenantContext } from "@schoolapp/db";
 import {
@@ -337,10 +339,11 @@ describe("Timetable calendar finance UAT hotfix", () => {
     });
     expect(structural.status).toBe(409);
 
+    const today = todayInTimeZone("Europe/London");
     const ended = await app.request(`/api/v1/timetable/entries/${created.entry.id}/end`, {
       method: "POST",
       headers: hdrs,
-      body: JSON.stringify({ stopFrom: "2026-08-31" }),
+      body: JSON.stringify({ stopFrom: today }),
     });
     expect(ended.status).toBe(200);
 
@@ -365,7 +368,7 @@ describe("Timetable calendar finance UAT hotfix", () => {
       await app.request(`/api/v1/timetable/entries/${created.entry.id}`, { headers: hdrs }),
     );
     expect(afterEnd.entry.lifecycleStatus).toBe("ended");
-    expect(afterEnd.entry.effectiveUntil).toBe("2026-08-30");
+    expect(afterEnd.entry.effectiveUntil).toBe(addIsoDaysUtc(today, -1));
   });
 
   it("lets a replacement recurrence start the day after an ended one without hiding history", async () => {

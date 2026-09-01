@@ -50,7 +50,7 @@ export default function TimetableOverviewPage() {
               My Timetable
             </Link>
             <Link className="button" href="/school/timetable/schedule">
-              Full timetable
+              School Timetable
             </Link>
           </>
         }
@@ -65,7 +65,7 @@ export default function TimetableOverviewPage() {
         <EmptyState
           title="No lessons scheduled today"
           description="Open the timetable to view a school week."
-          action={<Link href="/school/timetable/schedule">View timetable</Link>}
+          action={<Link href="/school/timetable/schedule">View school timetable</Link>}
         />
       ) : (
         <DataTable

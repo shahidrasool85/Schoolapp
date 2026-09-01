@@ -5,11 +5,16 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   captureSubmitTarget,
   defaultRecurrenceEffectiveFrom,
+  defaultRepeatUntilKind,
   defaultStopFromDate,
   DEFAULT_SCHOOL_TIMEZONE,
+  formatUkCalendarDate,
+  recurrenceEndsLabel,
   resetFormSafely,
   todayInTimeZone,
+  type RepeatUntilKind,
 } from "@schoolapp/domain";
+import { TimetableWeekNav } from "../../../../components/timetable-week-nav";
 import {
   Alert,
   Button,
@@ -24,12 +29,13 @@ import {
   StatusBadge,
 } from "../../../../components/ui";
 import { api } from "../../../../lib/api";
-import { isoWeekRange, startOfIsoWeek } from "../../../../lib/dates";
+import { formatDate, isoWeekRange, startOfIsoWeek } from "../../../../lib/dates";
 import { userFacingError } from "../../../../lib/errors";
 import { usePermissions } from "../../../../lib/use-permissions";
 
 type Option = { id: string; name: string };
 type Year = Option & { isCurrent?: boolean; startsOn?: string; endsOn?: string };
+type Term = Option & { startsOn: string; endsOn: string };
 type Staff = { id: string; fullName?: string; name?: string };
 type PeriodOption = Option & { startsAt?: string; endsAt?: string; isActive?: boolean };
 type RecurrenceLifecycle = {
@@ -72,10 +78,26 @@ type Entry = {
   lifecycleStatus?: string;
   teachers?: Array<{ staffProfileId: string; fullName: string; isPrimary?: boolean }>;
 };
+type RecurrencePreview = {
+  effectiveFrom: string;
+  effectiveUntil: string | null;
+  repeatUntilLabel: string;
+  occurrenceCount: number;
+  dates: string[];
+  firstOccurrence: string | null;
+  lastOccurrence: string | null;
+  className: string | null;
+  subjectName: string | null;
+  roomName: string | null;
+  teacherNames: string[];
+  weekday: number;
+  startsAt: string | null;
+  endsAt: string | null;
+};
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
-function hhmm(value: string | undefined): string {
+function hhmm(value: string | undefined | null): string {
   return (value ?? "").slice(0, 5);
 }
 
@@ -89,14 +111,16 @@ function statusLabel(status: string | undefined): string {
 export default function TimetableSchedulePage() {
   const permissions = usePermissions();
   const canManage = permissions.has("timetable.manage") || permissions.has("timetable.manage_school");
-  const [from, setFrom] = useState(() => startOfIsoWeek("2026-09-07"));
+  const [timezone, setTimezone] = useState(DEFAULT_SCHOOL_TIMEZONE);
+  const today = useMemo(() => todayInTimeZone(timezone), [timezone]);
+  const [from, setFrom] = useState(() => startOfIsoWeek(todayInTimeZone(DEFAULT_SCHOOL_TIMEZONE)));
   const [classes, setClasses] = useState<Option[]>([]);
   const [teachers, setTeachers] = useState<Staff[]>([]);
   const [rooms, setRooms] = useState<Option[]>([]);
   const [subjects, setSubjects] = useState<Option[]>([]);
   const [periods, setPeriods] = useState<PeriodOption[]>([]);
   const [years, setYears] = useState<Year[]>([]);
-  const [timezone, setTimezone] = useState(DEFAULT_SCHOOL_TIMEZONE);
+  const [terms, setTerms] = useState<Term[]>([]);
   const [classId, setClassId] = useState("");
   const [staffProfileId, setStaffProfileId] = useState("");
   const [roomId, setRoomId] = useState("");
@@ -108,14 +132,31 @@ export default function TimetableSchedulePage() {
   const [customTime, setCustomTime] = useState(false);
   const [academicYearId, setAcademicYearId] = useState("");
   const [effectiveFrom, setEffectiveFrom] = useState("");
+  const [weekday, setWeekday] = useState(1);
+  const [createClassId, setCreateClassId] = useState("");
+  const [createSubjectId, setCreateSubjectId] = useState("");
+  const [createRoomId, setCreateRoomId] = useState("");
+  const [createTeacherId, setCreateTeacherId] = useState("");
+  const [lessonType, setLessonType] = useState("lesson");
+  const [repeatUntilKind, setRepeatUntilKind] = useState<RepeatUntilKind>("end_of_term");
+  const [customUntil, setCustomUntil] = useState("");
+  const [occurrenceCount, setOccurrenceCount] = useState(6);
+  const [preview, setPreview] = useState<RecurrencePreview | null>(null);
+  const [previewError, setPreviewError] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [showDates, setShowDates] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState<Entry | null>(null);
-  const [ending, setEnding] = useState<{ entry: Entry; lifecycle: RecurrenceLifecycle; stopFrom: string } | null>(
-    null,
-  );
+  const [applyFrom, setApplyFrom] = useState("");
+  const [replacing, setReplacing] = useState(false);
+  const [ending, setEnding] = useState<{
+    entry: Entry;
+    lifecycle: RecurrenceLifecycle;
+    stopFrom: string;
+    lastScheduledLesson: string | null;
+  } | null>(null);
   const [deleting, setDeleting] = useState<{ entry: Entry; lifecycle: RecurrenceLifecycle } | null>(null);
 
-  const today = useMemo(() => todayInTimeZone(timezone), [timezone]);
   const selectedYear = years.find((year) => year.id === academicYearId) ?? years.find((year) => year.isCurrent) ?? years[0];
   const selectedPeriod = useMemo(
     () => periods.find((period) => period.id === periodId) ?? null,
@@ -123,6 +164,7 @@ export default function TimetableSchedulePage() {
   );
   const derivedStarts = customTime ? "" : hhmm(selectedPeriod?.startsAt);
   const derivedEnds = customTime ? "" : hhmm(selectedPeriod?.endsAt);
+  const termsConfigured = terms.length > 0;
 
   function applyYearDefault(year: Year | undefined, yearsList = years, asOf = today) {
     const chosen = year ?? yearsList.find((item) => item.isCurrent) ?? yearsList[0];
@@ -139,6 +181,18 @@ export default function TimetableSchedulePage() {
         academicYearEndsOn: chosen.endsOn,
       }),
     );
+  }
+
+  async function loadTerms(yearId: string, nextKind?: RepeatUntilKind) {
+    if (!yearId) {
+      setTerms([]);
+      setRepeatUntilKind(nextKind ?? "end_of_academic_year");
+      return;
+    }
+    const body = await api<{ terms: Term[] }>(`/api/v1/academic-years/${yearId}/terms`);
+    setTerms(body.terms);
+    const kind = nextKind ?? defaultRepeatUntilKind(body.terms.length > 0);
+    setRepeatUntilKind(kind === "end_of_term" && body.terms.length === 0 ? "end_of_academic_year" : kind);
   }
 
   async function loadOptions() {
@@ -166,6 +220,7 @@ export default function TimetableSchedulePage() {
     const tz = orgBody.organisation?.timezone || DEFAULT_SCHOOL_TIMEZONE;
     setTimezone(tz);
     const asOf = todayInTimeZone(tz);
+    setFrom((current) => (current === startOfIsoWeek(todayInTimeZone(DEFAULT_SCHOOL_TIMEZONE)) ? startOfIsoWeek(asOf) : current));
     setPeriods(
       profileBody.profiles.flatMap((profile) =>
         profile.periods
@@ -176,13 +231,12 @@ export default function TimetableSchedulePage() {
           })),
       ),
     );
-    applyYearDefault(
-      yearBody.academicYears.find((year) => year.id === academicYearId) ??
-        yearBody.academicYears.find((year) => year.isCurrent) ??
-        yearBody.academicYears[0],
-      yearBody.academicYears,
-      asOf,
-    );
+    const year =
+      yearBody.academicYears.find((item) => item.id === academicYearId) ??
+      yearBody.academicYears.find((item) => item.isCurrent) ??
+      yearBody.academicYears[0];
+    applyYearDefault(year, yearBody.academicYears, asOf);
+    if (year?.id) await loadTerms(year.id);
   }
 
   async function loadGrid(nextFrom = from, nextClass = classId, nextStaff = staffProfileId, nextRoom = roomId) {
@@ -206,9 +260,81 @@ export default function TimetableSchedulePage() {
     setEntries(entryBody.entries);
   }
 
+  function goToWeek(next: string) {
+    setFrom(next);
+    loadGrid(next).catch((err: Error) => setError(userFacingError(err)));
+  }
+
+  function repeatUntilPayload() {
+    if (repeatUntilKind === "custom_date") return { kind: "custom_date" as const, date: customUntil };
+    if (repeatUntilKind === "occurrence_count") {
+      return { kind: "occurrence_count" as const, count: Number(occurrenceCount) };
+    }
+    return { kind: repeatUntilKind };
+  }
+
+  async function refreshPreview() {
+    if (!canManage || !academicYearId || !effectiveFrom) {
+      setPreview(null);
+      return;
+    }
+    if (repeatUntilKind === "custom_date" && !customUntil) {
+      setPreview(null);
+      setPreviewError("");
+      return;
+    }
+    setPreviewLoading(true);
+    try {
+      const body = await api<{ preview: RecurrencePreview }>("/api/v1/timetable/entries/preview", {
+        method: "POST",
+        body: JSON.stringify({
+          academicYearId,
+          weekday,
+          effectiveFrom,
+          schoolDayPeriodId: customTime ? null : periodId || null,
+          customTime,
+          classId: createClassId || undefined,
+          subjectId: createSubjectId || null,
+          roomId: createRoomId || null,
+          teachers: createTeacherId ? [{ staffProfileId: createTeacherId, isPrimary: true }] : undefined,
+          repeatUntil: repeatUntilPayload(),
+        }),
+      });
+      setPreview(body.preview);
+      setPreviewError("");
+    } catch (err) {
+      setPreview(null);
+      setPreviewError(userFacingError(err, "Could not preview this recurring lesson."));
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
   useEffect(() => {
     Promise.all([loadOptions(), loadGrid()]).catch((err: Error) => setError(userFacingError(err, "Could not load the timetable.")));
   }, []);
+
+  useEffect(() => {
+    if (!canManage) return;
+    const handle = window.setTimeout(() => {
+      void refreshPreview();
+    }, 280);
+    return () => window.clearTimeout(handle);
+  }, [
+    canManage,
+    academicYearId,
+    weekday,
+    effectiveFrom,
+    periodId,
+    customTime,
+    createClassId,
+    createSubjectId,
+    createRoomId,
+    createTeacherId,
+    repeatUntilKind,
+    customUntil,
+    occurrenceCount,
+  ]);
 
   async function onFilter(event: FormEvent) {
     event.preventDefault();
@@ -227,7 +353,7 @@ export default function TimetableSchedulePage() {
     const year = years.find((item) => item.id === yearId);
     const fromDate = effectiveFrom || String(form.get("effectiveFrom") ?? "");
     if (year?.startsOn && fromDate < year.startsOn) {
-      setError("Effective from cannot be before the selected academic year.");
+      setError("The start date cannot be before the selected academic year.");
       return;
     }
     const selected = String(form.get("periodId") ?? "") || null;
@@ -243,22 +369,31 @@ export default function TimetableSchedulePage() {
           academicYearId: yearId,
           schoolDayPeriodId: useCustom ? null : selected,
           customTime: useCustom,
-          weekday: Number(form.get("weekday")),
+          weekday,
           startsAt: useCustom ? String(form.get("startsAt") ?? "") || undefined : undefined,
           endsAt: useCustom ? String(form.get("endsAt") ?? "") || undefined : undefined,
-          classId: String(form.get("classId") ?? ""),
-          subjectId: String(form.get("subjectId") ?? "") || null,
-          roomId: String(form.get("roomId") ?? "") || null,
-          lessonType: String(form.get("lessonType") ?? "lesson"),
+          classId: createClassId || String(form.get("classId") ?? ""),
+          subjectId: createSubjectId || String(form.get("subjectId") ?? "") || null,
+          roomId: createRoomId || String(form.get("roomId") ?? "") || null,
+          lessonType,
           effectiveFrom: fromDate,
-          teachers: [{ staffProfileId: String(form.get("staffProfileId") ?? ""), isPrimary: true }],
+          teachers: [{ staffProfileId: createTeacherId || String(form.get("staffProfileId") ?? ""), isPrimary: true }],
+          repeatUntil: repeatUntilPayload(),
         }),
       });
       setMessage(created.message ?? "Recurring lesson saved.");
       resetFormSafely(formEl);
       setPeriodId("");
       setCustomTime(false);
+      setCreateClassId("");
+      setCreateSubjectId("");
+      setCreateRoomId("");
+      setCreateTeacherId("");
+      setLessonType("lesson");
+      setWeekday(1);
+      setShowDates(false);
       applyYearDefault(year);
+      if (yearId) await loadTerms(yearId);
       const nextFrom = created.firstOccurrence?.date ? startOfIsoWeek(created.firstOccurrence.date) : from;
       if (nextFrom !== from) setFrom(nextFrom);
       await loadGrid(nextFrom);
@@ -271,22 +406,40 @@ export default function TimetableSchedulePage() {
 
   async function openLifecycle(entry: Entry, mode: "edit" | "end" | "delete") {
     setError("");
-    const body = await api<{ entry: Entry & { lifecycle: RecurrenceLifecycle }; today: string }>(
-      `/api/v1/timetable/entries/${entry.id}/lifecycle`,
-    );
+    const stopFrom = defaultStopFromDate(today);
+    const body = await api<{
+      entry: Entry & { lifecycle: RecurrenceLifecycle };
+      today: string;
+      lastScheduledLesson: string | null;
+    }>(`/api/v1/timetable/entries/${entry.id}/lifecycle${mode === "end" ? `?stopFrom=${stopFrom}` : ""}`);
     if (mode === "edit") {
       setEditing(body.entry);
+      setApplyFrom(defaultStopFromDate(body.today || today));
       return;
     }
     if (mode === "end") {
       setEnding({
         entry: body.entry,
         lifecycle: body.entry.lifecycle,
-        stopFrom: defaultStopFromDate(body.today || today),
+        stopFrom,
+        lastScheduledLesson: body.lastScheduledLesson,
       });
       return;
     }
     setDeleting({ entry: body.entry, lifecycle: body.entry.lifecycle });
+  }
+
+  async function updateEndPreview(stopFrom: string) {
+    if (!ending) return;
+    setEnding({ ...ending, stopFrom });
+    try {
+      const body = await api<{ lastScheduledLesson: string | null }>(
+        `/api/v1/timetable/entries/${ending.entry.id}/lifecycle?stopFrom=${stopFrom}`,
+      );
+      setEnding((current) => (current ? { ...current, stopFrom, lastScheduledLesson: body.lastScheduledLesson } : current));
+    } catch {
+      /* keep the selected stop date even if the preview refresh fails */
+    }
   }
 
   async function saveEdit(event: FormEvent<HTMLFormElement>) {
@@ -318,6 +471,33 @@ export default function TimetableSchedulePage() {
     }
   }
 
+  async function applyStructuralChange(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editing || replacing) return;
+    const form = new FormData(captureSubmitTarget(event));
+    setReplacing(true);
+    try {
+      const body = await api<{ message?: string }>(`/api/v1/timetable/entries/${editing.id}/replace`, {
+        method: "POST",
+        body: JSON.stringify({
+          applyFrom,
+          weekday: Number(form.get("replaceWeekday") ?? editing.weekday),
+          classId: String(form.get("replaceClassId") ?? editing.classId ?? ""),
+          subjectId: String(form.get("replaceSubjectId") ?? "") || null,
+          roomId: String(form.get("replaceRoomId") ?? "") || null,
+          teachers: [{ staffProfileId: String(form.get("replaceStaffProfileId") ?? ""), isPrimary: true }],
+        }),
+      });
+      setEditing(null);
+      setMessage(body.message ?? "The recurring lesson now continues from the chosen date.");
+      await loadGrid();
+    } catch (err) {
+      setError(userFacingError(err, "Could not apply that change from the chosen date."));
+    } finally {
+      setReplacing(false);
+    }
+  }
+
   async function confirmEnd() {
     if (!ending) return;
     try {
@@ -326,10 +506,10 @@ export default function TimetableSchedulePage() {
         body: JSON.stringify({ stopFrom: ending.stopFrom }),
       });
       setEnding(null);
-      setMessage(body.message ?? "Recurrence ended. Past timetable history is kept.");
+      setMessage(body.message ?? "Recurring lesson ended. Past timetable history is kept.");
       await loadGrid();
     } catch (err) {
-      setError(userFacingError(err, "Could not end that recurrence."));
+      setError(userFacingError(err, "Could not end that recurring lesson."));
       setEnding(null);
     }
   }
@@ -339,7 +519,7 @@ export default function TimetableSchedulePage() {
     try {
       await api(`/api/v1/timetable/entries/${deleting.entry.id}`, { method: "DELETE" });
       setDeleting(null);
-      setMessage("Future recurrence deleted.");
+      setMessage("Unused future recurrence deleted.");
       await loadGrid();
     } catch (err) {
       setError(userFacingError(err, "Could not delete that recurrence."));
@@ -347,15 +527,25 @@ export default function TimetableSchedulePage() {
     }
   }
 
+  function scrollToRecurringRule(entryId: string) {
+    document.getElementById(`recurrence-rule-${entryId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
   function RecurrenceActions({ entry }: { entry: Entry }) {
     if (!canManage) return null;
     const ended = entry.lifecycleStatus === "ended";
     const future = entry.lifecycleStatus === "future";
+    const active = entry.lifecycleStatus === "active";
     return (
       <div className="table-actions">
         {!ended ? (
           <Button type="button" variant="secondary" onClick={() => void openLifecycle(entry, "edit")}>
             Edit
+          </Button>
+        ) : null}
+        {active ? (
+          <Button type="button" variant="ghost" onClick={() => void openLifecycle(entry, "edit")}>
+            Apply change from
           </Button>
         ) : null}
         {!ended ? (
@@ -375,19 +565,11 @@ export default function TimetableSchedulePage() {
   return (
     <>
       <PageHeader
-        title="Timetable"
-        description="Filter by week, class, teacher, or room. Selecting a date snaps to the Monday of that week."
+        title="School Timetable"
+        description="Manage the school's weekly timetable and the recurring lesson rules that generate it."
       />
-      <FilterBar onSubmit={(event) => onFilter(event).catch((err: Error) => setError(userFacingError(err)))} actions={<button type="submit">Apply filters</button>}>
-        <label htmlFor="schedule-week">
-          Week commencing
-          <input
-            id="schedule-week"
-            type="date"
-            value={from}
-            onChange={(event) => setFrom(startOfIsoWeek(event.target.value))}
-          />
-        </label>
+      <FilterBar onSubmit={(event) => onFilter(event).catch((err: Error) => setError(userFacingError(err)))} actions={<button type="submit">Show week</button>}>
+        <TimetableWeekNav weekFrom={from} today={today} inputId="schedule-week" onWeekChange={goToWeek} />
         <label htmlFor="schedule-class">
           Class
           <select id="schedule-class" value={classId} onChange={(event) => setClassId(event.target.value)}>
@@ -428,10 +610,15 @@ export default function TimetableSchedulePage() {
           {message}
         </p>
       ) : null}
+      <h2>Weekly school timetable</h2>
+      <p className="muted">
+        Generated lessons for the selected week. Edit, apply a change from a date, end, or delete a rule in Recurring
+        lesson rules below.
+      </p>
       {occurrences.length === 0 ? (
         <EmptyState
-          title="No lessons in this view"
-          description="If a recurring lesson was saved, its first occurrence may be in a later week. The week view updates automatically after a successful save."
+          title="No lessons in this week"
+          description="If a recurring lesson was saved, its first occurrence may be in a later week. Use previous or next week to look around the calendar."
         />
       ) : (
         <DataTable
@@ -453,7 +640,7 @@ export default function TimetableSchedulePage() {
             return (
               <tr key={`${lesson.entryId}-${lesson.date}`}>
                 <td>
-                  {DAYS[lesson.weekday - 1]} {lesson.date}
+                  {DAYS[lesson.weekday - 1]} {formatDate(lesson.date)}
                 </td>
                 <td>
                   {hhmm(lesson.startsAt)}–{hhmm(lesson.endsAt)}
@@ -467,7 +654,15 @@ export default function TimetableSchedulePage() {
                 </td>
                 {canManage ? (
                   <td className="num">
-                    {source ? <RecurrenceActions entry={source} /> : null}
+                    {source ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => scrollToRecurringRule(source.id)}
+                      >
+                        View rule
+                      </Button>
+                    ) : null}
                   </td>
                 ) : null}
               </tr>
@@ -478,6 +673,10 @@ export default function TimetableSchedulePage() {
       {canManage ? (
         <>
           <h2>Add a recurring lesson</h2>
+          <p className="muted">
+            Repeat this lesson every selected weekday and time from the start date until the chosen end, only on valid
+            teaching dates.
+          </p>
           <form className="card form-grid" onSubmit={onCreate}>
             <label>
               Academic year
@@ -487,6 +686,7 @@ export default function TimetableSchedulePage() {
                 onChange={(event) => {
                   const next = years.find((year) => year.id === event.target.value);
                   applyYearDefault(next);
+                  if (next?.id) void loadTerms(next.id);
                 }}
               >
                 {years.map((year) => (
@@ -498,8 +698,8 @@ export default function TimetableSchedulePage() {
             </label>
             <label>
               Weekday
-              <select name="weekday" defaultValue={1}>
-                {DAYS.slice(0, 7).map((day, index) => (
+              <select name="weekday" value={weekday} onChange={(event) => setWeekday(Number(event.target.value))}>
+                {DAYS.map((day, index) => (
                   <option key={day} value={index + 1}>
                     {day}
                   </option>
@@ -555,7 +755,7 @@ export default function TimetableSchedulePage() {
             )}
             <label>
               Class
-              <select name="classId" required>
+              <select name="classId" value={createClassId} onChange={(event) => setCreateClassId(event.target.value)} required>
                 <option value="">Select class</option>
                 {classes.map((item) => (
                   <option key={item.id} value={item.id}>
@@ -566,7 +766,7 @@ export default function TimetableSchedulePage() {
             </label>
             <label>
               Subject
-              <select name="subjectId">
+              <select name="subjectId" value={createSubjectId} onChange={(event) => setCreateSubjectId(event.target.value)}>
                 <option value="">None</option>
                 {subjects.map((item) => (
                   <option key={item.id} value={item.id}>
@@ -577,7 +777,7 @@ export default function TimetableSchedulePage() {
             </label>
             <label>
               Room
-              <select name="roomId">
+              <select name="roomId" value={createRoomId} onChange={(event) => setCreateRoomId(event.target.value)}>
                 <option value="">No room</option>
                 {rooms.map((item) => (
                   <option key={item.id} value={item.id}>
@@ -588,7 +788,12 @@ export default function TimetableSchedulePage() {
             </label>
             <label>
               Teacher
-              <select name="staffProfileId" required>
+              <select
+                name="staffProfileId"
+                value={createTeacherId}
+                onChange={(event) => setCreateTeacherId(event.target.value)}
+                required
+              >
                 <option value="">Select teacher</option>
                 {teachers.map((item) => (
                   <option key={item.id} value={item.id}>
@@ -599,7 +804,7 @@ export default function TimetableSchedulePage() {
             </label>
             <label>
               Type
-              <select name="lessonType" defaultValue="lesson">
+              <select name="lessonType" value={lessonType} onChange={(event) => setLessonType(event.target.value)}>
                 <option value="lesson">Lesson</option>
                 <option value="registration">Registration</option>
                 <option value="assembly">Assembly</option>
@@ -618,8 +823,137 @@ export default function TimetableSchedulePage() {
                 required
               />
             </label>
+            <fieldset className="academic-create-fields" style={{ gridColumn: "1 / -1" }}>
+              <legend>Repeat until</legend>
+              <p className="muted">
+                {termsConfigured
+                  ? "End of term is recommended when the start date falls inside a configured term."
+                  : "This academic year has no terms yet, so lessons use the academic year dates."}
+              </p>
+              <label>
+                <input
+                  type="radio"
+                  name="repeatUntilKind"
+                  value="end_of_term"
+                  checked={repeatUntilKind === "end_of_term"}
+                  disabled={!termsConfigured}
+                  onChange={() => setRepeatUntilKind("end_of_term")}
+                />{" "}
+                End of term
+              </label>
+              {!termsConfigured ? (
+                <p className="muted">
+                  Configure term dates first.{" "}
+                  {selectedYear ? (
+                    <Link href={`/school/academic-years/${selectedYear.id}/terms`}>
+                      Academic setup → Academic years → Terms
+                    </Link>
+                  ) : (
+                    <Link href="/school/academic-years">Academic setup → Academic years → Terms</Link>
+                  )}
+                </p>
+              ) : null}
+              <label>
+                <input
+                  type="radio"
+                  name="repeatUntilKind"
+                  value="end_of_academic_year"
+                  checked={repeatUntilKind === "end_of_academic_year"}
+                  onChange={() => setRepeatUntilKind("end_of_academic_year")}
+                />{" "}
+                End of academic year
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="repeatUntilKind"
+                  value="custom_date"
+                  checked={repeatUntilKind === "custom_date"}
+                  onChange={() => setRepeatUntilKind("custom_date")}
+                />{" "}
+                Custom date
+              </label>
+              {repeatUntilKind === "custom_date" ? (
+                <label>
+                  Last date
+                  <input
+                    type="date"
+                    value={customUntil}
+                    min={effectiveFrom || selectedYear?.startsOn}
+                    max={selectedYear?.endsOn}
+                    onChange={(event) => setCustomUntil(event.target.value)}
+                    required
+                  />
+                </label>
+              ) : null}
+              <label>
+                <input
+                  type="radio"
+                  name="repeatUntilKind"
+                  value="occurrence_count"
+                  checked={repeatUntilKind === "occurrence_count"}
+                  onChange={() => setRepeatUntilKind("occurrence_count")}
+                />{" "}
+                Number of occurrences
+              </label>
+              {repeatUntilKind === "occurrence_count" ? (
+                <label>
+                  Occurrences
+                  <input
+                    type="number"
+                    min={1}
+                    max={80}
+                    value={occurrenceCount}
+                    onChange={(event) => setOccurrenceCount(Number(event.target.value))}
+                    required
+                  />
+                </label>
+              ) : null}
+            </fieldset>
+            <div className="card" style={{ gridColumn: "1 / -1" }}>
+              <h3>Recurring lesson</h3>
+              {previewLoading && !preview ? <p className="muted">Calculating lessons…</p> : null}
+              {previewError ? <Alert tone="danger">{previewError}</Alert> : null}
+              {preview ? (
+                <>
+                  <p>
+                    <strong>
+                      {preview.subjectName ?? "Lesson"}
+                      {preview.className ? ` — ${preview.className}` : ""}
+                    </strong>
+                  </p>
+                  <p className="muted">
+                    Every {DAYS[preview.weekday - 1]}
+                    {preview.startsAt && preview.endsAt ? ` · ${hhmm(preview.startsAt)}–${hhmm(preview.endsAt)}` : ""}
+                  </p>
+                  {preview.teacherNames.length > 0 ? <p>Teacher: {preview.teacherNames.join(", ")}</p> : null}
+                  {preview.roomName ? <p>Room: {preview.roomName}</p> : null}
+                  <p>Starts: {formatUkCalendarDate(preview.effectiveFrom)}</p>
+                  <p>Repeats until: {preview.repeatUntilLabel}</p>
+                  <p>
+                    Estimated lessons: <strong>{preview.occurrenceCount}</strong>
+                  </p>
+                  {preview.occurrenceCount > 0 ? (
+                    <p>
+                      <button type="button" className="ghost" onClick={() => setShowDates((value) => !value)}>
+                        {showDates ? "Hide dates" : "View dates"}
+                      </button>
+                    </p>
+                  ) : null}
+                  {showDates ? (
+                    <ul className="muted">
+                      {preview.dates.map((date) => (
+                        <li key={date}>{formatUkCalendarDate(date)}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </>
+              ) : !previewError ? (
+                <p className="muted">Choose the lesson details to see how many times this will repeat.</p>
+              ) : null}
+            </div>
             <div>
-              <button type="submit" disabled={saving}>
+              <button type="submit" disabled={saving || Boolean(previewError)}>
                 {saving ? "Saving…" : "Save lesson"}
               </button>
             </div>
@@ -628,56 +962,51 @@ export default function TimetableSchedulePage() {
       ) : (
         <p className="muted">School-wide timetable changes are managed by school administration.</p>
       )}
+      <h2>Recurring lesson rules</h2>
+      <p className="muted">
+        These rules generate the weekly timetable. This is where you edit a rule, apply a change from a date, end a
+        recurrence, or delete an unused future recurrence. Scheduled means it has not started yet, Active means it is
+        generating lessons now, and Ended means it has stopped. Past lessons stay in the timetable.
+      </p>
       {entries.length > 0 ? (
-        <>
-          <h2>Recurring definitions</h2>
-          <p className="muted">
-            {entries.length} recurring definition{entries.length === 1 ? "" : "s"} match the current filters
-            {entries.filter((entry) => entry.lifecycleStatus === "ended").length > 0
-              ? `, including ${entries.filter((entry) => entry.lifecycleStatus === "ended").length} ended`
-              : ""}
-            . Status is taken from the effective dates, not a raw active flag. Actions apply to the recurrence, not a
-            single generated lesson.
-          </p>
-          <DataTable
-            headers={
-              <>
-                <th>Day</th>
-                <th>Time</th>
-                <th>Class</th>
-                <th>Subject</th>
-                <th>Effective</th>
-                <th>Status</th>
-                {canManage ? <th className="num">Actions</th> : null}
-              </>
-            }
-          >
-            {entries.map((entry) => (
-              <tr key={entry.id}>
-                <td>{DAYS[entry.weekday - 1]}</td>
-                <td>
-                  {hhmm(entry.startsAt)}–{hhmm(entry.endsAt)}
+        <DataTable
+          headers={
+            <>
+              <th>Day</th>
+              <th>Time</th>
+              <th>Class</th>
+              <th>Subject</th>
+              <th>Period</th>
+              <th>Status</th>
+              {canManage ? <th className="num">Actions</th> : null}
+            </>
+          }
+        >
+          {entries.map((entry) => (
+            <tr key={entry.id} id={`recurrence-rule-${entry.id}`}>
+              <td>{DAYS[entry.weekday - 1]}</td>
+              <td>
+                {hhmm(entry.startsAt)}–{hhmm(entry.endsAt)}
+              </td>
+              <td>{entry.className ?? "—"}</td>
+              <td>{entry.subjectName ?? "—"}</td>
+              <td>
+                {entry.effectiveFrom ? formatDate(entry.effectiveFrom) : "—"}
+                {entry.effectiveUntil ? ` · ${recurrenceEndsLabel(entry.effectiveUntil)}` : ""}
+              </td>
+              <td>
+                <StatusBadge status={statusLabel(entry.lifecycleStatus)} />
+              </td>
+              {canManage ? (
+                <td className="num">
+                  <RecurrenceActions entry={entry} />
                 </td>
-                <td>{entry.className ?? "—"}</td>
-                <td>{entry.subjectName ?? "—"}</td>
-                <td>
-                  {entry.effectiveFrom}
-                  {entry.effectiveUntil ? ` → ${entry.effectiveUntil}` : ""}
-                </td>
-                <td>
-                  <StatusBadge status={statusLabel(entry.lifecycleStatus)} />
-                </td>
-                {canManage ? (
-                  <td className="num">
-                    <RecurrenceActions entry={entry} />
-                  </td>
-                ) : null}
-              </tr>
-            ))}
-          </DataTable>
-        </>
+              ) : null}
+            </tr>
+          ))}
+        </DataTable>
       ) : (
-        <p className="muted">No recurring definitions match the current filters.</p>
+        <p className="muted">No recurring lesson rules match the current filters.</p>
       )}
       <p>
         <Link href="/school/timetable/cover">Assign cover or record a change</Link>
@@ -688,82 +1017,158 @@ export default function TimetableSchedulePage() {
         description={
           editing?.lifecycleStatus === "future"
             ? "This recurrence has not started. Changes apply to the definition."
-            : "This recurrence has history. Only notes can be changed here. End it from a date to stop future lessons."
+            : "This recurrence already has timetable history. Notes can be changed here. Structural changes must apply from a date so past lessons stay as they were."
         }
         onClose={() => setEditing(null)}
       >
         {editing ? (
-          <form className="academic-create-form is-dialog" onSubmit={saveEdit}>
-            {editing.lifecycleStatus === "future" ? (
-              <div className="academic-create-fields is-three">
-                <FormField label="Weekday">
-                  <select name="weekday" defaultValue={editing.weekday}>
-                    {DAYS.map((day, index) => (
-                      <option key={day} value={index + 1}>
-                        {day}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>
-                <FormField label="Class">
-                  <select name="classId" defaultValue={editing.classId}>
-                    {classes.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>
-                <FormField label="Effective from">
-                  <Input name="effectiveFrom" type="date" defaultValue={editing.effectiveFrom} required />
-                </FormField>
-                <FormField label="Subject">
-                  <select name="subjectId" defaultValue={editing.subjectId ?? ""}>
-                    <option value="">None</option>
-                    {subjects.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>
-                <FormField label="Room">
-                  <select name="roomId" defaultValue={editing.roomId ?? ""}>
-                    <option value="">No room</option>
-                    {rooms.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>
-                <FormField label="Teacher">
-                  <select name="staffProfileId" defaultValue={editing.teachers?.[0]?.staffProfileId} required>
-                    {teachers.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.fullName ?? item.name}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>
+          <>
+            <form className="academic-create-form is-dialog" onSubmit={saveEdit}>
+              {editing.lifecycleStatus === "future" ? (
+                <div className="academic-create-fields is-three">
+                  <FormField label="Weekday">
+                    <select name="weekday" defaultValue={editing.weekday}>
+                      {DAYS.map((day, index) => (
+                        <option key={day} value={index + 1}>
+                          {day}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                  <FormField label="Class">
+                    <select name="classId" defaultValue={editing.classId}>
+                      {classes.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                  <FormField label="Effective from">
+                    <Input name="effectiveFrom" type="date" defaultValue={editing.effectiveFrom} required />
+                  </FormField>
+                  <FormField label="Subject">
+                    <select name="subjectId" defaultValue={editing.subjectId ?? ""}>
+                      <option value="">None</option>
+                      {subjects.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                  <FormField label="Room">
+                    <select name="roomId" defaultValue={editing.roomId ?? ""}>
+                      <option value="">No room</option>
+                      {rooms.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                  <FormField label="Teacher">
+                    <select name="staffProfileId" defaultValue={editing.teachers?.[0]?.staffProfileId} required>
+                      {teachers.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.fullName ?? item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                </div>
+              ) : null}
+              <FormField label="Staff notes">
+                <Input name="staffNotes" defaultValue={editing.staffNotes ?? ""} />
+              </FormField>
+              <div className="dialog-actions">
+                <Button type="button" variant="secondary" onClick={() => setEditing(null)}>
+                  Cancel
+                </Button>
+                <Button type="submit">Save changes</Button>
               </div>
+            </form>
+            {editing.lifecycleStatus === "active" ? (
+              <form className="academic-create-form is-dialog" onSubmit={applyStructuralChange}>
+                <h3>Apply change from</h3>
+                <p className="muted">
+                  The current rule will stop the day before this date. The replacement starts here and keeps the original
+                  end date ({recurrenceEndsLabel(editing.effectiveUntil ?? null)}). Past timetable, attendance, cover and
+                  learning history stay attached to the original rule.
+                </p>
+                <FormField label="Apply change from">
+                  <Input
+                    type="date"
+                    value={applyFrom}
+                    min={today}
+                    max={editing.effectiveUntil ?? years.find((year) => year.id === editing.academicYearId)?.endsOn}
+                    onChange={(event) => setApplyFrom(event.target.value)}
+                    required
+                  />
+                </FormField>
+                <div className="academic-create-fields is-three">
+                  <FormField label="Weekday">
+                    <select name="replaceWeekday" defaultValue={editing.weekday}>
+                      {DAYS.map((day, index) => (
+                        <option key={day} value={index + 1}>
+                          {day}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                  <FormField label="Class">
+                    <select name="replaceClassId" defaultValue={editing.classId}>
+                      {classes.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                  <FormField label="Subject">
+                    <select name="replaceSubjectId" defaultValue={editing.subjectId ?? ""}>
+                      <option value="">None</option>
+                      {subjects.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                  <FormField label="Room">
+                    <select name="replaceRoomId" defaultValue={editing.roomId ?? ""}>
+                      <option value="">No room</option>
+                      {rooms.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                  <FormField label="Teacher">
+                    <select name="replaceStaffProfileId" defaultValue={editing.teachers?.[0]?.staffProfileId} required>
+                      {teachers.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.fullName ?? item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                </div>
+                <div className="dialog-actions">
+                  <Button type="submit" disabled={replacing}>
+                    {replacing ? "Applying…" : "Apply change from this date"}
+                  </Button>
+                </div>
+              </form>
             ) : null}
-            <FormField label="Staff notes">
-              <Input name="staffNotes" defaultValue={editing.staffNotes ?? ""} />
-            </FormField>
-            <div className="dialog-actions">
-              <Button type="button" variant="secondary" onClick={() => setEditing(null)}>
-                Cancel
-              </Button>
-              <Button type="submit">Save changes</Button>
-            </div>
-          </form>
+          </>
         ) : null}
       </Dialog>
       <Dialog
         open={Boolean(ending)}
-        title={ending ? `End recurrence for ${ending.entry.className ?? "this lesson"}?` : "End recurrence"}
-        description="Lessons on or after the stop date will not be generated. Past timetable history, attendance and cover stay in place."
+        title="End recurring lesson"
+        description="Stop generating this lesson from a chosen date. Past timetable, attendance, cover and learning history will be kept."
         onClose={() => setEnding(null)}
       >
         {ending ? (
@@ -774,35 +1179,52 @@ export default function TimetableSchedulePage() {
               void confirmEnd();
             }}
           >
-            <FormField label="Stop from">
+            <FormField label="Stop generating this lesson from">
               <Input
                 type="date"
                 value={ending.stopFrom}
                 min={today}
-                onChange={(event) => setEnding({ ...ending, stopFrom: event.target.value })}
+                onChange={(event) => void updateEndPreview(event.target.value)}
                 required
               />
             </FormField>
-            <p className="muted">{ending.lifecycle.message}</p>
+            <p>
+              Last scheduled lesson:{" "}
+              <strong>
+                {ending.lastScheduledLesson ? formatUkCalendarDate(ending.lastScheduledLesson) : "None before this date"}
+              </strong>
+            </p>
+            <p className="muted">Past timetable, attendance, cover and learning history will be kept.</p>
             <div className="dialog-actions">
               <Button type="button" variant="secondary" onClick={() => setEnding(null)}>
                 {ending.lifecycle.canEnd ? "Cancel" : "Close"}
               </Button>
-              {ending.lifecycle.canEnd ? <Button type="submit">End recurrence</Button> : null}
+              {ending.lifecycle.canEnd ? <Button type="submit">End recurring lesson</Button> : null}
             </div>
           </form>
         ) : null}
       </Dialog>
       <ConfirmationDialog
         open={Boolean(deleting)}
-        title={deleting ? `Delete future recurrence for “${deleting.entry.className}”?` : "Delete future recurrence"}
+        title={deleting?.lifecycle.canDelete ? "Delete unused recurring lesson?" : "This recurring lesson cannot be deleted"}
         description={
           deleting?.lifecycle.canDelete
-            ? "This recurrence has not started and has no timetable history. It will be removed."
-            : deleting?.lifecycle.message || "This recurrence cannot be deleted."
+            ? "This recurring lesson has not started and has no timetable history. It will be removed."
+            : deleting?.lifecycle.message ||
+              "This recurring lesson already has timetable history and cannot be deleted. End the recurrence instead."
         }
-        confirmLabel={deleting?.lifecycle.canDelete ? "Delete future recurrence" : "Close"}
+        confirmLabel={deleting?.lifecycle.canDelete ? "Delete" : "Close"}
         danger={Boolean(deleting?.lifecycle.canDelete)}
+        secondaryLabel={deleting && !deleting.lifecycle.canDelete && deleting.lifecycle.canEnd ? "End recurrence" : undefined}
+        onSecondary={
+          deleting && !deleting.lifecycle.canDelete && deleting.lifecycle.canEnd
+            ? () => {
+                const entry = deleting.entry;
+                setDeleting(null);
+                void openLifecycle(entry, "end");
+              }
+            : undefined
+        }
         onConfirm={() => {
           if (!deleting?.lifecycle.canDelete) {
             setDeleting(null);

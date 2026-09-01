@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { DEFAULT_SCHOOL_TIMEZONE, todayInTimeZone } from "@schoolapp/domain";
+import { TimetableWeekNav } from "../../../../components/timetable-week-nav";
 import { Alert, EmptyState, FilterBar, PageHeader, StatusBadge } from "../../../../components/ui";
 import { api } from "../../../../lib/api";
 import { isoWeekRange, startOfIsoWeek } from "../../../../lib/dates";
@@ -25,7 +27,8 @@ type Occurrence = {
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 export default function MyTimetablePage() {
-  const [from, setFrom] = useState(() => startOfIsoWeek("2026-09-07"));
+  const today = useMemo(() => todayInTimeZone(DEFAULT_SCHOOL_TIMEZONE), []);
+  const [from, setFrom] = useState(() => startOfIsoWeek(today));
   const [items, setItems] = useState<Occurrence[]>([]);
   const [error, setError] = useState("");
   const [registerError, setRegisterError] = useState("");
@@ -61,15 +64,15 @@ export default function MyTimetablePage() {
         }}
         actions={<button type="submit">Show week</button>}
       >
-        <label htmlFor="timetable-week">
-          Week commencing
-          <input
-            id="timetable-week"
-            type="date"
-            value={from}
-            onChange={(event) => setFrom(startOfIsoWeek(event.target.value))}
-          />
-        </label>
+        <TimetableWeekNav
+          weekFrom={from}
+          today={today}
+          inputId="timetable-week"
+          onWeekChange={(next) => {
+            setFrom(next);
+            load(next).catch((err: Error) => setError(userFacingError(err)));
+          }}
+        />
       </FilterBar>
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {registerError ? <Alert tone="danger">{registerError}</Alert> : null}
@@ -77,7 +80,7 @@ export default function MyTimetablePage() {
         <EmptyState
           title="No lessons this week"
           description="Nothing is assigned to you for this week. Try another week or open the school timetable."
-          action={<Link href="/school/timetable/schedule">School timetable</Link>}
+          action={<Link href="/school/timetable/schedule">School Timetable</Link>}
         />
       ) : (
         <div className="stack">

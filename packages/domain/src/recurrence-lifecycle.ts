@@ -14,6 +14,8 @@ export const STRUCTURAL_RECURRENCE_PATCH_KEYS = [
   "roomId",
   "lessonType",
   "effectiveFrom",
+  "effectiveUntil",
+  "repeatUntil",
   "teachers",
   "customTime",
 ] as const;
@@ -91,6 +93,41 @@ export function validateRecurrenceStopFrom(input: {
   return { ok: true, effectiveUntil };
 }
 
+export const APPLY_FROM_AFTER_ORIGINAL_END =
+  "Choose a date on or before the original last lesson date. The replacement must keep that original end date.";
+
+export const APPLY_FROM_NO_REMAINING_LESSONS =
+  "This change date would not produce any remaining lessons before the original end date. Choose an earlier date, or end the recurrence instead.";
+
+/**
+ * Split an existing recurrence from applyFrom.
+ * The replacement inherits the stored effective_until. It must not infer
+ * end-of-term or end-of-year intent, and must not extend past the original end.
+ */
+export function validateRecurrenceApplyFrom(input: {
+  applyFrom: string;
+  effectiveFrom: string;
+  effectiveUntil: string | null;
+  today: string;
+  yearEndsOn: string;
+}): { ok: true; oldEffectiveUntil: string; inheritedUntil: string | null } | { ok: false; error: string } {
+  const stop = validateRecurrenceStopFrom({
+    stopFrom: input.applyFrom,
+    effectiveFrom: input.effectiveFrom,
+    today: input.today,
+    yearEndsOn: input.yearEndsOn,
+  });
+  if (!stop.ok) return stop;
+  if (input.effectiveUntil && input.applyFrom > input.effectiveUntil) {
+    return { ok: false, error: APPLY_FROM_AFTER_ORIGINAL_END };
+  }
+  return {
+    ok: true,
+    oldEffectiveUntil: stop.effectiveUntil,
+    inheritedUntil: input.effectiveUntil,
+  };
+}
+
 function formatUsage(item: RecurrenceUsageCount): string {
   if (item.count === 1) {
     if (item.label.endsWith("s")) return `1 ${item.label.slice(0, -1)}`;
@@ -130,7 +167,7 @@ export function recurrenceLifecycleFromState(input: {
   } else if (status === "ended") {
     message = "This recurring lesson has ended. Past timetable history remains readable.";
   } else if (!canDelete && referenced) {
-    message = `This recurring lesson cannot be deleted because it has ${summarizeRecurrenceUsage(used)}. End it instead so past history is kept.`;
+    message = "This recurring lesson already has timetable history and cannot be deleted. End the recurrence instead.";
   } else if (status === "active") {
     message = "This recurring lesson has already started. End it from a date to keep past timetable history.";
   }
@@ -154,4 +191,4 @@ export const RECURRENCE_STRUCTURAL_EDIT_BLOCKED =
   "This recurring lesson has history and cannot be structurally edited. End it from a date and create a new recurrence for future changes.";
 
 export const RECURRENCE_DELETE_BLOCKED =
-  "This recurring lesson cannot be permanently deleted because it has timetable history. End the recurrence instead.";
+  "This recurring lesson already has timetable history and cannot be deleted. End the recurrence instead.";

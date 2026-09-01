@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  APPLY_FROM_AFTER_ORIGINAL_END,
   computeRecurrenceStatus,
   defaultStopFromDate,
   recurrenceLifecycleFromState,
   recurrencePatchTouchesStructure,
+  validateRecurrenceApplyFrom,
   validateRecurrenceStopFrom,
 } from "@schoolapp/domain";
 
@@ -46,7 +48,8 @@ describe("recurrence lifecycle", () => {
     });
     expect(withCover.canDelete).toBe(false);
     expect(withCover.canEnd).toBe(true);
-    expect(withCover.message).toMatch(/End it instead/i);
+    expect(withCover.message).toMatch(/already has timetable history/i);
+    expect(withCover.message).toMatch(/End the recurrence instead/i);
   });
 
   it("marks ended recurrences as readable history", () => {
@@ -106,5 +109,43 @@ describe("recurrence lifecycle", () => {
     ).toBe(false);
     expect(recurrencePatchTouchesStructure({ weekday: 2 })).toBe(true);
     expect(recurrencePatchTouchesStructure({ staffNotes: "note" })).toBe(false);
+  });
+
+  it("splits Apply change from by inheriting the stored original end date", () => {
+    expect(
+      validateRecurrenceApplyFrom({
+        applyFrom: "2026-11-01",
+        effectiveFrom: "2026-09-03",
+        effectiveUntil: "2026-12-18",
+        today: "2026-09-01",
+        yearEndsOn: "2027-07-23",
+      }),
+    ).toEqual({ ok: true, oldEffectiveUntil: "2026-10-31", inheritedUntil: "2026-12-18" });
+    expect(
+      validateRecurrenceApplyFrom({
+        applyFrom: "2026-11-01",
+        effectiveFrom: "2026-09-03",
+        effectiveUntil: "2026-11-20",
+        today: "2026-09-01",
+        yearEndsOn: "2027-07-23",
+      }),
+    ).toEqual({ ok: true, oldEffectiveUntil: "2026-10-31", inheritedUntil: "2026-11-20" });
+    expect(
+      validateRecurrenceApplyFrom({
+        applyFrom: "2026-11-01",
+        effectiveFrom: "2026-09-03",
+        effectiveUntil: null,
+        today: "2026-09-01",
+        yearEndsOn: "2027-07-23",
+      }),
+    ).toEqual({ ok: true, oldEffectiveUntil: "2026-10-31", inheritedUntil: null });
+    const afterEnd = validateRecurrenceApplyFrom({
+      applyFrom: "2026-12-19",
+      effectiveFrom: "2026-09-03",
+      effectiveUntil: "2026-12-18",
+      today: "2026-09-01",
+      yearEndsOn: "2027-07-23",
+    });
+    expect(afterEnd).toEqual({ ok: false, error: APPLY_FROM_AFTER_ORIGINAL_END });
   });
 });

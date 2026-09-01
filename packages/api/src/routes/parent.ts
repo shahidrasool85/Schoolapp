@@ -17,6 +17,7 @@ import {
   summariseAttendanceMarks,
   isoDate,
   isoWeekRange,
+  schoolToday,
   listCalendarActivities,
   archiveOwnConversation,
   countUnreadMessages,
@@ -398,7 +399,9 @@ export function registerParentRoutes(app: SchoolappApi) {
       assertPermission(actor, PERMISSIONS.TIMETABLE_READ_OWN_CHILDREN);
       const studentId = uuidRouteParam(c, "studentId");
       await requireLinkedChild(client, userId, orgId, studentId);
-      const week = isoWeekRange(c.req.query("week") || c.req.query("from") || isoDate());
+      const week = isoWeekRange(
+        c.req.query("week") || c.req.query("from") || (await schoolToday(client, orgId)),
+      );
       const from = week.from;
       const to = week.to;
       const lessons = await listPupilTimetable(client, orgId, studentId, from, to);

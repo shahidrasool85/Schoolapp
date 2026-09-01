@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { DEFAULT_SCHOOL_TIMEZONE, todayInTimeZone } from "@schoolapp/domain";
+import { TimetableWeekNav } from "../../../../../components/timetable-week-nav";
 import { api, ApiError } from "../../../../../lib/api";
 import { isoWeekRange, startOfIsoWeek } from "../../../../../lib/dates";
 
@@ -23,7 +25,8 @@ const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
 
 export default function ParentChildTimetablePage() {
   const params = useParams<{ id: string }>();
-  const [from, setFrom] = useState(() => startOfIsoWeek("2026-09-07"));
+  const today = todayInTimeZone(DEFAULT_SCHOOL_TIMEZONE);
+  const [from, setFrom] = useState(() => startOfIsoWeek(today));
   const [items, setItems] = useState<Occurrence[]>([]);
   const [error, setError] = useState("");
 
@@ -55,10 +58,17 @@ export default function ParentChildTimetablePage() {
           load().catch((err: Error) => setError(err.message));
         }}
       >
-        <label>
-          Week commencing
-          <input type="date" value={from} onChange={(event) => setFrom(startOfIsoWeek(event.target.value))} />
-        </label>
+        <TimetableWeekNav
+          weekFrom={from}
+          today={today}
+          inputId="parent-week"
+          onWeekChange={(next) => {
+            setFrom(next);
+            load(next).catch((err: Error) =>
+              setError(err instanceof ApiError && err.status === 404 ? "This timetable is not available." : err.message),
+            );
+          }}
+        />
         <button type="submit">Show week</button>
       </form>
       {error ? <p className="error">{error}</p> : null}

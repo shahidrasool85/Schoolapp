@@ -1,10 +1,13 @@
 import { z } from "zod";
 import {
+  APPLY_FROM_NO_REMAINING_LESSONS,
   PERMISSIONS,
   RECURRENCE_DELETE_BLOCKED,
   RECURRENCE_STRUCTURAL_EDIT_BLOCKED,
   computeRecurrenceStatus,
+  effectiveUntilFromStopFrom,
   recurrencePatchTouchesStructure,
+  validateRecurrenceApplyFrom,
   validateRecurrenceStopFrom,
 } from "@schoolapp/domain";
 import {
@@ -28,12 +31,14 @@ import {
   isoDate,
   isoWeekdayFromDate,
   isoWeekRange,
+  listResolvedRecurrenceDates,
   loadRecurrenceLifecycle,
   loadStudentClassMembershipsOverlapping,
   pgErrorToAppError,
   recurringLessonSavedMessage,
   requireOrgRow,
   resolveAttendanceRegisterTarget,
+  resolveRepeatUntilRule,
   resolveTimetableOccurrences,
   schoolToday,
   startOfIsoWeek,
@@ -112,6 +117,32 @@ const entrySchema = z.object({
   effectiveUntil: dateSchema.nullable().optional(),
   staffNotes: z.string().max(2000).nullable().optional(),
   teachers: z.array(teacherInputSchema).min(1),
+  repeatUntil: z
+    .discriminatedUnion("kind", [
+      z.object({ kind: z.literal("end_of_term") }),
+      z.object({ kind: z.literal("end_of_academic_year") }),
+      z.object({ kind: z.literal("custom_date"), date: dateSchema }),
+      z.object({ kind: z.literal("occurrence_count"), count: z.number().int() }),
+    ])
+    .optional(),
+});
+
+const recurrencePreviewSchema = z.object({
+  academicYearId: z.string().uuid(),
+  termId: z.string().uuid().nullable().optional(),
+  weekday: weekdaySchema,
+  effectiveFrom: dateSchema,
+  effectiveUntil: dateSchema.nullable().optional(),
+  schoolDayPeriodId: z.string().uuid().nullable().optional(),
+  customTime: z.boolean().optional(),
+  startsAt: timeSchema.optional(),
+  endsAt: timeSchema.optional(),
+  classId: z.string().uuid().optional(),
+  subjectId: z.string().uuid().nullable().optional(),
+  roomId: z.string().uuid().nullable().optional(),
+  lessonType: z.enum(["lesson", "registration", "assembly", "other"]).optional(),
+  teachers: z.array(teacherInputSchema).optional(),
+  repeatUntil: entrySchema.shape.repeatUntil,
 });
 
 const exceptionSchema = z.object({
@@ -238,6 +269,121 @@ async function mapManagedEntry(
   return { ...entry, lifecycleStatus: lifecycle.status, lifecycle };
 }
 
+async function resolveEntryRepeatUntil(
+  client: Parameters<typeof requireOrgRow>[0],
+  organisationId: string,
+  body: {
+    academicYearId: string;
+    weekday: number;
+    effectiveFrom: string;
+    termId?: string | null;
+    effectiveUntil?: string | null;
+    repeatUntil?: z.infer<typeof entrySchema>["repeatUntil"];
+  },
+) {
+  if (!body.repeatUntil) {
+    return {
+      effectiveUntil: body.effectiveUntil ?? null,
+      resolved: null as Awaited<ReturnType<typeof resolveRepeatUntilRule>> | null,
+    };
+  }
+  const resolved = await resolveRepeatUntilRule(client, organisationId, {
+    academicYearId: body.academicYearId,
+    weekday: body.weekday,
+    effectiveFrom: body.effectiveFrom,
+    termId: body.termId ?? null,
+    repeatUntil: body.repeatUntil,
+  });
+  if (!resolved.ok) {
+    throw new AppError(400, "validation_failed", resolved.error);
+  }
+  return { effectiveUntil: resolved.effectiveUntil, resolved };
+}
+
+async function previewRecurrencePayload(
+  client: Parameters<typeof requireOrgRow>[0],
+  organisationId: string,
+  body: z.infer<typeof recurrencePreviewSchema>,
+) {
+  const window = await resolveEntryRepeatUntil(client, organisationId, body);
+  const listed = window.resolved?.ok
+    ? { academicYear: window.resolved.academicYear, dates: window.resolved.dates }
+    : await listResolvedRecurrenceDates(client, organisationId, {
+        academicYearId: body.academicYearId,
+        weekday: body.weekday,
+        effectiveFrom: body.effectiveFrom,
+        effectiveUntil: window.effectiveUntil,
+        termId: body.termId ?? null,
+      });
+  let startsAt = body.startsAt ?? null;
+  let endsAt = body.endsAt ?? null;
+  if (body.schoolDayPeriodId && body.customTime !== true) {
+    const period = await requireOrgRow(client, "school_day_periods", body.schoolDayPeriodId, organisationId);
+    startsAt = String(period.starts_at);
+    endsAt = String(period.ends_at);
+  }
+  let className: string | null = null;
+  let subjectName: string | null = null;
+  let roomName: string | null = null;
+  const teacherNames: string[] = [];
+  if (body.classId) {
+    const row = await client.query<{ name: string }>(
+      "select name from classes where id = $1 and organisation_id = $2",
+      [body.classId, organisationId],
+    );
+    className = row.rows[0]?.name ?? null;
+  }
+  if (body.subjectId) {
+    const row = await client.query<{ name: string }>(
+      "select name from subjects where id = $1 and organisation_id = $2",
+      [body.subjectId, organisationId],
+    );
+    subjectName = row.rows[0]?.name ?? null;
+  }
+  if (body.roomId) {
+    const row = await client.query<{ name: string }>(
+      "select name from rooms where id = $1 and organisation_id = $2",
+      [body.roomId, organisationId],
+    );
+    roomName = row.rows[0]?.name ?? null;
+  }
+  for (const teacher of body.teachers ?? []) {
+    const row = await client.query<{ full_name: string }>(
+      `select u.full_name
+       from staff_profiles sp
+       join users u on u.id = sp.user_id
+       where sp.id = $1 and sp.organisation_id = $2`,
+      [teacher.staffProfileId, organisationId],
+    );
+    if (row.rows[0]) teacherNames.push(row.rows[0].full_name);
+  }
+  const dates = listed.dates;
+  return {
+    effectiveFrom: body.effectiveFrom,
+    effectiveUntil: window.effectiveUntil,
+    repeatUntilKind: window.resolved && window.resolved.ok ? window.resolved.kind : null,
+    repeatUntilLabel:
+      window.resolved && window.resolved.ok
+        ? window.resolved.label
+        : window.effectiveUntil
+          ? `Ends ${window.effectiveUntil}`
+          : "No end date",
+    occurrenceCount: dates.length,
+    dates,
+    firstOccurrence: dates[0] ?? null,
+    lastOccurrence: dates[dates.length - 1] ?? null,
+    term: window.resolved && window.resolved.ok ? window.resolved.term : null,
+    academicYear: listed.academicYear,
+    weekday: body.weekday,
+    startsAt,
+    endsAt,
+    className,
+    subjectName,
+    roomName,
+    teacherNames,
+  };
+}
+
 export function registerTimetableRoutes(app: SchoolappApi) {
   app.get("/timetable/overview", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
@@ -247,7 +393,7 @@ export function registerTimetableRoutes(app: SchoolappApi) {
         PERMISSIONS.TIMETABLE_MANAGE,
         PERMISSIONS.TIMETABLE_MANAGE_SCHOOL,
       ]);
-      const today = isoDate();
+      const today = await schoolToday(client, orgId);
       const weekStart = startOfIsoWeek(today);
       const from = weekStart;
       const to = addDaysSafe(weekStart, 6);
@@ -709,10 +855,21 @@ export function registerTimetableRoutes(app: SchoolappApi) {
     }),
   );
 
+  app.post("/timetable/entries/preview", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      await assertCanManageTimetable(actor);
+      const body = parseBody(recurrencePreviewSchema, await c.req.json());
+      const preview = await previewRecurrencePayload(client, orgId, body);
+      return c.json({ preview });
+    }),
+  );
+
   app.post("/timetable/entries", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       await assertCanManageTimetable(actor);
-      const body = parseBody(entrySchema, await c.req.json());
+      const parsed = parseBody(entrySchema, await c.req.json());
+      const window = await resolveEntryRepeatUntil(client, orgId, parsed);
+      const body = { ...parsed, effectiveUntil: window.effectiveUntil };
       const created = await insertTimetableEntry(client, orgId, userId, body);
       const firstOccurrence = await firstTimetableOccurrence(client, orgId, {
         academicYearId: body.academicYearId,
@@ -735,6 +892,13 @@ export function registerTimetableRoutes(app: SchoolappApi) {
         {
           entry: created,
           firstOccurrence,
+          preview: window.resolved && window.resolved.ok
+            ? {
+                occurrenceCount: window.resolved.dates.length,
+                dates: window.resolved.dates,
+                repeatUntilLabel: window.resolved.label,
+              }
+            : undefined,
           message: firstOccurrence
             ? recurringLessonSavedMessage(firstOccurrence)
             : "Recurring lesson saved. It has no lesson in the current academic year window.",
@@ -784,6 +948,17 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       }
       if (body.academicYearId) await requireOrgRow(client, "academic_years", body.academicYearId, orgId);
       if (body.termId) await requireOrgRow(client, "terms", body.termId, orgId);
+      let nextEffectiveUntil = body.effectiveUntil;
+      if (body.repeatUntil) {
+        const window = await resolveEntryRepeatUntil(client, orgId, {
+          academicYearId: body.academicYearId ?? String(existing.academic_year_id),
+          weekday: body.weekday ?? Number(existing.weekday),
+          effectiveFrom: body.effectiveFrom ?? String(existing.effective_from),
+          termId: body.termId === undefined ? ((existing.term_id as string | null) ?? null) : body.termId,
+          repeatUntil: body.repeatUntil,
+        });
+        nextEffectiveUntil = window.effectiveUntil;
+      }
       if (body.classId) await requireOrgRow(client, "classes", body.classId, orgId);
       if (body.subjectId) await requireOrgRow(client, "subjects", body.subjectId, orgId);
       if (body.roomId) await requireOrgRow(client, "rooms", body.roomId, orgId);
@@ -825,8 +1000,8 @@ export function registerTimetableRoutes(app: SchoolappApi) {
           body.lessonType ?? null,
           body.isActive ?? null,
           body.effectiveFrom ?? null,
-          body.effectiveUntil === null ? "clear" : null,
-          body.effectiveUntil ?? null,
+          nextEffectiveUntil === null ? "clear" : null,
+          nextEffectiveUntil ?? null,
           body.staffNotes ?? null,
         ],
       );
@@ -859,7 +1034,30 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       const existing = await loadEntryRow(client, orgId, id);
       const today = await schoolToday(client, orgId);
       const entry = await mapManagedEntry(client, orgId, existing, today, { includeLifecycle: true });
-      return c.json({ entry, today });
+      const stopFrom = c.req.query("stopFrom");
+      let lastScheduledLesson: string | null = null;
+      if (stopFrom && /^\d{4}-\d{2}-\d{2}$/.test(stopFrom)) {
+        const until = effectiveUntilFromStopFrom(stopFrom);
+        const existingUntil = (existing.effective_until as string | null) ?? until;
+        const listed = await listResolvedRecurrenceDates(client, orgId, {
+          academicYearId: String(existing.academic_year_id),
+          weekday: Number(existing.weekday),
+          effectiveFrom: String(existing.effective_from),
+          effectiveUntil: existingUntil < until ? existingUntil : until,
+          termId: (existing.term_id as string | null) ?? null,
+        });
+        lastScheduledLesson = listed.dates[listed.dates.length - 1] ?? null;
+      } else {
+        const listed = await listResolvedRecurrenceDates(client, orgId, {
+          academicYearId: String(existing.academic_year_id),
+          weekday: Number(existing.weekday),
+          effectiveFrom: String(existing.effective_from),
+          effectiveUntil: (existing.effective_until as string | null) ?? today,
+          termId: (existing.term_id as string | null) ?? null,
+        });
+        lastScheduledLesson = listed.dates[listed.dates.length - 1] ?? null;
+      }
+      return c.json({ entry, today, lastScheduledLesson });
     }),
   );
 
@@ -925,7 +1123,123 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       });
       return c.json({
         entry,
-        message: `Recurrence ended. Lessons on or after ${parsed.data.stopFrom} will not be generated. Past timetable history is kept.`,
+        message: `Recurring lesson ended. Lessons on or after ${parsed.data.stopFrom} will not be generated. Past timetable, attendance, cover and learning history are kept.`,
+      });
+    }),
+  );
+
+  app.post("/timetable/entries/:id/replace", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      await assertCanManageTimetable(actor);
+      const id = uuidRouteParam(c, "id");
+      const existing = await loadEntryRow(client, orgId, id);
+      const body = parseBody(
+        entrySchema.extend({ applyFrom: dateSchema }).partial().required({ applyFrom: true }),
+        await c.req.json(),
+      );
+      const today = await schoolToday(client, orgId);
+      const lifecycle = await loadRecurrenceLifecycle(
+        client,
+        orgId,
+        {
+          id,
+          classId: String(existing.class_id),
+          weekday: Number(existing.weekday),
+          effectiveFrom: String(existing.effective_from),
+          effectiveUntil: (existing.effective_until as string | null) ?? null,
+          isActive: Boolean(existing.is_active),
+        },
+        today,
+      );
+      if (!lifecycle.canEnd) {
+        throw new AppError(
+          409,
+          "cannot_replace",
+          lifecycle.status === "ended"
+            ? "This recurring lesson has already ended."
+            : "Edit this unused future recurrence directly instead of replacing it.",
+        );
+      }
+      const year = await client.query<{ ends_on: string }>(
+        `select ends_on::text from academic_years where id = $1 and organisation_id = $2`,
+        [existing.academic_year_id, orgId],
+      );
+      if (!year.rows[0]) throw new AppError(404, "not_found", "Not found");
+      const originalUntil = (existing.effective_until as string | null) ?? null;
+      const stop = validateRecurrenceApplyFrom({
+        applyFrom: body.applyFrom,
+        effectiveFrom: String(existing.effective_from),
+        effectiveUntil: originalUntil,
+        today,
+        yearEndsOn: year.rows[0].ends_on,
+      });
+      if (!stop.ok) throw new AppError(400, "validation_failed", stop.error);
+      // Client repeatUntil / effectiveUntil are ignored. The replacement always
+      // inherits the stored original end date (including a legacy open end).
+      const replacementBody = parseBody(entrySchema, {
+        academicYearId: body.academicYearId ?? String(existing.academic_year_id),
+        termId: body.termId === undefined ? ((existing.term_id as string | null) ?? undefined) : body.termId,
+        schoolDayPeriodId:
+          body.schoolDayPeriodId === undefined
+            ? ((existing.school_day_period_id as string | null) ?? undefined)
+            : body.schoolDayPeriodId,
+        customTime: body.customTime,
+        weekday: body.weekday ?? Number(existing.weekday),
+        startsAt: body.startsAt ?? String(existing.starts_at),
+        endsAt: body.endsAt ?? String(existing.ends_at),
+        classId: body.classId ?? String(existing.class_id),
+        yearGroupId:
+          body.yearGroupId === undefined ? ((existing.year_group_id as string | null) ?? undefined) : body.yearGroupId,
+        subjectId: body.subjectId === undefined ? ((existing.subject_id as string | null) ?? undefined) : body.subjectId,
+        roomId: body.roomId === undefined ? ((existing.room_id as string | null) ?? undefined) : body.roomId,
+        lessonType: body.lessonType ?? String(existing.lesson_type),
+        effectiveFrom: body.applyFrom,
+        effectiveUntil: stop.inheritedUntil,
+        staffNotes: body.staffNotes === undefined ? ((existing.staff_notes as string | null) ?? undefined) : body.staffNotes,
+        teachers:
+          body.teachers ??
+          ((existing.teachers as Array<{ staffProfileId: string; participationRole?: string; isPrimary?: boolean }>) ?? []),
+      });
+      const remaining = await listResolvedRecurrenceDates(client, orgId, {
+        academicYearId: replacementBody.academicYearId,
+        weekday: replacementBody.weekday,
+        effectiveFrom: replacementBody.effectiveFrom,
+        effectiveUntil: stop.inheritedUntil,
+        termId: replacementBody.termId ?? null,
+      });
+      if (remaining.dates.length === 0) {
+        throw new AppError(400, "validation_failed", APPLY_FROM_NO_REMAINING_LESSONS);
+      }
+      await client.query(
+        `update timetable_entries
+         set effective_until = $3::date, is_active = true
+         where id = $1 and organisation_id = $2`,
+        [id, orgId, stop.oldEffectiveUntil],
+      );
+      const created = await insertTimetableEntry(client, orgId, userId, replacementBody);
+      const ended = await mapManagedEntry(client, orgId, await loadEntryRow(client, orgId, id), today, {
+        includeLifecycle: true,
+      });
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "timetable.entry.replaced",
+        entityType: "timetable_entry",
+        entityId: created.id,
+        before: {
+          endedEntryId: id,
+          effectiveUntil: stop.oldEffectiveUntil,
+          applyFrom: body.applyFrom,
+          inheritedUntil: stop.inheritedUntil,
+        },
+        after: created,
+      });
+      return c.json({
+        endedEntry: ended,
+        entry: created,
+        message: stop.inheritedUntil
+          ? `The previous recurring lesson now ends before this date. The replacement starts from the chosen date and keeps the original end date (${stop.inheritedUntil}). Past timetable history is kept.`
+          : "The previous recurring lesson now ends before this date. The replacement starts from the chosen date and keeps the original open end date. Past timetable history is kept.",
       });
     }),
   );
@@ -976,7 +1290,8 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       ]);
       const fromQuery = c.req.query("from");
       const weekQuery = c.req.query("week");
-      const week = isoWeekRange(weekQuery || fromQuery || isoDate());
+      const today = await schoolToday(client, orgId);
+      const week = isoWeekRange(weekQuery || fromQuery || today);
       const from = weekQuery || !fromQuery ? week.from : fromQuery;
       const to = c.req.query("to") ?? (weekQuery || !fromQuery ? week.to : addDaysSafe(from, 6));
       const classId = c.req.query("classId");
@@ -1030,7 +1345,7 @@ export function registerTimetableRoutes(app: SchoolappApi) {
         PERMISSIONS.TIMETABLE_READ_ASSIGNED,
         PERMISSIONS.TIMETABLE_MANAGE,
       ]);
-      const date = c.req.query("date") ?? isoDate();
+      const date = c.req.query("date") ?? (await schoolToday(client, orgId));
       const classIds = await authorisedTimetableClassIds(client, actor, date);
       const occurrences = await resolveTimetableOccurrences(client, {
         organisationId: orgId,
@@ -1271,7 +1586,7 @@ export function registerTimetableRoutes(app: SchoolappApi) {
         PERMISSIONS.TIMETABLE_READ_ASSIGNED,
         PERMISSIONS.TIMETABLE_MANAGE,
       ]);
-      const date = c.req.query("date") ?? isoDate();
+      const date = c.req.query("date") ?? (await schoolToday(client, orgId));
       const classIds = await authorisedTimetableClassIds(client, actor, date);
       const occurrences = await resolveTimetableOccurrences(client, {
         organisationId: orgId,

@@ -317,10 +317,36 @@ export {
   recurrencePatchTouchesStructure,
   summarizeRecurrenceUsage,
   validateRecurrenceStopFrom,
+  validateRecurrenceApplyFrom,
+  APPLY_FROM_AFTER_ORIGINAL_END,
+  APPLY_FROM_NO_REMAINING_LESSONS,
   type RecurrenceLifecycle,
   type RecurrenceLifecycleStatus,
   type RecurrenceUsageCount,
 } from "./recurrence-lifecycle.js";
+
+export {
+  CUSTOM_DATE_BEFORE_START,
+  CUSTOM_DATE_OUTSIDE_YEAR,
+  MAX_OCCURRENCE_COUNT,
+  NO_TERMS_CONFIGURED,
+  NO_TERM_FOR_START,
+  OCCURRENCE_COUNT_TOO_FEW,
+  REPEAT_UNTIL_KINDS,
+  START_DATE_OUTSIDE_YEAR,
+  customDateLabel,
+  defaultRepeatUntilKind,
+  endOfAcademicYearLabel,
+  endOfTermLabel,
+  findTermContainingDate,
+  formatUkCalendarDate,
+  occurrenceCountLabel,
+  recurrenceEndsLabel,
+  validateCustomRepeatUntilDate,
+  validateOccurrenceCount,
+  type RepeatUntilInput,
+  type RepeatUntilKind,
+} from "./recurrence-repeat-until.js";
 
 export {
   SUBJECT_KEY_HINT,

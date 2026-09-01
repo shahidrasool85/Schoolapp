@@ -910,6 +910,8 @@ export {
   emailConfigFromEnv,
   formatAddress,
   liveEmailSendingEnabled,
+  LOG_MODE_FROM_ADDRESS,
+  mailOutboxCanRetry,
   parseSafeEmailAddress,
   parseSmtpUrl,
   platformFromAddress,

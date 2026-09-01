@@ -12,6 +12,7 @@ import {
   StatusBadge,
 } from "../../../../components/ui";
 import { RequirePermission } from "../../../../components/require-permission";
+import { mailOutboxCanRetry } from "@schoolapp/core";
 import { api } from "../../../../lib/api";
 import { userFacingError } from "../../../../lib/errors";
 
@@ -35,6 +36,7 @@ type MailRow = {
   attemptCount: number;
   lastErrorCode: string | null;
   lastError: string | null;
+  canRetry?: boolean;
 };
 
 type Preview = { template: string; subject: string; html: string; text: string; fixture: boolean };
@@ -178,7 +180,7 @@ function SchoolEmailDelivery() {
                     <td>{row.subject}</td>
                     <td>{row.purpose.replaceAll("_", " ")}</td>
                     <td>
-                      {row.status === "failed" || row.status === "queued" ? (
+                      {(row.canRetry ?? mailOutboxCanRetry(row.status, row.purpose)) ? (
                         <Button
                           type="button"
                           variant="secondary"

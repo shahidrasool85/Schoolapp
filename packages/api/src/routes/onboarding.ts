@@ -20,6 +20,7 @@ import {
   pgErrorToAppError,
   writeAudit,
   fixturePreviewData,
+  mailOutboxCanRetry,
   renderEmailTemplate,
 } from "@schoolapp/core";
 import type { SchoolappApi } from "../types";
@@ -455,6 +456,7 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
           sentAt: row.sent_at,
           lastErrorCode: row.last_error_code,
           lastError: row.last_error_redacted,
+          canRetry: mailOutboxCanRetry(String(row.status), String(row.purpose)),
         })),
       });
     }),

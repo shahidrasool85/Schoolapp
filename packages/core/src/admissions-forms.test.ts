@@ -266,5 +266,12 @@ describe("admissions forms", () => {
         { countryCode: "GB" },
       )["child.address"],
     ).toMatchObject({ postcode: "SW1A 1AA" });
+    expect(
+      validatePublicAnswers(
+        fields.filter((field) => field.fieldKey === "child.address"),
+        { "child.address": { line1: "12 Rue Example", town: "Paris", postcode: "75001" } },
+        { countryCode: "FR" },
+      )["child.address"],
+    ).toMatchObject({ postcode: "75001" });
   });
 });

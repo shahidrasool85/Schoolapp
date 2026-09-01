@@ -690,7 +690,14 @@ export function registerAdmissionsFormRoutes(app: SchoolappApi) {
           });
         }
       }
-      const answers = validatePublicAnswers(fields, parsed.data.answers, { draft: parsed.data.draft });
+      const org = await client.query<{ country_code: string | null }>(
+        "select country_code from organisations where id = $1",
+        [orgId],
+      );
+      const answers = validatePublicAnswers(fields, parsed.data.answers, {
+        draft: parsed.data.draft,
+        countryCode: org.rows[0]?.country_code ?? "GB",
+      });
       const canonical = mapAnswersToCanonical(fields, answers);
       const completeness = computeCompleteness({ draft: Boolean(parsed.data.draft), fields, answers });
       const declaration = parsed.data.draft
@@ -740,11 +747,21 @@ export function registerAdmissionsFormRoutes(app: SchoolappApi) {
       const result = submitted.rows[0]!.submit_public_admissions_form;
       if (!parsed.data.draft) {
         const host = c.get("tenantHost");
+        const years = await client.query<{ id: string; name: string }>(
+          "select id, name from academic_years where organisation_id = $1 order by starts_on desc",
+          [orgId],
+        );
+        const groups = await client.query<{ id: string; name: string }>(
+          "select id, name from year_groups where organisation_id = $1 order by sort_order",
+          [orgId],
+        );
         await queueAdmissionsApplicationAck(c, {
           organisationId: orgId,
           organisationName: host.kind === "school" ? host.name : "School",
           result,
           canonical,
+          years: years.rows,
+          groups: groups.rows,
           draft: false,
         }).catch(() => undefined);
       }

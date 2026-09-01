@@ -184,6 +184,14 @@ export function createEmailDeliveryProvider(
   return new SmtpEmailProvider(config);
 }
 
+export function mailOutboxCanRetry(status: string, purpose: string): boolean {
+  if (status === "queued") return true;
+  return (
+    status === "failed" &&
+    (purpose === "admissions_application_received" || purpose === "admissions_status_update")
+  );
+}
+
 export function liveEmailSendingEnabled(config: EmailRuntimeConfig): boolean {
   return (
     config.deliveryMode === "live" &&
@@ -287,11 +295,15 @@ export function formatAddress(input: EmailAddress): string {
   return `"${name.replace(/"/g, "")}" <${address}>`;
 }
 
+/** Valid fallback used only when EMAIL_FROM_ADDRESS is unset (log/none first deploy). */
+export const LOG_MODE_FROM_ADDRESS = "notifications@luvlearn.test";
+
 export function platformFromAddress(
   config: EmailRuntimeConfig,
   schoolName?: string | null,
 ): EmailAddress {
-  const address = config.fromAddress || "notifications@localhost";
+  const configured = parseSafeEmailAddress(config.fromAddress);
+  const address = configured ?? LOG_MODE_FROM_ADDRESS;
   const school = schoolName ? sanitizeMailHeaderValue(schoolName, 120) : "";
   const name = school ? `${school} via ${sanitizeMailHeaderValue(config.fromName, 80)}` : config.fromName;
   return { address, name };

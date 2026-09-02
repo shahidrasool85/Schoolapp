@@ -298,6 +298,12 @@ describe("user profiles and photos", () => {
     await pools.owner.query("update year_groups set student_login_enabled = true where organisation_id = $1", [
       school.orgId,
     ]);
+    await pools.owner.query(
+      `insert into student_portal_policies (organisation_id, default_enabled)
+       values ($1, true)
+       on conflict (organisation_id) do update set default_enabled = true`,
+      [school.orgId],
+    );
     const student = await json<{ student: { id: string; photoUrl: string | null } }>(
       await app.request("/api/v1/students", {
         method: "POST",

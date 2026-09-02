@@ -442,10 +442,12 @@ export function registerProfileRoutes(app: SchoolappApi) {
       if (parsed.data.roleKeys !== undefined) {
         throw new AppError(403, "forbidden", "Guardian relationship details are managed by the school");
       }
+      const targetUserId = c.req.param("userId");
+      if (!targetUserId) throw new AppError(404, "not_found", "Not found");
       await applyOrgUserContactUpdate(client, {
         actorUserId: userId,
         organisationId: orgId,
-        targetUserId: c.req.param("userId"),
+        targetUserId,
         permission: parentPhotoManagePermission(),
         title: emptyToNull(parsed.data.title ?? undefined),
         fullName: emptyToNull(parsed.data.fullName ?? undefined),
@@ -465,6 +467,7 @@ export function registerProfileRoutes(app: SchoolappApi) {
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       assertPermission(actor, PERMISSIONS.GUARDIANSHIPS_MANAGE);
       const targetUserId = c.req.param("userId");
+      if (!targetUserId) throw new AppError(404, "not_found", "Not found");
       const membership = await client.query(
         `select 1
          from organisation_memberships m
@@ -488,6 +491,7 @@ export function registerProfileRoutes(app: SchoolappApi) {
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       assertPermission(actor, PERMISSIONS.GUARDIANSHIPS_MANAGE);
       const targetUserId = c.req.param("userId");
+      if (!targetUserId) throw new AppError(404, "not_found", "Not found");
       const membership = await client.query(
         `select 1
          from organisation_memberships m

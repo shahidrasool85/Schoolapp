@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { DataTable, EmptyState, LoadingState, PageError, PageHeader } from "../../../components/ui";
+import { ProfileAvatar } from "../../../components/profile-avatar";
 import { api } from "../../../lib/api";
 import { userFacingError } from "../../../lib/errors";
 import type { PortalChild } from "../../../lib/portal";
@@ -39,7 +40,10 @@ export default function ParentChildrenPage() {
           {children.map((child) => (
             <tr key={child.id}>
               <td>
-                <Link href={`/parent/children/${child.id}`}>{child.displayName}</Link>
+                <Link href={`/parent/children/${child.id}`} className="name-with-avatar">
+                  <ProfileAvatar name={child.displayName} photoUrl={child.photoUrl} size="sm" />
+                  {child.displayName}
+                </Link>
               </td>
               <td>{child.currentYearGroupName ?? "—"}</td>
               <td>{child.currentFormClassName ?? "—"}</td>

@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import { api, downloadAuthenticated } from "../../../lib/api";
 import type { PortalChild } from "../../../lib/portal";
+import { PageHeader, PersonSummary, SectionCard } from "../../../components/ui";
+import { ProfileAvatar } from "../../../components/profile-avatar";
+import { ReadOnlyDl } from "../../../components/profile-details-form";
 
 export default function StudentProfilePage() {
   const [student, setStudent] = useState<PortalChild | null>(null);
@@ -28,61 +31,51 @@ export default function StudentProfilePage() {
   return (
     <>
       {error ? <p className="error">{error}</p> : null}
-      <h1>My profile</h1>
-      <div className="card">
-        <dl className="profile-list">
-          <div>
-            <dt>Name</dt>
-            <dd>{student.displayName}</dd>
-          </div>
-          <div>
-            <dt>Legal name</dt>
-            <dd>{student.legalName}</dd>
-          </div>
-          <div>
-            <dt>School</dt>
-            <dd>{student.school.name}</dd>
-          </div>
-          <div>
-            <dt>Academic year</dt>
-            <dd>{student.currentAcademicYearName ?? "—"}</dd>
-          </div>
-          <div>
-            <dt>Year group</dt>
-            <dd>{student.currentYearGroupName ?? "—"}</dd>
-          </div>
-          <div>
-            <dt>Class / form</dt>
-            <dd>{student.currentFormClassName ?? "—"}</dd>
-          </div>
-        </dl>
-      </div>
-      <h2>Documents</h2>
-      {documents.length === 0 ? (
-        <p className="muted">No documents have been shared with you.</p>
-      ) : (
-        <ul>
-          {documents.map((doc) => (
-            <li key={doc.id}>
-              {doc.title ?? doc.filename}
-              {doc.downloadPath ? (
-                <>
-                  {" "}
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() =>
-                      downloadAuthenticated(doc.downloadPath!, doc.filename).catch((err: Error) => setError(err.message))
-                    }
-                  >
-                    Download
-                  </button>
-                </>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      )}
+      <PageHeader title="My profile" description="Your official school record. The school manages your photo and details." />
+      <PersonSummary
+        name={student.displayName}
+        photo={<ProfileAvatar name={student.displayName} photoUrl={student.photoUrl} size="lg" />}
+        meta={student.currentFormClassName ?? student.currentYearGroupName ?? student.school.name}
+      />
+      <SectionCard title="School details">
+        <ReadOnlyDl
+          items={[
+            { label: "Name", value: student.displayName },
+            { label: "Legal name", value: student.legalName },
+            { label: "School", value: student.school.name },
+            { label: "Academic year", value: student.currentAcademicYearName },
+            { label: "Year group", value: student.currentYearGroupName },
+            { label: "Class / form", value: student.currentFormClassName },
+          ]}
+        />
+      </SectionCard>
+      <SectionCard title="Documents">
+        {documents.length === 0 ? (
+          <p className="muted">No documents have been shared with you.</p>
+        ) : (
+          <ul>
+            {documents.map((doc) => (
+              <li key={doc.id}>
+                {doc.title ?? doc.filename}
+                {doc.downloadPath ? (
+                  <>
+                    {" "}
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() =>
+                        downloadAuthenticated(doc.downloadPath!, doc.filename).catch((err: Error) => setError(err.message))
+                      }
+                    >
+                      Download
+                    </button>
+                  </>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </SectionCard>
     </>
   );
 }

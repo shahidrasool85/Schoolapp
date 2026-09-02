@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { Alert, Button, DataTable, EmptyState, FormField, Input, PageHeader, Select, StatusBadge } from "../../../components/ui";
 import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
 import { SetupReturnBanner } from "../../../components/setup-return-banner";
+import { ProfileAvatar } from "../../../components/profile-avatar";
 import { api } from "../../../lib/api";
 import { userFacingError } from "../../../lib/errors";
 
@@ -15,6 +16,7 @@ type Student = {
   enrolmentStatus: string;
   currentYearGroupName: string | null;
   currentFormClassName: string | null;
+  photoUrl?: string | null;
 };
 
 type Option = { id: string; name: string; code?: string };
@@ -146,7 +148,10 @@ export default function StudentsPage() {
           {students.map((s) => (
             <tr key={s.id}>
               <td>
-                <Link href={`/school/students/${s.id}`}>{s.legalName}</Link>
+                <Link href={`/school/students/${s.id}`} className="name-with-avatar">
+                  <ProfileAvatar name={s.legalName} photoUrl={s.photoUrl} size="sm" />
+                  {s.legalName}
+                </Link>
               </td>
               <td>{s.admissionNumber ?? "Not provided"}</td>
               <td>{s.currentYearGroupName ?? "Not provided"}</td>

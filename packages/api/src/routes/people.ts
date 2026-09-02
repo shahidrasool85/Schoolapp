@@ -17,6 +17,7 @@ import {
   staffInviteMail,
   summariseAttendanceMarks,
   writeAudit,
+  applyOrgUserContactUpdate,
 } from "@schoolapp/core";
 import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
@@ -60,6 +61,14 @@ const enrolmentSchema = z.object({
 const staffCreateSchema = z.object({
   email: z.string().email(),
   fullName: z.string().min(1).max(120),
+  title: z.string().max(20).optional(),
+  preferredName: z.string().max(80).optional(),
+  phone: z.string().max(40).optional(),
+  addressLine1: z.string().max(120).optional(),
+  addressLine2: z.string().max(120).optional(),
+  addressTown: z.string().max(80).optional(),
+  addressCounty: z.string().max(80).optional(),
+  addressPostcode: z.string().max(16).optional(),
   jobTitle: z.string().max(80).optional(),
   employeeNumber: z.string().max(40).optional(),
   roleKeys: z.array(z.string().min(1)).min(1).default(["school.teacher"]),
@@ -91,6 +100,7 @@ const STUDENT_LIST_SQL = `
     sp.address_line2,
     sp.address_town,
     sp.address_postcode,
+    photo_m.profile_photo_stored_object_id,
     se.academic_year_id,
     ay.name as academic_year_name,
     se.year_group_id,
@@ -99,6 +109,10 @@ const STUDENT_LIST_SQL = `
     form.name as form_class_name
   from student_profiles sp
   left join users u on u.id = sp.user_id
+  left join organisation_memberships photo_m
+    on photo_m.user_id = sp.user_id
+   and photo_m.organisation_id = sp.organisation_id
+   and photo_m.ended_at is null
   left join academic_years ay
     on ay.organisation_id = sp.organisation_id and ay.is_current
   left join student_enrolments se
@@ -218,7 +232,8 @@ export function registerPeopleRoutes(app: SchoolappApi) {
       );
       const guardians = actor.permissions.has(PERMISSIONS.GUARDIANSHIPS_MANAGE)
         ? await client.query(
-            `select g.id, g.student_profile_id, g.guardian_user_id, u.full_name, u.email,
+            `select g.id, g.student_profile_id, g.guardian_user_id, u.full_name, u.email, u.phone,
+                    m.profile_photo_stored_object_id,
                     g.relationship, g.has_parental_responsibility, g.is_emergency_contact,
                     g.lives_with_student, g.portal_access, g.priority,
                     g.started_on::text, g.ended_on::text, m.status as membership_status,
@@ -813,7 +828,8 @@ export function registerPeopleRoutes(app: SchoolappApi) {
         }
       }
       const listed = await client.query(
-        `select g.id, g.student_profile_id, g.guardian_user_id, u.full_name, u.email,
+        `select g.id, g.student_profile_id, g.guardian_user_id, u.full_name, u.email, u.phone,
+                m.profile_photo_stored_object_id,
                 g.relationship, g.has_parental_responsibility, g.is_emergency_contact,
                 g.lives_with_student, g.portal_access, g.priority,
                 g.started_on::text, g.ended_on::text, m.status as membership_status
@@ -903,7 +919,8 @@ export function registerPeopleRoutes(app: SchoolappApi) {
       ]);
       const rows = await client.query(
         `select g.id, g.student_profile_id, sp.legal_name as student_legal_name,
-                g.guardian_user_id, u.full_name, u.email, g.relationship,
+                g.guardian_user_id, u.full_name, u.email, u.phone,
+                m.profile_photo_stored_object_id, g.relationship,
                 g.has_parental_responsibility, g.is_emergency_contact, g.lives_with_student,
                 g.portal_access, g.priority, g.started_on::text, g.ended_on::text,
                 m.status as membership_status,
@@ -933,8 +950,10 @@ export function registerPeopleRoutes(app: SchoolappApi) {
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertAnyPermission(actor, [PERMISSIONS.ORG_MEMBERS_READ, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE]);
       const rows = await client.query(
-        `select sp.id, sp.user_id, u.full_name, u.email, sp.job_title, sp.employee_number,
-                sp.started_on::text, m.status as membership_status,
+        `select sp.id, sp.user_id, u.title, u.full_name, u.preferred_name, u.email, u.phone,
+                u.address_line1, u.address_line2, u.address_town, u.address_county, u.address_postcode,
+                sp.job_title, sp.employee_number, sp.started_on::text, m.status as membership_status,
+                m.profile_photo_stored_object_id,
                 user_has_local_credentials(u.id) as has_credentials,
                 exists(
                   select 1 from invitations i
@@ -984,6 +1003,31 @@ export function registerPeopleRoutes(app: SchoolappApi) {
         invitation_token: string;
         created_user_id: string;
       };
+      if (
+        parsed.data.title ||
+        parsed.data.preferredName ||
+        parsed.data.phone ||
+        parsed.data.addressLine1 ||
+        parsed.data.addressLine2 ||
+        parsed.data.addressTown ||
+        parsed.data.addressCounty ||
+        parsed.data.addressPostcode
+      ) {
+        await applyOrgUserContactUpdate(client, {
+          actorUserId: userId,
+          organisationId: orgId,
+          targetUserId: row.created_user_id,
+          permission: PERMISSIONS.ORG_MEMBERS_MANAGE,
+          title: parsed.data.title ?? undefined,
+          preferredName: parsed.data.preferredName ?? undefined,
+          phone: parsed.data.phone ?? undefined,
+          addressLine1: parsed.data.addressLine1 ?? undefined,
+          addressLine2: parsed.data.addressLine2 ?? undefined,
+          addressTown: parsed.data.addressTown ?? undefined,
+          addressCounty: parsed.data.addressCounty ?? undefined,
+          addressPostcode: parsed.data.addressPostcode ?? undefined,
+        });
+      }
       const org = await client.query<{ name: string; slug: string }>("select name, slug from organisations where id = $1", [orgId]);
       await mailOf(c).send(
         staffInviteMail({
@@ -1011,8 +1055,10 @@ export function registerPeopleRoutes(app: SchoolappApi) {
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertAnyPermission(actor, [PERMISSIONS.ORG_MEMBERS_READ, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE]);
       const rows = await client.query(
-        `select sp.id, sp.user_id, u.full_name, u.email, sp.job_title, sp.employee_number,
-                sp.started_on::text, m.status as membership_status,
+        `select sp.id, sp.user_id, u.title, u.full_name, u.preferred_name, u.email, u.phone,
+                u.address_line1, u.address_line2, u.address_town, u.address_county, u.address_postcode,
+                sp.job_title, sp.employee_number, sp.started_on::text, m.status as membership_status,
+                m.profile_photo_stored_object_id,
                 user_has_local_credentials(u.id) as has_credentials,
                 exists(
                   select 1 from invitations i
@@ -1057,23 +1103,36 @@ export function registerPeopleRoutes(app: SchoolappApi) {
   );
 
   app.patch("/staff/:id", requireUser, async (c) =>
-    withSchoolActor(c, async ({ client, actor, orgId }) => {
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       assertPermission(actor, PERMISSIONS.ORG_MEMBERS_MANAGE);
       const parsed = z
         .object({
+          title: z.string().max(20).nullable().optional(),
+          fullName: z.string().min(1).max(120).optional(),
+          preferredName: z.string().max(80).nullable().optional(),
+          phone: z.string().max(40).nullable().optional(),
+          addressLine1: z.string().max(120).nullable().optional(),
+          addressLine2: z.string().max(120).nullable().optional(),
+          addressTown: z.string().max(80).nullable().optional(),
+          addressCounty: z.string().max(80).nullable().optional(),
+          addressPostcode: z.string().max(16).nullable().optional(),
           jobTitle: z.string().max(80).nullable().optional(),
           employeeNumber: z.string().max(40).nullable().optional(),
           startedOn: z.string().date().nullable().optional(),
+          roleKeys: z.array(z.string()).optional(),
         })
         .safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid staff payload");
+      if (parsed.data.roleKeys !== undefined) {
+        throw new AppError(403, "forbidden", "Roles must be changed through the roles endpoint");
+      }
       const updated = await client.query(
         `update staff_profiles
          set job_title = case when $3::boolean then $4::text else job_title end,
              employee_number = case when $5::boolean then $6::text else employee_number end,
              started_on = case when $7::boolean then $8::date else started_on end
          where id = $1 and organisation_id = $2
-         returning id`,
+         returning id, user_id`,
         [
           c.req.param("id"),
           orgId,
@@ -1086,6 +1145,21 @@ export function registerPeopleRoutes(app: SchoolappApi) {
         ],
       );
       if (!updated.rows[0]) throw new AppError(404, "not_found", "Not found");
+      await applyOrgUserContactUpdate(client, {
+        actorUserId: userId,
+        organisationId: orgId,
+        targetUserId: String(updated.rows[0].user_id),
+        permission: PERMISSIONS.ORG_MEMBERS_MANAGE,
+        title: parsed.data.title,
+        fullName: parsed.data.fullName,
+        preferredName: parsed.data.preferredName,
+        phone: parsed.data.phone,
+        addressLine1: parsed.data.addressLine1,
+        addressLine2: parsed.data.addressLine2,
+        addressTown: parsed.data.addressTown,
+        addressCounty: parsed.data.addressCounty,
+        addressPostcode: parsed.data.addressPostcode,
+      });
       return c.json({ ok: true });
     }),
   );

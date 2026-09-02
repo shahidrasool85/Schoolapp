@@ -16,6 +16,7 @@ import {
 } from "../../../components/ui";
 import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
 import { SetupReturnBanner } from "../../../components/setup-return-banner";
+import { ProfileAvatar } from "../../../components/profile-avatar";
 import { api } from "../../../lib/api";
 import { userFacingError } from "../../../lib/errors";
 
@@ -27,6 +28,7 @@ type Staff = {
   membershipStatus: string | null;
   accountStatus: string;
   roleKeys: string[];
+  photoUrl?: string | null;
 };
 
 export default function StaffPage() {
@@ -127,7 +129,10 @@ export default function StaffPage() {
           {staff.map((row) => (
             <tr key={row.id}>
               <td>
-                <Link href={`/school/staff/${row.id}`}>{row.fullName}</Link>
+                <Link href={`/school/staff/${row.id}`} className="name-with-avatar">
+                  <ProfileAvatar name={row.fullName} photoUrl={row.photoUrl} size="sm" />
+                  {row.fullName}
+                </Link>
               </td>
               <td>{row.email}</td>
               <td>{row.jobTitle ?? "—"}</td>

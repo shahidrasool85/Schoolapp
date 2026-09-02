@@ -103,6 +103,30 @@ export function readRasterImageSize(
   return null;
 }
 
+const PROFILE_PHOTO_LIMITS = { minWidth: 32, minHeight: 32, maxWidth: 4096, maxHeight: 4096 };
+
+export function assertProfilePhotoDimensions(input: {
+  bytes: Uint8Array;
+  kind: DetectedFileKind;
+}): RasterImageSize {
+  const size = readRasterImageSize(input.bytes, input.kind);
+  if (!size) {
+    throw new StorageError("unsupported_file_type", "This image could not be read");
+  }
+  if (
+    size.width < PROFILE_PHOTO_LIMITS.minWidth ||
+    size.height < PROFILE_PHOTO_LIMITS.minHeight ||
+    size.width > PROFILE_PHOTO_LIMITS.maxWidth ||
+    size.height > PROFILE_PHOTO_LIMITS.maxHeight
+  ) {
+    throw new StorageError(
+      "unsupported_file_type",
+      "Profile photos must be between 32×32 and 4096×4096 pixels",
+    );
+  }
+  return size;
+}
+
 export function assertBrandingImageDimensions(input: {
   bytes: Uint8Array;
   kind: DetectedFileKind;
@@ -129,4 +153,4 @@ export function assertBrandingImageDimensions(input: {
   return size;
 }
 
-export { BRANDING_LIMITS };
+export { BRANDING_LIMITS, PROFILE_PHOTO_LIMITS };

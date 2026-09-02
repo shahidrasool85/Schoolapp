@@ -44,17 +44,20 @@ A human identity, global.
 
 - `id` (aligned with auth provider subject)
 - `email` (citext, unique, **nullable** for pupils)
-- `full_name`, `preferred_name`
+- `full_name`, `preferred_name`, optional `title`
+- Optional personal contact: `phone`, `address_line1`, `address_line2`, `address_town`, `address_county`, `address_postcode`
 - `user_kind`: `platform_admin | staff | parent | student` (primary; a person can still hold mixed memberships)
 - `status`: `active | disabled`
 - `date_of_birth` only where needed (pupils); treat as personal data
 - Optional org-scoped `user_login_aliases` for pupil usernames (not a second identity provider)
+- Staff/parent may self-edit title, preferred name, phone, and address. Legal name, email, `user_kind`, and status remain school/platform-controlled.
 
 ### Organisation membership
 
 - `(organisation_id, user_id)` unique
 - `status`: `invited | active | suspended`
 - `ended_at` for leavers (keep history)
+- Optional `profile_photo_stored_object_id` — one current profile photo per person-in-school (bytes in `stored_objects` / object storage, not Postgres)
 - Revalidated from the database on every school-scoped request
 
 ### RBAC
@@ -97,14 +100,17 @@ Application logs (stdout) are a different stream: diagnostics, not evidence.
 
 ### Staff profile
 
-- Per organisation: job title, employee number, start date
-- Linked to `user_id`
-- Teaching duties are **class_staff_assignments**, not a field on the staff row
+- Per organisation: job title, employee number, start date (school-controlled)
+- Linked to `user_id`; one person may hold Teacher + Headteacher + School Admin roles without a second profile
+- Personal contact and photo live on `users` / `organisation_memberships`, not duplicated here
+- Teaching duties are **class_staff_assignments**, not a field on the staff row. Profiles may show a read-only assignment summary.
 
 ### Student profile
 
 - Per organisation: admission number, enrolment status (`prospective | admitted | enrolled | left | alumni`)
 - Linked to `user_id` once provisioned
+- Official pupil photo is the membership photo for that user; School Admin manages it. Parents and students cannot overwrite it in this phase
+- Pupil address remains on `student_profiles` (school record), not moved onto `users`
 - **No `class_id`. No permanent year-group FK.** Current year group is derived from `student_enrolments` for the current academic year
 - **Do not** store SEN, FSM, ethnicity, medical in v1
 

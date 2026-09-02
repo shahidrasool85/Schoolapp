@@ -19,7 +19,7 @@ All Schoolapp files use one port (`ObjectStoragePort`) and one metadata table (`
 
 | Driver | Use |
 | --- | --- |
-| `filesystem` | Local demo and development. Root directory from `OBJECT_STORAGE_FS_ROOT`. Default for `pnpm demo:setup`. |
+| `filesystem` | Local demo, development, and optional self-hosted production. Root from `OBJECT_STORAGE_FS_ROOT`. Demo/local may omit it (temp default). Production (`NODE_ENV=production`) requires an absolute persistent root outside the deploy tree and fails closed otherwise. |
 | `s3` | Production. Any S3-compatible API (AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO, and similar) via endpoint, region, bucket, keys, and optional path-style. |
 | `unconfigured` | Explicit fallback that refuses writes. |
 

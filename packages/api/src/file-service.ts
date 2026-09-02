@@ -16,6 +16,7 @@ import {
   requireStudentPortalEnabled,
   studentDocumentVisibleToAudience,
   writeAudit,
+  authorizeProfilePhotoDownload,
   fileAnswerDocumentId,
   activityDocumentVisibleToAudience,
   canReadSchoolActivities,
@@ -133,13 +134,15 @@ export function profileForDomain(domain: StoredObjectDomain) {
             ? "message"
             : domain === "branding"
               ? "branding"
+            : domain === "profile_photo"
+              ? "profile_photo"
             : "safeguarding";
   return fileProfile(name, limits);
 }
 
 export function sensitivityForDomain(domain: StoredObjectDomain): FileSensitivity {
   if (domain === "safeguarding") return "safeguarding";
-  if (domain === "pastoral" || domain === "student_document" || domain === "admissions_form" || domain === "admissions_application" || domain === "activity" || domain === "message") {
+  if (domain === "pastoral" || domain === "student_document" || domain === "admissions_form" || domain === "admissions_application" || domain === "activity" || domain === "message" || domain === "profile_photo") {
     return "confidential";
   }
   return "standard";
@@ -513,6 +516,16 @@ export async function authorizeStoredObjectDownload(
       }
       return;
     }
+    case "profile_photo": {
+      const allowed = await authorizeProfilePhotoDownload(
+        client,
+        actor,
+        object.organisation_id,
+        object.owner_record_id,
+      );
+      if (!allowed) notFound();
+      return;
+    }
     default:
       notFound();
   }
@@ -682,6 +695,24 @@ export function validateBytes(input: {
     bytes: input.bytes,
     profile: profileForDomain(input.domain),
   });
+}
+
+export async function retireStoredObject(
+  client: pg.PoolClient,
+  storage: ObjectStoragePort,
+  organisationId: string,
+  objectId: string | null,
+): Promise<void> {
+  if (!objectId) return;
+  const existing = await loadStoredObject(client, organisationId, objectId);
+  if (!existing) return;
+  await client.query(
+    `update stored_objects
+        set status = 'deleted', deleted_at = now()
+      where id = $1 and organisation_id = $2 and status <> 'deleted'`,
+    [objectId, organisationId],
+  );
+  await storage.deleteObject(existing.storage_key).catch(() => undefined);
 }
 
 export { sha256Hex, validateUpload };

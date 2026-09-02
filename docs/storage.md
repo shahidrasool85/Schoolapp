@@ -26,6 +26,8 @@ OBJECT_STORAGE_FS_ROOT=.data/object-storage
 FILE_SCANNER_DRIVER=noop
 ```
 
+That relative root is for development only. Production cannot use it.
+
 The demo scanner records `unscanned`. It does not claim files are malware-clean.
 
 Maintenance:
@@ -67,8 +69,9 @@ Diagnostic: `GET /api/v1/health/storage` returns `{ configured, driver, writable
 | Pastoral | 10 MiB |
 | Safeguarding | 15 MiB |
 | Activity documents | 10 MiB |
+| Profile photos | 2 MiB |
 
-Override with `OBJECT_STORAGE_MAX_BYTES_*`. Oversized uploads return a user-facing “file too large” error, not a provider stack.
+Override with `OBJECT_STORAGE_MAX_BYTES_*` (profile photos: `OBJECT_STORAGE_MAX_BYTES_PROFILE_PHOTO`). Oversized uploads return a user-facing “file too large” error, not a provider stack.
 
 ## Accepted types
 
@@ -82,8 +85,35 @@ Validated from extension, declared MIME type, and magic bytes. Executables, HTML
 | Pastoral / safeguarding | PDF, JPEG, PNG, WebP, DOCX |
 | Activity documents | PDF, JPEG, PNG, WebP, DOCX, XLSX, text |
 | Message attachments | PDF, JPEG, PNG, WebP, DOCX, text |
+| Profile photos | JPEG, PNG, WebP only; 32×32–4096×4096 pixels |
 
 Original filenames are sanitised for display. They are never used as filesystem paths or object keys.
+
+## Profile photos
+
+One current photo per person-in-school. Metadata: `organisation_memberships.profile_photo_stored_object_id` → `stored_objects` (`domain = profile_photo`, `owner_record_id` = user id). Key path: `org/{organisationId}/profiles/photos/{userId}/{objectId}`.
+
+Downloads use the same authorised proxy as other files (`GET /api/v1/files/:storedObjectId`). There is no public profile-photo URL. Public admissions and branding endpoints cannot serve user photos. Replacing a photo points the membership at the new object and retires the previous one.
+
+### Filesystem / Plesk persistence
+
+The filesystem adapter writes under `OBJECT_STORAGE_FS_ROOT`.
+
+**Development / test:** a relative root such as `.data/object-storage` is fine. If the variable is unset, the adapter uses a local temp directory for convenience. That default is **not** used in production.
+
+**Production (`NODE_ENV=production`) + `OBJECT_STORAGE_DRIVER=filesystem`:**
+
+- `OBJECT_STORAGE_FS_ROOT` must be set to an **absolute** persistent path.
+- The process refuses to start (clear configuration error, no secrets) if the root is missing, blank, relative, under `/tmp` / `/var/tmp` / the OS temp directory, or inside the application/deploy working directory (including the monorepo root found by walking up from `cwd`).
+- Do not point it at `.next`, `public`, or any directory replaced by Git deployment.
+
+On the current Plesk server, choose a persistent location **outside**:
+
+`/var/www/vhosts/app.luvlearn.co.uk/httpdocs`
+
+Plesk Git deployment replaces that `httpdocs` tree. Application code does not hardcode the production path; set `OBJECT_STORAGE_FS_ROOT` on the host.
+
+This phase does **not** require AWS/S3. If production already uses the S3 adapter, profile photos use that same private bucket.
 
 ## Download authorisation
 
@@ -95,6 +125,7 @@ Re-checked on every download:
 - Parent: guardianship + `portal_access` + parent-visible flag
 - Student: current enrolment + Student Portal policy + self-visible flag
 - Activity files: staff assignment or school-wide activity read; parent/student visibility flags; eligible child/self only
+- Profile photos: same organisation + live person permission (self; staff directory for staff photos; existing pupil-profile rules for students; guardian-manage/member-read for parent photos). Unauthenticated and cross-tenant requests get `404`
 - Safeguarding: safeguarding capabilities only. Ordinary Teacher, Parent, Student, and unaffiliated Platform Admin get `404`. Object id or key is never enough.
 
 Sensitive responses use `Cache-Control: private, no-store`. HTML/JS/SVG are not served inline. Safeguarding downloads are attachments.

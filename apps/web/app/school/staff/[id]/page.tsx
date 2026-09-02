@@ -17,6 +17,9 @@ import {
   SectionCard,
   StatusBadge,
 } from "../../../../components/ui";
+import { ProfileAvatar } from "../../../../components/profile-avatar";
+import { ProfilePhotoEditor } from "../../../../components/profile-photo-editor";
+import { ProfileDetailsForm, ReadOnlyDl } from "../../../../components/profile-details-form";
 import { api } from "../../../../lib/api";
 import { userFacingError } from "../../../../lib/errors";
 
@@ -30,8 +33,17 @@ const STAFF_ROLES = [
 
 type Staff = {
   id: string;
+  userId: string;
+  title: string | null;
   fullName: string;
+  preferredName: string | null;
   email: string | null;
+  phone: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  addressTown: string | null;
+  addressCounty: string | null;
+  addressPostcode: string | null;
   jobTitle: string | null;
   employeeNumber: string | null;
   membershipStatus: string | null;
@@ -39,25 +51,35 @@ type Staff = {
   pendingInvitation: boolean;
   hasCredentials: boolean;
   roleKeys: string[];
+  photoUrl: string | null;
+};
+
+type Assignment = {
+  id: string;
+  className: string | null;
+  assignmentRole: string;
+  endedOn: string | null;
 };
 
 export default function StaffDetailPage() {
   const params = useParams<{ id: string }>();
   const [staff, setStaff] = useState<Staff | null>(null);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [inviteToken, setInviteToken] = useState("");
 
   async function load() {
-    const body = await api<{ staff: Staff }>(`/api/v1/staff/${params.id}`);
+    const body = await api<{ staff: Staff; assignments: Assignment[] }>(`/api/v1/staff/${params.id}`);
     setStaff(body.staff);
+    setAssignments(body.assignments ?? []);
   }
 
   useEffect(() => {
     load().catch((err: Error) => setError(userFacingError(err, "Could not load staff member.")));
   }, [params.id]);
 
-  async function saveProfile(event: FormEvent<HTMLFormElement>) {
+  async function saveEmployment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!staff) return;
     const form = new FormData(event.currentTarget);
@@ -70,7 +92,7 @@ export default function StaffDetailPage() {
           employeeNumber: form.get("employeeNumber") || null,
         }),
       });
-      setNotice("Staff details saved.");
+      setNotice("School details saved.");
       await load();
     } catch (err) {
       setError(userFacingError(err, "Could not save staff details."));
@@ -149,12 +171,29 @@ export default function StaffDetailPage() {
       />
       <PersonSummary
         name={staff.fullName}
-        meta={<>{staff.jobTitle ?? "Staff"} · {staff.email}</>}
+        photo={<ProfileAvatar name={staff.fullName} photoUrl={staff.photoUrl} size="lg" />}
+        meta={
+          <>
+            {staff.jobTitle ?? "Staff"} · {staff.email}
+            {staff.phone ? ` · ${staff.phone}` : ""}
+          </>
+        }
         actions={<StatusBadge status={staff.accountStatus} />}
       />
       {inviteToken ? <InviteTokenAlert token={inviteToken} /> : null}
       {notice ? <Alert tone="success">{notice}</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
+
+      <SectionCard title="Profile photo">
+        <ProfilePhotoEditor
+          name={staff.fullName}
+          photoUrl={staff.photoUrl}
+          uploadPath={`/api/v1/staff/${staff.id}/photo`}
+          deletePath={`/api/v1/staff/${staff.id}/photo`}
+          canEdit
+          onChanged={load}
+        />
+      </SectionCard>
 
       <SectionCard title="Account">
         <p className="muted">
@@ -182,16 +221,45 @@ export default function StaffDetailPage() {
         </div>
       </SectionCard>
 
-      <SectionCard title="Details">
-        <form className="form-grid" onSubmit={saveProfile}>
+      <SectionCard title="Personal / contact">
+        <ProfileDetailsForm
+          values={staff}
+          includeFullName
+          editableFields={[
+            "fullName",
+            "title",
+            "preferredName",
+            "phone",
+            "addressLine1",
+            "addressLine2",
+            "addressTown",
+            "addressCounty",
+            "addressPostcode",
+          ]}
+          onSubmit={async (payload) => {
+            setError("");
+            try {
+              await api(`/api/v1/staff/${staff.id}`, { method: "PATCH", body: JSON.stringify(payload) });
+              setNotice("Personal details saved.");
+              await load();
+            } catch (err) {
+              setError(userFacingError(err, "Could not save personal details."));
+            }
+          }}
+        />
+      </SectionCard>
+
+      <SectionCard title="School / employment">
+        <form className="form-grid" onSubmit={saveEmployment}>
           <FormField label="Job title">
             <Input name="jobTitle" defaultValue={staff.jobTitle ?? ""} />
           </FormField>
           <FormField label="Employee number">
             <Input name="employeeNumber" defaultValue={staff.employeeNumber ?? ""} />
           </FormField>
+          <ReadOnlyDl items={[{ label: "Email", value: staff.email }]} />
           <div>
-            <Button type="submit">Save details</Button>
+            <Button type="submit">Save employment details</Button>
           </div>
         </form>
       </SectionCard>
@@ -211,6 +279,20 @@ export default function StaffDetailPage() {
           </div>
         </form>
       </SectionCard>
+
+      {assignments.length > 0 ? (
+        <SectionCard title="Teaching assignments" description="Managed through classes and timetable, not from this profile.">
+          <ul>
+            {assignments
+              .filter((item) => !item.endedOn)
+              .map((item) => (
+                <li key={item.id}>
+                  {item.className ?? "Class"} · {item.assignmentRole.replaceAll("_", " ")}
+                </li>
+              ))}
+          </ul>
+        </SectionCard>
+      ) : null}
     </>
   );
 }

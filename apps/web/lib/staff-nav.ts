@@ -143,7 +143,10 @@ export const STAFF_NAV_SECTIONS: StaffNavSection[] = [
   {
     id: "overview",
     label: "Overview",
-    items: [{ href: "/school", label: "Dashboard", icon: "home", exact: true }],
+    items: [
+      { href: "/school", label: "Dashboard", icon: "home", exact: true },
+      { href: "/school/profile", label: "My profile", icon: "users" },
+    ],
   },
   {
     id: "operations",

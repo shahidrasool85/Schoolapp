@@ -12,6 +12,7 @@ import {
   StatusBadge,
 } from "../../../components/ui";
 import { SetupReturnBanner } from "../../../components/setup-return-banner";
+import { ProfileAvatar } from "../../../components/profile-avatar";
 import { api } from "../../../lib/api";
 import { userFacingError } from "../../../lib/errors";
 
@@ -29,6 +30,7 @@ type Guardian = {
   accountStatus: string;
   pendingInvitation: boolean;
   endedOn: string | null;
+  photoUrl?: string | null;
 };
 
 export default function ParentsPage() {
@@ -120,8 +122,17 @@ export default function ParentsPage() {
           {guardians.map((row) => (
             <tr key={row.id}>
               <td>
-                {row.guardianFullName}
-                <div className="muted">{row.guardianEmail}</div>
+                <div className="name-with-avatar">
+                  <ProfileAvatar name={row.guardianFullName} photoUrl={row.photoUrl} size="sm" />
+                  <div>
+                    {row.guardianUserId ? (
+                      <Link href={`/school/parents/${row.guardianUserId}`}>{row.guardianFullName}</Link>
+                    ) : (
+                      row.guardianFullName
+                    )}
+                    <div className="muted">{row.guardianEmail}</div>
+                  </div>
+                </div>
               </td>
               <td>
                 <Link href={`/school/students/${row.studentProfileId}`}>{row.studentLegalName}</Link>

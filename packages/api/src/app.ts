@@ -9,6 +9,7 @@ import { registerPlatformRoutes } from "./routes/platform";
 import { registerOrganisationRoutes } from "./routes/organisation";
 import { registerAcademicRoutes } from "./routes/academic";
 import { registerPeopleRoutes } from "./routes/people";
+import { registerProfileRoutes } from "./routes/profiles";
 import { registerAdditionalNeedsRoutes } from "./routes/additional-needs";
 import { registerParentRoutes } from "./routes/parent";
 import { registerStudentRoutes } from "./routes/student";
@@ -97,6 +98,7 @@ export function createApiApp(config: ApiConfig) {
   registerImportRoutes(app);
   registerAcademicRoutes(app);
   registerPeopleRoutes(app);
+  registerProfileRoutes(app);
   registerAdditionalNeedsRoutes(app);
   registerParentRoutes(app);
   registerStudentRoutes(app);

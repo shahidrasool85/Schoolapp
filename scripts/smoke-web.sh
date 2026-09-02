@@ -19,6 +19,13 @@ export NEXT_DIST_DIR="${NEXT_DIST_DIR:-.next-smoke}"
 export AUTH_SECRET="${AUTH_SECRET:-phase1-smoke-secret-phase1-smoke-secret}"
 export DATABASE_URL="${DATABASE_URL:-postgres://schoolapp_app:schoolapp_app@127.0.0.1:5432/schoolapp}"
 export DATABASE_OWNER_URL="${DATABASE_OWNER_URL:-postgres://schoolapp_owner:schoolapp_owner@127.0.0.1:5432/schoolapp}"
+# next start sets NODE_ENV=production. Do not use a temp or in-repo root.
+export OBJECT_STORAGE_FS_ROOT="${HOME:+${HOME}/.cache/schoolapp-smoke-object-storage}"
+if [ -z "${OBJECT_STORAGE_FS_ROOT}" ]; then
+  echo "HOME must be set so smoke can use a persistent filesystem storage root." >&2
+  exit 1
+fi
+mkdir -p "${OBJECT_STORAGE_FS_ROOT}"
 LOG="${SMOKE_LOG:-/tmp/schoolapp-smoke-next.log}"
 PID=""
 
@@ -97,7 +104,11 @@ expect_page "/school/imports?returnTo=%2Fschool%2Fsetup%3Fstep%3Dpupils"
 expect_page "/school/timetable/school-day?returnTo=%2Fschool%2Fsetup%3Fstep%3Dschool_day"
 expect_page "/school/students"
 expect_page "/school/staff"
+expect_page "/school/profile"
 expect_page "/school/parents"
+expect_page "/school/parents/example"
+expect_page "/parent/account"
+expect_page "/student/profile"
 expect_page "/school/admissions"
 expect_page "/school/admissions/applications"
 expect_page "/school/admissions/applications/new"

@@ -1,4 +1,4 @@
-import { deriveAccountStatus } from "@schoolapp/domain";
+import { deriveAccountStatus, profilePhotoUrl } from "@schoolapp/domain";
 
 export function mapAcademicYear(row: Record<string, unknown>) {
   return {
@@ -331,14 +331,25 @@ export function mapStaff(row: Record<string, unknown>) {
   const membershipStatus = (row.membership_status as string | null) ?? null;
   const hasCredentials = Boolean(row.has_credentials);
   const pendingInvitation = Boolean(row.pending_invitation);
+  const photoObjectId = (row.profile_photo_stored_object_id as string | null) ?? null;
   return {
     id: row.id,
     userId: row.user_id,
+    title: row.title ?? null,
     fullName: row.full_name,
+    preferredName: row.preferred_name ?? null,
     email: row.email,
+    phone: row.phone ?? null,
+    addressLine1: row.address_line1 ?? null,
+    addressLine2: row.address_line2 ?? null,
+    addressTown: row.address_town ?? null,
+    addressCounty: row.address_county ?? null,
+    addressPostcode: row.address_postcode ?? null,
     jobTitle: row.job_title,
     employeeNumber: row.employee_number,
     startedOn: row.started_on,
+    photoObjectId,
+    photoUrl: profilePhotoUrl(photoObjectId),
     membershipStatus,
     hasCredentials,
     pendingInvitation,
@@ -348,6 +359,7 @@ export function mapStaff(row: Record<string, unknown>) {
 }
 
 export function mapStudent(row: Record<string, unknown>) {
+  const photoObjectId = (row.profile_photo_stored_object_id as string | null) ?? null;
   return {
     id: row.id,
     userId: row.user_id,
@@ -367,6 +379,8 @@ export function mapStudent(row: Record<string, unknown>) {
     addressLine2: row.address_line2 ?? null,
     addressTown: row.address_town ?? null,
     addressPostcode: row.address_postcode ?? null,
+    photoObjectId,
+    photoUrl: profilePhotoUrl(photoObjectId),
   };
 }
 
@@ -392,6 +406,7 @@ export function mapGuardianship(row: Record<string, unknown>) {
   const membershipStatus = (row.membership_status as string | null) ?? null;
   const hasCredentials = Boolean(row.has_credentials);
   const pendingInvitation = Boolean(row.pending_invitation);
+  const photoObjectId = (row.profile_photo_stored_object_id as string | null) ?? null;
   return {
     id: row.id,
     studentProfileId: row.student_profile_id,
@@ -399,6 +414,9 @@ export function mapGuardianship(row: Record<string, unknown>) {
     guardianUserId: row.guardian_user_id,
     guardianFullName: row.full_name ?? null,
     guardianEmail: row.email ?? null,
+    guardianPhone: row.phone ?? null,
+    photoObjectId,
+    photoUrl: profilePhotoUrl(photoObjectId),
     relationship: row.relationship,
     hasParentalResponsibility: row.has_parental_responsibility,
     isEmergencyContact: row.is_emergency_contact,

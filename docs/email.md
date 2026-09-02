@@ -144,6 +144,8 @@ systemctl restart schoolapp
 systemctl status schoolapp --no-pager
 ```
 
+If `OBJECT_STORAGE_DRIVER=filesystem` (the current Plesk default unless S3 is configured), set `OBJECT_STORAGE_FS_ROOT` to an absolute persistent directory **outside** `/var/www/vhosts/app.luvlearn.co.uk/httpdocs` before `next start`. Production refuses an unset, relative, `/tmp`, or in-checkout root. See [storage.md](./storage.md).
+
 Install must run **before** build so `nodemailer` is present. Migrate applies `0048_email_delivery.sql` once against production currently at `0047`. Keep `EMAIL_DELIVERY_MODE` unset or `log` (and do not set `EMAIL_PROVIDER=smtp` with `live`) until SMTP is ready. First deployment then queues/log-delivers only and does **not** send real mail.
 
 Skipping install leaves `nodemailer` missing; live SMTP then fails closed (`smtp_unavailable`) rather than sending.

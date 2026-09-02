@@ -27,7 +27,7 @@ const LINKS = [
   { href: "/parent/finance", label: "Finance", icon: "card" as const },
   { href: "/parent/payments", label: "Other payments", icon: "card" as const },
   { href: "/parent/notifications", label: "Notifications", icon: "bell" as const },
-  { href: "/parent/account", label: "Account", icon: "briefcase" as const },
+  { href: "/parent/account", label: "Profile", icon: "briefcase" as const },
 ];
 
 function ParentShellInner({ children }: { children: ReactNode }) {

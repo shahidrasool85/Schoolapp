@@ -109,3 +109,17 @@ export async function downloadAuthenticated(
   link.remove();
   URL.revokeObjectURL(url);
 }
+
+export async function fetchAuthenticatedBlobUrl(path: string): Promise<string> {
+  const headers = new Headers({ Accept: "*/*" });
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const orgId = getOrgId();
+  if (orgId) headers.set("X-Organisation-Id", orgId);
+  const response = await fetch(path, { headers, credentials: "include" });
+  if (!response.ok) {
+    throw new ApiError(response.status, "error", "Could not load image");
+  }
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
+}

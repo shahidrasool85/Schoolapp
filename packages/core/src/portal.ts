@@ -1,5 +1,5 @@
 import type pg from "pg";
-import { PORTAL_COMING_LATER_MESSAGE } from "@schoolapp/domain";
+import { PORTAL_COMING_LATER_MESSAGE, profilePhotoUrl } from "@schoolapp/domain";
 import { AppError } from "./errors.js";
 import { guardianChildIds } from "./students-access.js";
 
@@ -31,6 +31,8 @@ export type PortalStudentView = {
   currentFormClassName: string | null;
   houseName: string | null;
   school: PortalSchool;
+  photoObjectId: string | null;
+  photoUrl: string | null;
 };
 
 export const PORTAL_STUDENT_SQL = `
@@ -49,10 +51,15 @@ export const PORTAL_STUDENT_SQL = `
     form.name as form_class_name,
     h.name as house_name,
     o.id as school_id,
-    o.name as school_name
+    o.name as school_name,
+    photo_m.profile_photo_stored_object_id
   from student_profiles sp
   join organisations o on o.id = sp.organisation_id
   left join users u on u.id = sp.user_id
+  left join organisation_memberships photo_m
+    on photo_m.user_id = sp.user_id
+   and photo_m.organisation_id = sp.organisation_id
+   and photo_m.ended_at is null
   left join academic_years ay
     on ay.organisation_id = sp.organisation_id and ay.is_current
   left join student_enrolments se
@@ -97,6 +104,8 @@ export function mapPortalStudent(row: Record<string, unknown>): PortalStudentVie
       id: String(row.school_id),
       name: String(row.school_name),
     },
+    photoObjectId: (row.profile_photo_stored_object_id as string | null) ?? null,
+    photoUrl: profilePhotoUrl((row.profile_photo_stored_object_id as string | null) ?? null),
   };
 }
 
@@ -111,6 +120,8 @@ export function portalChildSummary(student: PortalStudentView) {
     currentAcademicYearName: student.currentAcademicYearName,
     school: student.school,
     enrolmentStatus: student.enrolmentStatus,
+    photoObjectId: student.photoObjectId,
+    photoUrl: student.photoUrl,
   };
 }
 

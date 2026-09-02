@@ -205,7 +205,7 @@ export function UserAvatar({ name }: { name?: string | null }) {
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("");
   return (
-    <span className="user-avatar" aria-hidden="true">
+    <span className="user-avatar user-avatar-md" aria-hidden="true">
       {initials || "?"}
     </span>
   );
@@ -215,15 +215,17 @@ export function PersonSummary({
   name,
   meta,
   actions,
+  photo,
 }: {
   name: string;
   meta?: ReactNode;
   actions?: ReactNode;
+  photo?: ReactNode;
 }) {
   return (
     <div className="profile-header">
       <div className="person-summary">
-        <UserAvatar name={name} />
+        {photo ?? <UserAvatar name={name} />}
         <div style={{ minWidth: 0 }}>
           <h1>{name}</h1>
           {meta ? <p className="muted">{meta}</p> : null}

@@ -50,11 +50,19 @@ export {
 export {
   readRasterImageSize,
   assertBrandingImageDimensions,
+  assertProfilePhotoDimensions,
   BRANDING_LIMITS,
+  PROFILE_PHOTO_LIMITS,
   type RasterImageSize,
   type BrandingImagePurpose,
 } from "./image-size.js";
 export { FilesystemObjectStorage, defaultFilesystemRoot } from "./filesystem.js";
+export {
+  resolveFilesystemRoot,
+  StorageConfigError,
+  PRODUCTION_FILESYSTEM_ROOT_MESSAGE,
+  isProductionRuntime,
+} from "./filesystem-root.js";
 export {
   S3CompatibleObjectStorage,
   AwsSdkS3Ops,

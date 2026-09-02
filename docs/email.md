@@ -33,7 +33,7 @@ Live sending requires **all** of:
 - `SMTP_HOST` (or `SMTP_URL`)
 - `EMAIL_FROM_ADDRESS`
 
-Otherwise messages stay in `mail_outbox` as `queued` and are written to logs (`log` mode) or a fake provider (`test` mode). Automated tests inject `FakeEmailProvider` and must never use live SMTP.
+Otherwise messages stay in `mail_outbox` as `queued` and are written to logs (`log` mode) or a fake provider (`test` mode). Automated tests inject `FakeEmailProvider` and must never use live SMTP. When `EMAIL_FROM_ADDRESS` is unset, log-mode uses the sanitizable fallback `notifications@luvlearn.test` so first deploy does not permanently fail and wipe invite/reset `action_url`.
 
 Never commit secrets. Never log `SMTP_PASSWORD`, `SMTP_USERNAME`, or raw invite/reset tokens.
 
@@ -88,7 +88,7 @@ If `EMAIL_WORKER_SECRET` is set, a trusted scheduler may call:
 
 That endpoint is disabled (404) when the secret is unset. It requires `Authorization: Bearer $EMAIL_WORKER_SECRET` (constant-time compare). It is not an open relay: it ignores request bodies, only drains already-queued outbox rows, caps `limit` at 50, and returns `{ processed, sent, failed }` only — never `action_url` or message content.
 
-School admins inspect status at **School settings → Email delivery** and retry eligible failed/queued rows for their organisation only. That page shows delivery status, recipient, subject, purpose, fixture template previews, and redacted last-error codes. It does **not** show SMTP credentials, worker secrets, action URLs, or live tokens. SMTP is platform/server env, not tenant configuration. Ordinary teachers cannot open the page or the API.
+School admins inspect status at **School settings → Email delivery** and retry eligible rows for their organisation only: any `queued` row, plus `failed` admissions acknowledgements. Permanent invite/reset failures wipe `action_url` and do not show Retry. That page shows delivery status, recipient, subject, purpose, fixture template previews, and redacted last-error codes. It does **not** show SMTP credentials, worker secrets, action URLs, or live tokens. SMTP is platform/server env, not tenant configuration. Ordinary teachers cannot open the page or the API.
 
 ## Connected product events
 

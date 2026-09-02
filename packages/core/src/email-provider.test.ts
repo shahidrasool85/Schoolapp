@@ -7,6 +7,7 @@ import {
   FakeEmailProvider,
   formatAddress,
   liveEmailSendingEnabled,
+  mailOutboxCanRetry,
   LogEmailProvider,
   parseSafeEmailAddress,
   platformFromAddress,
@@ -106,6 +107,29 @@ describe("email provider abstraction", () => {
     expect(redactEmailError("fail for parent@school.test token=abc")).not.toContain("abc");
     expect(redactEmailError("smtp fail https://school.test/invite?token=secret123")).not.toContain("secret123");
     expect(redactEmailError("smtp fail https://school.test/invite?token=secret123")).not.toContain("https://");
+  });
+
+  it("only marks invite/reset failures retryable while they are still queued", () => {
+    expect(mailOutboxCanRetry("queued", "staff_invite")).toBe(true);
+    expect(mailOutboxCanRetry("failed", "staff_invite")).toBe(false);
+    expect(mailOutboxCanRetry("failed", "password_reset")).toBe(false);
+    expect(mailOutboxCanRetry("failed", "admissions_application_received")).toBe(true);
+    expect(mailOutboxCanRetry("cancelled", "admissions_application_received")).toBe(false);
+  });
+
+  it("uses a sanitizable From fallback when EMAIL_FROM_ADDRESS is unset", () => {
+    const from = platformFromAddress(emailConfigFromEnv({}), "Kingswood School");
+    expect(from.address).toBe("notifications@luvlearn.test");
+    expect(parseSafeEmailAddress(from.address)).toBe(from.address);
+    expect(() =>
+      sanitizeEmailSendInput({
+        to: { address: "parent@example.com" },
+        from,
+        subject: "Invite",
+        html: "<p>Hi</p>",
+        text: "Hi",
+      }),
+    ).not.toThrow();
   });
 
   it("formats school-aware from names on the platform domain", () => {

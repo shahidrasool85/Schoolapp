@@ -403,6 +403,7 @@ describe("transactional email foundation", () => {
     expect(JSON.stringify(body)).not.toContain("actionUrl");
     expect(body.messages.some((row) => "action_url" in row || "actionUrl" in row)).toBe(false);
     expect(body.messages[0]?.bodyText).not.toMatch(/token=[A-Za-z0-9_-]{10,}/);
+    expect(body.messages.every((row) => typeof row.canRetry === "boolean")).toBe(true);
     const teacherToken = await login(app, teacherEmail, "password-12x");
     const teacherList = await app.request("/api/v1/onboarding/mail", {
       headers: headers(teacherToken, school.orgId),
@@ -667,5 +668,35 @@ describe("transactional email foundation", () => {
     });
     expect(second.status).toBe(201);
     expect(email.sent.filter((row) => row.subject.includes("Application received"))).toHaveLength(1);
+  });
+
+  it("log-delivers without EMAIL_FROM_ADDRESS instead of burning action_url", async () => {
+    const school = await createSchool(pools.owner, suffix());
+    const inserted = await pools.owner.query<{ id: string }>(
+      `insert into mail_outbox (
+         organisation_id, purpose, template_key, to_email, subject, body_text, status, action_url
+       ) values ($1, 'staff_invite', 'account_invitation', 'log@example.com', 'Invite', 'Activate', 'queued', $2)
+       returning id`,
+      [school.orgId, "https://school.test/invite?token=log-secret"],
+    );
+    const cfg = testApiConfig(pools);
+    cfg.emailDeliveryProvider = undefined;
+    cfg.email = {
+      providerKey: "none",
+      deliveryMode: "log",
+      fromAddress: null,
+      fromName: "LuvLearn",
+      replyToFallback: null,
+      smtp: { host: null, port: 587, secure: false, username: null, password: null },
+    };
+    const result = await deliverQueuedMail(cfg, { id: inserted.rows[0]!.id });
+    expect(result.sent).toBe(1);
+    expect(result.failed).toBe(0);
+    const row = await pools.owner.query<{ status: string; action_url: string | null }>(
+      "select status, action_url from mail_outbox where id = $1",
+      [inserted.rows[0]!.id],
+    );
+    expect(row.rows[0]?.status).toBe("sent");
+    expect(row.rows[0]?.action_url).toBeNull();
   });
 });

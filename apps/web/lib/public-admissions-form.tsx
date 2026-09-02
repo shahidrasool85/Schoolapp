@@ -129,6 +129,18 @@ function isBlank(value: unknown): boolean {
   return String(value).trim() === "";
 }
 
+function checkboxAccepted(value: unknown): boolean {
+  return value === true || value === "true" || value === "on";
+}
+
+function requiredFieldMissing(field: PublicField, value: unknown): boolean {
+  if (!field.required) return false;
+  if (field.questionType === "yes_no" || field.questionType === "declaration") {
+    return !checkboxAccepted(value);
+  }
+  return isBlank(value);
+}
+
 function fieldLabel(field: PublicField): string {
   return PUBLIC_LABELS[field.fieldKey] ?? field.label;
 }
@@ -160,7 +172,7 @@ function collectAnswers(form: FormData, sections: PublicSection[]): Record<strin
 }
 
 function sectionComplete(section: PublicSection, answers: Record<string, unknown>): boolean {
-  return section.fields.every((field) => !field.required || !isBlank(answers[field.fieldKey]));
+  return section.fields.every((field) => !requiredFieldMissing(field, answers[field.fieldKey]));
 }
 
 function validateSection(
@@ -171,8 +183,11 @@ function validateSection(
   const errors: Record<string, string> = {};
   for (const field of section.fields) {
     const value = answers[field.fieldKey];
-    if (field.required && isBlank(value)) {
-      errors[field.fieldKey] = requiredMessage(field);
+    if (requiredFieldMissing(field, value)) {
+      errors[field.fieldKey] =
+        field.questionType === "yes_no" || field.questionType === "declaration"
+          ? `Please confirm ${fieldLabel(field).toLowerCase()}.`
+          : requiredMessage(field);
       continue;
     }
     if (field.questionType === "email" && !isBlank(value)) {
@@ -1027,7 +1042,11 @@ export function PublicAdmissionsForm({
           <p className="admissions-kicker">{payload.organisation.name}</p>
           <h1>{done.title}</h1>
           <p>{done.text}</p>
-          {done.reference ? <p className="admissions-ref">Application reference: {done.reference}</p> : null}
+          {done.reference ? (
+            <p className="admissions-ref">
+              {formType === "enquiry" ? "Enquiry reference" : "Application reference"}: {done.reference}
+            </p>
+          ) : null}
         </div>
       </main>
     );
@@ -1055,7 +1074,7 @@ export function PublicAdmissionsForm({
             {logoUrl ? <img className="admissions-logo" src={logoUrl} alt="" /> : null}
             <div>
               <p className="admissions-kicker">{payload.organisation.name}</p>
-              <h1>Admissions application</h1>
+              <h1>{payload.form.name || (formType === "enquiry" ? "Admissions enquiry" : "Admissions application")}</h1>
             </div>
           </div>
         ) : (

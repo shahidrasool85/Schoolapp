@@ -88,9 +88,13 @@ export async function deliverQueuedMail(
         error instanceof EmailDeliveryError
           ? error
           : new EmailDeliveryError("retryable", "provider_error", String(error));
+      // Log/none first-deploy must not permanently burn invite/reset action_url.
+      const retryable =
+        classified.retryable ||
+        (email.deliveryMode !== "live" && classified.code === "provider_unconfigured");
       await config.pools.app.query("select fail_mail_outbox_send($1, $2, $3, $4)", [
         row.id,
-        classified.retryable,
+        retryable,
         classified.code,
         redactEmailError(classified.message),
       ]);

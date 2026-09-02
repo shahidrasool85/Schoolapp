@@ -13,6 +13,11 @@ import { NoopFileScanner } from "./scanner.js";
 import { detectFileKind, fileProfile, validateUpload } from "./validation.js";
 import { assertBrandingImageDimensions, assertProfilePhotoDimensions, readRasterImageSize } from "./image-size.js";
 import { createObjectStorageFromEnv } from "./factory.js";
+import {
+  PRODUCTION_FILESYSTEM_ROOT_MESSAGE,
+  StorageConfigError,
+  resolveFilesystemRoot,
+} from "./filesystem-root.js";
 
 const PNG_1X1 = Buffer.from(
   "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082",
@@ -320,6 +325,112 @@ describe("factory", () => {
     });
     expect(storage.backend).toBe("filesystem");
     expect(storage.isConfigured()).toBe(true);
+  });
+});
+
+describe("production filesystem root", () => {
+  const safeRoot = "/var/lib/schoolapp-object-storage";
+  const deployCwd = path.join(os.tmpdir(), "schoolapp-fake-httpdocs");
+
+  it("rejects production filesystem storage when the root is missing", () => {
+    expect(() =>
+      resolveFilesystemRoot({
+        NODE_ENV: "production",
+        OBJECT_STORAGE_DRIVER: "filesystem",
+      }),
+    ).toThrow(StorageConfigError);
+    expect(() =>
+      createObjectStorageFromEnv({
+        NODE_ENV: "production",
+        OBJECT_STORAGE_DRIVER: "filesystem",
+      }),
+    ).toThrow(PRODUCTION_FILESYSTEM_ROOT_MESSAGE);
+  });
+
+  it("rejects production filesystem storage when the root is blank or relative", () => {
+    expect(() =>
+      resolveFilesystemRoot({
+        NODE_ENV: "production",
+        OBJECT_STORAGE_FS_ROOT: "   ",
+      }),
+    ).toThrow(PRODUCTION_FILESYSTEM_ROOT_MESSAGE);
+    expect(() =>
+      resolveFilesystemRoot({
+        NODE_ENV: "production",
+        OBJECT_STORAGE_FS_ROOT: ".data/object-storage",
+      }),
+    ).toThrow(PRODUCTION_FILESYSTEM_ROOT_MESSAGE);
+  });
+
+  it("rejects production filesystem storage under temp or deploy trees", () => {
+    const cases: Array<{ root: string; cwd?: string }> = [
+      { root: os.tmpdir() },
+      { root: path.join(os.tmpdir(), "schoolapp-object-storage") },
+      { root: "/tmp/schoolapp-object-storage" },
+      { root: "/var/tmp/schoolapp-object-storage" },
+      { root: process.cwd() },
+      { root: path.join(process.cwd(), ".data", "object-storage") },
+      { root: path.join(process.cwd(), ".next") },
+      { root: path.join(process.cwd(), "public") },
+      {
+        root: path.join(process.cwd(), ".data", "object-storage"),
+        cwd: path.join(process.cwd(), "apps", "web"),
+      },
+      { root: path.join(deployCwd, "uploads"), cwd: path.join(deployCwd, "apps", "web") },
+    ];
+    for (const { root, cwd } of cases) {
+      expect(() =>
+        resolveFilesystemRoot({ NODE_ENV: "production", OBJECT_STORAGE_FS_ROOT: root }, { cwd }),
+      ).toThrow(PRODUCTION_FILESYSTEM_ROOT_MESSAGE);
+    }
+  });
+
+  it("does not include the configured path or secrets in the production error", () => {
+    try {
+      resolveFilesystemRoot({
+        NODE_ENV: "production",
+        OBJECT_STORAGE_FS_ROOT: "/tmp/secret-bucket-name",
+        OBJECT_STORAGE_S3_SECRET_KEY: "super-secret",
+      });
+      throw new Error("expected StorageConfigError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(StorageConfigError);
+      expect((error as Error).message).toBe(PRODUCTION_FILESYSTEM_ROOT_MESSAGE);
+      expect((error as Error).message).not.toContain("secret");
+      expect((error as Error).message).not.toContain("/tmp");
+    }
+  });
+
+  it("keeps development and test defaults usable", () => {
+    const fromMissing = resolveFilesystemRoot({ NODE_ENV: "test" }, { tmpdir: os.tmpdir() });
+    expect(fromMissing).toBe(path.join(os.tmpdir(), "schoolapp-object-storage"));
+    const fromRelative = resolveFilesystemRoot(
+      { NODE_ENV: "development", OBJECT_STORAGE_FS_ROOT: ".data/object-storage" },
+      { cwd: process.cwd() },
+    );
+    expect(fromRelative).toBe(path.resolve(process.cwd(), ".data/object-storage"));
+    const storage = createObjectStorageFromEnv({
+      NODE_ENV: "test",
+      OBJECT_STORAGE_DRIVER: "filesystem",
+    });
+    expect(storage).toBeInstanceOf(FilesystemObjectStorage);
+    expect(storage.backend).toBe("filesystem");
+  });
+
+  it("accepts an explicit persistent production filesystem root", () => {
+    const root = resolveFilesystemRoot({
+      NODE_ENV: "production",
+      OBJECT_STORAGE_DRIVER: "filesystem",
+      OBJECT_STORAGE_FS_ROOT: safeRoot,
+    });
+    expect(root).toBe(path.resolve(safeRoot));
+    const storage = createObjectStorageFromEnv({
+      NODE_ENV: "production",
+      OBJECT_STORAGE_DRIVER: "filesystem",
+      OBJECT_STORAGE_FS_ROOT: safeRoot,
+    });
+    expect(storage).toBeInstanceOf(FilesystemObjectStorage);
+    expect((storage as FilesystemObjectStorage).rootDir).toBe(path.resolve(safeRoot));
   });
 });
 

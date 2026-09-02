@@ -1,4 +1,5 @@
-import { FilesystemObjectStorage, defaultFilesystemRoot } from "./filesystem.js";
+import { FilesystemObjectStorage } from "./filesystem.js";
+import { resolveFilesystemRoot } from "./filesystem-root.js";
 import { AwsSdkS3Ops, S3CompatibleObjectStorage, createS3ClientFromConfig, s3ConfigFromEnv } from "./s3.js";
 import { UnconfiguredObjectStorage } from "./unconfigured.js";
 import type { ObjectStoragePort, StorageBackend } from "./types.js";
@@ -22,5 +23,5 @@ export function createObjectStorageFromEnv(
     const client = createS3ClientFromConfig(config);
     return new S3CompatibleObjectStorage(new AwsSdkS3Ops(client), config);
   }
-  return new FilesystemObjectStorage({ rootDir: defaultFilesystemRoot(env) });
+  return new FilesystemObjectStorage({ rootDir: resolveFilesystemRoot(env) });
 }

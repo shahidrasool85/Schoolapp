@@ -108,7 +108,7 @@ These are **different** systems.
 - Backups encrypted, tested restores, tenant-aware backup access.
 - Separate production and development data; never use real pupil data in dev.
 - WAF/rate limit at nginx.
-- Object storage: any configured S3-compatible endpoint (managed or self-hosted). MinIO is not required.
+- Object storage: any configured S3-compatible endpoint (managed or self-hosted). MinIO is not required. Filesystem storage is allowed on Plesk only when `OBJECT_STORAGE_FS_ROOT` is an absolute persistent path **outside** the Git `httpdocs` deploy tree (see [storage.md](../storage.md)).
 
 ## Accessibility and year groups
 

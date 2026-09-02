@@ -1,6 +1,5 @@
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { sha256Hex } from "./checksum.js";
 import { StorageError } from "./errors.js";
@@ -126,6 +125,4 @@ export class FilesystemObjectStorage implements ObjectStoragePort {
   }
 }
 
-export function defaultFilesystemRoot(env: NodeJS.ProcessEnv = process.env): string {
-  return env.OBJECT_STORAGE_FS_ROOT?.trim() || path.join(os.tmpdir(), "schoolapp-object-storage");
-}
+export { defaultFilesystemRoot, resolveFilesystemRoot, StorageConfigError } from "./filesystem-root.js";

@@ -26,6 +26,8 @@ OBJECT_STORAGE_FS_ROOT=.data/object-storage
 FILE_SCANNER_DRIVER=noop
 ```
 
+That relative root is for development only. Production cannot use it.
+
 The demo scanner records `unscanned`. It does not claim files are malware-clean.
 
 Maintenance:
@@ -95,15 +97,23 @@ Downloads use the same authorised proxy as other files (`GET /api/v1/files/:stor
 
 ### Filesystem / Plesk persistence
 
-The filesystem adapter writes under `OBJECT_STORAGE_FS_ROOT`. Demo/local uses `.data/object-storage` inside the checkout. The adapter default without that env var is a temp directory and **will not survive restart**.
+The filesystem adapter writes under `OBJECT_STORAGE_FS_ROOT`.
 
-On Plesk / Linux production using filesystem storage:
+**Development / test:** a relative root such as `.data/object-storage` is fine. If the variable is unset, the adapter uses a local temp directory for convenience. That default is **not** used in production.
 
-- Keep `OBJECT_STORAGE_DRIVER=filesystem` if you are not using S3.
-- Set `OBJECT_STORAGE_FS_ROOT` to a persistent directory **outside** the Git deploy tree (for example a volume that is not replaced by Plesk Git).
-- Profile photos (and all other stored objects) then survive application restart, rebuild, and Git deployment.
+**Production (`NODE_ENV=production`) + `OBJECT_STORAGE_DRIVER=filesystem`:**
 
-This phase does **not** require AWS/S3. If production already uses the S3 adapter, profile photos use that same bucket and private keys.
+- `OBJECT_STORAGE_FS_ROOT` must be set to an **absolute** persistent path.
+- The process refuses to start (clear configuration error, no secrets) if the root is missing, blank, relative, under `/tmp` / `/var/tmp` / the OS temp directory, or inside the application/deploy working directory (including the monorepo root found by walking up from `cwd`).
+- Do not point it at `.next`, `public`, or any directory replaced by Git deployment.
+
+On the current Plesk server, choose a persistent location **outside**:
+
+`/var/www/vhosts/app.luvlearn.co.uk/httpdocs`
+
+Plesk Git deployment replaces that `httpdocs` tree. Application code does not hardcode the production path; set `OBJECT_STORAGE_FS_ROOT` on the host.
+
+This phase does **not** require AWS/S3. If production already uses the S3 adapter, profile photos use that same private bucket.
 
 ## Download authorisation
 

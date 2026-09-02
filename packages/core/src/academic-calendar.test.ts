@@ -3,9 +3,13 @@ import {
   captureSubmitTarget,
   defaultRecurrenceEffectiveFrom,
   effectiveFromBeforeAcademicYear,
+  FEE_SCHEDULE_DELETED_NOTICE,
+  FEE_SCHEDULES_PATH,
   feeScheduleAnnualMatchesInstalments,
   feeScheduleCreateSummary,
+  feeScheduleDeletedRedirect,
   feeScheduleInstalmentPlan,
+  feeScheduleListNoticeFromQuery,
   formatGbpMinor,
   parseGbpPoundsToMinor,
   resetFormSafely,
@@ -187,6 +191,14 @@ describe("fee schedule amounts", () => {
       expect(uneven.amountPerInstalmentMinor).toBe(333);
       expect(uneven.roundingNote).toMatch(/final instalment/i);
     }
+  });
+
+  it("redirects successful schedule deletion to the list with a success notice", () => {
+    expect(feeScheduleDeletedRedirect()).toBe(`${FEE_SCHEDULES_PATH}?notice=deleted`);
+    expect(feeScheduleListNoticeFromQuery("deleted")).toBe(FEE_SCHEDULE_DELETED_NOTICE);
+    expect(FEE_SCHEDULE_DELETED_NOTICE).toBe("Fee schedule deleted successfully.");
+    expect(feeScheduleListNoticeFromQuery("other")).toBeNull();
+    expect(feeScheduleListNoticeFromQuery(null)).toBeNull();
   });
 });
 

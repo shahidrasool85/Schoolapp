@@ -4,8 +4,10 @@ import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   captureSubmitTarget,
+  FEE_SCHEDULES_PATH,
   feeScheduleAnnualMatchesInstalments,
   feeScheduleCreateSummary,
+  feeScheduleListNoticeFromQuery,
   formatGbpMinor,
   parseGbpPoundsToMinor,
   resetFormSafely,
@@ -86,6 +88,11 @@ export default function FeeSchedulesPage() {
   }
 
   useEffect(() => {
+    const notice = feeScheduleListNoticeFromQuery(new URLSearchParams(window.location.search).get("notice"));
+    if (notice) {
+      setMessage(notice);
+      window.history.replaceState({}, "", FEE_SCHEDULES_PATH);
+    }
     reload().catch((err: Error) => setError(userFacingError(err, "Could not load fee schedules.")));
   }, []);
 

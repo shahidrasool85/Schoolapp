@@ -309,6 +309,17 @@ export function overlappingActiveFeeScheduleMessage(input: {
   return "An active fee schedule already exists for this target and period.";
 }
 
+export const FEE_SCHEDULES_PATH = "/school/finance/fee-schedules";
+export const FEE_SCHEDULE_DELETED_NOTICE = "Fee schedule deleted successfully.";
+
+export function feeScheduleDeletedRedirect(): string {
+  return `${FEE_SCHEDULES_PATH}?notice=deleted`;
+}
+
+export function feeScheduleListNoticeFromQuery(notice: string | null | undefined): string | null {
+  return notice === "deleted" ? FEE_SCHEDULE_DELETED_NOTICE : null;
+}
+
 export function feeScheduleAnnualMatchesInstalments(input: {
   amountMinor: number;
   instalmentCount?: number | null;

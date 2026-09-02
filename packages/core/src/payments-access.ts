@@ -32,6 +32,8 @@ export const FINANCE_READ_PERMISSIONS = [
   PERMISSIONS.FINANCE_CHARGES_READ,
   PERMISSIONS.FINANCE_TRANSACTIONS_READ,
   PERMISSIONS.FINANCE_REPORTS_READ,
+  PERMISSIONS.FINANCE_READ,
+  PERMISSIONS.FINANCE_PAYMENTS_READ,
 ] as const;
 
 export const FINANCE_MANAGE_PERMISSIONS = [
@@ -55,6 +57,13 @@ export function canRecordOffline(actor: Actor): boolean {
 
 export function canManageRefunds(actor: Actor): boolean {
   return actor.permissions.has(PERMISSIONS.FINANCE_REFUNDS_MANAGE);
+}
+
+export function canManagePayments(actor: Actor): boolean {
+  return (
+    actor.permissions.has(PERMISSIONS.FINANCE_PAYMENTS_MANAGE) ||
+    actor.permissions.has(PERMISSIONS.FINANCE_PAYMENTS_RECORD_OFFLINE)
+  );
 }
 
 export function canManageAdjustments(actor: Actor): boolean {

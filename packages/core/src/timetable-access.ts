@@ -295,6 +295,17 @@ export async function loadSchoolClosureDates(
   );
   for (const row of explicit.rows) closures.add(row.exception_date);
 
+  const halfTerms = await client.query<{ day: string }>(
+    `select gs::date::text as day
+       from half_terms ht
+       join generate_series(ht.starts_on, ht.ends_on, interval '1 day') gs on true
+      where ht.organisation_id = $1
+        and ht.starts_on <= $3::date
+        and ht.ends_on >= $2::date`,
+    [organisationId, from, to],
+  );
+  for (const row of halfTerms.rows) closures.add(row.day);
+
   const holidays = await client.query<{ day: string }>(
     `select gs::date::text as day
      from school_events se
@@ -302,7 +313,7 @@ export async function loadSchoolClosureDates(
      join generate_series(se.starts_at::date, se.ends_at::date, interval '1 day') gs on true
      where se.organisation_id = $1
        and se.status = 'published'
-       and st.key in ('school_holiday', 'inset_day')
+       and st.key in ('school_holiday', 'inset_day', 'bank_holiday', 'school_closure', 'non_teaching')
        and se.starts_at::date <= $3::date
        and se.ends_at::date >= $2::date`,
     [organisationId, from, to],

@@ -45,6 +45,7 @@ function StudentShellInner({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const [unreadNotifications, setUnreadNotifications] = useState<number | null>(null);
+  const [financeEnabled, setFinanceEnabled] = useState(false);
 
   useEffect(() => {
     if (!getToken()) {
@@ -94,6 +95,8 @@ function StudentShellInner({ children }: { children: ReactNode }) {
         const notifications = await api<{ unreadCount: number }>("/api/v1/notifications").catch(() => null);
         setUserName(me?.user.fullName ?? null);
         setUnreadNotifications(notifications?.unreadCount ?? null);
+        const finance = await api<{ enabled?: boolean }>("/api/v1/student/finance").catch(() => null);
+        setFinanceEnabled(Boolean(finance?.enabled));
       })
       .catch(() => {
         setError("Could not load your school.");
@@ -118,11 +121,16 @@ function StudentShellInner({ children }: { children: ReactNode }) {
       sections={[
         {
           id: "student",
-          items: LINKS.map((link) =>
-            link.href === "/student/notifications"
-              ? { ...link, count: unreadNotifications && unreadNotifications > 0 ? unreadNotifications : null }
-              : link,
-          ),
+          items: [
+            ...LINKS.map((link) =>
+              link.href === "/student/notifications"
+                ? { ...link, count: unreadNotifications && unreadNotifications > 0 ? unreadNotifications : null }
+                : link,
+            ),
+            ...(financeEnabled
+              ? [{ href: "/student/finance", label: "My fees", icon: "card" as const }]
+              : []),
+          ],
         },
       ]}
       unreadNotifications={unreadNotifications}

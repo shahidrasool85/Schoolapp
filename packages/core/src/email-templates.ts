@@ -64,6 +64,19 @@ export function fixturePreviewData(template: EmailTemplateKey): Record<string, s
       statusLabel: "Under review",
     };
   }
+  if (
+    template === "finance_invoice_issued" ||
+    template === "finance_payment_received" ||
+    template === "finance_payment_reminder" ||
+    template === "finance_refund_issued"
+  ) {
+    return {
+      recipientName: "Pat Example",
+      schoolName: "Kingswood School",
+      documentLabel: template === "finance_invoice_issued" ? "invoice" : template === "finance_refund_issued" ? "refund" : "receipt",
+      actionUrl: "https://kingswood.example.test/parent/finance",
+    };
+  }
   return {
     recipientName: "Alex Example",
     schoolName: "Kingswood School",
@@ -182,6 +195,29 @@ export function renderAdmissionsStatusUpdate(input: {
   });
 }
 
+export function renderFinanceNotice(input: {
+  branding: TransactionalBranding;
+  recipientName?: string | null;
+  documentLabel: string;
+  actionUrl: string;
+  heading: string;
+  subject: string;
+  paragraphs: string[];
+}): RenderedEmail {
+  const school = safeEmailText(input.branding.schoolName, 160) || "School";
+  const name = safeEmailText(input.recipientName, 120) || "Parent/Guardian";
+  return renderShell({
+    branding: input.branding,
+    subject: input.subject.replace("{school}", school),
+    heading: input.heading,
+    preheader: input.paragraphs[0] ?? `${school} finance`,
+    greeting: `Hello ${name},`,
+    paragraphs: input.paragraphs,
+    button: { label: "Open parent portal", url: input.actionUrl },
+    signoff: `Regards\n${school}`,
+  });
+}
+
 export function renderEmailTemplate(
   template: EmailTemplateKey,
   data: Record<string, string | null | undefined>,
@@ -211,6 +247,66 @@ export function renderEmailTemplate(
       childName: data.childName || "your child",
       applicationReference: data.applicationReference || "",
       statusLabel: data.statusLabel || "updated",
+    });
+  }
+  if (template === "finance_invoice_issued") {
+    const school = safeEmailText(branding.schoolName, 160) || "School";
+    return renderFinanceNotice({
+      branding,
+      recipientName: data.recipientName,
+      documentLabel: "invoice",
+      actionUrl: data.actionUrl || "#",
+      heading: "Invoice available",
+      subject: `${school} — An invoice is available`,
+      paragraphs: [
+        `An invoice is available in your ${school} portal.`,
+        "Sign in to view the amount due and download a copy. This email does not include sensitive pupil details.",
+      ],
+    });
+  }
+  if (template === "finance_payment_received") {
+    const school = safeEmailText(branding.schoolName, 160) || "School";
+    return renderFinanceNotice({
+      branding,
+      recipientName: data.recipientName,
+      documentLabel: "receipt",
+      actionUrl: data.actionUrl || "#",
+      heading: "Payment received",
+      subject: `${school} — Payment received`,
+      paragraphs: [
+        `A payment has been recorded and a receipt is available in your ${school} portal.`,
+        "Sign in to download the receipt. This email does not include card details or sensitive pupil information.",
+      ],
+    });
+  }
+  if (template === "finance_payment_reminder") {
+    const school = safeEmailText(branding.schoolName, 160) || "School";
+    return renderFinanceNotice({
+      branding,
+      recipientName: data.recipientName,
+      documentLabel: "invoice",
+      actionUrl: data.actionUrl || "#",
+      heading: "Payment reminder",
+      subject: `${school} — Payment reminder`,
+      paragraphs: [
+        `A reminder is available for a school invoice in your ${school} portal.`,
+        "Sign in to review the balance and pay if a payment option is offered.",
+      ],
+    });
+  }
+  if (template === "finance_refund_issued") {
+    const school = safeEmailText(branding.schoolName, 160) || "School";
+    return renderFinanceNotice({
+      branding,
+      recipientName: data.recipientName,
+      documentLabel: "refund",
+      actionUrl: data.actionUrl || "#",
+      heading: "Refund recorded",
+      subject: `${school} — Refund recorded`,
+      paragraphs: [
+        `A refund or credit has been recorded on your ${school} family account.`,
+        "Sign in to the portal to view the updated balance. Historical receipts are unchanged.",
+      ],
     });
   }
   return renderAccountInvitation({

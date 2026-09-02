@@ -9,7 +9,7 @@ import {
   shouldCancelActivityCharge,
   shouldGenerateActivityCharge,
 } from "./payments.js";
-import { FakePaymentProvider, verifyStripeSignature, mapStripeEvent } from "./payment-provider.js";
+import { FakePaymentProvider, StripePaymentProvider, verifyStripeSignature, mapStripeEvent } from "./payment-provider.js";
 
 describe("charge status and activity policy", () => {
   it("derives issued, partial, paid, waived and refunded", () => {
@@ -114,5 +114,59 @@ describe("stripe webhook helper", () => {
         data: { object: { id: "cs_1", payment_status: "paid" } },
       }).outcome,
     ).toBe("succeeded");
+    expect(
+      mapStripeEvent({
+        id: "evt_fail",
+        type: "checkout.session.expired",
+        data: { object: { id: "cs_1" } },
+      }).outcome,
+    ).toBe("failed");
+    expect(
+      mapStripeEvent({
+        id: "evt_refund",
+        type: "charge.refunded",
+        data: { object: { id: "re_1", status: "succeeded", amount: 500 } },
+      }).outcome,
+    ).toBe("refunded");
+  });
+
+  it("attaches organisation, invoice and family metadata to Stripe Checkout Sessions", async () => {
+    let posted = "";
+    const provider = new StripePaymentProvider({
+      providerKey: "stripe",
+      fakeWebhookSecret: "unused",
+      stripeSecretKey: "sk_test_placeholder",
+      stripeWebhookSecret: "whsec_test",
+      fetchImpl: (async (_url, init) => {
+        posted = String(init?.body ?? "");
+        return {
+          ok: true,
+          json: async () => ({ id: "cs_test_1", url: "https://checkout.stripe.test/cs_test_1" }),
+        } as Response;
+      }) as typeof fetch,
+    });
+    const created = await provider.createSession({
+      organisationId: "org-1",
+      chargeId: "",
+      invoiceId: "inv-1",
+      billingAccountId: "fam-1",
+      studentProfileId: "pupil-1",
+      chargeCategory: "tuition",
+      sessionId: "sess-1",
+      transactionId: "tx-1",
+      reference: "PAY-2026-000001",
+      amountMinor: 200000,
+      currency: "GBP",
+      title: "Invoice KSW-INV-2026-000123",
+      successUrl: "https://school.test/success",
+      cancelUrl: "https://school.test/cancel",
+    });
+    expect(created.checkoutUrl).toContain("checkout.stripe.test");
+    expect(posted).toContain("metadata%5Bschoolapp_organisation_id%5D=org-1");
+    expect(posted).toContain("metadata%5Bschoolapp_invoice_id%5D=inv-1");
+    expect(posted).toContain("metadata%5Bschoolapp_billing_account_id%5D=fam-1");
+    expect(posted).toContain("metadata%5Bschoolapp_pupil_id%5D=pupil-1");
+    expect(posted).toContain("metadata%5Bschoolapp_charge_category%5D=tuition");
+    expect(posted).not.toContain("schoolapp_charge_id");
   });
 });

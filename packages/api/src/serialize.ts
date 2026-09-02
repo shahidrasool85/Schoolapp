@@ -289,6 +289,44 @@ export function mapTerm(row: Record<string, unknown>) {
   };
 }
 
+export function mapHalfTerm(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    termId: row.term_id,
+    termName: row.term_name ?? null,
+    name: row.name,
+    startsOn: row.starts_on,
+    endsOn: row.ends_on,
+    sortOrder: row.sort_order,
+    kind: "half_term" as const,
+  };
+}
+
+export function mapAcademicClosure(row: Record<string, unknown>) {
+  const startsOn = String(row.starts_on ?? "").slice(0, 10);
+  const endsOn = String(row.ends_on ?? startsOn).slice(0, 10);
+  const typeKey = String(row.event_type_key ?? "non_teaching");
+  const kind =
+    typeKey === "inset_day"
+      ? "inset_day"
+      : typeKey === "bank_holiday"
+        ? "bank_holiday"
+        : typeKey === "school_closure"
+          ? "school_closure"
+          : typeKey === "school_holiday"
+            ? "school_closure"
+            : "other";
+  return {
+    id: row.id,
+    kind,
+    eventTypeKey: typeKey,
+    title: row.title,
+    description: row.description ?? null,
+    startsOn,
+    endsOn,
+  };
+}
+
 export function mapStaff(row: Record<string, unknown>) {
   const membershipStatus = (row.membership_status as string | null) ?? null;
   const hasCredentials = Boolean(row.has_credentials);

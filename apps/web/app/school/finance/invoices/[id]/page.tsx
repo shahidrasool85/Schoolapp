@@ -12,7 +12,7 @@ import {
   SectionCard,
   StatusBadge,
 } from "../../../../../components/ui";
-import { api } from "../../../../../lib/api";
+import { api, downloadAuthenticated } from "../../../../../lib/api";
 import { userFacingError } from "../../../../../lib/errors";
 import { formatMinor, poundsToMinor } from "../../../../../lib/money";
 import { FinanceNav } from "../../finance-nav";
@@ -129,11 +129,24 @@ export default function InvoiceDetailPage() {
           { label: invoice.reference },
         ]}
         actions={
-          invoice.status !== "void" && invoice.paidMinor === 0 ? (
-            <button type="button" className="secondary" onClick={() => setVoidOpen(true)}>
-              Void invoice
+          <>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() =>
+                downloadAuthenticated(`/api/v1/finance/invoices/${invoice.id}/pdf`, `${invoice.reference}.pdf`).catch(
+                  (err: Error) => setError(userFacingError(err, "Could not download this invoice.")),
+                )
+              }
+            >
+              Download invoice
             </button>
-          ) : null
+            {invoice.status !== "void" && invoice.paidMinor === 0 ? (
+              <button type="button" className="secondary" onClick={() => setVoidOpen(true)}>
+                Void invoice
+              </button>
+            ) : null}
+          </>
         }
       />
       <FinanceNav />

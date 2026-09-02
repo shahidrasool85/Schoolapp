@@ -1,4 +1,4 @@
-import { PERMISSIONS } from "@schoolapp/domain";
+import { PERMISSIONS, STATEMENT_PERIOD_PRESETS } from "@schoolapp/domain";
 import {
   activateDueAnnouncements,
   activateDueEvents,
@@ -32,7 +32,16 @@ import {
   loadParentFinance,
   loadParentInvoice,
   loadParentStatement,
+  createInvoiceCheckoutSession,
+  parentAuthorisedAccountIds,
+  renderInvoicePdfBytes,
+  renderReceiptPdfBytes,
+  renderFamilyStatementZip,
+  listFinanceReceipts,
+  loadFamilyStatementDocument,
   loadPupilYearGroupId,
+  renderFinancePdf,
+  financePdfFilename,
 } from "@schoolapp/core";
 import { listPupilTimetable } from "./timetable";
 import { mapTimetableOccurrence } from "../serialize";
@@ -527,8 +536,119 @@ export function registerParentRoutes(app: SchoolappApi) {
     }),
   );
 
+  app.get("/parent/finance/invoices/:invoiceId/pdf", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      await loadParentInvoice(client, orgId, actor, uuidRouteParam(c, "invoiceId"));
+      const pdf = await renderInvoicePdfBytes(client, orgId, uuidRouteParam(c, "invoiceId"));
+      return new Response(Buffer.from(pdf.bytes), {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="${pdf.filename}"`,
+          "Cache-Control": "no-store",
+        },
+      });
+    }),
+  );
+
+  app.post("/parent/finance/invoices/:invoiceId/checkout", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      const invoiceId = uuidRouteParam(c, "invoiceId");
+      const parsed = z
+        .object({
+          amountMinor: z.number().int().positive().optional(),
+          idempotencyKey: z.string().min(8).max(120).optional(),
+        })
+        .safeParse((await c.req.json().catch(() => ({}))) ?? {});
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid checkout");
+      const origin = publicOriginFromRequest(c);
+      const result = await createInvoiceCheckoutSession(client, {
+        organisationId: orgId,
+        actor,
+        invoiceId,
+        provider: paymentProviderOf(c),
+        amountMinor: parsed.data.amountMinor,
+        idempotencyKey: parsed.data.idempotencyKey,
+        successUrl: `${origin}/parent/finance/checkout/success?invoiceId=${invoiceId}`,
+        cancelUrl: `${origin}/parent/finance/checkout/cancel?invoiceId=${invoiceId}`,
+      });
+      return c.json({ checkoutUrl: result.checkoutUrl, sessionId: result.session.id });
+    }),
+  );
+
+  app.get("/parent/finance/receipts", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      const accountIds = await parentAuthorisedAccountIds(client, orgId, actor);
+      const receipts = [];
+      for (const accountId of accountIds) {
+        receipts.push(...(await listFinanceReceipts(client, orgId, { billingAccountId: accountId })));
+      }
+      return c.json({ receipts });
+    }),
+  );
+
+  app.get("/parent/finance/receipts/:receiptId/pdf", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      const accountIds = await parentAuthorisedAccountIds(client, orgId, actor);
+      const receiptId = uuidRouteParam(c, "receiptId");
+      const allowed = await client.query(
+        `select r.id
+           from school_payment_receipts r
+           join school_invoices i on i.id = r.invoice_id
+          where r.id = $1 and r.organisation_id = $2 and i.billing_account_id = any($3::uuid[])`,
+        [receiptId, orgId, accountIds],
+      );
+      if (!allowed.rows[0]) throw new AppError(404, "not_found", "Not found");
+      const pdf = await renderReceiptPdfBytes(client, orgId, receiptId);
+      return new Response(Buffer.from(pdf.bytes), {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="${pdf.filename}"`,
+          "Cache-Control": "no-store",
+        },
+      });
+    }),
+  );
+
   app.get("/parent/finance/statement", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
+      const accountIds = await parentAuthorisedAccountIds(client, orgId, actor);
+      const preset = (c.req.query("preset") ?? "custom") as (typeof STATEMENT_PERIOD_PRESETS)[number];
+      if (preset !== "custom" && STATEMENT_PERIOD_PRESETS.includes(preset)) {
+        const loaded = await loadFamilyStatementDocument(client, orgId, {
+          accountIds,
+          preset,
+          today: new Date().toISOString().slice(0, 10),
+          customFrom: c.req.query("from") ?? null,
+          customTo: c.req.query("to") ?? null,
+        });
+        if (c.req.query("format") === "zip") {
+          const zip = await renderFamilyStatementZip(client, orgId, {
+            accountIds,
+            preset,
+            today: new Date().toISOString().slice(0, 10),
+            customFrom: c.req.query("from") ?? null,
+            customTo: c.req.query("to") ?? null,
+          });
+          return new Response(Buffer.from(zip.bytes), {
+            headers: {
+              "Content-Type": "application/zip",
+              "Content-Disposition": `attachment; filename="${zip.filename}"`,
+              "Cache-Control": "no-store",
+            },
+          });
+        }
+        if (c.req.query("format") === "pdf") {
+          const bytes = renderFinancePdf(loaded.document);
+          return new Response(Buffer.from(bytes), {
+            headers: {
+              "Content-Type": "application/pdf",
+              "Content-Disposition": `attachment; filename="${financePdfFilename(loaded.document)}"`,
+              "Cache-Control": "no-store",
+            },
+          });
+        }
+        return c.json(loaded);
+      }
       const from = c.req.query("from") ?? `${new Date().getUTCFullYear()}-01-01`;
       const to = c.req.query("to") ?? new Date().toISOString().slice(0, 10);
       return c.json(await loadParentStatement(client, orgId, actor, from, to));

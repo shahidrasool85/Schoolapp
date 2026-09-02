@@ -11,12 +11,14 @@ type Settings = {
   defaultBillingFrequency: string;
   currency: string;
   invoicePrefix: string;
+  receiptPrefix: string;
   paymentDueDays: number;
   gracePeriodDays: number;
   paymentInstructions: string | null;
   invoiceFooter: string | null;
   parentsCanViewInvoices: boolean;
   parentsCanViewBalances: boolean;
+  studentsCanViewFinance: boolean;
   discountStackingMode: string;
   siblingOrderMode: string;
   midPeriodJoinPolicy: string;
@@ -92,6 +94,22 @@ export default function FinanceSettingsPage() {
               max={12}
               value={settings.monthlyInstalmentCount}
               onChange={(event) => setSettings({ ...settings, monthlyInstalmentCount: Number(event.target.value) })}
+            />
+          </label>
+          <label>
+            Invoice prefix
+            <input
+              value={settings.invoicePrefix}
+              maxLength={12}
+              onChange={(event) => setSettings({ ...settings, invoicePrefix: event.target.value })}
+            />
+          </label>
+          <label>
+            Receipt prefix
+            <input
+              value={settings.receiptPrefix ?? "RCT"}
+              maxLength={12}
+              onChange={(event) => setSettings({ ...settings, receiptPrefix: event.target.value })}
             />
           </label>
           <label>
@@ -176,6 +194,14 @@ export default function FinanceSettingsPage() {
               onChange={(event) => setSettings({ ...settings, parentsCanViewBalances: event.target.checked })}
             />{" "}
             Parents can view account balances
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={Boolean(settings.studentsCanViewFinance)}
+              onChange={(event) => setSettings({ ...settings, studentsCanViewFinance: event.target.checked })}
+            />{" "}
+            Students can view their own fee invoices (off by default; family payment detail stays in the parent portal)
           </label>
           <button type="submit">Save settings</button>
         </form>

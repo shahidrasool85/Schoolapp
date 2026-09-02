@@ -3,6 +3,7 @@ import {
   PERMISSIONS,
   STAFF_ROLE_KEYS,
   feeScheduleAnnualMatchesInstalments,
+  statementPeriodRange,
   type Actor,
   type SchoolBillingFrequency,
   type SchoolDiscountStackingMode,
@@ -10,12 +11,28 @@ import {
   type SchoolInvoiceStatus,
   type SchoolMidPeriodPolicy,
   type SchoolSiblingOrderMode,
+  type StatementPeriodPreset,
 } from "@schoolapp/domain";
 import { writeAudit } from "./academic.js";
 import { AppError } from "./errors.js";
 import { assertPermission, notFound } from "./permissions.js";
 import { nextFinanceReference } from "./payments-access.js";
 import { guardianChildIds } from "./students-access.js";
+import {
+  financeInvoiceIssuedMail,
+  financePaymentReceivedMail,
+  financeRefundIssuedMail,
+} from "./mail.js";
+import { enqueueOutboxMail } from "./finance-mail-queue.js";
+import {
+  financePdfFilename,
+  renderFinancePdf,
+  zipStoreFiles,
+  type FinanceInvoiceDocument,
+  type FinanceReceiptDocument,
+  type FinanceStatementDocument,
+} from "./finance-documents.js";
+import { formatMoney } from "./money.js";
 import {
   applyDiscounts,
   applyMidPeriodPolicy,
@@ -48,6 +65,7 @@ export const TUITION_READ_PERMISSIONS = [
   PERMISSIONS.FINANCE_ACCOUNTS_READ,
   PERMISSIONS.FINANCE_REPORTS_READ,
   PERMISSIONS.FINANCE_CHARGES_READ,
+  PERMISSIONS.FINANCE_READ,
 ] as const;
 
 export function canReadTuition(actor: Actor): boolean {
@@ -55,7 +73,7 @@ export function canReadTuition(actor: Actor): boolean {
 }
 
 export function canManageFeeSchedules(actor: Actor): boolean {
-  return actor.permissions.has(PERMISSIONS.FINANCE_FEE_SCHEDULES_MANAGE);
+  return actor.permissions.has(PERMISSIONS.FINANCE_FEE_SCHEDULES_MANAGE) || actor.permissions.has(PERMISSIONS.FINANCE_MANAGE);
 }
 
 export function canManageDiscounts(actor: Actor): boolean {
@@ -63,15 +81,15 @@ export function canManageDiscounts(actor: Actor): boolean {
 }
 
 export function canManageBillingRuns(actor: Actor): boolean {
-  return actor.permissions.has(PERMISSIONS.FINANCE_BILLING_RUNS_MANAGE);
+  return actor.permissions.has(PERMISSIONS.FINANCE_BILLING_RUNS_MANAGE) || actor.permissions.has(PERMISSIONS.FINANCE_MANAGE);
 }
 
 export function canManageInvoices(actor: Actor): boolean {
-  return actor.permissions.has(PERMISSIONS.FINANCE_INVOICES_MANAGE);
+  return actor.permissions.has(PERMISSIONS.FINANCE_INVOICES_MANAGE) || actor.permissions.has(PERMISSIONS.FINANCE_MANAGE);
 }
 
 export function canManageFinanceSettings(actor: Actor): boolean {
-  return actor.permissions.has(PERMISSIONS.FINANCE_SETTINGS_MANAGE);
+  return actor.permissions.has(PERMISSIONS.FINANCE_SETTINGS_MANAGE) || actor.permissions.has(PERMISSIONS.FINANCE_MANAGE);
 }
 
 export function assertTuitionRead(actor: Actor): void {
@@ -98,6 +116,8 @@ export type FinanceSettings = {
   midPeriodJoinPolicy: SchoolMidPeriodPolicy;
   midPeriodLeavePolicy: SchoolMidPeriodPolicy;
   monthlyInstalmentCount: number;
+  receiptPrefix: string;
+  studentsCanViewFinance: boolean;
 };
 
 function mapSettings(row: Record<string, unknown>): FinanceSettings {
@@ -119,6 +139,8 @@ function mapSettings(row: Record<string, unknown>): FinanceSettings {
     midPeriodJoinPolicy: String(row.mid_period_join_policy) as SchoolMidPeriodPolicy,
     midPeriodLeavePolicy: String(row.mid_period_leave_policy) as SchoolMidPeriodPolicy,
     monthlyInstalmentCount: Number(row.monthly_instalment_count),
+    receiptPrefix: String(row.receipt_prefix ?? "RCT"),
+    studentsCanViewFinance: Boolean(row.students_can_view_finance),
   };
 }
 
@@ -153,6 +175,8 @@ export async function updateFinanceSettings(
       midPeriodJoinPolicy: string;
       midPeriodLeavePolicy: string;
       monthlyInstalmentCount: number;
+      receiptPrefix: string;
+      studentsCanViewFinance: boolean;
     }>;
   },
 ): Promise<FinanceSettings> {
@@ -177,6 +201,8 @@ export async function updateFinanceSettings(
         midPeriodJoinPolicy: input.patch.midPeriodJoinPolicy,
         midPeriodLeavePolicy: input.patch.midPeriodLeavePolicy,
         monthlyInstalmentCount: input.patch.monthlyInstalmentCount,
+        receiptPrefix: input.patch.receiptPrefix,
+        studentsCanViewFinance: input.patch.studentsCanViewFinance,
       }).filter(([, value]) => value !== undefined),
     ),
   } as FinanceSettings;
@@ -210,6 +236,8 @@ export async function updateFinanceSettings(
             mid_period_join_policy = $15,
             mid_period_leave_policy = $16,
             monthly_instalment_count = $17,
+            receipt_prefix = $19,
+            students_can_view_finance = $20,
             updated_by = $18
       where organisation_id = $1`,
     [
@@ -231,6 +259,8 @@ export async function updateFinanceSettings(
       next.midPeriodLeavePolicy,
       next.monthlyInstalmentCount,
       input.actorUserId,
+      next.receiptPrefix,
+      next.studentsCanViewFinance,
     ],
   );
   await writeAudit(client, {
@@ -281,6 +311,7 @@ function mapFeeSchedule(row: Record<string, unknown>) {
     effectiveUntil: row.effective_until ?? null,
     isActive: row.is_active,
     description: row.description ?? null,
+    createdAt: row.created_at ?? null,
   };
 }
 
@@ -429,6 +460,132 @@ export async function updateFeeSchedule(
     after: { name: updated.rows[0]!.name, amountMinor: Number(updated.rows[0]!.amount_minor) },
   });
   return mapFeeSchedule(updated.rows[0] as Record<string, unknown>);
+}
+
+export async function loadFeeSchedule(client: Client, organisationId: string, scheduleId: string) {
+  const rows = await client.query(
+    `select s.*, y.name as academic_year_name, g.name as year_group_name, g.code as year_group_code,
+            c.name as class_name
+       from school_fee_schedules s
+       join academic_years y on y.id = s.academic_year_id
+       left join year_groups g on g.id = s.year_group_id
+       left join classes c on c.id = s.class_id
+      where s.id = $1 and s.organisation_id = $2`,
+    [scheduleId, organisationId],
+  );
+  if (!rows.rows[0]) notFound();
+  const lifecycle = await loadFeeScheduleLifecycle(client, organisationId, scheduleId);
+  return { schedule: mapFeeSchedule(rows.rows[0] as Record<string, unknown>), lifecycle };
+}
+
+export async function loadFeeScheduleLifecycle(client: Client, organisationId: string, scheduleId: string) {
+  const invoices = await client.query<{ n: string }>(
+    `select count(*)::text as n
+       from school_invoice_lines
+      where organisation_id = $1 and fee_schedule_id = $2`,
+    [organisationId, scheduleId],
+  );
+  const runItems = await client.query<{ n: string }>(
+    `select count(*)::text as n
+       from school_billing_run_items
+      where organisation_id = $1 and fee_schedule_id = $2`,
+    [organisationId, scheduleId],
+  );
+  const profiles = await client.query<{ n: string }>(
+    `select count(*)::text as n
+       from school_pupil_fee_profiles
+      where organisation_id = $1 and fee_schedule_id = $2`,
+    [organisationId, scheduleId],
+  );
+  const invoiceCount = Number(invoices.rows[0]?.n ?? 0);
+  const runCount = Number(runItems.rows[0]?.n ?? 0);
+  const profileCount = Number(profiles.rows[0]?.n ?? 0);
+  const used = invoiceCount > 0 || runCount > 0;
+  return {
+    canDelete: !used && profileCount === 0,
+    canArchive: true,
+    canEnd: true,
+    hasInvoices: invoiceCount > 0,
+    billingRunItemCount: runCount,
+    pupilProfileCount: profileCount,
+    message: used
+      ? "This fee schedule has generated invoices or billing run items. Archive or end it instead of deleting."
+      : profileCount > 0
+        ? "This fee schedule is assigned to pupil fee profiles. Remove those assignments before deleting."
+        : "This fee schedule has never generated financial transactions and can be deleted.",
+  };
+}
+
+export async function deleteFeeSchedule(
+  client: Client,
+  input: { organisationId: string; actorUserId: string; scheduleId: string },
+) {
+  const lifecycle = await loadFeeScheduleLifecycle(client, input.organisationId, input.scheduleId);
+  if (!lifecycle.canDelete) {
+    throw new AppError(409, "cannot_delete", lifecycle.message);
+  }
+  const existing = await client.query(`select * from school_fee_schedules where id = $1 and organisation_id = $2`, [
+    input.scheduleId,
+    input.organisationId,
+  ]);
+  if (!existing.rows[0]) notFound();
+  await client.query(`delete from school_fee_schedules where id = $1 and organisation_id = $2`, [
+    input.scheduleId,
+    input.organisationId,
+  ]);
+  await writeAudit(client, {
+    organisationId: input.organisationId,
+    actorUserId: input.actorUserId,
+    action: "finance.fee_schedule.deleted",
+    entityType: "school_fee_schedule",
+    entityId: input.scheduleId,
+    before: { name: existing.rows[0].name },
+  });
+  return { ok: true };
+}
+
+export async function endFeeSchedule(
+  client: Client,
+  input: { organisationId: string; actorUserId: string; scheduleId: string; effectiveUntil: string },
+) {
+  return updateFeeSchedule(client, {
+    organisationId: input.organisationId,
+    actorUserId: input.actorUserId,
+    scheduleId: input.scheduleId,
+    effectiveUntil: input.effectiveUntil,
+    isActive: false,
+  });
+}
+
+export async function generateFeeScheduleCharges(
+  client: Client,
+  input: {
+    organisationId: string;
+    actorUserId: string;
+    scheduleId: string;
+    periodStart: string;
+    periodEnd: string;
+    dueOn?: string | null;
+    instalmentNumber?: number | null;
+  },
+) {
+  const loaded = await loadFeeSchedule(client, input.organisationId, input.scheduleId);
+  const preview = await previewBillingRun(client, {
+    organisationId: input.organisationId,
+    actorUserId: input.actorUserId,
+    academicYearId: String(loaded.schedule.academicYearId),
+    frequency: String(loaded.schedule.billingFrequency),
+    periodStart: input.periodStart,
+    periodEnd: input.periodEnd,
+    dueOn: input.dueOn,
+    instalmentNumber: input.instalmentNumber,
+    feeScheduleId: input.scheduleId,
+  });
+  return confirmBillingRun(client, {
+    organisationId: input.organisationId,
+    actorUserId: input.actorUserId,
+    billingRunId: String(preview.run.id),
+  });
 }
 
 export async function listDiscountRules(client: Client, organisationId: string) {
@@ -985,7 +1142,11 @@ async function resolveFeeSchedule(
   pupil: EligiblePupil,
   academicYearId: string,
   asOf: string,
+  requiredScheduleId?: string,
 ) {
+  if (requiredScheduleId && pupil.feeScheduleId && pupil.feeScheduleId !== requiredScheduleId) {
+    return null;
+  }
   if (pupil.feeScheduleId) {
     const assigned = await client.query(
       `select * from school_fee_schedules
@@ -994,7 +1155,10 @@ async function resolveFeeSchedule(
           and (effective_until is null or effective_until >= $3::date)`,
       [pupil.feeScheduleId, organisationId, asOf],
     );
-    if (assigned.rows[0]) return assigned.rows[0] as Record<string, unknown>;
+    if (assigned.rows[0]) {
+      if (requiredScheduleId && String(assigned.rows[0].id) !== requiredScheduleId) return null;
+      return assigned.rows[0] as Record<string, unknown>;
+    }
   }
   const rows = await client.query(
     `select * from school_fee_schedules
@@ -1003,6 +1167,7 @@ async function resolveFeeSchedule(
         and is_active
         and effective_from <= $3::date
         and (effective_until is null or effective_until >= $3::date)
+        and ($6::uuid is null or id = $6)
         and (
           class_id = $4
           or (class_id is null and year_group_id = $5)
@@ -1014,7 +1179,7 @@ async function resolveFeeSchedule(
              else 2 end,
         name
       limit 1`,
-    [organisationId, academicYearId, asOf, pupil.classId, pupil.yearGroupId],
+    [organisationId, academicYearId, asOf, pupil.classId, pupil.yearGroupId, requiredScheduleId ?? null],
   );
   return (rows.rows[0] as Record<string, unknown> | undefined) ?? null;
 }
@@ -1211,6 +1376,7 @@ export async function quotePupilTuition(
     frequency: SchoolBillingFrequency;
     instalmentNumber?: number | null;
     studentProfileId?: string;
+    feeScheduleId?: string;
   },
 ): Promise<PupilFeeQuote[]> {
   const settings = await loadFinanceSettings(client, input.organisationId);
@@ -1228,8 +1394,10 @@ export async function quotePupilTuition(
       pupil,
       input.academicYearId,
       input.periodStart,
+      input.feeScheduleId,
     );
     if (!schedule) {
+      if (input.feeScheduleId) continue;
       quotes.push({
         studentProfileId: pupil.studentProfileId,
         legalName: pupil.legalName,
@@ -1247,6 +1415,40 @@ export async function quotePupilTuition(
         warning: "no_fee_schedule",
         error: null,
         calculation: { reason: "No active fee schedule matches this pupil" },
+      });
+      continue;
+    }
+    const already = await client.query(
+      `select 1
+         from school_invoice_lines l
+         join school_invoices i on i.id = l.invoice_id
+        where l.organisation_id = $1
+          and l.fee_schedule_id = $2
+          and l.student_profile_id = $3
+          and i.status <> 'void'
+          and i.billing_period_start = $4::date
+          and i.billing_period_end = $5::date
+        limit 1`,
+      [input.organisationId, schedule.id, pupil.studentProfileId, input.periodStart, input.periodEnd],
+    );
+    if (already.rows[0]) {
+      quotes.push({
+        studentProfileId: pupil.studentProfileId,
+        legalName: pupil.legalName,
+        yearGroupName: pupil.yearGroupName,
+        feeScheduleId: String(schedule.id),
+        feeScheduleName: String(schedule.name),
+        billingFrequency: String(schedule.billing_frequency),
+        siblingPosition: null,
+        standardAmountMinor: 0,
+        appliedDiscounts: [],
+        discardedDiscounts: [],
+        discountTotalMinor: 0,
+        netAmountMinor: 0,
+        currency: String(schedule.currency),
+        warning: "already_invoiced",
+        error: "already_invoiced",
+        calculation: { reason: "A charge already exists for this pupil, schedule and period" },
       });
       continue;
     }
@@ -1341,6 +1543,7 @@ export async function previewBillingRun(
     periodEnd: string;
     dueOn?: string | null;
     instalmentNumber?: number | null;
+    feeScheduleId?: string;
   },
 ) {
   const settings = await loadFinanceSettings(client, input.organisationId);
@@ -1350,7 +1553,9 @@ export async function previewBillingRun(
   if (!isSchoolBillingFrequency(input.frequency)) {
     throw new AppError(400, "validation_failed", "Invalid billing frequency");
   }
-  const periodKey = billingPeriodKey(input.frequency, input.periodStart, input.periodEnd);
+  const periodKey = input.feeScheduleId
+    ? `${billingPeriodKey(input.frequency, input.periodStart, input.periodEnd)}:s:${input.feeScheduleId}`
+    : billingPeriodKey(input.frequency, input.periodStart, input.periodEnd);
   const existing = await client.query(`select * from school_billing_runs where organisation_id = $1 and period_key = $2`, [
     input.organisationId,
     periodKey,
@@ -1365,6 +1570,7 @@ export async function previewBillingRun(
     periodEnd: input.periodEnd,
     frequency: input.frequency,
     instalmentNumber: input.instalmentNumber ?? null,
+    feeScheduleId: input.feeScheduleId,
   });
   const dueOn =
     input.dueOn ??
@@ -1644,6 +1850,8 @@ export async function confirmBillingRun(
       entityId: invoiceId,
       after: { reference, totalMinor: total, periodKey: run.rows[0].period_key },
     });
+    await persistInvoiceDisplaySnapshot(client, input.organisationId, invoiceId);
+    await queueInvoiceIssuedMail(client, input.organisationId, invoiceId);
   }
   await client.query(
     `update school_billing_runs
@@ -1987,6 +2195,17 @@ export async function recordInvoicePayment(
     entityId: String(inserted.rows[0]!.id),
     after: { reference, amountMinor: input.amountMinor, method: input.method, invoiceId: input.invoiceId },
   });
+  await createInvoiceReceipt(client, {
+    organisationId: input.organisationId,
+    invoiceId: input.invoiceId,
+    invoicePaymentId: String(inserted.rows[0]!.id),
+    amountMinor: input.amountMinor,
+    method: input.method,
+    receivedOn: input.receivedOn ?? new Date().toISOString().slice(0, 10),
+    providerReference: input.externalReference ?? null,
+    payerUserId: input.actorUserId,
+  });
+  await queuePaymentReceivedMail(client, input.organisationId, String(inserted.rows[0]!.id), input.invoiceId);
   return mapInvoicePayment(inserted.rows[0] as Record<string, unknown>);
 }
 
@@ -2048,16 +2267,13 @@ export async function createInvoiceCredit(
     if (["void", "draft"].includes(String(invoice.status))) {
       throw new AppError(409, "invalid_status_transition", "This invoice cannot accept credits");
     }
-    const outstanding = invoiceOutstandingMinor(
-      Number(invoice.total_minor),
-      Number(invoice.paid_minor),
-      Number(invoice.credit_total_minor ?? 0),
-    );
-    if (input.amountMinor > outstanding) {
+    const remainingAgainstInvoice =
+      Number(invoice.total_minor) - Number(invoice.credit_total_minor ?? 0);
+    if (input.amountMinor > remainingAgainstInvoice) {
       throw new AppError(
         409,
         "credit_exceeds_outstanding",
-        "A credit cannot exceed the amount still outstanding on this invoice",
+        "A credit cannot exceed the remaining invoice total",
       );
     }
   }
@@ -2098,6 +2314,7 @@ export async function createInvoiceCredit(
     entityId: String(created.rows[0]!.id),
     after: { reference, kind: input.kind, amountMinor: input.amountMinor, invoiceId: input.invoiceId ?? null },
   });
+  await queueRefundIssuedMail(client, input.organisationId, String(created.rows[0]!.id), input.billingAccountId);
   return mapCredit(created.rows[0] as Record<string, unknown>);
 }
 
@@ -2572,4 +2789,693 @@ export async function applyOptionalPupilImportFinance(
     siblingPriority: siblingPriority && Number.isInteger(siblingPriority) ? siblingPriority : null,
     notes: payload.concession_note || null,
   });
+}
+
+async function loadSchoolFinanceProfile(client: Client, organisationId: string) {
+  const row = await client.query<{
+    name: string;
+    address_line_1: string | null;
+    address_line_2: string | null;
+    city: string | null;
+    postcode: string | null;
+    contact_email: string | null;
+    contact_telephone: string | null;
+  }>(
+    `select o.name, s.address_line_1, s.address_line_2, s.city, s.postcode, s.contact_email, s.contact_telephone
+       from organisations o
+       left join organisation_settings s on s.organisation_id = o.id
+      where o.id = $1`,
+    [organisationId],
+  );
+  const school = row.rows[0];
+  const address = [school?.address_line_1, school?.address_line_2, school?.city, school?.postcode]
+    .filter(Boolean)
+    .join(", ");
+  const contact = [school?.contact_telephone, school?.contact_email].filter(Boolean).join(" · ");
+  return {
+    schoolName: school?.name ?? "School",
+    schoolAddress: address || null,
+    schoolContact: contact || null,
+  };
+}
+
+async function payerContact(client: Client, organisationId: string, billingAccountId: string) {
+  const row = await client.query<{ email: string | null; full_name: string | null }>(
+    `select u.email, u.full_name
+       from school_billing_accounts a
+       left join users u on u.id = a.primary_payer_user_id
+      where a.id = $1 and a.organisation_id = $2`,
+    [billingAccountId, organisationId],
+  );
+  return row.rows[0] ?? { email: null, full_name: null };
+}
+
+export async function persistInvoiceDisplaySnapshot(client: Client, organisationId: string, invoiceId: string) {
+  const existing = await client.query<{ display_snapshot: Record<string, unknown> }>(
+    `select display_snapshot from school_invoices where id = $1 and organisation_id = $2`,
+    [invoiceId, organisationId],
+  );
+  const current = existing.rows[0]?.display_snapshot;
+  if (current && Object.keys(current).length > 0) return;
+  const doc = await buildInvoiceDocument(client, organisationId, invoiceId);
+  await client.query(
+    `update school_invoices set display_snapshot = $3::jsonb where id = $1 and organisation_id = $2`,
+    [invoiceId, organisationId, JSON.stringify(doc)],
+  );
+}
+
+async function buildInvoiceDocument(
+  client: Client,
+  organisationId: string,
+  invoiceId: string,
+): Promise<FinanceInvoiceDocument> {
+  const school = await loadSchoolFinanceProfile(client, organisationId);
+  const loaded = await loadInvoice(client, organisationId, invoiceId);
+  const invoice = loaded.invoice;
+  const pupilNames = [
+    ...new Set(loaded.lines.map((line) => line.studentLegalName).filter((name): name is string => Boolean(name))),
+  ];
+  const classOrYear = loaded.lines
+    .map((line) => {
+      const calc = (line.calculation ?? {}) as Record<string, unknown>;
+      return String(calc.yearGroupName ?? "") || null;
+    })
+    .find(Boolean);
+  return {
+    kind: "invoice",
+    schoolName: school.schoolName,
+    schoolAddress: school.schoolAddress,
+    schoolContact: school.schoolContact,
+    invoiceNumber: String(invoice.reference),
+    invoiceDate: String(invoice.invoiceDate),
+    dueDate: String(invoice.dueDate),
+    familyName: String(invoice.billingAccountName ?? "Family"),
+    pupilNames,
+    classOrYear: classOrYear ?? null,
+    description: loaded.lines[0]?.description ?? "School fees",
+    billingPeriod: `${invoice.billingPeriodStart} – ${invoice.billingPeriodEnd}`,
+    currency: String(invoice.currency),
+    amountMinor: Number(invoice.totalMinor),
+    paidMinor: Number(invoice.paidMinor),
+    outstandingMinor: Number(invoice.outstandingMinor),
+    status: String(invoice.status),
+    lines: loaded.lines.map((line) => ({
+      description: String(line.description),
+      pupilName: line.studentLegalName,
+      amountMinor: Number(line.amountMinor),
+    })),
+    footer: invoice.invoiceFooter ? String(invoice.invoiceFooter) : null,
+    vatInvoice: false,
+  };
+}
+
+export async function createInvoiceReceipt(
+  client: Client,
+  input: {
+    organisationId: string;
+    invoiceId: string;
+    invoicePaymentId: string;
+    amountMinor: number;
+    method: string;
+    receivedOn: string;
+    providerReference?: string | null;
+    payerUserId?: string | null;
+    transactionId?: string | null;
+  },
+) {
+  const existing = await client.query(
+    `select id from school_payment_receipts
+      where organisation_id = $1 and invoice_payment_id = $2`,
+    [input.organisationId, input.invoicePaymentId],
+  );
+  if (existing.rows[0]) return;
+  const invoice = await loadInvoice(client, input.organisationId, input.invoiceId);
+  const school = await loadSchoolFinanceProfile(client, input.organisationId);
+  const payer = input.payerUserId
+    ? await client.query<{ full_name: string }>(`select full_name from users where id = $1`, [input.payerUserId])
+    : { rows: [] as Array<{ full_name: string }> };
+  const pupilNames = [
+    ...new Set(invoice.lines.map((line) => line.studentLegalName).filter((name): name is string => Boolean(name))),
+  ];
+  const reference = await nextFinanceReference(client, input.organisationId, "receipt");
+  const snapshot: FinanceReceiptDocument = {
+    kind: "receipt",
+    schoolName: school.schoolName,
+    schoolAddress: school.schoolAddress,
+    schoolContact: school.schoolContact,
+    receiptNumber: reference,
+    paymentDate: input.receivedOn,
+    familyName: String(invoice.invoice.billingAccountName ?? "Family"),
+    pupilNames,
+    invoiceReferences: [String(invoice.invoice.reference)],
+    description: `Payment for ${invoice.invoice.reference}`,
+    currency: String(invoice.invoice.currency),
+    amountMinor: input.amountMinor,
+    paymentMethod: input.method,
+    providerReference: input.providerReference ?? null,
+    remainingMinor: Number(invoice.invoice.outstandingMinor),
+    status: "succeeded",
+  };
+  await client.query(
+    `insert into school_payment_receipts (
+       organisation_id, charge_id, invoice_id, invoice_payment_id, transaction_id, reference, snapshot
+     ) values ($1,null,$2,$3,$4,$5,$6::jsonb)
+     on conflict (transaction_id) do nothing`,
+    [
+      input.organisationId,
+      input.invoiceId,
+      input.invoicePaymentId,
+      input.transactionId ?? null,
+      reference,
+      JSON.stringify(snapshot),
+    ],
+  );
+}
+
+async function queueInvoiceIssuedMail(client: Client, organisationId: string, invoiceId: string) {
+  const invoice = await client.query<{ billing_account_id: string; reference: string }>(
+    `select billing_account_id, reference from school_invoices where id = $1 and organisation_id = $2`,
+    [invoiceId, organisationId],
+  );
+  if (!invoice.rows[0]) return;
+  const contact = await payerContact(client, organisationId, String(invoice.rows[0].billing_account_id));
+  if (!contact.email) return;
+  const school = await loadSchoolFinanceProfile(client, organisationId);
+  await enqueueOutboxMail(
+    client,
+    financeInvoiceIssuedMail({
+      organisationId,
+      organisationName: school.schoolName,
+      toEmail: contact.email,
+      toName: contact.full_name,
+      invoiceId,
+      portalPath: "/parent/finance",
+    }),
+  );
+}
+
+async function queuePaymentReceivedMail(
+  client: Client,
+  organisationId: string,
+  paymentId: string,
+  invoiceId: string,
+) {
+  const invoice = await client.query<{ billing_account_id: string }>(
+    `select billing_account_id from school_invoices where id = $1 and organisation_id = $2`,
+    [invoiceId, organisationId],
+  );
+  if (!invoice.rows[0]) return;
+  const contact = await payerContact(client, organisationId, String(invoice.rows[0].billing_account_id));
+  if (!contact.email) return;
+  const school = await loadSchoolFinanceProfile(client, organisationId);
+  await enqueueOutboxMail(
+    client,
+    financePaymentReceivedMail({
+      organisationId,
+      organisationName: school.schoolName,
+      toEmail: contact.email,
+      toName: contact.full_name,
+      paymentId,
+      portalPath: "/parent/finance",
+    }),
+  );
+}
+
+async function queueRefundIssuedMail(client: Client, organisationId: string, creditId: string, billingAccountId: string) {
+  const contact = await payerContact(client, organisationId, billingAccountId);
+  if (!contact.email) return;
+  const school = await loadSchoolFinanceProfile(client, organisationId);
+  await enqueueOutboxMail(
+    client,
+    financeRefundIssuedMail({
+      organisationId,
+      organisationName: school.schoolName,
+      toEmail: contact.email,
+      toName: contact.full_name,
+      creditId,
+      portalPath: "/parent/finance",
+    }),
+  );
+}
+
+export async function renderInvoicePdfBytes(client: Client, organisationId: string, invoiceId: string) {
+  await persistInvoiceDisplaySnapshot(client, organisationId, invoiceId);
+  const row = await client.query<{ display_snapshot: FinanceInvoiceDocument }>(
+    `select display_snapshot from school_invoices where id = $1 and organisation_id = $2`,
+    [invoiceId, organisationId],
+  );
+  if (!row.rows[0]) notFound();
+  const snapshot = row.rows[0].display_snapshot;
+  const doc = snapshot?.kind === "invoice" ? snapshot : await buildInvoiceDocument(client, organisationId, invoiceId);
+  const live = await loadInvoice(client, organisationId, invoiceId);
+  const reproduced: FinanceInvoiceDocument = {
+    ...doc,
+    paidMinor: Number(live.invoice.paidMinor),
+    outstandingMinor: Number(live.invoice.outstandingMinor),
+    status: String(live.invoice.status),
+  };
+  return { filename: financePdfFilename(reproduced), bytes: renderFinancePdf(reproduced) };
+}
+
+export async function renderReceiptPdfBytes(client: Client, organisationId: string, receiptId: string) {
+  const row = await client.query<{ snapshot: FinanceReceiptDocument; reference: string }>(
+    `select snapshot, reference from school_payment_receipts where id = $1 and organisation_id = $2`,
+    [receiptId, organisationId],
+  );
+  if (!row.rows[0]) notFound();
+  const snapshot = row.rows[0].snapshot;
+  const doc: FinanceReceiptDocument =
+    snapshot?.kind === "receipt"
+      ? snapshot
+      : {
+          kind: "receipt",
+          schoolName: "School",
+          receiptNumber: row.rows[0].reference,
+          paymentDate: "",
+          familyName: "Family",
+          pupilNames: [],
+          invoiceReferences: [],
+          description: "Payment",
+          currency: "GBP",
+          amountMinor: 0,
+          paymentMethod: "other",
+          remainingMinor: 0,
+          status: "succeeded",
+        };
+  return { filename: financePdfFilename(doc), bytes: renderFinancePdf(doc) };
+}
+
+export async function listFinanceReceipts(
+  client: Client,
+  organisationId: string,
+  filters: { invoiceId?: string; billingAccountId?: string } = {},
+) {
+  const rows = await client.query(
+    `select r.id, r.reference, r.invoice_id, r.charge_id, r.created_at, r.snapshot
+       from school_payment_receipts r
+       left join school_invoices i on i.id = r.invoice_id
+      where r.organisation_id = $1
+        and ($2::uuid is null or r.invoice_id = $2)
+        and ($3::uuid is null or i.billing_account_id = $3)
+      order by r.created_at desc
+      limit 200`,
+    [organisationId, filters.invoiceId ?? null, filters.billingAccountId ?? null],
+  );
+  return rows.rows.map((row) => {
+    const snapshot = (row.snapshot ?? {}) as Record<string, unknown>;
+    return {
+      id: row.id,
+      reference: row.reference,
+      invoiceId: row.invoice_id,
+      chargeId: row.charge_id,
+      createdAt: row.created_at,
+      familyName: snapshot.familyName ?? null,
+      amountMinor: snapshot.amountMinor ?? null,
+      currency: snapshot.currency ?? null,
+      paymentDate: snapshot.paymentDate ?? null,
+    };
+  });
+}
+
+export async function listInvoicePayments(client: Client, organisationId: string) {
+  const rows = await client.query(
+    `select p.*, i.reference as invoice_reference, a.name as billing_account_name
+       from school_invoice_payments p
+       join school_invoices i on i.id = p.invoice_id
+       join school_billing_accounts a on a.id = p.billing_account_id
+      where p.organisation_id = $1
+      order by p.recorded_at desc
+      limit 200`,
+    [organisationId],
+  );
+  return rows.rows.map((row) => ({
+    ...mapInvoicePayment(row as Record<string, unknown>),
+    invoiceReference: row.invoice_reference,
+    billingAccountName: row.billing_account_name,
+  }));
+}
+
+export async function loadFamilyStatementDocument(
+  client: Client,
+  organisationId: string,
+  input: {
+    accountIds: string[];
+    preset: StatementPeriodPreset;
+    today: string;
+    customFrom?: string | null;
+    customTo?: string | null;
+  },
+): Promise<{ document: FinanceStatementDocument; invoices: Array<{ id: string; reference: string }>; receipts: Array<{ id: string; reference: string }> }> {
+  const years = await client.query<{ id: string; starts_on: string; ends_on: string; is_current: boolean }>(
+    `select id, starts_on::text, ends_on::text, is_current
+       from academic_years
+      where organisation_id = $1
+      order by starts_on desc`,
+    [organisationId],
+  );
+  const current = years.rows.find((row) => row.is_current) ?? years.rows[0];
+  const previous = years.rows.find((row) => current && row.id !== current.id);
+  const range = statementPeriodRange({
+    preset: input.preset,
+    today: input.today,
+    currentAcademicYear: current ? { startsOn: current.starts_on, endsOn: current.ends_on } : null,
+    previousAcademicYear: previous ? { startsOn: previous.starts_on, endsOn: previous.ends_on } : null,
+    customFrom: input.customFrom,
+    customTo: input.customTo,
+  });
+  if (!range.ok) throw new AppError(400, "validation_failed", range.error);
+  const school = await loadSchoolFinanceProfile(client, organisationId);
+  const names = await client.query<{ name: string }>(
+    `select name from school_billing_accounts where organisation_id = $1 and id = any($2::uuid[])`,
+    [organisationId, input.accountIds],
+  );
+  const pupils = await client.query<{ legal_name: string }>(
+    `select distinct sp.legal_name
+       from school_billing_account_pupils p
+       join student_profiles sp on sp.id = p.student_profile_id
+      where p.organisation_id = $1 and p.billing_account_id = any($2::uuid[])
+      order by sp.legal_name`,
+    [organisationId, input.accountIds],
+  );
+  const merged = {
+    from: range.from,
+    to: range.to,
+    openingBalanceMinor: 0,
+    closingBalanceMinor: 0,
+    entries: [] as FinanceStatementDocument["entries"],
+  };
+  for (const accountId of input.accountIds) {
+    const statement = await loadAccountStatement(client, organisationId, accountId, range.from, range.to);
+    merged.openingBalanceMinor += statement.openingBalanceMinor;
+    merged.closingBalanceMinor += statement.closingBalanceMinor;
+    merged.entries.push(
+      ...statement.entries.map((entry) => ({
+        date: entry.date,
+        kind: entry.kind,
+        reference: entry.reference,
+        debitMinor: entry.debitMinor,
+        creditMinor: entry.creditMinor,
+        balanceMinor: entry.balanceMinor,
+      })),
+    );
+  }
+  merged.entries.sort((left, right) => left.date.localeCompare(right.date) || left.reference.localeCompare(right.reference));
+  const outstanding = await client.query<{ n: string }>(
+    `select coalesce(sum(outstanding_minor),0)::text as n
+       from school_invoices
+      where organisation_id = $1 and billing_account_id = any($2::uuid[]) and status <> 'void'`,
+    [organisationId, input.accountIds],
+  );
+  const document: FinanceStatementDocument = {
+    kind: "statement",
+    schoolName: school.schoolName,
+    familyName: names.rows.map((row) => row.name).join(" / ") || "Family",
+    pupilNames: pupils.rows.map((row) => row.legal_name),
+    periodLabel: input.preset.replace(/_/g, " "),
+    from: range.from,
+    to: range.to,
+    currency: (await loadFinanceSettings(client, organisationId)).currency,
+    openingMinor: merged.openingBalanceMinor,
+    closingMinor: merged.closingBalanceMinor,
+    outstandingMinor: Number(outstanding.rows[0]?.n ?? 0),
+    entries: merged.entries,
+  };
+  const invoices = await client.query<{ id: string; reference: string }>(
+    `select id, reference from school_invoices
+      where organisation_id = $1 and billing_account_id = any($2::uuid[]) and status <> 'void'
+        and invoice_date between $3::date and $4::date
+      order by invoice_date, reference`,
+    [organisationId, input.accountIds, range.from, range.to],
+  );
+  const receipts = await client.query<{ id: string; reference: string }>(
+    `select r.id, r.reference
+       from school_payment_receipts r
+       join school_invoices i on i.id = r.invoice_id
+      where r.organisation_id = $1 and i.billing_account_id = any($2::uuid[])
+        and coalesce((r.snapshot->>'paymentDate'), r.created_at::date::text) between $3 and $4
+      order by r.created_at`,
+    [organisationId, input.accountIds, range.from, range.to],
+  );
+  return { document, invoices: invoices.rows, receipts: receipts.rows };
+}
+
+export async function renderFamilyStatementZip(
+  client: Client,
+  organisationId: string,
+  input: Parameters<typeof loadFamilyStatementDocument>[2],
+) {
+  const loaded = await loadFamilyStatementDocument(client, organisationId, input);
+  const files = [{ name: financePdfFilename(loaded.document), data: renderFinancePdf(loaded.document) }];
+  for (const invoice of loaded.invoices) {
+    const pdf = await renderInvoicePdfBytes(client, organisationId, invoice.id);
+    files.push({ name: `invoices/${pdf.filename}`, data: pdf.bytes });
+  }
+  for (const receipt of loaded.receipts) {
+    const pdf = await renderReceiptPdfBytes(client, organisationId, receipt.id);
+    files.push({ name: `receipts/${pdf.filename}`, data: pdf.bytes });
+  }
+  return {
+    filename: `family-statement-${loaded.document.from}-to-${loaded.document.to}.zip`,
+    bytes: zipStoreFiles(files),
+    document: loaded.document,
+  };
+}
+
+export async function createInvoiceCheckoutSession(
+  client: Client,
+  input: {
+    organisationId: string;
+    actor: Actor;
+    invoiceId: string;
+    provider: import("./payment-provider.js").PaymentProvider;
+    amountMinor?: number;
+    successUrl: string;
+    cancelUrl: string;
+    idempotencyKey?: string | null;
+  },
+) {
+  const settings = await loadFinanceSettings(client, input.organisationId);
+  if (!settings.parentsCanViewInvoices) {
+    throw new AppError(403, "forbidden", "Invoice viewing is disabled for parents at this school");
+  }
+  const accountIds = await parentAuthorisedAccountIds(client, input.organisationId, input.actor);
+  const invoiceRow = await client.query(`select * from school_invoices where id = $1 and organisation_id = $2 for update`, [
+    input.invoiceId,
+    input.organisationId,
+  ]);
+  if (!invoiceRow.rows[0]) notFound();
+  const invoice = invoiceRow.rows[0] as Record<string, unknown>;
+  if (!accountIds.includes(String(invoice.billing_account_id))) notFound();
+  await refreshInvoiceStatus(client, input.organisationId, input.invoiceId);
+  const outstanding = Number(invoice.outstanding_minor);
+  if (!["issued", "partially_paid", "overdue"].includes(String(invoice.status)) || outstanding <= 0) {
+    throw new AppError(409, "payment_unavailable", "This invoice is not payable");
+  }
+  const amount = input.amountMinor ?? outstanding;
+  if (amount <= 0 || amount > outstanding) {
+    throw new AppError(409, "overpayment", "This payment would exceed the amount outstanding");
+  }
+  if (input.idempotencyKey) {
+    const existing = await client.query(
+      `select * from school_payment_sessions where organisation_id = $1 and idempotency_key = $2 and status = 'open'`,
+      [input.organisationId, input.idempotencyKey],
+    );
+    if (existing.rows[0]) {
+      return { session: existing.rows[0] as Record<string, unknown>, checkoutUrl: String(existing.rows[0].checkout_url) };
+    }
+  }
+  const payRef = await nextFinanceReference(client, input.organisationId, "payment");
+  const tx = await client.query(
+    `insert into school_payment_transactions (
+       organisation_id, charge_id, invoice_id, reference, amount_minor, currency, payer_user_id,
+       channel, provider_key, status, idempotency_key
+     ) values ($1,null,$2,$3,$4,$5,$6,'provider',$7,'pending',$8)
+     returning *`,
+    [
+      input.organisationId,
+      input.invoiceId,
+      payRef,
+      amount,
+      invoice.currency,
+      input.actor.userId,
+      input.provider.key,
+      input.idempotencyKey ?? null,
+    ],
+  );
+  const sessionPlaceholder = await client.query<{ id: string }>(
+    `insert into school_payment_sessions (
+       organisation_id, charge_id, invoice_id, transaction_id, provider_key, provider_session_id,
+       amount_minor, currency, status, success_path, cancel_path, idempotency_key, created_by
+     ) values ($1,null,$2,$3,$4,$5,$6,$7,'open',$8,$9,$10,$11)
+     returning id`,
+    [
+      input.organisationId,
+      input.invoiceId,
+      tx.rows[0]!.id,
+      input.provider.key,
+      `pending_${crypto.randomUUID().replace(/-/g, "")}`,
+      amount,
+      invoice.currency,
+      input.successUrl,
+      input.cancelUrl,
+      input.idempotencyKey ?? null,
+      input.actor.userId,
+    ],
+  );
+  const pupil = await client.query<{ student_profile_id: string | null }>(
+    `select student_profile_id from school_invoice_lines where invoice_id = $1 and student_profile_id is not null limit 1`,
+    [input.invoiceId],
+  );
+  const created = await input.provider.createSession({
+    organisationId: input.organisationId,
+    chargeId: "",
+    invoiceId: input.invoiceId,
+    billingAccountId: String(invoice.billing_account_id),
+    studentProfileId: pupil.rows[0]?.student_profile_id ?? null,
+    chargeCategory: "tuition",
+    sessionId: sessionPlaceholder.rows[0]!.id,
+    transactionId: String(tx.rows[0]!.id),
+    reference: payRef,
+    amountMinor: amount,
+    currency: String(invoice.currency),
+    title: `Invoice ${String(invoice.reference)}`,
+    successUrl: input.successUrl,
+    cancelUrl: input.cancelUrl,
+    idempotencyKey: input.idempotencyKey,
+  });
+  const session = await client.query(
+    `update school_payment_sessions
+        set provider_session_id = $3, checkout_url = $4, expires_at = $5
+      where id = $1 and organisation_id = $2
+      returning *`,
+    [
+      sessionPlaceholder.rows[0]!.id,
+      input.organisationId,
+      created.providerSessionId,
+      created.checkoutUrl,
+      created.expiresAt?.toISOString() ?? null,
+    ],
+  );
+  await client.query(
+    `update school_payment_transactions set provider_session_id = $3 where id = $1 and organisation_id = $2`,
+    [tx.rows[0]!.id, input.organisationId, created.providerSessionId],
+  );
+  return { session: session.rows[0] as Record<string, unknown>, checkoutUrl: created.checkoutUrl };
+}
+
+export async function settleInvoiceProviderEvent(
+  client: Client,
+  input: {
+    organisationId: string;
+    event: import("./payment-provider.js").ProviderEvent;
+    session: {
+      session_id: string;
+      invoice_id: string;
+      transaction_id: string;
+      amount_minor: string | number;
+      currency: string;
+    };
+  },
+) {
+  const tx = await client.query(
+    `select * from school_payment_transactions where id = $1 and organisation_id = $2 for update`,
+    [input.session.transaction_id, input.organisationId],
+  );
+  if (!tx.rows[0]) throw new AppError(400, "unknown_reference", "Unknown payment reference");
+  const transaction = tx.rows[0] as Record<string, unknown>;
+  if (input.event.amountMinor != null && Number(input.event.amountMinor) !== Number(transaction.amount_minor)) {
+    throw new AppError(400, "amount_mismatch", "Provider amount does not match the session");
+  }
+  if (input.event.outcome === "ignored") return;
+  if (input.event.outcome === "failed" || input.event.outcome === "cancelled") {
+    if (transaction.status !== "pending") return;
+    await client.query(
+      `update school_payment_transactions
+          set status = $3, failed_at = case when $3 = 'failed' then now() else failed_at end,
+              cancelled_at = case when $3 = 'cancelled' then now() else cancelled_at end
+        where id = $1 and organisation_id = $2 and status = 'pending'`,
+      [transaction.id, input.organisationId, input.event.outcome === "cancelled" ? "cancelled" : "failed"],
+    );
+    await client.query(`update school_payment_sessions set status = $3 where id = $1 and organisation_id = $2`, [
+      input.session.session_id,
+      input.organisationId,
+      input.event.outcome === "cancelled" ? "cancelled" : "failed",
+    ]);
+    return;
+  }
+  if (input.event.outcome === "refunded") {
+    const invoiceMeta = await client.query<{ billing_account_id: string; created_by: string }>(
+      `select billing_account_id, created_by from school_invoices where id = $1`,
+      [input.session.invoice_id],
+    );
+    const actorUserId =
+      (transaction.payer_user_id && String(transaction.payer_user_id)) ||
+      invoiceMeta.rows[0]?.created_by ||
+      null;
+    if (!actorUserId || !invoiceMeta.rows[0]?.billing_account_id) {
+      throw new AppError(400, "unknown_reference", "Unknown payment reference");
+    }
+    await createInvoiceCredit(client, {
+      organisationId: input.organisationId,
+      actorUserId,
+      billingAccountId: String(invoiceMeta.rows[0].billing_account_id),
+      invoiceId: input.session.invoice_id,
+      kind: "refund",
+      amountMinor: Number(input.event.amountMinor ?? transaction.amount_minor),
+      reason: "Provider refund",
+    });
+    return;
+  }
+  if (input.event.outcome !== "succeeded") return;
+  if (transaction.status !== "pending") return;
+  await client.query(
+    `update school_payment_transactions
+        set status = 'succeeded', paid_at = now(), provider_payment_id = $3
+      where id = $1 and organisation_id = $2 and status = 'pending'`,
+    [transaction.id, input.organisationId, input.event.providerPaymentId ?? null],
+  );
+  await client.query(`update school_payment_sessions set status = 'completed' where id = $1 and organisation_id = $2`, [
+    input.session.session_id,
+    input.organisationId,
+  ]);
+  const payment = await recordInvoicePayment(client, {
+    organisationId: input.organisationId,
+    actorUserId: String(transaction.payer_user_id),
+    invoiceId: input.session.invoice_id,
+    amountMinor: Number(transaction.amount_minor),
+    method: "card",
+    receivedOn: new Date().toISOString().slice(0, 10),
+    externalReference: input.event.providerPaymentId ?? String(transaction.reference),
+    idempotencyKey: `provider:${input.event.eventId}`,
+  });
+  await client.query(
+    `update school_payment_receipts set transaction_id = $3
+      where organisation_id = $1 and invoice_payment_id = $2 and transaction_id is null`,
+    [input.organisationId, payment.id, transaction.id],
+  );
+}
+
+export async function loadStudentFinance(client: Client, organisationId: string, actor: Actor) {
+  const settings = await loadFinanceSettings(client, organisationId);
+  if (!settings.studentsCanViewFinance) {
+    return { enabled: false, invoices: [] as unknown[] };
+  }
+  const pupil = await client.query<{ id: string }>(
+    `select id from student_profiles where user_id = $1 and organisation_id = $2`,
+    [actor.userId, organisationId],
+  );
+  if (!pupil.rows[0]) notFound();
+  const invoices = await listInvoices(client, organisationId, { studentId: pupil.rows[0].id });
+  return {
+    enabled: true,
+    invoices: invoices.map((invoice) => ({
+      id: invoice.id,
+      reference: invoice.reference,
+      status: invoice.status,
+      dueDate: invoice.dueDate,
+      totalMinor: invoice.totalMinor,
+      outstandingMinor: invoice.outstandingMinor,
+      currency: invoice.currency,
+    })),
+  };
 }

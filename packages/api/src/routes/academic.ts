@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  NON_TEACHING_EVENT_TYPE_KEYS,
   PERMISSIONS,
   SYSTEM_YEAR_GROUP_DELETE_REASON,
   isAcademicRecordStatus,
@@ -11,6 +12,7 @@ import {
   resolveCreatedAcademicYearCurrent,
   termKeyFromName,
   uniqueTermKey,
+  validateClosureRange,
   validateTermDates,
 } from "@schoolapp/domain";
 import {
@@ -18,6 +20,7 @@ import {
   assertAnyPermission,
   assertPermission,
   canListAllStudents,
+  currentAcademicYear,
   deleteConfigOnlyYearGroupLinks,
   deletionBlockedError,
   includeArchivedRequested,
@@ -32,7 +35,9 @@ import { requireUser } from "../auth-middleware";
 import { academicReadPermissions, withSchoolActor, routeParam } from "../school-context";
 import {
   mapAcademicYear,
+  mapAcademicClosure,
   mapClass,
+  mapHalfTerm,
   mapHouse,
   mapSubject,
   mapTerm,
@@ -85,6 +90,18 @@ export function registerAcademicRoutes(app: SchoolappApi) {
         [orgId, includeArchivedRequested(c.req.query("includeArchived"))],
       );
       return c.json({ academicYears: rows.rows.map(mapAcademicYear) });
+    }),
+  );
+
+  app.get("/academic-years/current", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertAnyPermission(actor, academicReadPermissions);
+      const year = await currentAcademicYear(client, orgId);
+      if (!year) {
+        throw new AppError(404, "not_found", "This school has no current academic year.");
+      }
+      const full = await loadAcademicYearRow(client, orgId, year.id);
+      return c.json({ academicYear: mapAcademicYear(full ?? year) });
     }),
   );
 
@@ -292,7 +309,14 @@ export function registerAcademicRoutes(app: SchoolappApi) {
       const year = await loadAcademicYearRow(client, orgId, routeParam(c, "id"));
       if (!year) throw new AppError(404, "not_found", "Not found");
       const rows = await listTermsForYear(client, orgId, routeParam(c, "id"));
-      return c.json({ academicYear: mapAcademicYear(year), terms: rows.map(mapTerm) });
+      const halfTerms = await listHalfTermsForYear(client, orgId, routeParam(c, "id"));
+      const closures = await listClosuresForYear(client, orgId, routeParam(c, "id"));
+      return c.json({
+        academicYear: mapAcademicYear(year),
+        terms: rows.map(mapTerm),
+        halfTerms: halfTerms.map(mapHalfTerm),
+        closures: closures.map(mapAcademicClosure),
+      });
     }),
   );
 
@@ -433,6 +457,291 @@ export function registerAcademicRoutes(app: SchoolappApi) {
         entityType: "term",
         entityId: String(existing.id),
         before: mapTerm(existing),
+      });
+      return c.json({ ok: true });
+    }),
+  );
+
+  const halfTermSchema = z.object({
+    termId: z.string().uuid(),
+    name: z.string().trim().min(1).max(80),
+    startsOn: z.string().date(),
+    endsOn: z.string().date(),
+    sortOrder: z.number().int().min(0).max(20).optional(),
+  });
+  const closureSchema = z.object({
+    kind: z.enum(["bank_holiday", "inset_day", "school_closure", "other"]),
+    title: z.string().trim().min(1).max(160),
+    description: z.string().max(400).nullable().optional(),
+    startsOn: z.string().date(),
+    endsOn: z.string().date(),
+  });
+
+  app.post("/academic-years/:id/half-terms", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
+      const parsed = halfTermSchema.safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid half term");
+      const year = await loadAcademicYearRow(client, orgId, routeParam(c, "id"));
+      if (!year) throw new AppError(404, "not_found", "Not found");
+      const term = await loadTermRow(client, orgId, parsed.data.termId);
+      if (!term || String(term.academic_year_id) !== String(year.id)) {
+        throw new AppError(404, "not_found", "Not found");
+      }
+      const others = await listHalfTermsForYear(client, orgId, String(year.id));
+      const bounds = validateClosureRange({
+        startsOn: parsed.data.startsOn,
+        endsOn: parsed.data.endsOn,
+        yearStartsOn: String(year.starts_on),
+        yearEndsOn: String(year.ends_on),
+        termStartsOn: String(term.starts_on),
+        termEndsOn: String(term.ends_on),
+        otherClosures: others.map((row) => ({
+          id: String(row.id),
+          startsOn: String(row.starts_on),
+          endsOn: String(row.ends_on),
+        })),
+      });
+      if (!bounds.ok) throw new AppError(400, "validation_failed", bounds.error);
+      const inserted = await client.query(
+        `insert into half_terms (organisation_id, term_id, name, starts_on, ends_on, sort_order)
+         values ($1,$2,$3,$4,$5,$6)
+         returning id, term_id, name, starts_on::text, ends_on::text, sort_order`,
+        [
+          orgId,
+          parsed.data.termId,
+          parsed.data.name,
+          parsed.data.startsOn,
+          parsed.data.endsOn,
+          parsed.data.sortOrder ?? 1,
+        ],
+      );
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "academic.half_term.created",
+        entityType: "half_term",
+        entityId: String(inserted.rows[0]!.id),
+        after: mapHalfTerm({ ...inserted.rows[0]!, term_name: term.name }),
+      });
+      return c.json({ halfTerm: mapHalfTerm({ ...inserted.rows[0]!, term_name: term.name }) }, 201);
+    }),
+  );
+
+  app.patch("/half-terms/:id", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
+      const parsed = halfTermSchema.partial().safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid half term");
+      const existing = await client.query(
+        `select ht.id, ht.term_id, ht.name, ht.starts_on::text, ht.ends_on::text, ht.sort_order, t.name as term_name,
+                t.starts_on::text as term_starts_on, t.ends_on::text as term_ends_on, t.academic_year_id
+           from half_terms ht
+           join terms t on t.id = ht.term_id
+          where ht.id = $1 and ht.organisation_id = $2`,
+        [routeParam(c, "id"), orgId],
+      );
+      if (!existing.rows[0]) throw new AppError(404, "not_found", "Not found");
+      const row = existing.rows[0];
+      const year = await loadAcademicYearRow(client, orgId, String(row.academic_year_id));
+      if (!year) throw new AppError(404, "not_found", "Not found");
+      const startsOn = parsed.data.startsOn ?? String(row.starts_on);
+      const endsOn = parsed.data.endsOn ?? String(row.ends_on);
+      const others = await listHalfTermsForYear(client, orgId, String(year.id));
+      const bounds = validateClosureRange({
+        startsOn,
+        endsOn,
+        yearStartsOn: String(year.starts_on),
+        yearEndsOn: String(year.ends_on),
+        termStartsOn: String(row.term_starts_on),
+        termEndsOn: String(row.term_ends_on),
+        otherClosures: others.map((item) => ({
+          id: String(item.id),
+          startsOn: String(item.starts_on),
+          endsOn: String(item.ends_on),
+        })),
+        ignoreId: String(row.id),
+      });
+      if (!bounds.ok) throw new AppError(400, "validation_failed", bounds.error);
+      const updated = await client.query(
+        `update half_terms
+            set name = coalesce($3, name), starts_on = $4, ends_on = $5, sort_order = coalesce($6, sort_order)
+          where id = $1 and organisation_id = $2
+          returning id, term_id, name, starts_on::text, ends_on::text, sort_order`,
+        [row.id, orgId, parsed.data.name ?? null, startsOn, endsOn, parsed.data.sortOrder ?? null],
+      );
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "academic.half_term.updated",
+        entityType: "half_term",
+        entityId: String(row.id),
+        before: mapHalfTerm(row),
+        after: mapHalfTerm({ ...updated.rows[0]!, term_name: row.term_name }),
+      });
+      return c.json({ halfTerm: mapHalfTerm({ ...updated.rows[0]!, term_name: row.term_name }) });
+    }),
+  );
+
+  app.delete("/half-terms/:id", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
+      const existing = await client.query(
+        `select ht.*, t.name as term_name from half_terms ht join terms t on t.id = ht.term_id
+          where ht.id = $1 and ht.organisation_id = $2`,
+        [routeParam(c, "id"), orgId],
+      );
+      if (!existing.rows[0]) throw new AppError(404, "not_found", "Not found");
+      await client.query(`delete from half_terms where id = $1 and organisation_id = $2`, [
+        existing.rows[0].id,
+        orgId,
+      ]);
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "academic.half_term.deleted",
+        entityType: "half_term",
+        entityId: String(existing.rows[0].id),
+        before: mapHalfTerm(existing.rows[0]),
+      });
+      return c.json({ ok: true });
+    }),
+  );
+
+  app.post("/academic-years/:id/closures", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
+      const parsed = closureSchema.safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid non-teaching date");
+      const year = await loadAcademicYearRow(client, orgId, routeParam(c, "id"));
+      if (!year) throw new AppError(404, "not_found", "Not found");
+      const others = await listClosuresForYear(client, orgId, String(year.id));
+      const bounds = validateClosureRange({
+        startsOn: parsed.data.startsOn,
+        endsOn: parsed.data.endsOn,
+        yearStartsOn: String(year.starts_on),
+        yearEndsOn: String(year.ends_on),
+        otherClosures: others.map((row) => ({
+          id: String(row.id),
+          startsOn: String(row.starts_on).slice(0, 10),
+          endsOn: String(row.ends_on).slice(0, 10),
+        })),
+      });
+      if (!bounds.ok) throw new AppError(400, "validation_failed", bounds.error);
+      const eventTypeKey =
+        parsed.data.kind === "other"
+          ? "non_teaching"
+          : parsed.data.kind === "school_closure"
+            ? "school_closure"
+            : parsed.data.kind;
+      const type = await client.query<{ id: string }>(
+        `select id from school_event_types where organisation_id = $1 and key = $2`,
+        [orgId, eventTypeKey],
+      );
+      if (!type.rows[0]) throw new AppError(400, "validation_failed", "Unknown calendar type");
+      const inserted = await client.query(
+        `insert into school_events (
+           organisation_id, title, description, event_type_id, starts_at, ends_at, all_day,
+           status, publish_at, published_at, related_kind, related_id, created_by, published_by
+         ) values ($1,$2,$3,$4,$5,$6,true,'published', now(), now(), 'academic_year', $7, $8, $8)
+         returning id, title, description, starts_at::date::text as starts_on, ends_at::date::text as ends_on`,
+        [
+          orgId,
+          parsed.data.title,
+          parsed.data.description ?? null,
+          type.rows[0].id,
+          `${parsed.data.startsOn}T00:00:00.000Z`,
+          `${parsed.data.endsOn}T23:59:59.000Z`,
+          year.id,
+          userId,
+        ],
+      );
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "academic.closure.created",
+        entityType: "school_event",
+        entityId: String(inserted.rows[0]!.id),
+        after: { title: parsed.data.title, startsOn: parsed.data.startsOn, endsOn: parsed.data.endsOn },
+      });
+      return c.json(
+        {
+          closure: mapAcademicClosure({
+            ...inserted.rows[0],
+            event_type_key: eventTypeKey,
+          }),
+        },
+        201,
+      );
+    }),
+  );
+
+  app.patch("/closures/:id", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
+      const parsed = closureSchema.partial().safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid non-teaching date");
+      const existing = await loadClosureRow(client, orgId, routeParam(c, "id"));
+      if (!existing) throw new AppError(404, "not_found", "Not found");
+      const year = await loadAcademicYearRow(client, orgId, String(existing.related_id));
+      if (!year) throw new AppError(404, "not_found", "Not found");
+      const startsOn = parsed.data.startsOn ?? String(existing.starts_on).slice(0, 10);
+      const endsOn = parsed.data.endsOn ?? String(existing.ends_on).slice(0, 10);
+      const others = await listClosuresForYear(client, orgId, String(year.id));
+      const bounds = validateClosureRange({
+        startsOn,
+        endsOn,
+        yearStartsOn: String(year.starts_on),
+        yearEndsOn: String(year.ends_on),
+        otherClosures: others.map((row) => ({
+          id: String(row.id),
+          startsOn: String(row.starts_on).slice(0, 10),
+          endsOn: String(row.ends_on).slice(0, 10),
+        })),
+        ignoreId: String(existing.id),
+      });
+      if (!bounds.ok) throw new AppError(400, "validation_failed", bounds.error);
+      await client.query(
+        `update school_events
+            set title = coalesce($3, title),
+                description = coalesce($4, description),
+                starts_at = $5,
+                ends_at = $6
+          where id = $1 and organisation_id = $2`,
+        [
+          existing.id,
+          orgId,
+          parsed.data.title ?? null,
+          parsed.data.description === undefined ? null : parsed.data.description,
+          `${startsOn}T00:00:00.000Z`,
+          `${endsOn}T23:59:59.000Z`,
+        ],
+      );
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "academic.closure.updated",
+        entityType: "school_event",
+        entityId: String(existing.id),
+      });
+      const updated = await loadClosureRow(client, orgId, String(existing.id));
+      return c.json({ closure: mapAcademicClosure(updated!) });
+    }),
+  );
+
+  app.delete("/closures/:id", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE);
+      const existing = await loadClosureRow(client, orgId, routeParam(c, "id"));
+      if (!existing) throw new AppError(404, "not_found", "Not found");
+      await client.query(`delete from school_events where id = $1 and organisation_id = $2`, [existing.id, orgId]);
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "academic.closure.deleted",
+        entityType: "school_event",
+        entityId: String(existing.id),
+        before: mapAcademicClosure(existing),
       });
       return c.json({ ok: true });
     }),
@@ -1252,6 +1561,63 @@ async function listTermsForYear(
     [yearId, orgId],
   );
   return rows.rows;
+}
+
+async function listHalfTermsForYear(
+  client: import("pg").PoolClient,
+  orgId: string,
+  yearId: string,
+): Promise<Record<string, unknown>[]> {
+  const rows = await client.query(
+    `select ht.id, ht.term_id, ht.name, ht.starts_on::text, ht.ends_on::text, ht.sort_order, t.name as term_name
+       from half_terms ht
+       join terms t on t.id = ht.term_id
+      where ht.organisation_id = $1 and t.academic_year_id = $2
+      order by ht.starts_on, ht.sort_order`,
+    [orgId, yearId],
+  );
+  return rows.rows;
+}
+
+async function listClosuresForYear(
+  client: import("pg").PoolClient,
+  orgId: string,
+  yearId: string,
+): Promise<Record<string, unknown>[]> {
+  const rows = await client.query(
+    `select se.id, se.title, se.description, se.related_id,
+            se.starts_at::date::text as starts_on, se.ends_at::date::text as ends_on,
+            st.key as event_type_key
+       from school_events se
+       join school_event_types st on st.id = se.event_type_id
+      where se.organisation_id = $1
+        and se.related_kind = 'academic_year'
+        and se.related_id = $2
+        and se.status in ('published', 'scheduled')
+        and st.key = any($3::text[])
+      order by se.starts_at`,
+    [orgId, yearId, [...NON_TEACHING_EVENT_TYPE_KEYS]],
+  );
+  return rows.rows;
+}
+
+async function loadClosureRow(
+  client: import("pg").PoolClient,
+  orgId: string,
+  eventId: string,
+): Promise<Record<string, unknown> | null> {
+  const result = await client.query(
+    `select se.id, se.title, se.description, se.related_id, se.related_kind,
+            se.starts_at::date::text as starts_on, se.ends_at::date::text as ends_on,
+            st.key as event_type_key
+       from school_events se
+       join school_event_types st on st.id = se.event_type_id
+      where se.id = $1 and se.organisation_id = $2
+        and se.related_kind = 'academic_year'
+        and st.key = any($3::text[])`,
+    [eventId, orgId, [...NON_TEACHING_EVENT_TYPE_KEYS]],
+  );
+  return result.rows[0] ?? null;
 }
 
 async function loadTermRow(

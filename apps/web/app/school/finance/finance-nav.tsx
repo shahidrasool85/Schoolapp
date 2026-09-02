@@ -5,12 +5,15 @@ import { usePathname } from "next/navigation";
 import { Tabs } from "../../../components/ui";
 
 const LINKS = [
-  { href: "/school/finance", label: "Dashboard", exact: true },
+  { href: "/school/finance", label: "Overview", exact: true },
   { href: "/school/finance/fee-schedules", label: "Fee schedules" },
+  { href: "/school/finance/invoices", label: "Invoices / Charges" },
+  { href: "/school/finance/payments", label: "Payments" },
+  { href: "/school/finance/accounts", label: "Families / Accounts" },
+  { href: "/school/finance/receipts", label: "Receipts" },
+  { href: "/school/finance/statements", label: "Statements" },
   { href: "/school/finance/billing-runs", label: "Billing runs" },
   { href: "/school/finance/discounts", label: "Discounts" },
-  { href: "/school/finance/accounts", label: "Families" },
-  { href: "/school/finance/invoices", label: "Invoices" },
   { href: "/school/finance/arrears", label: "Arrears" },
   { href: "/school/finance/charges", label: "Other payments" },
   { href: "/school/finance/settings", label: "Settings" },

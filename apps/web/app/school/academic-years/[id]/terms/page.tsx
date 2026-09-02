@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { captureSubmitTarget, resetFormSafely } from "@schoolapp/domain";
+import { captureSubmitTarget, formatUkDateRange, resetFormSafely } from "@schoolapp/domain";
 import {
   Alert,
   Button,
@@ -38,6 +38,24 @@ type Term = {
   sortOrder: number;
 };
 
+type HalfTerm = {
+  id: string;
+  termId: string;
+  termName: string | null;
+  name: string;
+  startsOn: string;
+  endsOn: string;
+};
+
+type Closure = {
+  id: string;
+  kind: string;
+  title: string;
+  startsOn: string;
+  endsOn: string;
+  description: string | null;
+};
+
 export default function AcademicYearTermsPage() {
   const params = useParams<{ id: string }>();
   const permissions = usePermissions();
@@ -45,6 +63,8 @@ export default function AcademicYearTermsPage() {
   const yearId = String(params.id ?? "");
   const [year, setYear] = useState<Year | null>(null);
   const [terms, setTerms] = useState<Term[]>([]);
+  const [halfTerms, setHalfTerms] = useState<HalfTerm[]>([]);
+  const [closures, setClosures] = useState<Closure[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
@@ -53,9 +73,16 @@ export default function AcademicYearTermsPage() {
 
   async function load() {
     if (!yearId) return;
-    const body = await api<{ academicYear: Year; terms: Term[] }>(`/api/v1/academic-years/${yearId}/terms`);
+    const body = await api<{
+      academicYear: Year;
+      terms: Term[];
+      halfTerms?: HalfTerm[];
+      closures?: Closure[];
+    }>(`/api/v1/academic-years/${yearId}/terms`);
     setYear(body.academicYear);
     setTerms(body.terms);
+    setHalfTerms(body.halfTerms ?? []);
+    setClosures(body.closures ?? []);
   }
 
   useEffect(() => {
@@ -85,6 +112,51 @@ export default function AcademicYearTermsPage() {
       await load();
     } catch (err) {
       setError(userFacingError(err, "Could not add that term."));
+    }
+  }
+
+  async function onCreateHalf(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formEl = captureSubmitTarget(event);
+    const form = new FormData(formEl);
+    try {
+      await api(`/api/v1/academic-years/${yearId}/half-terms`, {
+        method: "POST",
+        body: JSON.stringify({
+          termId: form.get("termId"),
+          name: form.get("name"),
+          startsOn: form.get("startsOn"),
+          endsOn: form.get("endsOn"),
+        }),
+      });
+      resetFormSafely(formEl);
+      setNotice("Half term added. Recurring lessons will skip these dates.");
+      await load();
+    } catch (err) {
+      setError(userFacingError(err, "Could not add that half term."));
+    }
+  }
+
+  async function onCreateClosure(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formEl = captureSubmitTarget(event);
+    const form = new FormData(formEl);
+    try {
+      await api(`/api/v1/academic-years/${yearId}/closures`, {
+        method: "POST",
+        body: JSON.stringify({
+          kind: form.get("kind"),
+          title: form.get("title"),
+          startsOn: form.get("startsOn"),
+          endsOn: form.get("endsOn") || form.get("startsOn"),
+          description: form.get("description") || null,
+        }),
+      });
+      resetFormSafely(formEl);
+      setNotice("Non-teaching day added.");
+      await load();
+    } catch (err) {
+      setError(userFacingError(err, "Could not add that non-teaching date."));
     }
   }
 
@@ -140,8 +212,8 @@ export default function AcademicYearTermsPage() {
   return (
     <>
       <PageHeader
-        title={`Terms — ${year.name}`}
-        description={`${year.startsOn} to ${year.endsOn}. Schools may have any number of terms; typical UK examples are Autumn, Spring and Summer.`}
+        title={`Academic calendar — ${year.name}`}
+        description={`${formatUkDateRange(year.startsOn, year.endsOn)}. Term dates, half terms and other non-teaching days used by the timetable.`}
         actions={
           <Link className="button secondary" href="/school/academic-years">
             Academic years
@@ -150,6 +222,26 @@ export default function AcademicYearTermsPage() {
       />
       {notice ? <Alert tone="success">{notice}</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
+      {terms.length > 0 ? (
+        <section className="card">
+          <h2>{year.name}</h2>
+          <ul className="plain-list">
+            {terms.map((term) => {
+              const half = halfTerms.filter((item) => item.termId === term.id);
+              return (
+                <li key={term.id}>
+                  <strong>{term.name}</strong>: {formatUkDateRange(term.startsOn, term.endsOn)}
+                  {half.map((item) => (
+                    <div key={item.id} className="muted">
+                      Half term: {formatUkDateRange(item.startsOn, item.endsOn)}
+                    </div>
+                  ))}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
       {canManage && year.status !== "archived" ? (
         <form className="card academic-create-form" onSubmit={onCreate}>
           <h2>Add term</h2>
@@ -218,6 +310,84 @@ export default function AcademicYearTermsPage() {
           </table>
         </div>
       )}
+      {canManage && year.status !== "archived" && terms.length > 0 ? (
+        <form className="card academic-create-form" onSubmit={onCreateHalf}>
+          <h2>Half term / closures inside a term</h2>
+          <div className="academic-create-fields is-four">
+            <FormField label="Term">
+              <select name="termId" required>
+                {terms.map((term) => (
+                  <option key={term.id} value={term.id}>
+                    {term.name}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+            <FormField label="Name">
+              <Input name="name" placeholder="Autumn half term" required />
+            </FormField>
+            <FormField label="Starts">
+              <Input name="startsOn" type="date" min={year.startsOn} max={year.endsOn} required />
+            </FormField>
+            <FormField label="Ends">
+              <Input name="endsOn" type="date" min={year.startsOn} max={year.endsOn} required />
+            </FormField>
+          </div>
+          <div className="academic-create-actions">
+            <Button type="submit">Add half term</Button>
+          </div>
+        </form>
+      ) : null}
+      {canManage && year.status !== "archived" ? (
+        <form className="card academic-create-form" onSubmit={onCreateClosure}>
+          <h2>Other non-teaching days</h2>
+          <p className="muted">Bank holidays, INSET and school closures. Do not duplicate term dates here.</p>
+          <div className="academic-create-fields is-four">
+            <FormField label="Type">
+              <select name="kind" required defaultValue="bank_holiday">
+                <option value="bank_holiday">Bank holiday</option>
+                <option value="inset_day">INSET day</option>
+                <option value="school_closure">School closure</option>
+                <option value="other">Other</option>
+              </select>
+            </FormField>
+            <FormField label="Description">
+              <Input name="title" placeholder="Good Friday" required />
+            </FormField>
+            <FormField label="Starts">
+              <Input name="startsOn" type="date" min={year.startsOn} max={year.endsOn} required />
+            </FormField>
+            <FormField label="Ends">
+              <Input name="endsOn" type="date" min={year.startsOn} max={year.endsOn} />
+            </FormField>
+          </div>
+          <div className="academic-create-actions">
+            <Button type="submit">Add non-teaching day</Button>
+          </div>
+        </form>
+      ) : null}
+      {closures.length > 0 ? (
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Non-teaching day</th>
+                <th>Type</th>
+                <th>Dates</th>
+              </tr>
+            </thead>
+            <tbody>
+              {closures.map((item) => (
+                <tr key={item.id}>
+                  <td>{item.title}</td>
+                  <td>{item.kind.replace(/_/g, " ")}</td>
+                  <td>{formatUkDateRange(item.startsOn, item.endsOn)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
       <Dialog
         open={Boolean(editing)}
         title={editing ? `Edit ${editing.name}` : "Edit term"}

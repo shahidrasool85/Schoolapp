@@ -229,6 +229,12 @@ create unique index if not exists school_payment_receipts_invoice_payment_uidx
   on school_payment_receipts (invoice_payment_id)
   where invoice_payment_id is not null;
 
+-- OUT columns changed (invoice_id). PostgreSQL cannot CREATE OR REPLACE
+-- a function when the row type defined by OUT parameters differs.
+drop function if exists resolve_payment_provider_session(text, text);
+drop function if exists resolve_payment_provider_payment(text, text);
+drop function if exists load_payment_demo_session(uuid);
+
 create or replace function resolve_payment_provider_session(
   p_provider_key text,
   p_provider_session_id text

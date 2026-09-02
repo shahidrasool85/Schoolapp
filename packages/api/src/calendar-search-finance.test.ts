@@ -337,7 +337,7 @@ describe("academic calendar, search and finance lifecycle", () => {
     );
 
     const otherToken = await login(app, other.adminEmail, "password-12x");
-    const leaked = await json<{ groups: Array<{ results: Array<{ title: string }> }> }>(
+    const leaked = await json<{ groups: Array<{ group: string; results: Array<{ title: string }> }> }>(
       await app.request("/api/v1/search?q=John%20Smith", { headers: headers(otherToken, other.orgId) }),
     );
     expect(leaked.groups.find((group) => group.group === "pupils")?.results ?? []).toEqual([]);

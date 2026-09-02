@@ -160,8 +160,9 @@ export function destinationVisible(
   destination: GlobalSearchDestination,
   permissions: readonly string[],
 ): boolean {
-  if (destination.permissionPrefix) {
-    return permissions.some((key) => key === destination.permissionPrefix || key.startsWith(destination.permissionPrefix));
+  const permissionPrefix = destination.permissionPrefix;
+  if (permissionPrefix) {
+    return permissions.some((key) => key === permissionPrefix || key.startsWith(permissionPrefix));
   }
   if (!destination.permissions?.length) return true;
   return destination.permissions.some((key) => permissions.includes(key));

@@ -3408,10 +3408,11 @@ export async function settleInvoiceProviderEvent(
       `select billing_account_id, created_by from school_invoices where id = $1`,
       [input.session.invoice_id],
     );
-    const actorUserId =
-      (transaction.payer_user_id && String(transaction.payer_user_id)) ||
-      invoiceMeta.rows[0]?.created_by ||
-      null;
+    const actorUserId = transaction.payer_user_id
+      ? String(transaction.payer_user_id)
+      : invoiceMeta.rows[0]?.created_by
+        ? String(invoiceMeta.rows[0].created_by)
+        : null;
     if (!actorUserId || !invoiceMeta.rows[0]?.billing_account_id) {
       throw new AppError(400, "unknown_reference", "Unknown payment reference");
     }

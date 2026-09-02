@@ -99,6 +99,8 @@ export type PortalChild = {
   currentFormClassName: string | null;
   houseName?: string | null;
   school: PortalSchool;
+  photoObjectId?: string | null;
+  photoUrl?: string | null;
   guardianship?: {
     relationship: string;
     hasParentalResponsibility: boolean;

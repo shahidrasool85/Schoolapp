@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { Alert, DataTable, PageHeader } from "../../../../../components/ui";
+import { ProfileAvatar } from "../../../../../components/profile-avatar";
 import { api } from "../../../../../lib/api";
 import { userFacingError } from "../../../../../lib/errors";
 
@@ -11,6 +12,7 @@ type Code = { id: string; code: string; name: string; category: string };
 type Pupil = {
   studentProfileId: string;
   legalName: string;
+  photoUrl?: string | null;
   mark: { codeId: string; lateMinutes: number | null; reason: string | null } | null;
 };
 type Draft = Record<string, { codeId: string; lateMinutes: string; reason: string }>;
@@ -215,7 +217,12 @@ export default function ClassRegisterPage() {
             const value = draft[pupil.studentProfileId] ?? { codeId: "", lateMinutes: "", reason: "" };
             return (
               <tr key={pupil.studentProfileId}>
-                <td>{pupil.legalName}</td>
+                <td>
+                  <span className="name-with-avatar">
+                    <ProfileAvatar name={pupil.legalName} photoUrl={pupil.photoUrl} size="sm" />
+                    {pupil.legalName}
+                  </span>
+                </td>
                 <td>
                   <select
                     value={value.codeId}

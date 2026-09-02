@@ -38,6 +38,8 @@ import {
   StatusBadge,
   Tabs,
 } from "../../../../components/ui";
+import { ProfileAvatar } from "../../../../components/profile-avatar";
+import { ProfilePhotoEditor } from "../../../../components/profile-photo-editor";
 import { api, downloadAuthenticated } from "../../../../lib/api";
 import { userFacingError } from "../../../../lib/errors";
 import { clientUpnError } from "../../../../lib/upn";
@@ -81,6 +83,7 @@ type Detail = {
     currentFormClassName: string | null;
     currentAcademicYearId: string | null;
     currentAcademicYearName: string | null;
+    photoUrl?: string | null;
   };
   enrolments: Array<{
     id: string;
@@ -744,6 +747,13 @@ export default function StudentDetailPage() {
       {actionErrorMessage ? <Alert tone="danger">{actionErrorMessage}</Alert> : null}
       <PersonSummary
         name={data.student.preferredName || data.student.legalName}
+        photo={
+          <ProfileAvatar
+            name={data.student.preferredName || data.student.legalName}
+            photoUrl={data.student.photoUrl}
+            size="lg"
+          />
+        }
         meta={
           <>
             {data.student.currentYearGroupName ?? "No current year group"}
@@ -761,6 +771,18 @@ export default function StudentDetailPage() {
         {" · "}
         <a href="/school/student-portal">Student Portal policy</a>
       </p>
+      {canManagePupil ? (
+        <SectionCard title="Official pupil photo" description="Parents cannot overwrite this photo from the portal.">
+          <ProfilePhotoEditor
+            name={data.student.preferredName || data.student.legalName}
+            photoUrl={data.student.photoUrl}
+            uploadPath={`/api/v1/students/${data.student.id}/photo`}
+            deletePath={`/api/v1/students/${data.student.id}/photo`}
+            canEdit
+            onChanged={load}
+          />
+        </SectionCard>
+      ) : null}
       {studentLoginToken ? <InviteTokenAlert token={studentLoginToken} kind="activation" /> : null}
       {canManagePortal ? (
         <SectionCard title="Student Portal account" description="Policy is rechecked on every request. Passwords are never shown after this one-time token.">

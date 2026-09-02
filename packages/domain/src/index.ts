@@ -1666,3 +1666,19 @@ export type PupilMedicalChangeKind = (typeof PUPIL_MEDICAL_CHANGE_KINDS)[number]
 
 export const PUPIL_MEDICAL_VIEWS = ["full", "operational", "parent"] as const;
 export type PupilMedicalView = (typeof PUPIL_MEDICAL_VIEWS)[number];
+
+export {
+  PERSON_TITLES,
+  STAFF_SELF_EDITABLE_PROFILE_FIELDS,
+  PARENT_SELF_EDITABLE_PROFILE_FIELDS,
+  SCHOOL_CONTROLLED_STAFF_FIELDS,
+  SCHOOL_CONTROLLED_PARENT_FIELDS,
+  isPersonTitle,
+  displayPersonName,
+  profilePhotoUrl,
+  staffSelfCanEditField,
+  parentSelfCanEditField,
+  schoolControlledStaffField,
+  type PersonTitle,
+  type ProfileFieldKey,
+} from "./profiles.js";

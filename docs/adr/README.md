@@ -35,5 +35,6 @@ ADRs capture *why* we chose an approach. The narrative proposal is in [ARCHITECT
 | [0029](./0029-pupil-medication-dietary.md) | Structured pupil medication and dietary requirements, history, portal and teacher projections | Accepted |
 | [0030](./0030-phase20-onboarding.md) | Production school onboarding, branding, account lifecycle, mail port, and CSV import | Accepted |
 | [0031](./0031-transactional-email.md) | Central transactional email delivery, SMTP adapter, and mail_outbox retries | Accepted |
+| [0032](./0032-user-profiles-photos.md) | Canonical user/staff/parent profiles and tenant-safe profile photos | Accepted |
 
 Convention: one decision per file. If a decision is reversed, mark it **Superseded** and add a new ADR — do not silently edit history.

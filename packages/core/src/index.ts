@@ -1178,6 +1178,28 @@ export {
 export { globalSearch, type SearchHit } from "./search.js";
 
 export {
+  PROFILE_CONTACT_FIELDS,
+  USER_CONTACT_SELECT,
+  MEMBERSHIP_PHOTO_SELECT,
+  mapPersonContact,
+  ownEditableFields,
+  ownReadOnlyFields,
+  loadOwnProfile,
+  assertSelfCanEditContact,
+  applyOwnContactUpdate,
+  applyOrgUserContactUpdate,
+  setProfilePhotoPointer,
+  authorizeProfilePhotoDownload,
+  assertStudentCannotManageOfficialPhoto,
+  studentPhotoManagePermission,
+  staffPhotoManagePermission,
+  parentPhotoManagePermission,
+  type ProfileContactField,
+  type PersonContact,
+  type OwnProfile,
+} from "./profiles.js";
+
+export {
   renderFinancePdf,
   zipStoreFiles,
   financePdfFilename,

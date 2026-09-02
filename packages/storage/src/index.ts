@@ -50,7 +50,9 @@ export {
 export {
   readRasterImageSize,
   assertBrandingImageDimensions,
+  assertProfilePhotoDimensions,
   BRANDING_LIMITS,
+  PROFILE_PHOTO_LIMITS,
   type RasterImageSize,
   type BrandingImagePurpose,
 } from "./image-size.js";

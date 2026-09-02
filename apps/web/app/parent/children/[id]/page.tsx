@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, ApiError, downloadAuthenticated } from "../../../../lib/api";
 import { Alert, DataTable, EmptyState, LoadingState, PageError, PersonSummary, StatCard, StatusBadge, Tabs } from "../../../../components/ui";
+import { ProfileAvatar } from "../../../../components/profile-avatar";
 import { userFacingError } from "../../../../lib/errors";
 import type { ComingLater, PortalChild } from "../../../../lib/portal";
 
@@ -153,6 +154,7 @@ export default function ParentChildDetailPage() {
       {error ? <Alert tone="danger">{error}</Alert> : null}
       <PersonSummary
         name={child.displayName}
+        photo={<ProfileAvatar name={child.displayName} photoUrl={child.photoUrl} size="lg" />}
         meta={`${child.school.name}${child.currentYearGroupName ? ` · ${child.currentYearGroupName}` : ""}${
           child.currentFormClassName ? ` · ${child.currentFormClassName}` : ""
         }`}

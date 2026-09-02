@@ -11,7 +11,7 @@ import { assertSafeObjectKey, buildObjectKey, organisationIdFromKey } from "./ke
 import { sha256Hex } from "./checksum.js";
 import { NoopFileScanner } from "./scanner.js";
 import { detectFileKind, fileProfile, validateUpload } from "./validation.js";
-import { assertBrandingImageDimensions, readRasterImageSize } from "./image-size.js";
+import { assertBrandingImageDimensions, assertProfilePhotoDimensions, readRasterImageSize } from "./image-size.js";
 import { createObjectStorageFromEnv } from "./factory.js";
 
 const PNG_1X1 = Buffer.from(
@@ -155,6 +155,26 @@ describe("content validation", () => {
     ).toThrow(/too large/i);
   });
 
+  it("accepts JPEG/PNG/WebP for profile photos and rejects other types", () => {
+    const profile = fileProfile("profile_photo");
+    expect(
+      validateUpload({
+        filename: "me.png",
+        declaredMime: "image/png",
+        bytes: PNG_1X1,
+        profile,
+      }).kind,
+    ).toBe("png");
+    expect(() =>
+      validateUpload({
+        filename: "me.pdf",
+        declaredMime: "application/pdf",
+        bytes: PDF,
+        profile,
+      }),
+    ).toThrow(StorageError);
+  });
+
   it("accepts DOCX zip signatures for learning uploads", () => {
     const result = validateUpload({
       filename: "worksheet.docx",
@@ -189,6 +209,8 @@ describe("branding image dimensions", () => {
     expect(() =>
       assertBrandingImageDimensions({ bytes: pngHeader(8000, 800), kind: "png", purpose: "hero" }),
     ).toThrow(/6000/);
+    expect(() => assertProfilePhotoDimensions({ bytes: PNG_1X1, kind: "png" })).toThrow(/32/);
+    expect(() => assertProfilePhotoDimensions({ bytes: pngHeader(64, 64), kind: "png" })).not.toThrow();
   });
 });
 
@@ -312,5 +334,6 @@ function fileLimitsStub() {
     activity: 10 * 1024 * 1024,
     message: 10 * 1024 * 1024,
     branding: 5 * 1024 * 1024,
+    profile_photo: 2 * 1024 * 1024,
   };
 }

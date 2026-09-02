@@ -25,6 +25,7 @@ function staffPage(
 }
 
 export const STAFF_SEARCH_DESTINATIONS: readonly GlobalSearchDestination[] = [
+  staffPage("my-profile", "My profile", "/school/profile", ["profile", "my profile", "photo"]),
   staffPage("term-dates", "Term dates / Academic calendar", "/school/term-dates", [
     "term dates",
     "academic calendar",
@@ -115,6 +116,14 @@ export const PARENT_SEARCH_DESTINATIONS: readonly GlobalSearchDestination[] = [
     portal: "parent",
   },
   {
+    id: "parent-profile",
+    group: "pages",
+    title: "My profile",
+    href: "/parent/account",
+    keywords: ["profile", "account", "photo"],
+    portal: "parent",
+  },
+  {
     id: "parent-payments",
     group: "pages",
     title: "Other payments",
@@ -148,6 +157,14 @@ export const STUDENT_SEARCH_DESTINATIONS: readonly GlobalSearchDestination[] = [
     title: "My Learning",
     href: "/student/learning",
     keywords: ["learning", "homework"],
+    portal: "student",
+  },
+  {
+    id: "student-profile",
+    group: "pages",
+    title: "My profile",
+    href: "/student/profile",
+    keywords: ["profile", "photo"],
     portal: "student",
   },
 ];

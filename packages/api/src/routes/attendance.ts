@@ -494,6 +494,7 @@ export function registerAttendanceRoutes(app: SchoolappApi) {
            sp.id as student_profile_id,
            sp.legal_name,
            u.preferred_name,
+           photo_m.profile_photo_stored_object_id,
            am.id as mark_id,
            am.attendance_code_id,
            ac.code,
@@ -511,6 +512,10 @@ export function registerAttendanceRoutes(app: SchoolappApi) {
          from class_memberships cm
          join student_profiles sp on sp.id = cm.student_profile_id
          left join users u on u.id = sp.user_id
+         left join organisation_memberships photo_m
+           on photo_m.user_id = sp.user_id
+          and photo_m.organisation_id = cm.organisation_id
+          and photo_m.ended_at is null
          left join attendance_marks am
            on am.student_profile_id = sp.id
           and am.organisation_id = cm.organisation_id
@@ -534,6 +539,10 @@ export function registerAttendanceRoutes(app: SchoolappApi) {
           studentProfileId: row.student_profile_id,
           legalName: row.legal_name,
           preferredName: row.preferred_name ?? null,
+          photoObjectId: row.profile_photo_stored_object_id ?? null,
+          photoUrl: row.profile_photo_stored_object_id
+            ? `/api/v1/files/${row.profile_photo_stored_object_id}`
+            : null,
           mark: row.mark_id
             ? mapAttendanceMark(
                 {

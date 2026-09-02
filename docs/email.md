@@ -33,7 +33,7 @@ Live sending requires **all** of:
 - `SMTP_HOST` (or `SMTP_URL`)
 - `EMAIL_FROM_ADDRESS`
 
-Otherwise messages stay in `mail_outbox` as `queued` and are written to logs (`log` mode) or a fake provider (`test` mode). Automated tests inject `FakeEmailProvider` and must never use live SMTP. When `EMAIL_FROM_ADDRESS` is unset, log-mode uses the sanitizable fallback `notifications@luvlearn.test` so first deploy does not permanently fail and wipe invite/reset `action_url`.
+Otherwise messages stay in `mail_outbox` as `queued` and are written to logs (`log` mode) or a fake provider (`test` mode). Automated tests inject `FakeEmailProvider` and must never use live SMTP. When `EMAIL_FROM_ADDRESS` is unset, **log/none** mode uses the sanitizable fallback `notifications@luvlearn.test` so first deploy does not permanently fail and wipe invite/reset `action_url`. **Live** SMTP does not use that fallback: a missing or invalid From stays unconfigured, delivery is retryable, and `action_url` is kept.
 
 Never commit secrets. Never log `SMTP_PASSWORD`, `SMTP_USERNAME`, or raw invite/reset tokens.
 

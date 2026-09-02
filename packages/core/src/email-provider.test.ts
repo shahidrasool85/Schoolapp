@@ -132,6 +132,37 @@ describe("email provider abstraction", () => {
     ).not.toThrow();
   });
 
+  it("does not send live SMTP from the log-mode fallback address", () => {
+    const liveMissing = emailConfigFromEnv({
+      EMAIL_PROVIDER: "smtp",
+      EMAIL_DELIVERY_MODE: "live",
+      SMTP_HOST: "smtp.example.test",
+    });
+    expect(liveEmailSendingEnabled(liveMissing)).toBe(false);
+    expect(createEmailDeliveryProvider(liveMissing).key).toBe("log");
+    expect(() => platformFromAddress(liveMissing)).toThrow(EmailDeliveryError);
+
+    const liveInvalid = emailConfigFromEnv({
+      EMAIL_PROVIDER: "smtp",
+      EMAIL_DELIVERY_MODE: "live",
+      EMAIL_FROM_ADDRESS: "not-an-email",
+      SMTP_HOST: "smtp.example.test",
+    });
+    expect(parseSafeEmailAddress(liveInvalid.fromAddress)).toBeNull();
+    expect(liveEmailSendingEnabled(liveInvalid)).toBe(false);
+    expect(createEmailDeliveryProvider(liveInvalid).key).toBe("log");
+    expect(() => platformFromAddress(liveInvalid)).toThrow(/EMAIL_FROM_ADDRESS/);
+
+    const liveDisplay = emailConfigFromEnv({
+      EMAIL_PROVIDER: "smtp",
+      EMAIL_DELIVERY_MODE: "live",
+      EMAIL_FROM_ADDRESS: "LuvLearn <notifications@luvlearn.example>",
+      SMTP_HOST: "smtp.example.test",
+    });
+    expect(platformFromAddress(liveDisplay).address).toBe("notifications@luvlearn.example");
+    expect(liveEmailSendingEnabled(liveDisplay)).toBe(true);
+  });
+
   it("formats school-aware from names on the platform domain", () => {
     const from = platformFromAddress(
       emailConfigFromEnv({

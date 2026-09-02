@@ -2268,7 +2268,7 @@ export async function loadBillingRun(client: Client, organisationId: string, bil
         studentProfileId: String(item.studentProfileId),
         billingAccountId: item.billingAccountId ? String(item.billingAccountId) : null,
         netAmountMinor: item.netAmountMinor,
-        error: item.error,
+        error: item.error == null ? null : String(item.error),
       })),
     ),
   };

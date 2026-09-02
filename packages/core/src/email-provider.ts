@@ -79,7 +79,7 @@ export function parseSafeEmailAddress(value: string | null | undefined): string 
   if (!value) return null;
   const cleaned = sanitizeMailHeaderValue(value, 254).trim();
   const display = cleaned.match(/^([^<>@]*)<([^<>]+)>$/);
-  const candidate = (display ? display[2] : cleaned).replace(/[<>"]/g, "").trim();
+  const candidate = (display?.[2] ?? cleaned).replace(/[<>"]/g, "").trim();
   if (
     !EMAIL_ADDRESS_PATTERN.test(candidate) ||
     candidate.length > 254 ||

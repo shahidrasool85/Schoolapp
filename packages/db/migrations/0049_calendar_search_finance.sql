@@ -229,6 +229,72 @@ create unique index if not exists school_payment_receipts_invoice_payment_uidx
   on school_payment_receipts (invoice_payment_id)
   where invoice_payment_id is not null;
 
+-- Invoice checkout/receipts have a nullable charge_id. The Phase 15 same-org
+-- trigger required a matching school_charges row; that blocked invoice payments.
+create or replace function school_finance_same_org_tg()
+returns trigger
+language plpgsql
+as $$
+begin
+  if tg_table_name = 'school_charges' then
+    if not exists (
+      select 1 from student_profiles s
+      where s.id = new.student_profile_id and s.organisation_id = new.organisation_id
+    ) then
+      raise exception 'organisation_mismatch' using errcode = '23514';
+    end if;
+    if not exists (
+      select 1 from school_charge_categories c
+      where c.id = new.category_id and c.organisation_id = new.organisation_id
+    ) then
+      raise exception 'organisation_mismatch' using errcode = '23514';
+    end if;
+    if new.activity_id is not null and not exists (
+      select 1 from school_activities a
+      where a.id = new.activity_id and a.organisation_id = new.organisation_id
+    ) then
+      raise exception 'organisation_mismatch' using errcode = '23514';
+    end if;
+    if new.academic_year_id is not null and not exists (
+      select 1 from academic_years y
+      where y.id = new.academic_year_id and y.organisation_id = new.organisation_id
+    ) then
+      raise exception 'organisation_mismatch' using errcode = '23514';
+    end if;
+  elsif tg_table_name in ('school_charge_adjustments', 'school_payment_refunds') then
+    if not exists (
+      select 1 from school_charges c
+      where c.id = new.charge_id and c.organisation_id = new.organisation_id
+    ) then
+      raise exception 'organisation_mismatch' using errcode = '23514';
+    end if;
+  elsif tg_table_name in (
+    'school_payment_transactions',
+    'school_payment_sessions',
+    'school_payment_receipts'
+  ) then
+    if new.charge_id is not null then
+      if not exists (
+        select 1 from school_charges c
+        where c.id = new.charge_id and c.organisation_id = new.organisation_id
+      ) then
+        raise exception 'organisation_mismatch' using errcode = '23514';
+      end if;
+    elsif new.invoice_id is not null then
+      if not exists (
+        select 1 from school_invoices i
+        where i.id = new.invoice_id and i.organisation_id = new.organisation_id
+      ) then
+        raise exception 'organisation_mismatch' using errcode = '23514';
+      end if;
+    else
+      raise exception 'organisation_mismatch' using errcode = '23514';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
 -- OUT columns changed (invoice_id). PostgreSQL cannot CREATE OR REPLACE
 -- a function when the row type defined by OUT parameters differs.
 drop function if exists resolve_payment_provider_session(text, text);
@@ -482,44 +548,48 @@ where ay.name in ('2026/27', '2026-27')
   );
 
 -- Good Friday 26 Mar 2027 sits after Spring term end; record it as a calendar
--- closure without extending the teaching term.
-insert into school_events (
-  organisation_id, title, description, event_type_id, starts_at, ends_at, all_day,
-  status, publish_at, published_at, related_kind, related_id, created_by, published_by
+-- closure without extending the teaching term. Events must be inserted as
+-- draft, then published (school_events_write_tg).
+with inserted as (
+  insert into school_events (
+    organisation_id, title, description, event_type_id, starts_at, ends_at, all_day,
+    related_kind, related_id, created_by
+  )
+  select
+    ay.organisation_id,
+    'Good Friday',
+    'Non-teaching day. Falls after Spring Term 2027 ends.',
+    st.id,
+    timestamptz '2027-03-26 00:00:00+00',
+    timestamptz '2027-03-26 23:59:59+00',
+    true,
+    'academic_year',
+    ay.id,
+    actor.user_id
+  from academic_years ay
+  join school_event_types st
+    on st.organisation_id = ay.organisation_id and st.key = 'bank_holiday'
+  join lateral (
+    select m.user_id
+      from organisation_memberships m
+     where m.organisation_id = ay.organisation_id
+       and m.status = 'active'
+     order by m.created_at
+     limit 1
+  ) actor on true
+  where ay.name in ('2026/27', '2026-27')
+    and ay.starts_on = date '2026-09-07'
+    and ay.ends_on = date '2027-07-09'
+    and not exists (
+      select 1
+        from school_events se
+       where se.organisation_id = ay.organisation_id
+         and se.title = 'Good Friday'
+         and se.starts_at::date = date '2027-03-26'
+    )
+  returning id
 )
-select
-  ay.organisation_id,
-  'Good Friday',
-  'Non-teaching day. Falls after Spring Term 2027 ends.',
-  st.id,
-  timestamptz '2027-03-26 00:00:00+00',
-  timestamptz '2027-03-26 23:59:59+00',
-  true,
-  'published',
-  now(),
-  now(),
-  'academic_year',
-  ay.id,
-  actor.user_id,
-  actor.user_id
-from academic_years ay
-join school_event_types st
-  on st.organisation_id = ay.organisation_id and st.key = 'bank_holiday'
-join lateral (
-  select m.user_id
-    from organisation_memberships m
-   where m.organisation_id = ay.organisation_id
-     and m.status = 'active'
-   order by m.created_at
-   limit 1
-) actor on true
-where ay.name in ('2026/27', '2026-27')
-  and ay.starts_on = date '2026-09-07'
-  and ay.ends_on = date '2027-07-09'
-  and not exists (
-    select 1
-      from school_events se
-     where se.organisation_id = ay.organisation_id
-       and se.title = 'Good Friday'
-       and se.starts_at::date = date '2027-03-26'
-  );
+update school_events e
+   set status = 'published'
+  from inserted
+ where e.id = inserted.id;

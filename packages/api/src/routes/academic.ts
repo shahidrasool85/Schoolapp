@@ -642,9 +642,9 @@ export function registerAcademicRoutes(app: SchoolappApi) {
       const inserted = await client.query(
         `insert into school_events (
            organisation_id, title, description, event_type_id, starts_at, ends_at, all_day,
-           status, publish_at, published_at, related_kind, related_id, created_by, published_by
-         ) values ($1,$2,$3,$4,$5,$6,true,'published', now(), now(), 'academic_year', $7, $8, $8)
-         returning id, title, description, starts_at::date::text as starts_on, ends_at::date::text as ends_on`,
+           related_kind, related_id, created_by
+         ) values ($1,$2,$3,$4,$5,$6,true,'academic_year', $7, $8)
+         returning id`,
         [
           orgId,
           parsed.data.title,
@@ -655,6 +655,13 @@ export function registerAcademicRoutes(app: SchoolappApi) {
           year.id,
           userId,
         ],
+      );
+      const published = await client.query(
+        `update school_events
+            set status = 'published'
+          where id = $1 and organisation_id = $2
+          returning id, title, description, starts_at::date::text as starts_on, ends_at::date::text as ends_on`,
+        [inserted.rows[0]!.id, orgId],
       );
       await writeAudit(client, {
         organisationId: orgId,
@@ -667,7 +674,7 @@ export function registerAcademicRoutes(app: SchoolappApi) {
       return c.json(
         {
           closure: mapAcademicClosure({
-            ...inserted.rows[0],
+            ...published.rows[0],
             event_type_key: eventTypeKey,
           }),
         },

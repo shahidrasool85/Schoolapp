@@ -1083,7 +1083,8 @@ async function loadEligiblePupils(
   client: Client,
   organisationId: string,
   academicYearId: string,
-  asOf: string,
+  periodStart: string,
+  periodEnd: string,
 ): Promise<EligiblePupil[]> {
   const rows = await client.query(
     `select sp.id as student_profile_id,
@@ -1113,11 +1114,11 @@ async function loadEligiblePupils(
         and se.academic_year_id = $2
         and se.is_primary
         and se.status in ('planned', 'enrolled')
-        and se.started_on <= $3::date
+        and se.started_on <= $4::date
         and (se.ended_on is null or se.ended_on >= $3::date)
         and sp.enrolment_status in ('admitted', 'enrolled')
       order by yg.sort_order, sp.legal_name, sp.id`,
-    [organisationId, academicYearId, asOf],
+    [organisationId, academicYearId, periodStart, periodEnd],
   );
   return rows.rows.map((row) => ({
     studentProfileId: String(row.student_profile_id),
@@ -1141,7 +1142,8 @@ async function resolveFeeSchedule(
   organisationId: string,
   pupil: EligiblePupil,
   academicYearId: string,
-  asOf: string,
+  periodStart: string,
+  periodEnd: string,
   requiredScheduleId?: string,
 ) {
   if (requiredScheduleId && pupil.feeScheduleId && pupil.feeScheduleId !== requiredScheduleId) {
@@ -1151,9 +1153,9 @@ async function resolveFeeSchedule(
     const assigned = await client.query(
       `select * from school_fee_schedules
         where id = $1 and organisation_id = $2 and is_active
-          and effective_from <= $3::date
+          and effective_from <= $4::date
           and (effective_until is null or effective_until >= $3::date)`,
-      [pupil.feeScheduleId, organisationId, asOf],
+      [pupil.feeScheduleId, organisationId, periodStart, periodEnd],
     );
     if (assigned.rows[0]) {
       if (requiredScheduleId && String(assigned.rows[0].id) !== requiredScheduleId) return null;
@@ -1165,7 +1167,7 @@ async function resolveFeeSchedule(
       where organisation_id = $1
         and academic_year_id = $2
         and is_active
-        and effective_from <= $3::date
+        and effective_from <= $7::date
         and (effective_until is null or effective_until >= $3::date)
         and ($6::uuid is null or id = $6)
         and (
@@ -1179,7 +1181,7 @@ async function resolveFeeSchedule(
              else 2 end,
         name
       limit 1`,
-    [organisationId, academicYearId, asOf, pupil.classId, pupil.yearGroupId, requiredScheduleId ?? null],
+    [organisationId, academicYearId, periodStart, pupil.classId, pupil.yearGroupId, requiredScheduleId ?? null, periodEnd],
   );
   return (rows.rows[0] as Record<string, unknown> | undefined) ?? null;
 }
@@ -1380,7 +1382,13 @@ export async function quotePupilTuition(
   },
 ): Promise<PupilFeeQuote[]> {
   const settings = await loadFinanceSettings(client, input.organisationId);
-  const pupils = await loadEligiblePupils(client, input.organisationId, input.academicYearId, input.periodStart);
+  const pupils = await loadEligiblePupils(
+    client,
+    input.organisationId,
+    input.academicYearId,
+    input.periodStart,
+    input.periodEnd,
+  );
   const selected = input.studentProfileId
     ? pupils.filter((pupil) => pupil.studentProfileId === input.studentProfileId)
     : pupils;
@@ -1394,6 +1402,7 @@ export async function quotePupilTuition(
       pupil,
       input.academicYearId,
       input.periodStart,
+      input.periodEnd,
       input.feeScheduleId,
     );
     if (!schedule) {
@@ -2269,7 +2278,9 @@ export async function createInvoiceCredit(
     }
     const remainingAgainstInvoice =
       Number(invoice.total_minor) - Number(invoice.credit_total_minor ?? 0);
-    if (input.amountMinor > remainingAgainstInvoice) {
+    const outstanding = Number(invoice.outstanding_minor);
+    const cap = input.kind === "refund" ? remainingAgainstInvoice : outstanding;
+    if (input.amountMinor > cap) {
       throw new AppError(
         409,
         "credit_exceeds_outstanding",
@@ -2940,7 +2951,7 @@ export async function createInvoiceReceipt(
     `insert into school_payment_receipts (
        organisation_id, charge_id, invoice_id, invoice_payment_id, transaction_id, reference, snapshot
      ) values ($1,null,$2,$3,$4,$5,$6::jsonb)
-     on conflict (transaction_id) do nothing`,
+     on conflict (organisation_id, reference) do nothing`,
     [
       input.organisationId,
       input.invoiceId,

@@ -403,7 +403,7 @@ async function assertNoOverlappingActiveFeeSchedule(
   const existing = await client.query<{ id: string }>(
     `select s.id
        from school_fee_schedules s
-      where s.organisation_id = $1`
+      where s.organisation_id = $1
         and s.academic_year_id = $2
         and s.is_active
         and s.billing_frequency = $3

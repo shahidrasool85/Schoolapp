@@ -494,8 +494,10 @@ describe("Finance UAT hotfix", () => {
 
     await withTenantContext(pools.app, school.adminId, school.orgId, async (client) => {
       await client.query(
-        `update student_enrolments set ended_on = $2 where student_profile_id = $1 and is_primary`,
-        [pupil.student.id, "2026-08-31"],
+        `update student_enrolments
+            set started_on = $2, ended_on = $3
+          where student_profile_id = $1 and is_primary`,
+        [pupil.student.id, "2026-08-01", "2026-08-31"],
       );
     });
     const leftBefore = await json<{

@@ -77,17 +77,19 @@ export function sanitizeMailHeaderValue(value: string, max = 200): string {
 
 export function parseSafeEmailAddress(value: string | null | undefined): string | null {
   if (!value) return null;
-  const cleaned = sanitizeMailHeaderValue(value, 254).replace(/[<>"]/g, "");
+  const cleaned = sanitizeMailHeaderValue(value, 254).trim();
+  const display = cleaned.match(/^([^<>@]*)<([^<>]+)>$/);
+  const candidate = (display?.[2] ?? cleaned).replace(/[<>"]/g, "").trim();
   if (
-    !EMAIL_ADDRESS_PATTERN.test(cleaned) ||
-    cleaned.length > 254 ||
-    cleaned.includes("..") ||
-    cleaned.startsWith(".") ||
-    cleaned.includes("@.")
+    !EMAIL_ADDRESS_PATTERN.test(candidate) ||
+    candidate.length > 254 ||
+    candidate.includes("..") ||
+    candidate.startsWith(".") ||
+    candidate.includes("@.")
   ) {
     return null;
   }
-  return cleaned;
+  return candidate;
 }
 
 export function requireSafeEmailAddress(
@@ -178,7 +180,7 @@ export function createEmailDeliveryProvider(
   if (config.deliveryMode !== "live" || config.providerKey !== "smtp") {
     return new LogEmailProvider();
   }
-  if (!config.smtp.host || !config.fromAddress) {
+  if (!config.smtp.host || !parseSafeEmailAddress(config.fromAddress)) {
     return new LogEmailProvider();
   }
   return new SmtpEmailProvider(config);
@@ -196,7 +198,7 @@ export function liveEmailSendingEnabled(config: EmailRuntimeConfig): boolean {
   return (
     config.deliveryMode === "live" &&
     config.providerKey === "smtp" &&
-    Boolean(config.smtp.host && config.fromAddress)
+    Boolean(config.smtp.host && parseSafeEmailAddress(config.fromAddress))
   );
 }
 
@@ -242,7 +244,7 @@ export class SmtpEmailProvider implements EmailDeliveryProvider {
   readonly canSend: boolean;
 
   constructor(private readonly config: EmailRuntimeConfig) {
-    this.canSend = Boolean(config.smtp.host && config.fromAddress);
+    this.canSend = Boolean(config.smtp.host && parseSafeEmailAddress(config.fromAddress));
   }
 
   async send(input: EmailSendInput): Promise<EmailSendResult> {
@@ -295,7 +297,7 @@ export function formatAddress(input: EmailAddress): string {
   return `"${name.replace(/"/g, "")}" <${address}>`;
 }
 
-/** Valid fallback used only when EMAIL_FROM_ADDRESS is unset (log/none first deploy). */
+/** Valid fallback used only when EMAIL_FROM_ADDRESS is unset in log/none/test mode. */
 export const LOG_MODE_FROM_ADDRESS = "notifications@luvlearn.test";
 
 export function platformFromAddress(
@@ -303,6 +305,13 @@ export function platformFromAddress(
   schoolName?: string | null,
 ): EmailAddress {
   const configured = parseSafeEmailAddress(config.fromAddress);
+  if (!configured && config.deliveryMode === "live") {
+    throw new EmailDeliveryError(
+      "retryable",
+      "provider_unconfigured",
+      "EMAIL_FROM_ADDRESS is missing or invalid",
+    );
+  }
   const address = configured ?? LOG_MODE_FROM_ADDRESS;
   const school = schoolName ? sanitizeMailHeaderValue(schoolName, 120) : "";
   const name = school ? `${school} via ${sanitizeMailHeaderValue(config.fromName, 80)}` : config.fromName;

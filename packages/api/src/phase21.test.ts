@@ -335,8 +335,9 @@ describe("Phase 21 independent school fees", () => {
       body: JSON.stringify({
         name: "Edited later",
         academicYearId: seeded.yearId,
+        yearGroupId: seeded.year5Id,
         amountMinor: 99999,
-        billingFrequency: "monthly",
+        billingFrequency: "termly",
         effectiveFrom: "2026-09-01",
       }),
     });

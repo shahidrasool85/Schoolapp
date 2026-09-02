@@ -4,6 +4,9 @@ import {
   defaultRecurrenceEffectiveFrom,
   effectiveFromBeforeAcademicYear,
   feeScheduleAnnualMatchesInstalments,
+  feeScheduleCreateSummary,
+  feeScheduleInstalmentPlan,
+  formatGbpMinor,
   parseGbpPoundsToMinor,
   resetFormSafely,
   shouldOfferAcademicYearCreate,
@@ -159,6 +162,31 @@ describe("fee schedule amounts", () => {
         annualAmountMinor: null,
       }).ok,
     ).toBe(true);
+    expect(feeScheduleInstalmentPlan(1000, 3)).toEqual({
+      ok: true,
+      amounts: [333, 333, 334],
+      regularMinor: 333,
+      finalMinor: 334,
+    });
+    expect(
+      feeScheduleAnnualMatchesInstalments({
+        amountMinor: 333,
+        instalmentCount: 3,
+        annualAmountMinor: 1000,
+      }).ok,
+    ).toBe(true);
+    expect(feeScheduleCreateSummary({ annualMinor: 600000, instalmentCount: 10 })).toEqual({
+      ok: true,
+      text: `10 instalments × ${formatGbpMinor(60000)} = ${formatGbpMinor(600000)} total`,
+      roundingNote: null,
+      amountPerInstalmentMinor: 60000,
+    });
+    const uneven = feeScheduleCreateSummary({ annualMinor: 1000, instalmentCount: 3 });
+    expect(uneven.ok).toBe(true);
+    if (uneven.ok) {
+      expect(uneven.amountPerInstalmentMinor).toBe(333);
+      expect(uneven.roundingNote).toMatch(/final instalment/i);
+    }
   });
 });
 

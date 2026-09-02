@@ -652,12 +652,12 @@ describe("Timetable calendar finance UAT hotfix", () => {
       method: "POST",
       headers: hdrs,
       body: JSON.stringify({
-        name: "Year 3 monthly no annual",
+        name: "Year 3 annual no overlap frequency",
         academicYearId: structure.yearId,
         yearGroupId: structure.year3Id,
-        amountMinor: 200000,
-        billingFrequency: "monthly",
-        instalmentCount: 10,
+        amountMinor: 2000000,
+        billingFrequency: "annual",
+        instalmentCount: 1,
         effectiveFrom: "2026-09-03",
       }),
     });
@@ -667,7 +667,7 @@ describe("Timetable calendar finance UAT hotfix", () => {
       await app.request("/api/v1/finance/fee-schedules", { headers: hdrs }),
     );
     expect(listed.schedules.some((schedule) => schedule.name === "Year 3 monthly")).toBe(true);
-    expect(listed.schedules.some((schedule) => schedule.name === "Year 3 monthly no annual")).toBe(true);
+    expect(listed.schedules.some((schedule) => schedule.name === "Year 3 annual no overlap frequency")).toBe(true);
   });
 
   it("does not recreate an existing academic year in setup, still creates the first year, and manages terms", async () => {

@@ -3,6 +3,8 @@ import {
   PERMISSIONS,
   STAFF_ROLE_KEYS,
   feeScheduleAnnualMatchesInstalments,
+  feeScheduleInstalmentPlan,
+  overlappingActiveFeeScheduleMessage,
   statementPeriodRange,
   type Actor,
   type SchoolBillingFrequency,
@@ -39,6 +41,7 @@ import {
   arrearsBucket,
   asIsoDate,
   billingPeriodKey,
+  billingRunItemSignature,
   daysOverdue,
   deriveInvoiceStatus,
   invoiceOutstandingMinor,
@@ -52,6 +55,7 @@ import {
   isSchoolSiblingOrderMode,
   isSchoolStaffChildScope,
   orderSiblings,
+  resolveCurrentBillingPeriod,
   splitAnnualIntoInstalments,
   type AppliedDiscount,
   type DiscountCandidate,
@@ -278,7 +282,13 @@ export async function updateFinanceSettings(
 export async function listFeeSchedules(client: Client, organisationId: string, academicYearId?: string) {
   const rows = await client.query(
     `select s.*, y.name as academic_year_name, g.name as year_group_name, g.code as year_group_code,
-            c.name as class_name
+            c.name as class_name,
+            (select count(distinct l.invoice_id)::text
+               from school_invoice_lines l
+              where l.organisation_id = s.organisation_id and l.fee_schedule_id = s.id) as invoice_count,
+            (select count(distinct i.billing_run_id)::text
+               from school_billing_run_items i
+              where i.organisation_id = s.organisation_id and i.fee_schedule_id = s.id) as billing_run_count
        from school_fee_schedules s
        join academic_years y on y.id = s.academic_year_id
        left join year_groups g on g.id = s.year_group_id
@@ -288,10 +298,18 @@ export async function listFeeSchedules(client: Client, organisationId: string, a
       order by y.starts_on desc, g.sort_order nulls last, s.name`,
     [organisationId, academicYearId ?? null],
   );
-  return rows.rows.map(mapFeeSchedule);
+  const schedules = rows.rows.map((row) => mapFeeSchedule(row as Record<string, unknown>));
+  return attachFeeScheduleOverlapWarnings(schedules);
 }
 
 function mapFeeSchedule(row: Record<string, unknown>) {
+  const invoiceCount = row.invoice_count == null ? null : Number(row.invoice_count);
+  const billingRunCount = row.billing_run_count == null ? null : Number(row.billing_run_count);
+  const isActive = Boolean(row.is_active);
+  const effectiveUntil = row.effective_until ?? null;
+  const hasInvoices = (invoiceCount ?? 0) > 0;
+  const usedInBillingRun = (billingRunCount ?? 0) > 0;
+  const unused = invoiceCount != null && billingRunCount != null && !hasInvoices && !usedInBillingRun;
   return {
     id: row.id,
     name: row.name,
@@ -307,12 +325,144 @@ function mapFeeSchedule(row: Record<string, unknown>) {
     currency: row.currency,
     billingFrequency: row.billing_frequency,
     instalmentCount: row.instalment_count == null ? null : Number(row.instalment_count),
-    effectiveFrom: row.effective_from,
-    effectiveUntil: row.effective_until ?? null,
-    isActive: row.is_active,
+    effectiveFrom: asIsoDate(row.effective_from),
+    effectiveUntil: effectiveUntil == null ? null : asIsoDate(effectiveUntil),
+    isActive,
     description: row.description ?? null,
     createdAt: row.created_at ?? null,
+    invoiceCount,
+    billingRunCount,
+    usage: {
+      unused,
+      usedInBillingRun,
+      hasInvoices,
+      ended: !isActive && effectiveUntil != null,
+      archived: !isActive && effectiveUntil == null,
+    },
+    overlapWarning: null as string | null,
+    overlappingScheduleIds: [] as string[],
   };
+}
+
+type MappedFeeSchedule = ReturnType<typeof mapFeeSchedule>;
+
+function attachFeeScheduleOverlapWarnings(schedules: MappedFeeSchedule[]): MappedFeeSchedule[] {
+  return schedules.map((schedule) => {
+    if (!schedule.isActive) return schedule;
+    const overlapping = schedules.filter(
+      (other) =>
+        other.id !== schedule.id &&
+        other.isActive &&
+        String(other.academicYearId) === String(schedule.academicYearId) &&
+        String(other.billingFrequency) === String(schedule.billingFrequency) &&
+        (other.yearGroupId ?? null) === (schedule.yearGroupId ?? null) &&
+        (other.classId ?? null) === (schedule.classId ?? null) &&
+        inclusiveDatesOverlap(
+          schedule.effectiveFrom,
+          schedule.effectiveUntil,
+          other.effectiveFrom,
+          other.effectiveUntil,
+        ),
+    );
+    if (overlapping.length === 0) return schedule;
+    const target = schedule.className
+      ? schedule.className
+      : schedule.yearGroupName
+        ? schedule.yearGroupName
+        : "this target";
+    return {
+      ...schedule,
+      overlapWarning: `Multiple active schedules overlap for ${target}.`,
+      overlappingScheduleIds: overlapping.map((row) => String(row.id)),
+    };
+  });
+}
+
+function inclusiveDatesOverlap(
+  startA: string,
+  endA: string | null,
+  startB: string,
+  endB: string | null,
+): boolean {
+  return startA <= (endB ?? "9999-12-31") && startB <= (endA ?? "9999-12-31");
+}
+
+async function assertNoOverlappingActiveFeeSchedule(
+  client: Client,
+  input: {
+    organisationId: string;
+    academicYearId: string;
+    yearGroupId?: string | null;
+    classId?: string | null;
+    billingFrequency: string;
+    effectiveFrom: string;
+    effectiveUntil?: string | null;
+    excludeScheduleId?: string;
+  },
+) {
+  const existing = await client.query<{ id: string }>(
+    `select s.id
+       from school_fee_schedules s
+      where s.organisation_id = $1`
+        and s.academic_year_id = $2
+        and s.is_active
+        and s.billing_frequency = $3
+        and s.year_group_id is not distinct from $4::uuid
+        and s.class_id is not distinct from $5::uuid
+        and ($6::uuid is null or s.id <> $6)
+        and s.effective_from <= $8::date
+        and (s.effective_until is null or s.effective_until >= $7::date)
+      limit 1`,
+    [
+      input.organisationId,
+      input.academicYearId,
+      input.billingFrequency,
+      input.yearGroupId ?? null,
+      input.classId ?? null,
+      input.excludeScheduleId ?? null,
+      input.effectiveFrom,
+      input.effectiveUntil ?? "9999-12-31",
+    ],
+  );
+  if (!existing.rows[0]) return;
+  throw new AppError(
+    409,
+    "fee_schedule_overlap",
+    overlappingActiveFeeScheduleMessage({
+      yearGroupId: input.yearGroupId,
+      classId: input.classId,
+    }),
+  );
+}
+
+function resolveFeeScheduleAmounts(input: {
+  amountMinor?: number | null;
+  annualAmountMinor?: number | null;
+  instalmentCount?: number | null;
+}): { amountMinor: number; annualAmountMinor: number | null; instalmentCount: number | null } {
+  const instalmentCount = input.instalmentCount ?? null;
+  const annualAmountMinor = input.annualAmountMinor ?? null;
+  if (input.amountMinor == null) {
+    if (annualAmountMinor == null || instalmentCount == null) {
+      throw new AppError(
+        400,
+        "validation_failed",
+        "Enter an annual tuition fee and the number of instalments, or an amount per instalment.",
+      );
+    }
+    const plan = feeScheduleInstalmentPlan(annualAmountMinor, instalmentCount);
+    if (!plan.ok) throw new AppError(400, "validation_failed", plan.error);
+    return { amountMinor: plan.regularMinor, annualAmountMinor, instalmentCount };
+  }
+  const annualCheck = feeScheduleAnnualMatchesInstalments({
+    amountMinor: input.amountMinor,
+    instalmentCount,
+    annualAmountMinor,
+  });
+  if (!annualCheck.ok) {
+    throw new AppError(400, "validation_failed", annualCheck.error, { fieldKey: "annualAmountMinor" });
+  }
+  return { amountMinor: input.amountMinor, annualAmountMinor, instalmentCount };
 }
 
 export async function createFeeSchedule(
@@ -324,7 +474,7 @@ export async function createFeeSchedule(
     academicYearId: string;
     yearGroupId?: string | null;
     classId?: string | null;
-    amountMinor: number;
+    amountMinor?: number | null;
     annualAmountMinor?: number | null;
     billingFrequency: string;
     instalmentCount?: number | null;
@@ -337,14 +487,20 @@ export async function createFeeSchedule(
   if (!isSchoolBillingFrequency(input.billingFrequency)) {
     throw new AppError(400, "validation_failed", "Invalid billing frequency");
   }
-  const annualCheck = feeScheduleAnnualMatchesInstalments({
+  const amounts = resolveFeeScheduleAmounts({
     amountMinor: input.amountMinor,
     instalmentCount: input.instalmentCount,
     annualAmountMinor: input.annualAmountMinor,
   });
-  if (!annualCheck.ok) {
-    throw new AppError(400, "validation_failed", annualCheck.error, { fieldKey: "annualAmountMinor" });
-  }
+  await assertNoOverlappingActiveFeeSchedule(client, {
+    organisationId: input.organisationId,
+    academicYearId: input.academicYearId,
+    yearGroupId: input.yearGroupId,
+    classId: input.classId,
+    billingFrequency: input.billingFrequency,
+    effectiveFrom: input.effectiveFrom,
+    effectiveUntil: input.effectiveUntil,
+  });
   const settings = await loadFinanceSettings(client, input.organisationId);
   const created = await client.query(
     `insert into school_fee_schedules (
@@ -359,11 +515,11 @@ export async function createFeeSchedule(
       input.academicYearId,
       input.yearGroupId ?? null,
       input.classId ?? null,
-      input.amountMinor,
-      input.annualAmountMinor ?? null,
+      amounts.amountMinor,
+      amounts.annualAmountMinor,
       settings.currency,
       input.billingFrequency,
-      input.instalmentCount ?? null,
+      amounts.instalmentCount,
       input.effectiveFrom,
       input.effectiveUntil ?? null,
       input.description ?? null,
@@ -394,7 +550,7 @@ export async function createFeeSchedule(
     action: "finance.fee_schedule.created",
     entityType: "school_fee_schedule",
     entityId: String(schedule.id),
-    after: { name: input.name, amountMinor: input.amountMinor, frequency: input.billingFrequency },
+    after: { name: input.name, amountMinor: amounts.amountMinor, frequency: input.billingFrequency },
   });
   return mapFeeSchedule(schedule);
 }
@@ -421,8 +577,48 @@ export async function updateFeeSchedule(
     input.organisationId,
   ]);
   if (!existing.rows[0]) notFound();
+  const current = existing.rows[0] as Record<string, unknown>;
   if (input.billingFrequency && !isSchoolBillingFrequency(input.billingFrequency)) {
     throw new AppError(400, "validation_failed", "Invalid billing frequency");
+  }
+  const nextAmountMinor = input.amountMinor ?? Number(current.amount_minor);
+  const nextAnnual =
+    input.annualAmountMinor === undefined
+      ? current.annual_amount_minor == null
+        ? null
+        : Number(current.annual_amount_minor)
+      : input.annualAmountMinor;
+  const nextInstalments =
+    input.instalmentCount === undefined
+      ? current.instalment_count == null
+        ? null
+        : Number(current.instalment_count)
+      : input.instalmentCount;
+  resolveFeeScheduleAmounts({
+    amountMinor: nextAmountMinor,
+    annualAmountMinor: nextAnnual,
+    instalmentCount: nextInstalments,
+  });
+  const nextActive = input.isActive ?? Boolean(current.is_active);
+  const nextFrom = input.effectiveFrom ?? asIsoDate(current.effective_from);
+  const nextUntil =
+    input.effectiveUntil === undefined
+      ? current.effective_until == null
+        ? null
+        : asIsoDate(current.effective_until)
+      : input.effectiveUntil;
+  const nextFrequency = input.billingFrequency ?? String(current.billing_frequency);
+  if (nextActive) {
+    await assertNoOverlappingActiveFeeSchedule(client, {
+      organisationId: input.organisationId,
+      academicYearId: String(current.academic_year_id),
+      yearGroupId: current.year_group_id ? String(current.year_group_id) : null,
+      classId: current.class_id ? String(current.class_id) : null,
+      billingFrequency: nextFrequency,
+      effectiveFrom: nextFrom,
+      effectiveUntil: nextUntil,
+      excludeScheduleId: input.scheduleId,
+    });
   }
   const updated = await client.query(
     `update school_fee_schedules
@@ -475,18 +671,23 @@ export async function loadFeeSchedule(client: Client, organisationId: string, sc
   );
   if (!rows.rows[0]) notFound();
   const lifecycle = await loadFeeScheduleLifecycle(client, organisationId, scheduleId);
-  return { schedule: mapFeeSchedule(rows.rows[0] as Record<string, unknown>), lifecycle };
+  const schedule = mapFeeSchedule({
+    ...(rows.rows[0] as Record<string, unknown>),
+    invoice_count: String(lifecycle.invoiceCount),
+    billing_run_count: String(lifecycle.billingRunCount),
+  });
+  return { schedule, lifecycle };
 }
 
 export async function loadFeeScheduleLifecycle(client: Client, organisationId: string, scheduleId: string) {
   const invoices = await client.query<{ n: string }>(
-    `select count(*)::text as n
+    `select count(distinct invoice_id)::text as n
        from school_invoice_lines
       where organisation_id = $1 and fee_schedule_id = $2`,
     [organisationId, scheduleId],
   );
-  const runItems = await client.query<{ n: string }>(
-    `select count(*)::text as n
+  const runItems = await client.query<{ n: string; runs: string }>(
+    `select count(*)::text as n, count(distinct billing_run_id)::text as runs
        from school_billing_run_items
       where organisation_id = $1 and fee_schedule_id = $2`,
     [organisationId, scheduleId],
@@ -498,16 +699,21 @@ export async function loadFeeScheduleLifecycle(client: Client, organisationId: s
     [organisationId, scheduleId],
   );
   const invoiceCount = Number(invoices.rows[0]?.n ?? 0);
-  const runCount = Number(runItems.rows[0]?.n ?? 0);
+  const runItemCount = Number(runItems.rows[0]?.n ?? 0);
+  const billingRunCount = Number(runItems.rows[0]?.runs ?? 0);
   const profileCount = Number(profiles.rows[0]?.n ?? 0);
-  const used = invoiceCount > 0 || runCount > 0;
+  const used = invoiceCount > 0 || runItemCount > 0;
   return {
     canDelete: !used && profileCount === 0,
     canArchive: true,
     canEnd: true,
     hasInvoices: invoiceCount > 0,
-    billingRunItemCount: runCount,
+    invoiceCount,
+    billingRunItemCount: runItemCount,
+    billingRunCount,
     pupilProfileCount: profileCount,
+    unused: !used && profileCount === 0,
+    usedInBillingRun: billingRunCount > 0,
     message: used
       ? "This fee schedule has generated invoices or billing run items. Archive or end it instead of deleting."
       : profileCount > 0
@@ -1071,6 +1277,7 @@ type EligiblePupil = {
   yearGroupName: string | null;
   yearGroupSort: number;
   classId: string | null;
+  className: string | null;
   enrolStart: string;
   enrolEnd: string | null;
   enrolmentStatus: string;
@@ -1079,6 +1286,18 @@ type EligiblePupil = {
   overrideAmountMinor: number | null;
 };
 
+/**
+ * Canonical fee-schedule applicability for a billing period:
+ * - the pupil's primary enrolment overlaps the period
+ *   (started_on <= periodEnd AND (ended_on is null OR ended_on >= periodStart))
+ * - enrolment academic year matches the schedule academic year
+ * - enrolment is planned/enrolled and the pupil is admitted/enrolled
+ * - the schedule is active and its effective dates overlap the period
+ * - the schedule target matches class, otherwise year group, otherwise whole school,
+ *   unless the pupil has an assigned fee schedule
+ *
+ * Billing preview and pupil finance both call quotePupilTuition, which uses this rule.
+ */
 async function loadEligiblePupils(
   client: Client,
   organisationId: string,
@@ -1094,6 +1313,7 @@ async function loadEligiblePupils(
             yg.name as year_group_name,
             yg.sort_order as year_group_sort,
             cm.class_id,
+            cl.name as class_name,
             se.started_on::text as enrol_start,
             se.ended_on::text as enrol_end,
             se.status as enrolment_status,
@@ -1108,6 +1328,7 @@ async function loadEligiblePupils(
          on cm.student_profile_id = sp.id
         and cm.academic_year_id = se.academic_year_id
         and cm.ended_on is null
+       left join classes cl on cl.id = cm.class_id
        left join school_pupil_fee_profiles p
          on p.student_profile_id = sp.id and p.organisation_id = se.organisation_id
       where se.organisation_id = $1
@@ -1128,6 +1349,7 @@ async function loadEligiblePupils(
     yearGroupName: row.year_group_name ? String(row.year_group_name) : null,
     yearGroupSort: Number(row.year_group_sort ?? 0),
     classId: row.class_id ? String(row.class_id) : null,
+    className: row.class_name ? String(row.class_name) : null,
     enrolStart: String(row.enrol_start),
     enrolEnd: row.enrol_end ? String(row.enrol_end) : null,
     enrolmentStatus: String(row.enrolment_status),
@@ -1353,9 +1575,16 @@ export type PupilFeeQuote = {
   studentProfileId: string;
   legalName: string;
   yearGroupName: string | null;
+  className: string | null;
   feeScheduleId: string | null;
   feeScheduleName: string | null;
   billingFrequency: string | null;
+  annualAmountMinor: number | null;
+  instalmentNumber: number | null;
+  instalmentCount: number | null;
+  amountPerInstalmentMinor: number | null;
+  periodStart: string;
+  periodEnd: string;
   siblingPosition: number | null;
   standardAmountMinor: number;
   appliedDiscounts: AppliedDiscount[];
@@ -1367,6 +1596,62 @@ export type PupilFeeQuote = {
   error: string | null;
   calculation: Record<string, unknown>;
 };
+
+function quoteScheduleFields(
+  schedule: Record<string, unknown>,
+  instalmentNumber: number | null,
+): Pick<
+  PupilFeeQuote,
+  | "feeScheduleId"
+  | "feeScheduleName"
+  | "billingFrequency"
+  | "annualAmountMinor"
+  | "instalmentNumber"
+  | "instalmentCount"
+  | "amountPerInstalmentMinor"
+> {
+  return {
+    feeScheduleId: String(schedule.id),
+    feeScheduleName: String(schedule.name),
+    billingFrequency: String(schedule.billing_frequency),
+    annualAmountMinor: schedule.annual_amount_minor == null ? null : Number(schedule.annual_amount_minor),
+    instalmentNumber,
+    instalmentCount: schedule.instalment_count == null ? null : Number(schedule.instalment_count),
+    amountPerInstalmentMinor: Number(schedule.amount_minor),
+  };
+}
+
+function emptyQuote(
+  pupil: EligiblePupil,
+  input: { periodStart: string; periodEnd: string; currency: string },
+  extras: Partial<PupilFeeQuote> & { calculation: Record<string, unknown> },
+): PupilFeeQuote {
+  return {
+    studentProfileId: pupil.studentProfileId,
+    legalName: pupil.legalName,
+    yearGroupName: pupil.yearGroupName,
+    className: pupil.className,
+    feeScheduleId: null,
+    feeScheduleName: null,
+    billingFrequency: null,
+    annualAmountMinor: null,
+    instalmentNumber: null,
+    instalmentCount: null,
+    amountPerInstalmentMinor: null,
+    periodStart: input.periodStart,
+    periodEnd: input.periodEnd,
+    siblingPosition: null,
+    standardAmountMinor: 0,
+    appliedDiscounts: [],
+    discardedDiscounts: [],
+    discountTotalMinor: 0,
+    netAmountMinor: 0,
+    currency: input.currency,
+    warning: null,
+    error: null,
+    ...extras,
+  };
+}
 
 export async function quotePupilTuition(
   client: Client,
@@ -1405,28 +1690,18 @@ export async function quotePupilTuition(
       input.periodEnd,
       input.feeScheduleId,
     );
+    const period = { periodStart: input.periodStart, periodEnd: input.periodEnd, currency: settings.currency };
     if (!schedule) {
       if (input.feeScheduleId) continue;
-      quotes.push({
-        studentProfileId: pupil.studentProfileId,
-        legalName: pupil.legalName,
-        yearGroupName: pupil.yearGroupName,
-        feeScheduleId: null,
-        feeScheduleName: null,
-        billingFrequency: null,
-        siblingPosition: null,
-        standardAmountMinor: 0,
-        appliedDiscounts: [],
-        discardedDiscounts: [],
-        discountTotalMinor: 0,
-        netAmountMinor: 0,
-        currency: settings.currency,
-        warning: "no_fee_schedule",
-        error: null,
-        calculation: { reason: "No active fee schedule matches this pupil" },
-      });
+      quotes.push(
+        emptyQuote(pupil, period, {
+          warning: "no_fee_schedule",
+          calculation: { reason: "No active fee schedule matches this pupil" },
+        }),
+      );
       continue;
     }
+    const scheduleFields = quoteScheduleFields(schedule, input.instalmentNumber ?? null);
     const already = await client.query(
       `select 1
          from school_invoice_lines l
@@ -1441,24 +1716,14 @@ export async function quotePupilTuition(
       [input.organisationId, schedule.id, pupil.studentProfileId, input.periodStart, input.periodEnd],
     );
     if (already.rows[0]) {
-      quotes.push({
-        studentProfileId: pupil.studentProfileId,
-        legalName: pupil.legalName,
-        yearGroupName: pupil.yearGroupName,
-        feeScheduleId: String(schedule.id),
-        feeScheduleName: String(schedule.name),
-        billingFrequency: String(schedule.billing_frequency),
-        siblingPosition: null,
-        standardAmountMinor: 0,
-        appliedDiscounts: [],
-        discardedDiscounts: [],
-        discountTotalMinor: 0,
-        netAmountMinor: 0,
-        currency: String(schedule.currency),
-        warning: "already_invoiced",
-        error: "already_invoiced",
-        calculation: { reason: "A charge already exists for this pupil, schedule and period" },
-      });
+      quotes.push(
+        emptyQuote(pupil, { ...period, currency: String(schedule.currency) }, {
+          ...scheduleFields,
+          warning: "already_invoiced",
+          error: "already_invoiced",
+          calculation: { reason: "A charge already exists for this pupil, schedule and period" },
+        }),
+      );
       continue;
     }
     const baseAmount =
@@ -1472,24 +1737,14 @@ export async function quotePupilTuition(
       enrolEnd: pupil.enrolEnd,
     });
     if (join.skipped) {
-      quotes.push({
-        studentProfileId: pupil.studentProfileId,
-        legalName: pupil.legalName,
-        yearGroupName: pupil.yearGroupName,
-        feeScheduleId: String(schedule.id),
-        feeScheduleName: String(schedule.name),
-        billingFrequency: String(schedule.billing_frequency),
-        siblingPosition: null,
-        standardAmountMinor: baseAmount,
-        appliedDiscounts: [],
-        discardedDiscounts: [],
-        discountTotalMinor: 0,
-        netAmountMinor: 0,
-        currency: String(schedule.currency),
-        warning: "manual_mid_period",
-        error: null,
-        calculation: { policy: settings.midPeriodJoinPolicy, chargeableDays: join.chargeableDays },
-      });
+      quotes.push(
+        emptyQuote(pupil, { ...period, currency: String(schedule.currency) }, {
+          ...scheduleFields,
+          standardAmountMinor: baseAmount,
+          warning: "manual_mid_period",
+          calculation: { policy: settings.midPeriodJoinPolicy, chargeableDays: join.chargeableDays },
+        }),
+      );
       continue;
     }
     const candidates = await collectDiscountCandidates(client, {
@@ -1511,31 +1766,26 @@ export async function quotePupilTuition(
       settings.siblingOrderMode,
     );
     quotes.push({
-      studentProfileId: pupil.studentProfileId,
-      legalName: pupil.legalName,
-      yearGroupName: pupil.yearGroupName,
-      feeScheduleId: String(schedule.id),
-      feeScheduleName: String(schedule.name),
-      billingFrequency: String(schedule.billing_frequency),
-      siblingPosition: siblings.findIndex((row) => row.studentProfileId === pupil.studentProfileId) + 1,
-      standardAmountMinor: join.amountMinor,
-      appliedDiscounts: applied.applied,
-      discardedDiscounts: applied.discarded,
-      discountTotalMinor: applied.discountTotalMinor,
-      netAmountMinor: applied.netMinor,
-      currency: String(schedule.currency),
-      warning: join.prorated ? "prorated" : null,
-      error: null,
-      calculation: {
-        scheduleAmountMinor: Number(schedule.amount_minor),
-        overrideAmountMinor: pupil.overrideAmountMinor,
-        stackingMode: settings.discountStackingMode,
-        siblingOrderMode: settings.siblingOrderMode,
-        prorated: join.prorated,
-        chargeableDays: join.chargeableDays,
-        periodDays: join.periodDays,
-        familyStudentIds: family.map((member) => member.studentProfileId),
-      },
+      ...emptyQuote(pupil, { ...period, currency: String(schedule.currency) }, {
+        ...scheduleFields,
+        siblingPosition: siblings.findIndex((row) => row.studentProfileId === pupil.studentProfileId) + 1,
+        standardAmountMinor: join.amountMinor,
+        appliedDiscounts: applied.applied,
+        discardedDiscounts: applied.discarded,
+        discountTotalMinor: applied.discountTotalMinor,
+        netAmountMinor: applied.netMinor,
+        warning: join.prorated ? "prorated" : null,
+        calculation: {
+          scheduleAmountMinor: Number(schedule.amount_minor),
+          overrideAmountMinor: pupil.overrideAmountMinor,
+          stackingMode: settings.discountStackingMode,
+          siblingOrderMode: settings.siblingOrderMode,
+          prorated: join.prorated,
+          chargeableDays: join.chargeableDays,
+          periodDays: join.periodDays,
+          familyStudentIds: family.map((member) => member.studentProfileId),
+        },
+      }),
     });
   }
   return quotes;
@@ -1687,6 +1937,14 @@ export async function previewBillingRun(
           feeScheduleName: quote.feeScheduleName,
           legalName: quote.legalName,
           yearGroupName: quote.yearGroupName,
+          className: quote.className,
+          annualAmountMinor: quote.annualAmountMinor,
+          instalmentNumber: quote.instalmentNumber,
+          instalmentCount: quote.instalmentCount,
+          amountPerInstalmentMinor: quote.amountPerInstalmentMinor,
+          periodStart: quote.periodStart,
+          periodEnd: quote.periodEnd,
+          billingFrequency: quote.billingFrequency,
         }),
         quote.warning,
         quote.error,
@@ -1718,6 +1976,14 @@ export async function confirmBillingRun(
   }
   if (run.rows[0].status === "cancelled") {
     throw new AppError(409, "invalid_status_transition", "This billing run was cancelled");
+  }
+  const stale = await billingRunPreviewStaleReason(client, input.organisationId, run.rows[0] as Record<string, unknown>);
+  if (stale) {
+    throw new AppError(
+      409,
+      "stale_preview",
+      "This preview is stale. Fee schedules or eligible pupils have changed. Preview again before confirming.",
+    );
   }
   const settings = await loadFinanceSettings(client, input.organisationId);
   const items = await client.query(
@@ -1879,6 +2145,68 @@ export async function confirmBillingRun(
   return loadBillingRun(client, input.organisationId, input.billingRunId);
 }
 
+function feeScheduleIdFromPeriodKey(periodKey: string): string | undefined {
+  const match = periodKey.match(/:s:([0-9a-f-]{36})$/i);
+  return match?.[1];
+}
+
+async function billingRunPreviewStaleReason(
+  client: Client,
+  organisationId: string,
+  run: Record<string, unknown>,
+): Promise<string | null> {
+  if (String(run.status) !== "previewed") return null;
+  const frequency = String(run.billing_frequency);
+  if (!isSchoolBillingFrequency(frequency)) return "invalid_frequency";
+  const periodStart = asIsoDate(run.period_start);
+  const periodEnd = asIsoDate(run.period_end);
+  const quotes = await quotePupilTuition(client, {
+    organisationId,
+    academicYearId: String(run.academic_year_id),
+    periodStart,
+    periodEnd,
+    frequency,
+    instalmentNumber: run.instalment_number == null ? null : Number(run.instalment_number),
+    feeScheduleId: feeScheduleIdFromPeriodKey(String(run.period_key)),
+  });
+  const items = await client.query(
+    `select student_profile_id, fee_schedule_id, standard_amount_minor, discount_total_minor, net_amount_minor
+       from school_billing_run_items
+      where billing_run_id = $1 and organisation_id = $2
+      order by student_profile_id`,
+    [run.id, organisationId],
+  );
+  const quoteSignatures = quotes
+    .map((quote) =>
+      billingRunItemSignature({
+        studentProfileId: quote.studentProfileId,
+        feeScheduleId: quote.feeScheduleId,
+        standardAmountMinor: quote.standardAmountMinor,
+        discountTotalMinor: quote.discountTotalMinor,
+        netAmountMinor: quote.netAmountMinor,
+      }),
+    )
+    .sort();
+  const itemSignatures = items.rows
+    .map((item) =>
+      billingRunItemSignature({
+        studentProfileId: String(item.student_profile_id),
+        feeScheduleId: item.fee_schedule_id ? String(item.fee_schedule_id) : null,
+        standardAmountMinor: Number(item.standard_amount_minor),
+        discountTotalMinor: Number(item.discount_total_minor),
+        netAmountMinor: Number(item.net_amount_minor),
+      }),
+    )
+    .sort();
+  if (quoteSignatures.length !== itemSignatures.length) {
+    return "eligible_pupils_changed";
+  }
+  for (let index = 0; index < quoteSignatures.length; index += 1) {
+    if (quoteSignatures[index] !== itemSignatures[index]) return "amounts_changed";
+  }
+  return null;
+}
+
 export async function loadBillingRun(client: Client, organisationId: string, billingRunId: string) {
   const run = await client.query(
     `select r.*, y.name as academic_year_name
@@ -1888,6 +2216,10 @@ export async function loadBillingRun(client: Client, organisationId: string, bil
     [billingRunId, organisationId],
   );
   if (!run.rows[0]) notFound();
+  const staleReason =
+    String(run.rows[0].status) === "previewed"
+      ? await billingRunPreviewStaleReason(client, organisationId, run.rows[0] as Record<string, unknown>)
+      : null;
   const items = await client.query(
     `select i.*, sp.legal_name
        from school_billing_run_items i
@@ -1896,28 +2228,47 @@ export async function loadBillingRun(client: Client, organisationId: string, bil
       order by sp.legal_name`,
     [billingRunId, organisationId],
   );
+  const mappedRun = mapBillingRun(run.rows[0] as Record<string, unknown>, staleReason);
   return {
-    run: mapBillingRun(run.rows[0] as Record<string, unknown>),
-    items: items.rows.map((row) => ({
-      id: row.id,
-      studentProfileId: row.student_profile_id,
-      legalName: row.legal_name,
-      billingAccountId: row.billing_account_id,
-      feeScheduleId: row.fee_schedule_id,
-      standardAmountMinor: Number(row.standard_amount_minor),
-      discountTotalMinor: Number(row.discount_total_minor),
-      netAmountMinor: Number(row.net_amount_minor),
-      currency: row.currency,
-      siblingPosition: row.sibling_position == null ? null : Number(row.sibling_position),
-      warning: row.warning_code,
-      error: row.error_code,
-      invoiceId: row.invoice_id,
-      calculation: row.calculation,
-    })),
+    run: mappedRun,
+    items: items.rows.map((row) => mapBillingRunItem(row as Record<string, unknown>, mappedRun)),
   };
 }
 
-function mapBillingRun(row: Record<string, unknown>) {
+function mapBillingRunItem(row: Record<string, unknown>, run: ReturnType<typeof mapBillingRun>) {
+  const calculation = (row.calculation ?? {}) as Record<string, unknown>;
+  return {
+    id: row.id,
+    studentProfileId: row.student_profile_id,
+    legalName: row.legal_name ?? calculation.legalName ?? null,
+    yearGroupName: calculation.yearGroupName ?? null,
+    className: calculation.className ?? null,
+    billingAccountId: row.billing_account_id,
+    feeScheduleId: row.fee_schedule_id,
+    feeScheduleName: calculation.feeScheduleName ?? null,
+    annualAmountMinor: calculation.annualAmountMinor == null ? null : Number(calculation.annualAmountMinor),
+    instalmentNumber: calculation.instalmentNumber == null ? run.instalmentNumber : Number(calculation.instalmentNumber),
+    instalmentCount: calculation.instalmentCount == null ? null : Number(calculation.instalmentCount),
+    amountPerInstalmentMinor:
+      calculation.amountPerInstalmentMinor == null ? Number(row.standard_amount_minor) : Number(calculation.amountPerInstalmentMinor),
+    periodStart: calculation.periodStart ? String(calculation.periodStart) : run.periodStart,
+    periodEnd: calculation.periodEnd ? String(calculation.periodEnd) : run.periodEnd,
+    dueOn: run.dueOn,
+    standardAmountMinor: Number(row.standard_amount_minor),
+    discountTotalMinor: Number(row.discount_total_minor),
+    netAmountMinor: Number(row.net_amount_minor),
+    currency: row.currency,
+    siblingPosition: row.sibling_position == null ? null : Number(row.sibling_position),
+    warning: row.warning_code,
+    error: row.error_code,
+    invoiceId: row.invoice_id,
+    calculation,
+  };
+}
+
+function mapBillingRun(row: Record<string, unknown>, staleReason: string | null = null) {
+  const status = String(row.status);
+  const previewStatus = status === "previewed" && staleReason ? "stale" : status;
   return {
     id: row.id,
     reference: row.reference,
@@ -1929,7 +2280,10 @@ function mapBillingRun(row: Record<string, unknown>) {
     periodEnd: asIsoDate(row.period_end),
     dueOn: asIsoDate(row.due_on),
     instalmentNumber: row.instalment_number == null ? null : Number(row.instalment_number),
-    status: row.status,
+    status: previewStatus,
+    previewStatus,
+    isStale: previewStatus === "stale",
+    staleReason,
     itemCount: Number(row.item_count),
     warningCount: Number(row.warning_count),
     errorCount: Number(row.error_count),
@@ -2582,22 +2936,76 @@ export async function loadTuitionDashboard(client: Client, organisationId: strin
   };
 }
 
-export async function loadPupilFeeProfile(client: Client, organisationId: string, studentProfileId: string) {
+export async function loadPupilFeeProfile(
+  client: Client,
+  organisationId: string,
+  studentProfileId: string,
+  options?: { asOf?: string },
+) {
   const settings = await loadFinanceSettings(client, organisationId);
-  const year = await client.query<{ id: string }>(
-    `select id from academic_years where organisation_id = $1 and is_current limit 1`,
+  const asOf = options?.asOf ?? new Date().toISOString().slice(0, 10);
+  const year = await client.query<{ id: string; name: string; starts_on: Date | string; ends_on: Date | string }>(
+    `select id, name, starts_on, ends_on from academic_years where organisation_id = $1 and is_current limit 1`,
     [organisationId],
   );
-  const quotes = year.rows[0]
+  const enrolment = await client.query<{
+    year_group_name: string | null;
+    class_name: string | null;
+    started_on: Date | string;
+    ended_on: Date | string | null;
+    status: string;
+    academic_year_name: string | null;
+  }>(
+    `select yg.name as year_group_name, cl.name as class_name, se.started_on, se.ended_on, se.status,
+            y.name as academic_year_name
+       from student_enrolments se
+       join academic_years y on y.id = se.academic_year_id
+       left join year_groups yg on yg.id = se.year_group_id
+       left join class_memberships cm
+         on cm.student_profile_id = se.student_profile_id
+        and cm.academic_year_id = se.academic_year_id
+        and cm.ended_on is null
+       left join classes cl on cl.id = cm.class_id
+      where se.organisation_id = $1
+        and se.student_profile_id = $2
+        and se.is_primary
+      order by y.is_current desc, se.started_on desc
+      limit 1`,
+    [organisationId, studentProfileId],
+  );
+  const evaluatedPeriod = year.rows[0]
+    ? resolveCurrentBillingPeriod({
+        asOf,
+        frequency: settings.defaultBillingFrequency,
+        yearStartsOn: asIsoDate(year.rows[0].starts_on),
+        yearEndsOn: asIsoDate(year.rows[0].ends_on),
+      })
+    : null;
+  const todayQuotes = year.rows[0]
     ? await quotePupilTuition(client, {
         organisationId,
         academicYearId: year.rows[0].id,
-        periodStart: new Date().toISOString().slice(0, 10),
-        periodEnd: new Date().toISOString().slice(0, 10),
+        periodStart: asOf,
+        periodEnd: asOf,
         frequency: settings.defaultBillingFrequency,
+        studentProfileId,
       })
     : [];
-  const quote = quotes.find((item) => item.studentProfileId === studentProfileId) ?? null;
+  const periodQuotes =
+    year.rows[0] && evaluatedPeriod
+      ? await quotePupilTuition(client, {
+          organisationId,
+          academicYearId: year.rows[0].id,
+          periodStart: evaluatedPeriod.periodStart,
+          periodEnd: evaluatedPeriod.periodEnd,
+          frequency: settings.defaultBillingFrequency,
+          studentProfileId,
+        })
+      : [];
+  const todayQuote = todayQuotes.find((item) => item.studentProfileId === studentProfileId) ?? null;
+  const quote = periodQuotes.find((item) => item.studentProfileId === studentProfileId) ?? null;
+  const todayApplies = Boolean(todayQuote?.feeScheduleId) && todayQuote?.warning !== "no_fee_schedule";
+  const periodApplies = Boolean(quote?.feeScheduleId) && quote?.warning !== "no_fee_schedule";
   const profile = await client.query(
     `select * from school_pupil_fee_profiles where organisation_id = $1 and student_profile_id = $2`,
     [organisationId, studentProfileId],
@@ -2614,11 +3022,39 @@ export async function loadPupilFeeProfile(client: Client, organisationId: string
     [studentProfileId, organisationId],
   );
   if (!pupil.rows[0]) notFound();
+  const enrol = enrolment.rows[0];
   return {
     studentProfileId,
     legalName: pupil.rows[0].legal_name,
-    profile: profile.rows[0] ?? null,
+    enrolment: enrol
+      ? {
+          academicYearName: enrol.academic_year_name,
+          yearGroupName: enrol.year_group_name,
+          className: enrol.class_name,
+          startedOn: asIsoDate(enrol.started_on),
+          endedOn: enrol.ended_on == null ? null : asIsoDate(enrol.ended_on),
+          status: enrol.status,
+        }
+      : null,
+    evaluatedOn: asOf,
+    evaluatedPeriod,
+    todayQuote,
     quote,
+    appliesToday: todayApplies,
+    appliesInEvaluatedPeriod: periodApplies,
+    upcoming:
+      !todayApplies && periodApplies && quote
+        ? {
+            feeScheduleName: quote.feeScheduleName,
+            annualAmountMinor: quote.annualAmountMinor,
+            amountPerInstalmentMinor: quote.amountPerInstalmentMinor ?? quote.standardAmountMinor,
+            currency: quote.currency,
+            periodStart: quote.periodStart,
+            periodEnd: quote.periodEnd,
+            effectiveFrom: enrol ? asIsoDate(enrol.started_on) : quote.periodStart,
+          }
+        : null,
+    profile: profile.rows[0] ?? null,
     concessions: concessions.rows,
     invoices,
   };

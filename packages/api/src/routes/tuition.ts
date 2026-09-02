@@ -124,7 +124,7 @@ export function registerTuitionRoutes(app: SchoolappApi) {
           academicYearId: z.string().uuid(),
           yearGroupId: z.string().uuid().nullable().optional(),
           classId: z.string().uuid().nullable().optional(),
-          amountMinor: z.number().int().min(0),
+          amountMinor: z.number().int().min(0).optional(),
           annualAmountMinor: z.number().int().min(0).nullable().optional(),
           billingFrequency: z.enum(["monthly", "termly", "annual", "custom"]),
           instalmentCount: z.number().int().min(1).max(24).nullable().optional(),
@@ -371,7 +371,11 @@ export function registerTuitionRoutes(app: SchoolappApi) {
   app.get("/finance/pupils/:studentId", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertTuitionRead(actor);
-      return c.json(await loadPupilFeeProfile(client, orgId, uuidRouteParam(c, "studentId")));
+      const asOf = c.req.query("asOf");
+      if (asOf && !dateSchema.safeParse(asOf).success) {
+        throw new AppError(400, "validation_failed", "asOf must be a date in YYYY-MM-DD format.");
+      }
+      return c.json(await loadPupilFeeProfile(client, orgId, uuidRouteParam(c, "studentId"), { asOf }));
     }),
   );
 
@@ -724,16 +728,16 @@ function feeScheduleValidationMessage(error: z.ZodError): string {
     name: "Name",
     academicYearId: "Academic year",
     yearGroupId: "Year group",
-    amountMinor: "Amount per invoice",
-    annualAmountMinor: "Annual total",
+    amountMinor: "Amount per instalment",
+    annualAmountMinor: "Annual tuition fee",
     billingFrequency: "Frequency",
     instalmentCount: "Instalments per year",
     effectiveFrom: "Effective from",
   };
   const label = labels[field];
   if (field === "academicYearId") return "Select an academic year.";
-  if (field === "amountMinor") return "Enter a valid amount per invoice in pounds, such as 600.00.";
-  if (field === "annualAmountMinor") return "Enter a valid annual total, or leave it blank.";
+  if (field === "amountMinor") return "Enter a valid amount per instalment in pounds, such as 600.00.";
+  if (field === "annualAmountMinor") return "Enter a valid annual tuition fee in pounds, such as 6000.00.";
   if (field === "instalmentCount") return "Instalments per year must be a whole number between 1 and 24.";
   if (field === "effectiveFrom") return "Effective from must be a valid date.";
   if (field === "billingFrequency") return "Select a billing frequency.";

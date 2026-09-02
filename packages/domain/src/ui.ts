@@ -131,6 +131,8 @@ const WARNING_STATUSES = new Set([
   "waiting_list",
   "validating",
   "superseded",
+  "stale",
+  "previewed",
 ]);
 
 const DANGER_STATUSES = new Set([
@@ -158,6 +160,8 @@ const INFO_STATUSES = new Set([
   "information",
   "submitted",
   "under_review",
+  "used_in_billing_run",
+  "has_invoices",
 ]);
 
 const NEUTRAL_STATUSES = new Set([
@@ -167,6 +171,8 @@ const NEUTRAL_STATUSES = new Set([
   "enquiry",
   "inactive",
   "not_marked",
+  "ended",
+  "unused",
 ]);
 
 export function statusTone(status: string | null | undefined): StatusTone {

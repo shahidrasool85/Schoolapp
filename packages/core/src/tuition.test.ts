@@ -13,6 +13,9 @@ import {
   percentOfMinor,
   prorateMinor,
   splitAnnualIntoInstalments,
+  enrolmentOverlapsBillingPeriod,
+  inclusiveDateRangesOverlap,
+  resolveCurrentBillingPeriod,
   type DiscountCandidate,
   type SiblingSortInput,
 } from "./tuition.js";
@@ -69,6 +72,46 @@ describe("tuition money helpers", () => {
     const uneven = splitAnnualIntoInstalments(1000, 3);
     expect(uneven).toEqual([333, 333, 334]);
     expect(uneven.reduce((sum, value) => sum + value, 0)).toBe(1000);
+  });
+
+  it("treats enrolment and schedule dates as inclusive overlap", () => {
+    expect(
+      enrolmentOverlapsBillingPeriod({
+        enrolStart: "2026-09-03",
+        enrolEnd: null,
+        periodStart: "2026-09-01",
+        periodEnd: "2026-09-30",
+      }),
+    ).toBe(true);
+    expect(
+      enrolmentOverlapsBillingPeriod({
+        enrolStart: "2026-09-03",
+        enrolEnd: null,
+        periodStart: "2026-09-02",
+        periodEnd: "2026-09-02",
+      }),
+    ).toBe(false);
+    expect(
+      enrolmentOverlapsBillingPeriod({
+        enrolStart: "2026-09-01",
+        enrolEnd: "2026-09-15",
+        periodStart: "2026-09-01",
+        periodEnd: "2026-09-30",
+      }),
+    ).toBe(true);
+    expect(inclusiveDateRangesOverlap("2026-09-01", "2026-12-31", "2027-01-01", null)).toBe(false);
+    expect(inclusiveDateRangesOverlap("2026-09-01", null, "2026-09-01", "2026-12-31")).toBe(true);
+  });
+
+  it("resolves the current monthly billing period inside the academic year", () => {
+    expect(
+      resolveCurrentBillingPeriod({
+        asOf: "2026-09-02",
+        frequency: "monthly",
+        yearStartsOn: "2026-09-01",
+        yearEndsOn: "2027-07-31",
+      }),
+    ).toEqual({ periodStart: "2026-09-01", periodEnd: "2026-09-30" });
   });
 
   it("prorates deterministically", () => {

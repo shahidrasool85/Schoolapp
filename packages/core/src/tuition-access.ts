@@ -41,10 +41,13 @@ import {
   arrearsBucket,
   asIsoDate,
   billingPeriodKey,
-  billingRunItemSignature,
+  billingRunConfirmSummary,
+  billingRunPreviewSignaturesDiffer,
   daysOverdue,
+  deriveInstalmentNumber,
   deriveInvoiceStatus,
   invoiceOutstandingMinor,
+  resolveBillingRunItemDisplay,
   isSchoolBillingFrequency,
   isSchoolCreditKind,
   isSchoolDiscountAmountType,
@@ -1610,15 +1613,34 @@ function quoteScheduleFields(
   | "instalmentCount"
   | "amountPerInstalmentMinor"
 > {
+  const instalmentCount = schedule.instalment_count == null ? null : Number(schedule.instalment_count);
+  const amountPerInstalmentMinor = Number(schedule.amount_minor);
+  const storedAnnual = schedule.annual_amount_minor == null ? null : Number(schedule.annual_amount_minor);
   return {
     feeScheduleId: String(schedule.id),
     feeScheduleName: String(schedule.name),
     billingFrequency: String(schedule.billing_frequency),
-    annualAmountMinor: schedule.annual_amount_minor == null ? null : Number(schedule.annual_amount_minor),
+    annualAmountMinor:
+      storedAnnual ?? (instalmentCount != null ? amountPerInstalmentMinor * instalmentCount : null),
     instalmentNumber,
-    instalmentCount: schedule.instalment_count == null ? null : Number(schedule.instalment_count),
-    amountPerInstalmentMinor: Number(schedule.amount_minor),
+    instalmentCount,
+    amountPerInstalmentMinor,
   };
+}
+
+function resolveQuoteInstalmentNumber(
+  schedule: Record<string, unknown>,
+  input: { frequency: SchoolBillingFrequency; periodStart: string; instalmentNumber?: number | null },
+): number {
+  if (input.instalmentNumber != null) return input.instalmentNumber;
+  return (
+    deriveInstalmentNumber({
+      frequency: input.frequency,
+      periodStart: input.periodStart,
+      effectiveFrom: asIsoDate(schedule.effective_from),
+      instalmentCount: schedule.instalment_count == null ? null : Number(schedule.instalment_count),
+    }) ?? 1
+  );
 }
 
 function emptyQuote(
@@ -1701,7 +1723,12 @@ export async function quotePupilTuition(
       );
       continue;
     }
-    const scheduleFields = quoteScheduleFields(schedule, input.instalmentNumber ?? null);
+    const resolvedInstalment = resolveQuoteInstalmentNumber(schedule, {
+      frequency: input.frequency,
+      periodStart: input.periodStart,
+      instalmentNumber: input.instalmentNumber ?? null,
+    });
+    const scheduleFields = quoteScheduleFields(schedule, resolvedInstalment);
     const already = await client.query(
       `select 1
          from school_invoice_lines l
@@ -1727,7 +1754,7 @@ export async function quotePupilTuition(
       continue;
     }
     const baseAmount =
-      pupil.overrideAmountMinor ?? (await instalmentAmount(client, schedule, input.instalmentNumber ?? null));
+      pupil.overrideAmountMinor ?? (await instalmentAmount(client, schedule, resolvedInstalment));
     const join = applyMidPeriodPolicy({
       amountMinor: baseAmount,
       policy: settings.midPeriodJoinPolicy,
@@ -1831,6 +1858,10 @@ export async function previewBillingRun(
     instalmentNumber: input.instalmentNumber ?? null,
     feeScheduleId: input.feeScheduleId,
   });
+  const resolvedInstalmentNumber =
+    input.instalmentNumber ??
+    quotes.find((quote) => quote.instalmentNumber != null)?.instalmentNumber ??
+    1;
   const dueOn =
     input.dueOn ??
     new Date(Date.parse(`${input.periodStart}T00:00:00Z`) + settings.paymentDueDays * 86_400_000)
@@ -1873,7 +1904,7 @@ export async function previewBillingRun(
           input.periodStart,
           input.periodEnd,
           dueOn,
-          input.instalmentNumber ?? null,
+          resolvedInstalmentNumber,
           quotes.length,
           totals.warnings,
           totals.errors,
@@ -1897,7 +1928,7 @@ export async function previewBillingRun(
           input.periodStart,
           input.periodEnd,
           dueOn,
-          input.instalmentNumber ?? null,
+          resolvedInstalmentNumber,
           quotes.length,
           totals.warnings,
           totals.errors,
@@ -1934,6 +1965,7 @@ export async function previewBillingRun(
           ...quote.calculation,
           applied: quote.appliedDiscounts,
           discarded: quote.discardedDiscounts,
+          feeScheduleId: quote.feeScheduleId,
           feeScheduleName: quote.feeScheduleName,
           legalName: quote.legalName,
           yearGroupName: quote.yearGroupName,
@@ -1942,8 +1974,11 @@ export async function previewBillingRun(
           instalmentNumber: quote.instalmentNumber,
           instalmentCount: quote.instalmentCount,
           amountPerInstalmentMinor: quote.amountPerInstalmentMinor,
+          standardAmountMinor: quote.standardAmountMinor,
+          billedAmountMinor: quote.netAmountMinor,
           periodStart: quote.periodStart,
           periodEnd: quote.periodEnd,
+          dueOn,
           billingFrequency: quote.billingFrequency,
         }),
         quote.warning,
@@ -2176,35 +2211,22 @@ async function billingRunPreviewStaleReason(
       order by student_profile_id`,
     [run.id, organisationId],
   );
-  const quoteSignatures = quotes
-    .map((quote) =>
-      billingRunItemSignature({
-        studentProfileId: quote.studentProfileId,
-        feeScheduleId: quote.feeScheduleId,
-        standardAmountMinor: quote.standardAmountMinor,
-        discountTotalMinor: quote.discountTotalMinor,
-        netAmountMinor: quote.netAmountMinor,
-      }),
-    )
-    .sort();
-  const itemSignatures = items.rows
-    .map((item) =>
-      billingRunItemSignature({
-        studentProfileId: String(item.student_profile_id),
-        feeScheduleId: item.fee_schedule_id ? String(item.fee_schedule_id) : null,
-        standardAmountMinor: Number(item.standard_amount_minor),
-        discountTotalMinor: Number(item.discount_total_minor),
-        netAmountMinor: Number(item.net_amount_minor),
-      }),
-    )
-    .sort();
-  if (quoteSignatures.length !== itemSignatures.length) {
-    return "eligible_pupils_changed";
-  }
-  for (let index = 0; index < quoteSignatures.length; index += 1) {
-    if (quoteSignatures[index] !== itemSignatures[index]) return "amounts_changed";
-  }
-  return null;
+  return billingRunPreviewSignaturesDiffer(
+    quotes.map((quote) => ({
+      studentProfileId: quote.studentProfileId,
+      feeScheduleId: quote.feeScheduleId,
+      standardAmountMinor: quote.standardAmountMinor,
+      discountTotalMinor: quote.discountTotalMinor,
+      netAmountMinor: quote.netAmountMinor,
+    })),
+    items.rows.map((item) => ({
+      studentProfileId: String(item.student_profile_id),
+      feeScheduleId: item.fee_schedule_id ? String(item.fee_schedule_id) : null,
+      standardAmountMinor: Number(item.standard_amount_minor),
+      discountTotalMinor: Number(item.discount_total_minor),
+      netAmountMinor: Number(item.net_amount_minor),
+    })),
+  );
 }
 
 export async function loadBillingRun(client: Client, organisationId: string, billingRunId: string) {
@@ -2229,31 +2251,138 @@ export async function loadBillingRun(client: Client, organisationId: string, bil
     [billingRunId, organisationId],
   );
   const mappedRun = mapBillingRun(run.rows[0] as Record<string, unknown>, staleReason);
+  const scheduleById = await loadBillingRunScheduleDisplayContext(
+    client,
+    organisationId,
+    mappedRun,
+    items.rows as Array<Record<string, unknown>>,
+  );
+  const mappedItems = items.rows.map((row) =>
+    mapBillingRunItem(row as Record<string, unknown>, mappedRun, scheduleById),
+  );
   return {
     run: mappedRun,
-    items: items.rows.map((row) => mapBillingRunItem(row as Record<string, unknown>, mappedRun)),
+    items: mappedItems,
+    confirmSummary: billingRunConfirmSummary(
+      mappedItems.map((item) => ({
+        studentProfileId: String(item.studentProfileId),
+        billingAccountId: item.billingAccountId ? String(item.billingAccountId) : null,
+        netAmountMinor: item.netAmountMinor,
+        error: item.error,
+      })),
+    ),
   };
 }
 
-function mapBillingRunItem(row: Record<string, unknown>, run: ReturnType<typeof mapBillingRun>) {
+async function loadBillingRunScheduleDisplayContext(
+  client: Client,
+  organisationId: string,
+  run: ReturnType<typeof mapBillingRun>,
+  items: Array<Record<string, unknown>>,
+) {
+  const scheduleById = new Map<
+    string,
+    {
+      id: string;
+      name: string;
+      annualAmountMinor: number | null;
+      instalmentCount: number | null;
+      amountMinor: number;
+      effectiveFrom: string | null;
+      billingFrequency: string | null;
+    }
+  >();
+  if (!run.isStale && String(run.status) === "previewed") {
+    const missingIds = [
+      ...new Set(
+        items
+          .filter((row) => {
+            if (row.invoice_id || !row.fee_schedule_id) return false;
+            const calculation = (row.calculation ?? {}) as Record<string, unknown>;
+            return (
+              calculation.annualAmountMinor == null ||
+              calculation.instalmentCount == null ||
+              calculation.instalmentNumber == null
+            );
+          })
+          .map((row) => String(row.fee_schedule_id)),
+      ),
+    ];
+    if (missingIds.length) {
+      const schedules = await client.query(
+        `select id, name, annual_amount_minor, instalment_count, amount_minor, effective_from, billing_frequency
+           from school_fee_schedules
+          where organisation_id = $1 and id = any($2::uuid[])`,
+        [organisationId, missingIds],
+      );
+      for (const schedule of schedules.rows) {
+        scheduleById.set(String(schedule.id), {
+          id: String(schedule.id),
+          name: String(schedule.name),
+          annualAmountMinor: schedule.annual_amount_minor == null ? null : Number(schedule.annual_amount_minor),
+          instalmentCount: schedule.instalment_count == null ? null : Number(schedule.instalment_count),
+          amountMinor: Number(schedule.amount_minor),
+          effectiveFrom: schedule.effective_from ? asIsoDate(schedule.effective_from) : null,
+          billingFrequency: schedule.billing_frequency ? String(schedule.billing_frequency) : null,
+        });
+      }
+    }
+  }
+  return scheduleById;
+}
+
+function mapBillingRunItem(
+  row: Record<string, unknown>,
+  run: ReturnType<typeof mapBillingRun>,
+  scheduleById: Map<
+    string,
+    {
+      id: string;
+      name: string;
+      annualAmountMinor: number | null;
+      instalmentCount: number | null;
+      amountMinor: number;
+      effectiveFrom: string | null;
+      billingFrequency: string | null;
+    }
+  > = new Map(),
+) {
   const calculation = (row.calculation ?? {}) as Record<string, unknown>;
+  const feeScheduleId = row.fee_schedule_id ? String(row.fee_schedule_id) : null;
+  const display = resolveBillingRunItemDisplay({
+    snapshot: calculation,
+    run: {
+      instalmentNumber: run.instalmentNumber,
+      periodStart: run.periodStart,
+      periodEnd: run.periodEnd,
+      dueOn: run.dueOn,
+      billingFrequency: String(run.billingFrequency),
+      isPreview: String(run.status) === "previewed" || Boolean(run.isStale),
+      isStale: Boolean(run.isStale),
+    },
+    item: {
+      standardAmountMinor: Number(row.standard_amount_minor),
+      feeScheduleId,
+      invoiceId: row.invoice_id ? String(row.invoice_id) : null,
+    },
+    currentSchedule: feeScheduleId ? scheduleById.get(feeScheduleId) ?? null : null,
+  });
   return {
     id: row.id,
     studentProfileId: row.student_profile_id,
     legalName: row.legal_name ?? calculation.legalName ?? null,
-    yearGroupName: calculation.yearGroupName ?? null,
-    className: calculation.className ?? null,
+    yearGroupName: display.yearGroupName,
+    className: display.className,
     billingAccountId: row.billing_account_id,
-    feeScheduleId: row.fee_schedule_id,
-    feeScheduleName: calculation.feeScheduleName ?? null,
-    annualAmountMinor: calculation.annualAmountMinor == null ? null : Number(calculation.annualAmountMinor),
-    instalmentNumber: calculation.instalmentNumber == null ? run.instalmentNumber : Number(calculation.instalmentNumber),
-    instalmentCount: calculation.instalmentCount == null ? null : Number(calculation.instalmentCount),
-    amountPerInstalmentMinor:
-      calculation.amountPerInstalmentMinor == null ? Number(row.standard_amount_minor) : Number(calculation.amountPerInstalmentMinor),
-    periodStart: calculation.periodStart ? String(calculation.periodStart) : run.periodStart,
-    periodEnd: calculation.periodEnd ? String(calculation.periodEnd) : run.periodEnd,
-    dueOn: run.dueOn,
+    feeScheduleId,
+    feeScheduleName: display.feeScheduleName,
+    annualAmountMinor: display.annualAmountMinor,
+    instalmentNumber: display.instalmentNumber,
+    instalmentCount: display.instalmentCount,
+    amountPerInstalmentMinor: display.amountPerInstalmentMinor,
+    periodStart: display.periodStart,
+    periodEnd: display.periodEnd,
+    dueOn: display.dueOn,
     standardAmountMinor: Number(row.standard_amount_minor),
     discountTotalMinor: Number(row.discount_total_minor),
     netAmountMinor: Number(row.net_amount_minor),
@@ -2262,6 +2391,9 @@ function mapBillingRunItem(row: Record<string, unknown>, run: ReturnType<typeof 
     warning: row.warning_code,
     error: row.error_code,
     invoiceId: row.invoice_id,
+    instalmentLabel: display.instalmentLabel,
+    annualFeeLabel: display.annualFeeLabel,
+    usedLegacyMetadataLabel: display.usedLegacyMetadataLabel,
     calculation,
   };
 }

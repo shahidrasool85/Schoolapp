@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
-import { useParams } from "next/navigation";
-import { formatUkNumericDate, parseGbpPoundsToMinor } from "@schoolapp/domain";
+import { useParams, useRouter } from "next/navigation";
+import { feeScheduleDeletedRedirect, formatUkNumericDate, parseGbpPoundsToMinor } from "@schoolapp/domain";
 import {
   Alert,
   Button,
@@ -67,6 +67,7 @@ function statusLabel(schedule: Schedule): string {
 
 export default function FeeScheduleDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const permissions = usePermissions();
   const canManage = permissions.has("finance.fee_schedules.manage") || permissions.has("finance.manage");
   const [schedule, setSchedule] = useState<Schedule | null>(null);
@@ -74,6 +75,7 @@ export default function FeeScheduleDetailPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   async function load() {
     const body = await api<{ schedule: Schedule; lifecycle: Lifecycle }>(
@@ -168,15 +170,16 @@ export default function FeeScheduleDetailPage() {
   }
 
   async function destroy() {
-    if (!schedule) return;
+    if (!schedule || deleting) return;
+    setDeleting(true);
+    setError("");
     try {
       await api(`/api/v1/finance/fee-schedules/${schedule.id}`, { method: "DELETE" });
-      setNotice("Schedule deleted.");
-      setConfirmDelete(false);
-      setSchedule(null);
+      router.push(feeScheduleDeletedRedirect());
     } catch (err) {
       setError(userFacingError(err as Error, "Could not delete this schedule."));
       setConfirmDelete(false);
+      setDeleting(false);
     }
   }
 
@@ -314,8 +317,8 @@ export default function FeeScheduleDetailPage() {
               Archive
             </Button>
             {lifecycle?.canDelete ? (
-              <Button type="button" variant="ghost" onClick={() => setConfirmDelete(true)}>
-                Delete
+              <Button type="button" variant="ghost" onClick={() => setConfirmDelete(true)} disabled={deleting}>
+                {deleting ? "Deleting…" : "Delete"}
               </Button>
             ) : (
               <span className="muted">Delete is unavailable after invoices or billing-run items exist. End or archive instead.</span>
@@ -332,10 +335,13 @@ export default function FeeScheduleDetailPage() {
         open={confirmDelete}
         title="Delete this fee schedule?"
         description="This schedule has never generated financial transactions."
-        confirmLabel="Delete"
+        confirmLabel={deleting ? "Deleting…" : "Delete"}
         danger
+        busy={deleting}
         onConfirm={() => void destroy()}
-        onClose={() => setConfirmDelete(false)}
+        onClose={() => {
+          if (!deleting) setConfirmDelete(false);
+        }}
       />
     </>
   );

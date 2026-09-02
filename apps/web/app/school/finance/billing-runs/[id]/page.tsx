@@ -11,6 +11,7 @@ import {
   LoadingState,
   PageError,
   PageHeader,
+  SectionCard,
   StatusBadge,
 } from "../../../../../components/ui";
 import { api } from "../../../../../lib/api";
@@ -35,6 +36,11 @@ type Bundle = {
     currency: string;
     warningCount: number;
   };
+  confirmSummary?: {
+    pupilCount: number;
+    invoiceCount: number;
+    totalMinor: number;
+  };
   items: Array<{
     id: string;
     studentProfileId: string;
@@ -45,6 +51,8 @@ type Bundle = {
     annualAmountMinor: number | null;
     instalmentNumber: number | null;
     instalmentCount: number | null;
+    instalmentLabel?: string;
+    annualFeeLabel?: string | null;
     amountPerInstalmentMinor: number | null;
     periodStart: string;
     periodEnd: string;
@@ -103,11 +111,20 @@ export default function BillingRunDetailPage() {
   }
 
   async function confirm() {
+    if (!data || busy) return;
+    const stale = Boolean(data.run.isStale) || data.run.status === "stale" || data.run.previewStatus === "stale";
+    if (stale) {
+      setError("This preview is stale. Refresh and review again before confirming.");
+      setConfirmOpen(false);
+      return;
+    }
     setBusy(true);
+    setError("");
     try {
       await api(`/api/v1/finance/billing-runs/${params.id}/confirm`, { method: "POST", body: "{}" });
       await reload();
       setConfirmOpen(false);
+      setNotice("Invoices issued. Repeating confirm for this period will not create duplicates.");
     } catch (err) {
       setError(userFacingError(err as Error, "Could not confirm the billing run."));
     } finally {
@@ -120,6 +137,13 @@ export default function BillingRunDetailPage() {
 
   const stale = Boolean(data.run.isStale) || data.run.status === "stale" || data.run.previewStatus === "stale";
   const canConfirm = data.run.status === "previewed" && !stale;
+  const summary = data.confirmSummary ?? {
+    pupilCount: new Set(data.items.filter((item) => !item.invoiceId && item.netAmountMinor > 0).map((item) => item.studentProfileId)).size,
+    invoiceCount: data.items.filter((item) => item.netAmountMinor > 0).length,
+    totalMinor: data.run.expectedTotalMinor,
+  };
+  const invoiceWord = summary.invoiceCount === 1 ? "invoice" : "invoices";
+  const pupilWord = summary.pupilCount === 1 ? "pupil" : "pupils";
 
   return (
     <>
@@ -133,7 +157,7 @@ export default function BillingRunDetailPage() {
         ]}
         actions={
           canConfirm ? (
-            <button type="button" onClick={() => setConfirmOpen(true)}>
+            <button type="button" onClick={() => setConfirmOpen(true)} disabled={busy}>
               Confirm and issue invoices
             </button>
           ) : stale ? (
@@ -161,74 +185,105 @@ export default function BillingRunDetailPage() {
         headers={
           <>
             <th>Pupil</th>
-            <th>Schedule</th>
+            <th>Year group</th>
+            <th>Class</th>
+            <th>Fee schedule</th>
+            <th>Annual fee</th>
             <th>Instalment</th>
-            <th>Amounts</th>
+            <th>Standard</th>
+            <th>Discount</th>
+            <th>Net</th>
             <th>Period</th>
+            <th>Due date</th>
           </>
         }
       >
-        {data.items.map((item) => {
-          const instalmentLabel =
-            item.instalmentNumber && item.instalmentCount
-              ? `${item.instalmentNumber} of ${item.instalmentCount}`
-              : item.instalmentNumber
-                ? String(item.instalmentNumber)
-                : "—";
-          return (
-            <tr key={item.id}>
-              <td>
-                <Link href={`/school/finance/pupils/${item.studentProfileId}`}>{item.legalName}</Link>
-                <div className="muted">
-                  {[item.yearGroupName, item.className].filter(Boolean).join(" · ") || "—"}
-                  {item.siblingPosition ? ` · sibling ${item.siblingPosition}` : ""}
+        {data.items.map((item) => (
+          <tr key={item.id}>
+            <td>
+              <Link href={`/school/finance/pupils/${item.studentProfileId}`}>{item.legalName}</Link>
+              {item.siblingPosition ? <div className="muted">Sibling {item.siblingPosition}</div> : null}
+            </td>
+            <td>{item.yearGroupName ?? "—"}</td>
+            <td>{item.className ?? "—"}</td>
+            <td>{item.feeScheduleName ?? item.calculation.feeScheduleName ?? "—"}</td>
+            <td>
+              {item.annualFeeLabel
+                ? item.annualFeeLabel
+                : item.annualAmountMinor != null
+                  ? formatMinor(item.annualAmountMinor, item.currency)
+                  : "—"}
+            </td>
+            <td>
+              {item.instalmentLabel ??
+                (item.instalmentNumber && item.instalmentCount
+                  ? `${item.instalmentNumber} of ${item.instalmentCount}`
+                  : item.instalmentNumber
+                    ? String(item.instalmentNumber)
+                    : "—")}
+            </td>
+            <td>{formatMinor(item.amountPerInstalmentMinor ?? item.standardAmountMinor, item.currency)}</td>
+            <td>
+              {formatMinor(item.discountTotalMinor, item.currency)}
+              {item.calculation.applied?.map((discount) => (
+                <div key={discount.name} className="muted">
+                  {discount.name} −{formatMinor(discount.calculatedMinor, item.currency)}
                 </div>
-              </td>
-              <td>
-                {item.feeScheduleName ?? item.calculation.feeScheduleName ?? "—"}
-                <div className="muted">
-                  Annual fee:{" "}
-                  {item.annualAmountMinor != null ? formatMinor(item.annualAmountMinor, item.currency) : "—"}
-                </div>
-              </td>
-              <td>
-                Instalment {instalmentLabel}
-                <div className="muted">
-                  Standard: {formatMinor(item.amountPerInstalmentMinor ?? item.standardAmountMinor, item.currency)}
-                </div>
-              </td>
-              <td>
-                Discount: {formatMinor(item.discountTotalMinor, item.currency)}
+              ))}
+            </td>
+            <td>
+              <strong>{formatMinor(item.netAmountMinor, item.currency)}</strong>
+            </td>
+            <td>{formatUkNumericDateRange(item.periodStart, item.periodEnd)}</td>
+            <td>
+              {item.dueOn ? formatUkNumericDate(item.dueOn) : "—"}
+              {item.warning ? <div className="muted">{item.warning}</div> : null}
+              {item.invoiceId ? (
                 <div>
-                  <strong>Net: {formatMinor(item.netAmountMinor, item.currency)}</strong>
+                  <Link href={`/school/finance/invoices/${item.invoiceId}`}>Invoice</Link>
                 </div>
-                {item.calculation.applied?.map((discount) => (
-                  <div key={discount.name} className="muted">
-                    {discount.name} −{formatMinor(discount.calculatedMinor, item.currency)}
-                  </div>
-                ))}
-              </td>
-              <td>
-                {formatUkNumericDateRange(item.periodStart, item.periodEnd)}
-                <div className="muted">Due: {item.dueOn ? formatUkNumericDate(item.dueOn) : "—"}</div>
-                {item.warning ? <div className="muted">{item.warning}</div> : null}
-                {item.invoiceId ? (
-                  <div>
-                    <Link href={`/school/finance/invoices/${item.invoiceId}`}>Invoice</Link>
-                  </div>
-                ) : null}
-              </td>
-            </tr>
-          );
-        })}
+              ) : null}
+            </td>
+          </tr>
+        ))}
       </DataTable>
+      <SectionCard title="Confirmation">
+        {stale ? (
+          <p>
+            Confirmation is disabled until this preview is refreshed. The figures above may no longer match the invoices
+            that would be issued.
+          </p>
+        ) : (
+          <>
+            <p>
+              {summary.pupilCount} {pupilWord}
+            </p>
+            <p>
+              {summary.invoiceCount} {invoiceWord} will be issued
+            </p>
+            <p>
+              Total: <strong>{formatMinor(summary.totalMinor, data.run.currency)}</strong>
+            </p>
+            {canConfirm ? (
+              <p className="toolbar">
+                <button type="button" onClick={() => setConfirmOpen(true)} disabled={busy}>
+                  Confirm and issue invoices
+                </button>
+              </p>
+            ) : null}
+          </>
+        )}
+      </SectionCard>
       <ConfirmationDialog
         open={confirmOpen}
         title="Issue invoices for this period?"
-        description="This creates one family invoice per billing account using the figures shown above. Running the same period again will reuse existing invoices."
-        confirmLabel={busy ? "Issuing…" : "Confirm generation"}
-        onConfirm={confirm}
-        onClose={() => setConfirmOpen(false)}
+        description={`${summary.invoiceCount} ${invoiceWord} will be issued. Total: ${formatMinor(summary.totalMinor, data.run.currency)}. This creates one family invoice per billing account using the figures shown above. Running the same period again will reuse existing invoices.`}
+        confirmLabel={busy ? "Issuing…" : "Confirm and issue invoices"}
+        busy={busy}
+        onConfirm={() => void confirm()}
+        onClose={() => {
+          if (!busy) setConfirmOpen(false);
+        }}
       />
     </>
   );

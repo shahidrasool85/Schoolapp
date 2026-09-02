@@ -161,6 +161,27 @@ export function resolveCurrentBillingPeriod(input: {
   return { periodStart, periodEnd };
 }
 
+/**
+ * Canonical stale-preview rule.
+ *
+ * A preview becomes stale ONLY when a fresh quote of the same period would
+ * produce a different invoice set than the stored preview items. The compared
+ * signature is pupil + fee schedule + standard + discount + net.
+ *
+ * That happens when something that could change those invoices changes, for
+ * example:
+ * - the referenced schedule changes (amount, frequency, instalments, dates)
+ * - the referenced schedule is ended, archived, or deleted
+ * - a relevant discount or concession changes
+ * - pupil eligibility, year group, class, or enrolment changes
+ * - family / account targeting that changes discounts or the billed account
+ *
+ * Deleting an unused duplicate schedule that is not referenced by the preview
+ * does not change the quote result and must NOT mark the preview stale.
+ */
+export const BILLING_RUN_PREVIEW_STALE_RULE =
+  "A preview is stale only when a fresh quote of the same period would issue different invoices than the stored preview. Comparison is pupil + fee schedule + standard + discount + net. Unrelated unused schedule deletion does not stale a preview.";
+
 export function billingRunItemSignature(input: {
   studentProfileId: string;
   feeScheduleId: string | null;
@@ -175,6 +196,167 @@ export function billingRunItemSignature(input: {
     String(input.discountTotalMinor),
     String(input.netAmountMinor),
   ].join(":");
+}
+
+export function billingRunPreviewSignaturesDiffer(
+  quotes: Array<{
+    studentProfileId: string;
+    feeScheduleId: string | null;
+    standardAmountMinor: number;
+    discountTotalMinor: number;
+    netAmountMinor: number;
+  }>,
+  items: Array<{
+    studentProfileId: string;
+    feeScheduleId: string | null;
+    standardAmountMinor: number;
+    discountTotalMinor: number;
+    netAmountMinor: number;
+  }>,
+): "eligible_pupils_changed" | "amounts_changed" | null {
+  const quoteSignatures = quotes.map(billingRunItemSignature).sort();
+  const itemSignatures = items.map(billingRunItemSignature).sort();
+  if (quoteSignatures.length !== itemSignatures.length) return "eligible_pupils_changed";
+  for (let index = 0; index < quoteSignatures.length; index += 1) {
+    if (quoteSignatures[index] !== itemSignatures[index]) return "amounts_changed";
+  }
+  return null;
+}
+
+export function billingRunConfirmSummary(
+  items: Array<{
+    studentProfileId: string;
+    billingAccountId: string | null;
+    netAmountMinor: number;
+    error?: string | null;
+  }>,
+): { pupilCount: number; invoiceCount: number; totalMinor: number } {
+  const billable = items.filter((item) => !item.error && item.netAmountMinor > 0 && item.billingAccountId);
+  return {
+    pupilCount: new Set(billable.map((item) => item.studentProfileId)).size,
+    invoiceCount: new Set(billable.map((item) => item.billingAccountId)).size,
+    totalMinor: billable.reduce((sum, item) => sum + item.netAmountMinor, 0),
+  };
+}
+
+export const LEGACY_INSTALMENT_METADATA_LABEL = "Legacy preview — instalment metadata not stored";
+
+export function inclusiveMonthIndex(fromIso: string, toIso: string): number {
+  const from = asIsoDate(fromIso);
+  const to = asIsoDate(toIso);
+  const fromYear = Number(from.slice(0, 4));
+  const fromMonth = Number(from.slice(5, 7));
+  const toYear = Number(to.slice(0, 4));
+  const toMonth = Number(to.slice(5, 7));
+  return (toYear - fromYear) * 12 + (toMonth - fromMonth) + 1;
+}
+
+export function deriveInstalmentNumber(input: {
+  frequency: string;
+  periodStart: string;
+  effectiveFrom?: string | null;
+  instalmentCount?: number | null;
+}): number | null {
+  if (input.frequency === "annual") return 1;
+  if (input.frequency !== "monthly" || !input.effectiveFrom) return null;
+  const index = inclusiveMonthIndex(input.effectiveFrom, input.periodStart);
+  if (index < 1) return null;
+  if (input.instalmentCount != null && index > input.instalmentCount) return null;
+  return index;
+}
+
+function asNullableNumber(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export type BillingRunScheduleDisplayContext = {
+  id: string;
+  name: string;
+  annualAmountMinor: number | null;
+  instalmentCount: number | null;
+  amountMinor: number;
+  effectiveFrom: string | null;
+  billingFrequency: string | null;
+};
+
+export function resolveBillingRunItemDisplay(input: {
+  snapshot: Record<string, unknown>;
+  run: {
+    instalmentNumber: number | null;
+    periodStart: string;
+    periodEnd: string;
+    dueOn: string;
+    billingFrequency: string;
+    isPreview: boolean;
+    isStale: boolean;
+  };
+  item: {
+    standardAmountMinor: number;
+    feeScheduleId: string | null;
+    invoiceId: string | null;
+  };
+  currentSchedule?: BillingRunScheduleDisplayContext | null;
+}) {
+  const snap = input.snapshot;
+  const canUseCurrentSchedule =
+    input.run.isPreview &&
+    !input.run.isStale &&
+    !input.item.invoiceId &&
+    Boolean(input.currentSchedule) &&
+    Boolean(input.item.feeScheduleId) &&
+    input.currentSchedule!.id === input.item.feeScheduleId;
+  const schedule = canUseCurrentSchedule ? input.currentSchedule! : null;
+
+  const snapshotAnnual = asNullableNumber(snap.annualAmountMinor);
+  const snapshotCount = asNullableNumber(snap.instalmentCount);
+  const snapshotNumber = asNullableNumber(snap.instalmentNumber);
+  const snapshotRegular = asNullableNumber(snap.amountPerInstalmentMinor);
+
+  const instalmentCount = snapshotCount ?? schedule?.instalmentCount ?? null;
+  let instalmentNumber = snapshotNumber ?? input.run.instalmentNumber ?? null;
+  const amountPerInstalmentMinor = snapshotRegular ?? schedule?.amountMinor ?? null;
+
+  let annualAmountMinor = snapshotAnnual;
+  if (annualAmountMinor == null && snapshotRegular != null && snapshotCount != null) {
+    annualAmountMinor = snapshotRegular * snapshotCount;
+  }
+  if (annualAmountMinor == null && schedule) {
+    annualAmountMinor =
+      schedule.annualAmountMinor ??
+      (schedule.instalmentCount != null ? schedule.amountMinor * schedule.instalmentCount : null);
+  }
+
+  if (instalmentNumber == null && schedule) {
+    instalmentNumber = deriveInstalmentNumber({
+      frequency: input.run.billingFrequency || schedule.billingFrequency || "",
+      periodStart: input.run.periodStart,
+      effectiveFrom: schedule.effectiveFrom,
+      instalmentCount,
+    });
+  }
+
+  const hasInstalmentMeta = instalmentNumber != null && instalmentCount != null;
+  return {
+    feeScheduleId: (typeof snap.feeScheduleId === "string" && snap.feeScheduleId) || input.item.feeScheduleId,
+    feeScheduleName:
+      (typeof snap.feeScheduleName === "string" && snap.feeScheduleName) || schedule?.name || null,
+    yearGroupName: typeof snap.yearGroupName === "string" ? snap.yearGroupName : null,
+    className: typeof snap.className === "string" ? snap.className : null,
+    annualAmountMinor,
+    instalmentNumber,
+    instalmentCount,
+    amountPerInstalmentMinor,
+    periodStart: typeof snap.periodStart === "string" ? snap.periodStart : input.run.periodStart,
+    periodEnd: typeof snap.periodEnd === "string" ? snap.periodEnd : input.run.periodEnd,
+    dueOn: typeof snap.dueOn === "string" ? snap.dueOn : input.run.dueOn,
+    instalmentLabel: hasInstalmentMeta
+      ? `${instalmentNumber} of ${instalmentCount}`
+      : LEGACY_INSTALMENT_METADATA_LABEL,
+    annualFeeLabel: annualAmountMinor == null ? LEGACY_INSTALMENT_METADATA_LABEL : null,
+    usedLegacyMetadataLabel: !hasInstalmentMeta || annualAmountMinor == null,
+  };
 }
 
 export function feeScheduleSourceFingerprint(input: {

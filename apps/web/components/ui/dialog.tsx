@@ -12,6 +12,7 @@ export function ConfirmationDialog({
   description,
   confirmLabel = "Confirm",
   danger = false,
+  busy = false,
   secondaryLabel,
   onSecondary,
   onConfirm,
@@ -22,6 +23,7 @@ export function ConfirmationDialog({
   description: string;
   confirmLabel?: string;
   danger?: boolean;
+  busy?: boolean;
   secondaryLabel?: string;
   onSecondary?: () => void;
   onConfirm: () => void;
@@ -93,15 +95,15 @@ export function ConfirmationDialog({
         <h2 id={headingId}>{title}</h2>
         <p className="muted">{description}</p>
         <div className="dialog-actions">
-          <Button ref={cancelRef} type="button" variant="secondary" onClick={onClose}>
+          <Button ref={cancelRef} type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
           {secondaryLabel && onSecondary ? (
-            <Button type="button" variant="secondary" onClick={onSecondary}>
+            <Button type="button" variant="secondary" onClick={onSecondary} disabled={busy}>
               {secondaryLabel}
             </Button>
           ) : null}
-          <Button type="button" variant={danger ? "danger" : "primary"} onClick={onConfirm}>
+          <Button type="button" variant={danger ? "danger" : "primary"} onClick={onConfirm} disabled={busy}>
             {confirmLabel}
           </Button>
         </div>

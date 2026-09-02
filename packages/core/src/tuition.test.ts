@@ -4,14 +4,21 @@ import {
   applyMidPeriodPolicy,
   arrearsBucket,
   asIsoDate,
+  BILLING_RUN_PREVIEW_STALE_RULE,
   billingPeriodKey,
+  billingRunConfirmSummary,
+  billingRunItemSignature,
+  billingRunPreviewSignaturesDiffer,
   compareSiblings,
   daysOverdue,
+  deriveInstalmentNumber,
   deriveInvoiceStatus,
   invoiceOutstandingMinor,
+  LEGACY_INSTALMENT_METADATA_LABEL,
   orderSiblings,
   percentOfMinor,
   prorateMinor,
+  resolveBillingRunItemDisplay,
   splitAnnualIntoInstalments,
   enrolmentOverlapsBillingPeriod,
   inclusiveDateRangesOverlap,
@@ -394,5 +401,176 @@ describe("mid-period policy", () => {
     });
     expect(result.skipped).toBe(true);
     expect(result.amountMinor).toBe(0);
+  });
+});
+
+describe("billing run preview display and stale detection", () => {
+  const schedule = {
+    id: "sched-1",
+    name: "Year 3 2026/27",
+    annualAmountMinor: 2000000,
+    instalmentCount: 10,
+    amountMinor: 200000,
+    effectiveFrom: "2026-09-01",
+    billingFrequency: "monthly",
+  };
+
+  it("derives monthly instalment numbers from the schedule start and period", () => {
+    expect(
+      deriveInstalmentNumber({
+        frequency: "monthly",
+        periodStart: "2026-09-01",
+        effectiveFrom: "2026-09-01",
+        instalmentCount: 10,
+      }),
+    ).toBe(1);
+    expect(
+      deriveInstalmentNumber({
+        frequency: "monthly",
+        periodStart: "2026-10-01",
+        effectiveFrom: "2026-09-01",
+        instalmentCount: 10,
+      }),
+    ).toBe(2);
+    expect(
+      deriveInstalmentNumber({
+        frequency: "termly",
+        periodStart: "2026-09-01",
+        effectiveFrom: "2026-09-01",
+        instalmentCount: 3,
+      }),
+    ).toBeNull();
+  });
+
+  it("fills missing legacy preview metadata from the referenced schedule without rewriting amounts", () => {
+    const display = resolveBillingRunItemDisplay({
+      snapshot: { feeScheduleName: "Year 3 2026/27", yearGroupName: "Year 3", className: "3A" },
+      run: {
+        instalmentNumber: null,
+        periodStart: "2026-09-01",
+        periodEnd: "2026-09-30",
+        dueOn: "2026-09-15",
+        billingFrequency: "monthly",
+        isPreview: true,
+        isStale: false,
+      },
+      item: { standardAmountMinor: 200000, feeScheduleId: "sched-1", invoiceId: null },
+      currentSchedule: schedule,
+    });
+    expect(display.annualAmountMinor).toBe(2000000);
+    expect(display.instalmentNumber).toBe(1);
+    expect(display.instalmentCount).toBe(10);
+    expect(display.instalmentLabel).toBe("1 of 10");
+    expect(display.annualFeeLabel).toBeNull();
+    expect(display.usedLegacyMetadataLabel).toBe(false);
+  });
+
+  it("does not use the current schedule for issued invoices or stale previews", () => {
+    const issued = resolveBillingRunItemDisplay({
+      snapshot: { feeScheduleName: "Year 3 2026/27" },
+      run: {
+        instalmentNumber: null,
+        periodStart: "2026-09-01",
+        periodEnd: "2026-09-30",
+        dueOn: "2026-09-15",
+        billingFrequency: "monthly",
+        isPreview: false,
+        isStale: false,
+      },
+      item: { standardAmountMinor: 200000, feeScheduleId: "sched-1", invoiceId: "inv-1" },
+      currentSchedule: schedule,
+    });
+    expect(issued.annualAmountMinor).toBeNull();
+    expect(issued.instalmentLabel).toBe(LEGACY_INSTALMENT_METADATA_LABEL);
+    expect(issued.annualFeeLabel).toBe(LEGACY_INSTALMENT_METADATA_LABEL);
+
+    const stale = resolveBillingRunItemDisplay({
+      snapshot: { feeScheduleName: "Year 3 2026/27" },
+      run: {
+        instalmentNumber: null,
+        periodStart: "2026-09-01",
+        periodEnd: "2026-09-30",
+        dueOn: "2026-09-15",
+        billingFrequency: "monthly",
+        isPreview: true,
+        isStale: true,
+      },
+      item: { standardAmountMinor: 200000, feeScheduleId: "sched-1", invoiceId: null },
+      currentSchedule: { ...schedule, annualAmountMinor: 2500000, amountMinor: 250000 },
+    });
+    expect(stale.annualAmountMinor).toBeNull();
+    expect(stale.instalmentLabel).toBe(LEGACY_INSTALMENT_METADATA_LABEL);
+  });
+
+  it("derives annual fee from immutable snapshot regular × count", () => {
+    const display = resolveBillingRunItemDisplay({
+      snapshot: { amountPerInstalmentMinor: 200000, instalmentCount: 10, instalmentNumber: 1 },
+      run: {
+        instalmentNumber: 1,
+        periodStart: "2026-09-01",
+        periodEnd: "2026-09-30",
+        dueOn: "2026-09-15",
+        billingFrequency: "monthly",
+        isPreview: false,
+        isStale: false,
+      },
+      item: { standardAmountMinor: 200000, feeScheduleId: "sched-1", invoiceId: "inv-1" },
+      currentSchedule: { ...schedule, annualAmountMinor: 9999999 },
+    });
+    expect(display.annualAmountMinor).toBe(2000000);
+    expect(display.instalmentLabel).toBe("1 of 10");
+  });
+
+  it("marks a preview stale only when the invoice signature would change", () => {
+    expect(BILLING_RUN_PREVIEW_STALE_RULE).toMatch(/Unrelated unused schedule deletion does not stale/);
+    const stored = [
+      {
+        studentProfileId: "pupil-1",
+        feeScheduleId: "sched-1",
+        standardAmountMinor: 200000,
+        discountTotalMinor: 0,
+        netAmountMinor: 200000,
+      },
+    ];
+    expect(billingRunPreviewSignaturesDiffer(stored, stored)).toBeNull();
+    expect(
+      billingRunPreviewSignaturesDiffer(
+        [
+          {
+            ...stored[0]!,
+            feeScheduleId: "sched-other",
+          },
+        ],
+        stored,
+      ),
+    ).toBe("amounts_changed");
+    expect(
+      billingRunPreviewSignaturesDiffer(
+        [
+          ...stored,
+          {
+            studentProfileId: "pupil-2",
+            feeScheduleId: "sched-1",
+            standardAmountMinor: 200000,
+            discountTotalMinor: 0,
+            netAmountMinor: 200000,
+          },
+        ],
+        stored,
+      ),
+    ).toBe("eligible_pupils_changed");
+    expect(
+      billingRunItemSignature(stored[0]!).split(":"),
+    ).toEqual(["pupil-1", "sched-1", "200000", "0", "200000"]);
+  });
+
+  it("summarises confirmation as pupil, invoice and total counts", () => {
+    expect(
+      billingRunConfirmSummary([
+        { studentProfileId: "p1", billingAccountId: "a1", netAmountMinor: 200000, error: null },
+        { studentProfileId: "p2", billingAccountId: "a1", netAmountMinor: 0, error: null },
+        { studentProfileId: "p3", billingAccountId: "a2", netAmountMinor: 150000, error: "already_invoiced" },
+      ]),
+    ).toEqual({ pupilCount: 1, invoiceCount: 1, totalMinor: 200000 });
   });
 });

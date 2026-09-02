@@ -3,27 +3,61 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { formatUkNumericDate, formatUkNumericDateRange } from "@schoolapp/domain";
 import { Alert, LoadingState, PageError, PageHeader, SectionCard, StatusBadge } from "../../../../../components/ui";
 import { api } from "../../../../../lib/api";
 import { userFacingError } from "../../../../../lib/errors";
 import { formatMinor, poundsToMinor } from "../../../../../lib/money";
 import { FinanceNav } from "../../finance-nav";
 
+type Quote = {
+  feeScheduleName: string | null;
+  billingFrequency: string | null;
+  annualAmountMinor: number | null;
+  amountPerInstalmentMinor: number | null;
+  standardAmountMinor: number;
+  appliedDiscounts: Array<{ name: string; calculatedMinor: number }>;
+  discountTotalMinor: number;
+  netAmountMinor: number;
+  currency: string;
+  siblingPosition: number | null;
+  periodStart?: string;
+  periodEnd?: string;
+  warning?: string | null;
+};
+
 type Bundle = {
   studentProfileId: string;
   legalName: string;
-  quote: {
+  enrolment: {
+    academicYearName: string | null;
+    yearGroupName: string | null;
+    className: string | null;
+    startedOn: string;
+    endedOn: string | null;
+    status: string;
+  } | null;
+  evaluatedOn: string;
+  evaluatedPeriod: { periodStart: string; periodEnd: string } | null;
+  todayQuote: Quote | null;
+  quote: Quote | null;
+  appliesToday: boolean;
+  appliesInEvaluatedPeriod: boolean;
+  upcoming: {
     feeScheduleName: string | null;
-    billingFrequency: string | null;
-    standardAmountMinor: number;
-    appliedDiscounts: Array<{ name: string; calculatedMinor: number }>;
-    discountTotalMinor: number;
-    netAmountMinor: number;
+    annualAmountMinor: number | null;
+    amountPerInstalmentMinor: number;
     currency: string;
-    siblingPosition: number | null;
+    periodStart: string;
+    periodEnd: string;
+    effectiveFrom: string;
   } | null;
   invoices: Array<{ id: string; reference: string; status: string; outstandingMinor: number; currency: string }>;
 };
+
+function quoteHasSchedule(quote: Quote | null): boolean {
+  return Boolean(quote?.feeScheduleName) && quote?.warning !== "no_fee_schedule";
+}
 
 export default function PupilFeeProfilePage() {
   const params = useParams<{ id: string }>();
@@ -65,12 +99,14 @@ export default function PupilFeeProfilePage() {
   if (error && !data) return <PageError title="Pupil billing unavailable" description={error} />;
   if (!data) return <LoadingState label="Loading pupil billing…" />;
   const quote = data.quote;
+  const periodApplies = data.appliesInEvaluatedPeriod || quoteHasSchedule(quote);
+  const todayApplies = data.appliesToday || quoteHasSchedule(data.todayQuote);
 
   return (
     <>
       <PageHeader
         title={`${data.legalName} — school fees`}
-        description="Standard tuition, eligible discounts, and the net amount that would be billed now."
+        description="Fee applicability uses the same overlap rules as billing-run preview. Today and the current billing period are labelled separately."
         breadcrumbs={[
           { href: "/school/finance", label: "Finance" },
           { label: data.legalName },
@@ -78,25 +114,64 @@ export default function PupilFeeProfilePage() {
       />
       <FinanceNav />
       {message ? <Alert tone="success">{message}</Alert> : null}
-      {quote ? (
-        <SectionCard title="Current calculation">
+      {data.enrolment ? (
+        <p className="muted">
+          {data.enrolment.academicYearName} · {data.enrolment.yearGroupName ?? "No year group"}
+          {data.enrolment.className ? ` · ${data.enrolment.className}` : ""} · enrolled from{" "}
+          {formatUkNumericDate(data.enrolment.startedOn)}
+          {data.enrolment.endedOn ? ` to ${formatUkNumericDate(data.enrolment.endedOn)}` : ""}
+        </p>
+      ) : null}
+      <SectionCard title={`Applies today (${formatUkNumericDate(data.evaluatedOn)})`}>
+        {todayApplies && data.todayQuote ? (
           <p>
-            {quote.feeScheduleName ?? "No schedule"} · {quote.billingFrequency}
-            {quote.siblingPosition ? ` · sibling position ${quote.siblingPosition}` : ""}
+            {data.todayQuote.feeScheduleName} —{" "}
+            {formatMinor(data.todayQuote.amountPerInstalmentMinor ?? data.todayQuote.standardAmountMinor, data.todayQuote.currency)}{" "}
+            per instalment
           </p>
-          <p>Standard tuition {formatMinor(quote.standardAmountMinor, quote.currency)}</p>
-          {quote.appliedDiscounts.map((discount) => (
-            <p key={discount.name}>
-              {discount.name} −{formatMinor(discount.calculatedMinor, quote.currency)}
-            </p>
-          ))}
-          <p>
-            <strong>Net tuition {formatMinor(quote.netAmountMinor, quote.currency)}</strong>
-          </p>
+        ) : (
+          <p>No fee schedule applies today.</p>
+        )}
+      </SectionCard>
+      {data.evaluatedPeriod ? (
+        <SectionCard
+          title={`Current billing period (${formatUkNumericDateRange(data.evaluatedPeriod.periodStart, data.evaluatedPeriod.periodEnd)})`}
+        >
+          {periodApplies && quote ? (
+            <>
+              <p>
+                {quote.feeScheduleName ?? "No schedule"} · {quote.billingFrequency}
+                {quote.siblingPosition ? ` · sibling position ${quote.siblingPosition}` : ""}
+              </p>
+              {quote.annualAmountMinor != null ? (
+                <p>Annual fee {formatMinor(quote.annualAmountMinor, quote.currency)}</p>
+              ) : null}
+              <p>Amount per instalment {formatMinor(quote.amountPerInstalmentMinor ?? quote.standardAmountMinor, quote.currency)}</p>
+              {quote.appliedDiscounts.map((discount) => (
+                <p key={discount.name}>
+                  {discount.name} −{formatMinor(discount.calculatedMinor, quote.currency)}
+                </p>
+              ))}
+              <p>
+                <strong>Net tuition {formatMinor(quote.netAmountMinor, quote.currency)}</strong>
+              </p>
+            </>
+          ) : (
+            <p className="muted">No fee schedule applies in this billing period.</p>
+          )}
         </SectionCard>
-      ) : (
-        <p className="muted">No current fee schedule applies to this pupil.</p>
-      )}
+      ) : null}
+      {data.upcoming ? (
+        <Alert tone="info">
+          Upcoming schedule: {data.upcoming.feeScheduleName} —{" "}
+          {formatMinor(data.upcoming.amountPerInstalmentMinor, data.upcoming.currency)} per instalment from{" "}
+          {formatUkNumericDate(data.upcoming.effectiveFrom)}
+          {data.upcoming.annualAmountMinor != null
+            ? ` (annual ${formatMinor(data.upcoming.annualAmountMinor, data.upcoming.currency)})`
+            : ""}
+          .
+        </Alert>
+      ) : null}
       <SectionCard title="Add a pupil concession">
         <form className="stack" onSubmit={addConcession}>
           <label>

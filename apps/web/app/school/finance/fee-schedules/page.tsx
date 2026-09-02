@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   captureSubmitTarget,
   feeScheduleAnnualMatchesInstalments,
+  feeScheduleCreateSummary,
+  formatGbpMinor,
   parseGbpPoundsToMinor,
   resetFormSafely,
 } from "@schoolapp/domain";
@@ -26,10 +28,29 @@ type Schedule = {
   billingFrequency: string;
   instalmentCount: number | null;
   isActive: boolean;
+  usage?: {
+    unused: boolean;
+    usedInBillingRun: boolean;
+    hasInvoices: boolean;
+    ended: boolean;
+    archived: boolean;
+  };
+  overlapWarning: string | null;
 };
 
 function fieldString(form: FormData, name: string): string {
   return String(form.get(name) ?? "").trim();
+}
+
+function usageLabels(schedule: Schedule): string[] {
+  if (!schedule.isActive && schedule.usage?.ended) return ["Ended"];
+  if (!schedule.isActive && schedule.usage?.archived) return ["Archived"];
+  const labels: string[] = [];
+  if (schedule.usage?.hasInvoices) labels.push("Has invoices");
+  if (schedule.usage?.usedInBillingRun) labels.push("Used in billing run");
+  if (schedule.usage?.unused) labels.push("Unused");
+  if (schedule.isActive && labels.length === 0) labels.push("Active");
+  return labels;
 }
 
 export default function FeeSchedulesPage() {
@@ -42,6 +63,16 @@ export default function FeeSchedulesPage() {
   const [fieldError, setFieldError] = useState("");
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const [annualPounds, setAnnualPounds] = useState("");
+  const [instalments, setInstalments] = useState("10");
+
+  const liveSummary = useMemo(() => {
+    const annual = parseGbpPoundsToMinor(annualPounds);
+    const count = Number(instalments);
+    if (!annual.ok || !Number.isInteger(count) || count < 1) return null;
+    const summary = feeScheduleCreateSummary({ annualMinor: annual.amount, instalmentCount: count });
+    return summary.ok ? summary : { text: summary.error, roundingNote: null, amountPerInstalmentMinor: null };
+  }, [annualPounds, instalments]);
 
   async function reload() {
     const [scheduleBody, yearBody, groupBody] = await Promise.all([
@@ -66,31 +97,26 @@ export default function FeeSchedulesPage() {
     setMessage("");
     setError("");
     setFieldError("");
-    const amount = parseGbpPoundsToMinor(fieldString(form, "amount"));
-    if (!amount.ok) {
-      setFieldError(amount.error);
+    const annual = parseGbpPoundsToMinor(fieldString(form, "annual"));
+    if (!annual.ok) {
+      setFieldError(annual.error);
       return;
     }
-    const annualRaw = fieldString(form, "annual");
-    let annualAmountMinor: number | null = null;
-    if (annualRaw) {
-      const annual = parseGbpPoundsToMinor(annualRaw);
-      if (!annual.ok) {
-        setFieldError(annual.error);
-        return;
-      }
-      annualAmountMinor = annual.amount;
-    }
     const instalmentsRaw = fieldString(form, "instalments");
-    const instalmentCount = instalmentsRaw ? Number(instalmentsRaw) : null;
-    if (instalmentsRaw && (!Number.isInteger(instalmentCount) || Number(instalmentCount) < 1 || Number(instalmentCount) > 24)) {
+    const instalmentCount = Number(instalmentsRaw);
+    if (!Number.isInteger(instalmentCount) || instalmentCount < 1 || instalmentCount > 24) {
       setFieldError("Instalments per year must be a whole number between 1 and 24.");
       return;
     }
+    const plan = feeScheduleCreateSummary({ annualMinor: annual.amount, instalmentCount });
+    if (!plan.ok) {
+      setFieldError(plan.error);
+      return;
+    }
     const annualCheck = feeScheduleAnnualMatchesInstalments({
-      amountMinor: amount.amount,
+      amountMinor: plan.amountPerInstalmentMinor,
       instalmentCount,
-      annualAmountMinor,
+      annualAmountMinor: annual.amount,
     });
     if (!annualCheck.ok) {
       setFieldError(annualCheck.error);
@@ -109,15 +135,18 @@ export default function FeeSchedulesPage() {
           name: fieldString(form, "name"),
           academicYearId,
           yearGroupId: fieldString(form, "yearGroupId") || null,
-          amountMinor: amount.amount,
-          annualAmountMinor,
+          annualAmountMinor: annual.amount,
+          amountMinor: plan.amountPerInstalmentMinor,
           billingFrequency: fieldString(form, "frequency") || "monthly",
           instalmentCount,
           effectiveFrom: fieldString(form, "effectiveFrom"),
+          effectiveUntil: fieldString(form, "effectiveUntil") || null,
           description: fieldString(form, "description") || null,
         }),
       });
       resetFormSafely(formEl);
+      setAnnualPounds("");
+      setInstalments("10");
       setMessage("Fee schedule saved. Later edits will not change invoices already issued.");
       await reload();
     } catch (err) {
@@ -130,22 +159,29 @@ export default function FeeSchedulesPage() {
   if (error && !schedules) return <PageError title="Fee schedules unavailable" description={error} />;
   if (!schedules) return <LoadingState label="Loading fee schedules…" />;
 
+  const overlapWarnings = [...new Set(schedules.map((schedule) => schedule.overlapWarning).filter(Boolean))];
+
   return (
     <>
       <PageHeader
         title="Fee schedules"
-        description="Set standard tuition by academic year and year group. Amounts are stored in pence."
+        description="Set annual tuition by academic year and year group. The amount per instalment is calculated in pence."
       />
       <FinanceNav />
       {message ? <Alert tone="success">{message}</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {fieldError ? <Alert tone="danger">{fieldError}</Alert> : null}
+      {overlapWarnings.map((warning) => (
+        <Alert key={warning} tone="warning">
+          {warning} Identify unused schedules before deleting. Used schedules must be ended or archived.
+        </Alert>
+      ))}
       {canManage ? (
         <SectionCard title="Create schedule">
           <form className="stack" onSubmit={create}>
             <label>
               Name
-              <input name="name" required placeholder="Year 5 2026/27 monthly" />
+              <input name="name" required placeholder="Year 3 Tuition 2026/27" />
             </label>
             <label>
               Academic year
@@ -170,12 +206,14 @@ export default function FeeSchedulesPage() {
               </select>
             </label>
             <label>
-              Amount per invoice (£)
-              <input name="amount" required placeholder="600.00" />
-            </label>
-            <label>
-              Annual total (£, optional)
-              <input name="annual" placeholder="6000.00" />
+              Annual tuition fee (£)
+              <input
+                name="annual"
+                required
+                placeholder="6000.00"
+                value={annualPounds}
+                onChange={(event) => setAnnualPounds(event.target.value)}
+              />
             </label>
             <label>
               Frequency
@@ -187,12 +225,40 @@ export default function FeeSchedulesPage() {
               </select>
             </label>
             <label>
-              Instalments per year
-              <input name="instalments" type="number" min={1} max={24} placeholder="10" />
+              Number of instalments
+              <input
+                name="instalments"
+                type="number"
+                min={1}
+                max={24}
+                required
+                value={instalments}
+                onChange={(event) => setInstalments(event.target.value)}
+              />
             </label>
+            <p>
+              Amount per instalment:{" "}
+              <strong>
+                {liveSummary && "amountPerInstalmentMinor" in liveSummary && liveSummary.amountPerInstalmentMinor != null
+                  ? formatGbpMinor(liveSummary.amountPerInstalmentMinor)
+                  : "—"}
+              </strong>
+            </p>
+            {liveSummary ? (
+              <Alert tone="info">
+                {liveSummary.text}
+                {liveSummary.roundingNote ? ` ${liveSummary.roundingNote}` : ""}
+              </Alert>
+            ) : (
+              <p className="muted">Enter the annual fee and instalments to see the charging summary before you save.</p>
+            )}
             <label>
               Effective from
               <input name="effectiveFrom" type="date" required />
+            </label>
+            <label>
+              Effective until (optional — leave blank unless this is a replacement that ends)
+              <input name="effectiveUntil" type="date" />
             </label>
             <label>
               Description
@@ -215,9 +281,9 @@ export default function FeeSchedulesPage() {
               <th>Name</th>
               <th>Year</th>
               <th>Year group</th>
-              <th>Amount</th>
+              <th>Annual / instalment</th>
               <th>Frequency</th>
-              <th>Status</th>
+              <th>Usage</th>
             </>
           }
         >
@@ -225,16 +291,24 @@ export default function FeeSchedulesPage() {
             <tr key={schedule.id}>
               <td>
                 <Link href={`/school/finance/fee-schedules/${schedule.id}`}>{schedule.name}</Link>
+                {schedule.overlapWarning ? <div className="muted">{schedule.overlapWarning}</div> : null}
               </td>
               <td>{schedule.academicYearName}</td>
               <td>{schedule.yearGroupName ?? "All"}</td>
-              <td>{formatMinor(schedule.amountMinor, schedule.currency)}</td>
+              <td>
+                {schedule.annualAmountMinor != null
+                  ? `${formatMinor(schedule.annualAmountMinor, schedule.currency)} / `
+                  : ""}
+                {formatMinor(schedule.amountMinor, schedule.currency)}
+              </td>
               <td>
                 {schedule.billingFrequency}
                 {schedule.instalmentCount ? ` · ${schedule.instalmentCount} instalments` : ""}
               </td>
               <td>
-                <StatusBadge status={schedule.isActive ? "active" : "inactive"} />
+                {usageLabels(schedule).map((label) => (
+                  <StatusBadge key={label} status={label.toLowerCase().replaceAll(" ", "_")} />
+                ))}
               </td>
             </tr>
           ))}

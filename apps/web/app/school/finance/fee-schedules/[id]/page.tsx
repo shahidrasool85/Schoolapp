@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { parseGbpPoundsToMinor } from "@schoolapp/domain";
+import { formatUkNumericDate, parseGbpPoundsToMinor } from "@schoolapp/domain";
 import {
   Alert,
   Button,
@@ -15,7 +15,7 @@ import {
   SectionCard,
   StatusBadge,
 } from "../../../../../components/ui";
-import { api, downloadAuthenticated } from "../../../../../lib/api";
+import { api } from "../../../../../lib/api";
 import { userFacingError } from "../../../../../lib/errors";
 import { formatMinor } from "../../../../../lib/money";
 import { usePermissions } from "../../../../../lib/use-permissions";
@@ -27,20 +27,43 @@ type Schedule = {
   academicYearId: string;
   academicYearName: string | null;
   yearGroupName: string | null;
+  className: string | null;
   amountMinor: number;
+  annualAmountMinor: number | null;
   currency: string;
   billingFrequency: string;
+  instalmentCount: number | null;
   effectiveFrom: string;
   effectiveUntil: string | null;
   isActive: boolean;
   description: string | null;
+  invoiceCount?: number | null;
+  billingRunCount?: number | null;
+  usage?: {
+    unused: boolean;
+    usedInBillingRun: boolean;
+    hasInvoices: boolean;
+    ended: boolean;
+    archived: boolean;
+  };
+  overlapWarning?: string | null;
 };
 
 type Lifecycle = {
   canDelete: boolean;
   hasInvoices: boolean;
+  invoiceCount?: number;
+  billingRunCount?: number;
+  unused?: boolean;
+  usedInBillingRun?: boolean;
   message: string;
 };
+
+function statusLabel(schedule: Schedule): string {
+  if (schedule.usage?.ended) return "ended";
+  if (schedule.usage?.archived) return "archived";
+  return schedule.isActive ? "active" : "inactive";
+}
 
 export default function FeeScheduleDetailPage() {
   const params = useParams<{ id: string }>();
@@ -79,6 +102,11 @@ export default function FeeScheduleDetailPage() {
         body: JSON.stringify({
           name: form.get("name"),
           amountMinor: amount.amount,
+          annualAmountMinor:
+            schedule.instalmentCount && amount.amount !== schedule.amountMinor
+              ? amount.amount * schedule.instalmentCount
+              : schedule.annualAmountMinor,
+          instalmentCount: schedule.instalmentCount,
           effectiveUntil: form.get("effectiveUntil") || null,
           isActive: form.get("isActive") === "on",
           description: form.get("description") || null,
@@ -155,6 +183,12 @@ export default function FeeScheduleDetailPage() {
   if (error && !schedule) return <PageError title="Fee schedule unavailable" description={error} />;
   if (!schedule) return <LoadingState label="Loading fee schedule…" />;
 
+  const impliedAnnual =
+    schedule.annualAmountMinor ??
+    (schedule.instalmentCount ? schedule.amountMinor * schedule.instalmentCount : null);
+  const invoicesGenerated = lifecycle?.invoiceCount ?? schedule.invoiceCount ?? 0;
+  const billingRunsUsed = lifecycle?.billingRunCount ?? schedule.billingRunCount ?? 0;
+
   return (
     <>
       <PageHeader
@@ -169,22 +203,80 @@ export default function FeeScheduleDetailPage() {
       <FinanceNav />
       {notice ? <Alert tone="success">{notice}</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
-      <p>
-        <StatusBadge status={schedule.isActive ? "active" : "ended"} /> {schedule.academicYearName} ·{" "}
-        {schedule.yearGroupName ?? "All pupils"} · {formatMinor(schedule.amountMinor, schedule.currency)}{" "}
-        {schedule.billingFrequency}
-      </p>
-      <p className="muted">{lifecycle?.message}</p>
+      {schedule.overlapWarning ? <Alert tone="warning">{schedule.overlapWarning}</Alert> : null}
+      <SectionCard title="Configured charges">
+        <p>
+          <StatusBadge status={statusLabel(schedule)} /> {schedule.academicYearName} ·{" "}
+          {schedule.yearGroupName ?? "All pupils"}
+          {schedule.className ? ` · ${schedule.className}` : ""}
+        </p>
+        <dl className="stack">
+          <div>
+            <dt>Academic year</dt>
+            <dd>{schedule.academicYearName ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>Target year group / class</dt>
+            <dd>
+              {schedule.yearGroupName ?? "All year groups"}
+              {schedule.className ? ` · ${schedule.className}` : ""}
+            </dd>
+          </div>
+          <div>
+            <dt>Annual total</dt>
+            <dd>
+              {impliedAnnual != null ? formatMinor(impliedAnnual, schedule.currency) : "Not recorded"}
+              {schedule.annualAmountMinor == null && impliedAnnual != null ? " (amount per instalment × instalments)" : ""}
+            </dd>
+          </div>
+          <div>
+            <dt>Frequency</dt>
+            <dd>{schedule.billingFrequency}</dd>
+          </div>
+          <div>
+            <dt>Instalments per year</dt>
+            <dd>{schedule.instalmentCount ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>Amount per instalment</dt>
+            <dd>{formatMinor(schedule.amountMinor, schedule.currency)}</dd>
+          </div>
+          <div>
+            <dt>Effective from</dt>
+            <dd>{formatUkNumericDate(schedule.effectiveFrom)}</dd>
+          </div>
+          <div>
+            <dt>Effective until</dt>
+            <dd>{schedule.effectiveUntil ? formatUkNumericDate(schedule.effectiveUntil) : "—"}</dd>
+          </div>
+          <div>
+            <dt>Status</dt>
+            <dd>
+              <StatusBadge status={statusLabel(schedule)} />
+            </dd>
+          </div>
+          <div>
+            <dt>Invoices generated</dt>
+            <dd>{invoicesGenerated}</dd>
+          </div>
+          <div>
+            <dt>Billing runs used</dt>
+            <dd>{billingRunsUsed}</dd>
+          </div>
+        </dl>
+        <p className="muted">{lifecycle?.message}</p>
+      </SectionCard>
       {canManage ? (
         <>
           <SectionCard title="Edit future charges">
+            <p className="muted">Changing these values does not rewrite invoices that have already been issued.</p>
             <form className="stack" onSubmit={save}>
               <label>
                 Name
                 <input name="name" defaultValue={schedule.name} required />
               </label>
               <label>
-                Amount per invoice (£)
+                Amount per instalment (£)
                 <input name="amount" defaultValue={(schedule.amountMinor / 100).toFixed(2)} required />
               </label>
               <label>
@@ -226,7 +318,7 @@ export default function FeeScheduleDetailPage() {
                 Delete
               </Button>
             ) : (
-              <span className="muted">Delete is unavailable after invoices exist.</span>
+              <span className="muted">Delete is unavailable after invoices or billing-run items exist. End or archive instead.</span>
             )}
           </p>
         </>

@@ -151,6 +151,10 @@ export function formatUkShortDate(isoDate: string): string {
   return `${day} ${MONTH_SHORT[month - 1]}`;
 }
 
+export function formatUkNumericDateRange(startsOn: string, endsOn: string): string {
+  return `${formatUkNumericDate(startsOn)}–${formatUkNumericDate(endsOn)}`;
+}
+
 export function formatUkDateRange(startsOn: string, endsOn: string): string {
   const start = formatUkShortDate(startsOn);
   const end = formatUkShortDate(endsOn);
@@ -240,16 +244,84 @@ export function parseGbpPoundsToMinor(
   return { ok: true, amount: Number(whole) * 100 + Number(fraction.padEnd(2, "0")) };
 }
 
+export function formatGbpMinor(amountMinor: number): string {
+  if (!Number.isInteger(amountMinor) || amountMinor < 0) {
+    return "£0.00";
+  }
+  const pounds = Math.trunc(amountMinor / 100);
+  const pence = amountMinor % 100;
+  return `£${pounds.toLocaleString("en-GB")}.${String(pence).padStart(2, "0")}`;
+}
+
+export function formatUkNumericDate(isoDate: string): string {
+  const [year, month, day] = isoDate.slice(0, 10).split("-");
+  if (!year || !month || !day) return isoDate;
+  return `${day}/${month}/${year}`;
+}
+
+export function feeScheduleInstalmentPlan(
+  annualMinor: number,
+  instalmentCount: number,
+): { ok: true; amounts: number[]; regularMinor: number; finalMinor: number } | { ok: false; error: string } {
+  if (!Number.isInteger(annualMinor) || annualMinor < 0) {
+    return { ok: false, error: "Enter a valid annual tuition fee." };
+  }
+  if (!Number.isInteger(instalmentCount) || instalmentCount < 1 || instalmentCount > 24) {
+    return { ok: false, error: "Instalments per year must be a whole number between 1 and 24." };
+  }
+  const regularMinor = Math.floor(annualMinor / instalmentCount);
+  const remainder = annualMinor - regularMinor * instalmentCount;
+  const amounts = Array.from({ length: instalmentCount }, (_, index) =>
+    regularMinor + (index === instalmentCount - 1 ? remainder : 0),
+  );
+  return {
+    ok: true,
+    amounts,
+    regularMinor,
+    finalMinor: amounts[instalmentCount - 1] ?? regularMinor,
+  };
+}
+
+export function feeScheduleCreateSummary(input: {
+  annualMinor: number;
+  instalmentCount: number;
+}): { ok: true; text: string; roundingNote: string | null; amountPerInstalmentMinor: number } | { ok: false; error: string } {
+  const plan = feeScheduleInstalmentPlan(input.annualMinor, input.instalmentCount);
+  if (!plan.ok) return plan;
+  const text = `${input.instalmentCount} instalments × ${formatGbpMinor(plan.regularMinor)} = ${formatGbpMinor(input.annualMinor)} total`;
+  const roundingNote =
+    plan.finalMinor === plan.regularMinor
+      ? null
+      : `Amounts are stored in pence. The first ${input.instalmentCount - 1} instalments are ${formatGbpMinor(plan.regularMinor)} and the final instalment is ${formatGbpMinor(plan.finalMinor)} so the annual total is exact.`;
+  return { ok: true, text, roundingNote, amountPerInstalmentMinor: plan.regularMinor };
+}
+
+export function overlappingActiveFeeScheduleMessage(input: {
+  yearGroupId?: string | null;
+  classId?: string | null;
+}): string {
+  if (input.classId && !input.yearGroupId) {
+    return "An active fee schedule already exists for this class and period.";
+  }
+  if (input.yearGroupId) {
+    return "An active fee schedule already exists for this year group and period.";
+  }
+  return "An active fee schedule already exists for this target and period.";
+}
+
 export function feeScheduleAnnualMatchesInstalments(input: {
   amountMinor: number;
   instalmentCount?: number | null;
   annualAmountMinor?: number | null;
 }): { ok: true } | { ok: false; error: string } {
   if (input.annualAmountMinor == null || input.instalmentCount == null) return { ok: true };
-  if (input.amountMinor * input.instalmentCount !== input.annualAmountMinor) {
+  const plan = feeScheduleInstalmentPlan(input.annualAmountMinor, input.instalmentCount);
+  if (!plan.ok) return plan;
+  if (input.amountMinor !== plan.regularMinor) {
     return {
       ok: false,
-      error: "Annual total must equal the amount per invoice multiplied by instalments per year.",
+      error:
+        "Annual total must match the instalment plan. Amount per instalment is the annual fee divided in pence, with any remainder added to the final instalment.",
     };
   }
   return { ok: true };

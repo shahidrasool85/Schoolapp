@@ -103,6 +103,102 @@ export function inclusiveDayCount(start: string, end: string): number {
   return Math.floor(ms / 86_400_000) + 1;
 }
 
+const OPEN_ENDED = "9999-12-31";
+
+export function inclusiveDateRangesOverlap(
+  startA: string,
+  endA: string | null | undefined,
+  startB: string,
+  endB: string | null | undefined,
+): boolean {
+  return startA <= (endB ?? OPEN_ENDED) && startB <= (endA ?? OPEN_ENDED);
+}
+
+export function enrolmentOverlapsBillingPeriod(input: {
+  enrolStart: string;
+  enrolEnd: string | null;
+  periodStart: string;
+  periodEnd: string;
+}): boolean {
+  return inclusiveDateRangesOverlap(input.enrolStart, input.enrolEnd, input.periodStart, input.periodEnd);
+}
+
+export function feeScheduleOverlapsBillingPeriod(input: {
+  effectiveFrom: string;
+  effectiveUntil: string | null;
+  periodStart: string;
+  periodEnd: string;
+}): boolean {
+  return inclusiveDateRangesOverlap(input.effectiveFrom, input.effectiveUntil, input.periodStart, input.periodEnd);
+}
+
+export function lastDayOfIsoMonth(year: number, month: number): string {
+  const date = new Date(Date.UTC(year, month, 0));
+  return date.toISOString().slice(0, 10);
+}
+
+export function resolveCurrentBillingPeriod(input: {
+  asOf: string;
+  frequency: SchoolBillingFrequency;
+  yearStartsOn: string;
+  yearEndsOn: string;
+}): { periodStart: string; periodEnd: string } {
+  const asOf =
+    input.asOf < input.yearStartsOn
+      ? input.yearStartsOn
+      : input.asOf > input.yearEndsOn
+        ? input.yearEndsOn
+        : input.asOf;
+  if (input.frequency === "annual") {
+    return { periodStart: input.yearStartsOn, periodEnd: input.yearEndsOn };
+  }
+  const year = Number(asOf.slice(0, 4));
+  const month = Number(asOf.slice(5, 7));
+  const monthStart = `${asOf.slice(0, 7)}-01`;
+  const monthEnd = lastDayOfIsoMonth(year, month);
+  const periodStart = monthStart < input.yearStartsOn ? input.yearStartsOn : monthStart;
+  const periodEnd = monthEnd > input.yearEndsOn ? input.yearEndsOn : monthEnd;
+  return { periodStart, periodEnd };
+}
+
+export function billingRunItemSignature(input: {
+  studentProfileId: string;
+  feeScheduleId: string | null;
+  standardAmountMinor: number;
+  discountTotalMinor: number;
+  netAmountMinor: number;
+}): string {
+  return [
+    input.studentProfileId,
+    input.feeScheduleId ?? "",
+    String(input.standardAmountMinor),
+    String(input.discountTotalMinor),
+    String(input.netAmountMinor),
+  ].join(":");
+}
+
+export function feeScheduleSourceFingerprint(input: {
+  id: string;
+  amountMinor: number;
+  annualAmountMinor: number | null;
+  instalmentCount: number | null;
+  billingFrequency: string;
+  effectiveFrom: string;
+  effectiveUntil: string | null;
+  isActive: boolean;
+}): string {
+  return [
+    input.id,
+    String(input.amountMinor),
+    input.annualAmountMinor == null ? "" : String(input.annualAmountMinor),
+    input.instalmentCount == null ? "" : String(input.instalmentCount),
+    input.billingFrequency,
+    input.effectiveFrom,
+    input.effectiveUntil ?? "",
+    input.isActive ? "1" : "0",
+  ].join("|");
+}
+
 export function overlapDays(
   periodStart: string,
   periodEnd: string,

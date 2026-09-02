@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import {
   captureSubmitTarget,
@@ -222,7 +223,9 @@ export default function FeeSchedulesPage() {
         >
           {schedules.map((schedule) => (
             <tr key={schedule.id}>
-              <td>{schedule.name}</td>
+              <td>
+                <Link href={`/school/finance/fee-schedules/${schedule.id}`}>{schedule.name}</Link>
+              </td>
               <td>{schedule.academicYearName}</td>
               <td>{schedule.yearGroupName ?? "All"}</td>
               <td>{formatMinor(schedule.amountMinor, schedule.currency)}</td>

@@ -189,7 +189,7 @@ export const READINESS_ITEMS: readonly ReadinessItemDefinition[] = [
   readinessItem("school_profile", "School profile", setupStepHref("school_details"), "required"),
   readinessItem("branding", "Branding", setupStepHref("branding"), "recommended"),
   readinessItem("academic_year", "Academic year", setupStepHref("academic_year"), "required"),
-  readinessItem("term_dates", "Term dates", setupStepHref("academic_year"), "recommended"),
+  readinessItem("term_dates", "Term dates", "/school/term-dates", "recommended"),
   readinessItem("year_groups", "Year groups", setupStepHref("academic_structure"), "required"),
   readinessItem("classes", "Classes", setupStepHref("academic_structure"), "required"),
   readinessItem("subjects", "Subjects", setupStepHref("academic_structure"), "required"),
@@ -647,6 +647,10 @@ export const MAIL_PURPOSES = [
   "student_activation",
   "admissions_application_received",
   "admissions_status_update",
+  "finance_invoice_issued",
+  "finance_payment_received",
+  "finance_payment_reminder",
+  "finance_refund_issued",
 ] as const;
 export type MailPurpose = (typeof MAIL_PURPOSES)[number];
 
@@ -655,6 +659,10 @@ export const EMAIL_TEMPLATE_KEYS = [
   "password_reset",
   "admissions_application_received",
   "admissions_status_update",
+  "finance_invoice_issued",
+  "finance_payment_received",
+  "finance_payment_reminder",
+  "finance_refund_issued",
 ] as const;
 export type EmailTemplateKey = (typeof EMAIL_TEMPLATE_KEYS)[number];
 

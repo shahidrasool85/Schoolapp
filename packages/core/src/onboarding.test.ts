@@ -136,7 +136,7 @@ describe("Ready Fix destinations", () => {
     school_profile: "/school/setup?step=school_details",
     branding: "/school/setup?step=branding",
     academic_year: "/school/setup?step=academic_year",
-    term_dates: "/school/setup?step=academic_year",
+    term_dates: "/school/term-dates",
     year_groups: "/school/setup?step=academic_structure",
     classes: "/school/setup?step=academic_structure",
     subjects: "/school/setup?step=academic_structure",

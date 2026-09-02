@@ -4,6 +4,7 @@ import {
   renderAccountInvitation,
   renderAdmissionsApplicationReceived,
   renderAdmissionsStatusUpdate,
+  renderFinanceNotice,
   renderPasswordReset,
   type TransactionalBranding,
 } from "./email-templates.js";
@@ -324,6 +325,117 @@ export function admissionsStatusUpdateMail(input: {
       applicationId: input.applicationId,
       applicationReference: input.applicationReference,
     },
+  };
+}
+
+export function financeInvoiceIssuedMail(input: {
+  organisationId: string;
+  organisationName: string;
+  toEmail: string;
+  toName?: string | null;
+  invoiceId: string;
+  portalPath: string;
+  branding?: TransactionalBranding;
+}): MailMessage {
+  const rendered = renderFinanceNotice({
+    branding: brandingOf(input.organisationName, input.branding),
+    recipientName: input.toName,
+    documentLabel: "invoice",
+    actionUrl: input.portalPath,
+    heading: "Invoice available",
+    subject: `${input.organisationName} — An invoice is available`,
+    paragraphs: [
+      `An invoice is available in your ${input.organisationName} portal.`,
+      "Sign in to view the amount due and download a copy. This email does not include sensitive pupil details.",
+    ],
+  });
+  return {
+    organisationId: input.organisationId,
+    purpose: "finance_invoice_issued",
+    templateKey: "finance_invoice_issued",
+    toEmail: input.toEmail,
+    toName: input.toName ?? null,
+    subject: rendered.subject,
+    textBody: rendered.text,
+    htmlBody: rendered.html,
+    actionUrl: input.portalPath,
+    idempotencyKey: `finance.invoice_issued:${input.invoiceId}`,
+    templateData: { recipientName: input.toName ?? null, actionUrl: input.portalPath },
+    metadata: { invoiceId: input.invoiceId, hasActionLink: true },
+  };
+}
+
+export function financePaymentReceivedMail(input: {
+  organisationId: string;
+  organisationName: string;
+  toEmail: string;
+  toName?: string | null;
+  paymentId: string;
+  portalPath: string;
+  branding?: TransactionalBranding;
+}): MailMessage {
+  const rendered = renderFinanceNotice({
+    branding: brandingOf(input.organisationName, input.branding),
+    recipientName: input.toName,
+    documentLabel: "receipt",
+    actionUrl: input.portalPath,
+    heading: "Payment received",
+    subject: `${input.organisationName} — Payment received`,
+    paragraphs: [
+      `A payment has been recorded and a receipt is available in your ${input.organisationName} portal.`,
+      "Sign in to download the receipt. This email does not include card details or sensitive pupil information.",
+    ],
+  });
+  return {
+    organisationId: input.organisationId,
+    purpose: "finance_payment_received",
+    templateKey: "finance_payment_received",
+    toEmail: input.toEmail,
+    toName: input.toName ?? null,
+    subject: rendered.subject,
+    textBody: rendered.text,
+    htmlBody: rendered.html,
+    actionUrl: input.portalPath,
+    idempotencyKey: `finance.payment_received:${input.paymentId}`,
+    templateData: { recipientName: input.toName ?? null, actionUrl: input.portalPath },
+    metadata: { paymentId: input.paymentId, hasActionLink: true },
+  };
+}
+
+export function financeRefundIssuedMail(input: {
+  organisationId: string;
+  organisationName: string;
+  toEmail: string;
+  toName?: string | null;
+  creditId: string;
+  portalPath: string;
+  branding?: TransactionalBranding;
+}): MailMessage {
+  const rendered = renderFinanceNotice({
+    branding: brandingOf(input.organisationName, input.branding),
+    recipientName: input.toName,
+    documentLabel: "refund",
+    actionUrl: input.portalPath,
+    heading: "Refund recorded",
+    subject: `${input.organisationName} — Refund recorded`,
+    paragraphs: [
+      `A refund or credit has been recorded on your ${input.organisationName} family account.`,
+      "Sign in to the portal to view the updated balance. Historical receipts are unchanged.",
+    ],
+  });
+  return {
+    organisationId: input.organisationId,
+    purpose: "finance_refund_issued",
+    templateKey: "finance_refund_issued",
+    toEmail: input.toEmail,
+    toName: input.toName ?? null,
+    subject: rendered.subject,
+    textBody: rendered.text,
+    htmlBody: rendered.html,
+    actionUrl: input.portalPath,
+    idempotencyKey: `finance.refund_issued:${input.creditId}`,
+    templateData: { recipientName: input.toName ?? null, actionUrl: input.portalPath },
+    metadata: { creditId: input.creditId, hasActionLink: true },
   };
 }
 

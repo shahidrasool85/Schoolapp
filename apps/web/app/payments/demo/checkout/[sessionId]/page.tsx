@@ -31,19 +31,27 @@ export default function DemoCheckoutPage() {
   async function complete(outcome: "succeeded" | "failed" | "cancelled") {
     setError("");
     try {
-      const body = await api<{ chargeId: string }>(`/api/v1/payments/demo/checkout/${params.sessionId}/complete`, {
-        method: "POST",
-        body: JSON.stringify({ outcome, t: token }),
-      });
+      const body = await api<{ chargeId: string | null; invoiceId: string | null }>(
+        `/api/v1/payments/demo/checkout/${params.sessionId}/complete`,
+        {
+          method: "POST",
+          body: JSON.stringify({ outcome, t: token }),
+        },
+      );
+      const invoiceReturn = body.invoiceId
+        ? outcome === "cancelled"
+          ? `/parent/finance/checkout/cancel?invoiceId=${body.invoiceId}`
+          : `/parent/finance/checkout/success?invoiceId=${body.invoiceId}`
+        : null;
       if (outcome === "cancelled") {
-        window.location.href = `/parent/payments/${body.chargeId}?status=cancelled`;
+        window.location.href = invoiceReturn ?? `/parent/payments/${body.chargeId}?status=cancelled`;
         return;
       }
       if (outcome === "failed") {
-        setMessage("Demo payment failed. Schoolapp did not mark the charge paid.");
+        setMessage("Demo payment failed. LuvLearn did not mark the invoice or charge paid.");
         return;
       }
-      window.location.href = `/parent/payments/${body.chargeId}?status=pending`;
+      window.location.href = invoiceReturn ?? `/parent/payments/${body.chargeId}?status=pending`;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Payment failed");
     }

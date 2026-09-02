@@ -1,4 +1,4 @@
-import { AppError, settleProviderEvent, type PaymentProvider } from "@schoolapp/core";
+import { AppError, settleInvoiceProviderEvent, settleProviderEvent, type PaymentProvider } from "@schoolapp/core";
 import { withTenantContext } from "@schoolapp/db";
 import type { SchoolappApi } from "../types";
 import { paymentProviderOf } from "../payments-context";
@@ -42,14 +42,14 @@ export function registerPaymentWebhookRoutes(app: SchoolappApi) {
     const pools = c.get("config").pools;
     const resolved = event.providerSessionId
       ? await pools.app.query(
-          `select organisation_id, session_id, charge_id, transaction_id, context_user_id,
+          `select organisation_id, session_id, charge_id, invoice_id, transaction_id, context_user_id,
                   amount_minor, currency, session_status
              from resolve_payment_provider_session($1, $2)`,
           [provider.key, event.providerSessionId],
         )
       : event.providerPaymentId
         ? await pools.app.query(
-            `select organisation_id, null::uuid as session_id, charge_id, transaction_id, context_user_id,
+            `select organisation_id, null::uuid as session_id, charge_id, invoice_id, transaction_id, context_user_id,
                     amount_minor, currency, null::text as session_status
                from resolve_payment_provider_payment($1, $2)`,
             [provider.key, event.providerPaymentId],
@@ -62,7 +62,8 @@ export function registerPaymentWebhookRoutes(app: SchoolappApi) {
     const row = resolved.rows[0] as {
       organisation_id: string;
       session_id: string | null;
-      charge_id: string;
+      charge_id: string | null;
+      invoice_id: string | null;
       transaction_id: string;
       context_user_id: string;
       amount_minor: string;
@@ -95,17 +96,33 @@ export function registerPaymentWebhookRoutes(app: SchoolappApi) {
           if (!session.rows[0]) throw new AppError(400, "unknown_reference", "Unknown payment reference");
           row.session_id = session.rows[0].id;
         }
-        await settleProviderEvent(client, {
-          organisationId: row.organisation_id,
-          event,
-          session: {
-            session_id: row.session_id,
-            charge_id: row.charge_id,
-            transaction_id: row.transaction_id,
-            amount_minor: row.amount_minor,
-            currency: row.currency,
-          },
-        });
+        if (row.invoice_id) {
+          await settleInvoiceProviderEvent(client, {
+            organisationId: row.organisation_id,
+            event,
+            session: {
+              session_id: row.session_id,
+              invoice_id: row.invoice_id,
+              transaction_id: row.transaction_id,
+              amount_minor: row.amount_minor,
+              currency: row.currency,
+            },
+          });
+        } else if (row.charge_id) {
+          await settleProviderEvent(client, {
+            organisationId: row.organisation_id,
+            event,
+            session: {
+              session_id: row.session_id,
+              charge_id: row.charge_id,
+              transaction_id: row.transaction_id,
+              amount_minor: row.amount_minor,
+              currency: row.currency,
+            },
+          });
+        } else {
+          throw new AppError(400, "unknown_reference", "Unknown payment reference");
+        }
       });
       await pools.app.query("select finish_payment_provider_event($1, 'processed')", [eventRowId]);
       return c.json({ ok: true });
@@ -160,9 +177,10 @@ export function registerPaymentWebhookRoutes(app: SchoolappApi) {
       provider_session_id: string;
       amount_minor: string;
       currency: string;
-      charge_id: string;
+      charge_id: string | null;
+      invoice_id: string | null;
     }>(
-      `select organisation_id, provider_session_id, amount_minor::text, currency, charge_id
+      `select organisation_id, provider_session_id, amount_minor::text, currency, charge_id, invoice_id
          from load_payment_demo_session($1)`,
       [sessionId],
     );
@@ -196,6 +214,6 @@ export function registerPaymentWebhookRoutes(app: SchoolappApi) {
           : "Payment failed";
       throw new AppError(res.status, outcome === "succeeded" ? "payment_failed" : "payment_failed", message);
     }
-    return c.json({ ok: true, outcome, chargeId: row.charge_id });
+    return c.json({ ok: true, outcome, chargeId: row.charge_id, invoiceId: row.invoice_id });
   });
 }

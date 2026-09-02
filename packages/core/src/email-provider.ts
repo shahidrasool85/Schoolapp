@@ -393,6 +393,10 @@ export function purposeToTemplateKey(purpose: MailPurpose): EmailTemplateKey {
   if (purpose === "password_reset") return "password_reset";
   if (purpose === "admissions_application_received") return "admissions_application_received";
   if (purpose === "admissions_status_update") return "admissions_status_update";
+  if (purpose === "finance_invoice_issued") return "finance_invoice_issued";
+  if (purpose === "finance_payment_received") return "finance_payment_received";
+  if (purpose === "finance_payment_reminder") return "finance_payment_reminder";
+  if (purpose === "finance_refund_issued") return "finance_refund_issued";
   return "account_invitation";
 }
 

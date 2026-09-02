@@ -8,6 +8,7 @@ import {
   countUnreadNotifications,
   isLearningSubmissionStatus,
   loadOwnStudentProfile,
+  loadStudentFinance,
   pupilCanWriteOnAssignment,
   requireStudentPortalEnabled,
   STUDENT_DASHBOARD_SECTIONS,
@@ -81,6 +82,14 @@ export function registerStudentRoutes(app: SchoolappApi) {
         throw new AppError(404, "not_found", "Not found");
       }
       return c.json({ student });
+    }),
+  );
+
+  app.get("/student/finance", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.STUDENTS_PROFILES_READ_SELF);
+      await requireStudentPortalEnabled(client, orgId, userId);
+      return c.json(await loadStudentFinance(client, orgId, actor));
     }),
   );
 

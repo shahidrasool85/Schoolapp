@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { isActiveNavHref, isNavSectionOpen } from "@schoolapp/domain";
 import { IconBell, IconMail, IconMenu, NavIcon, SchoolMarkIcon, type NavIconName } from "./icons";
+import { CommandPalette } from "./command-palette";
 import { LoadingState, PageError } from "./ui";
 import { Button, IconButton } from "./ui/button";
 
@@ -214,6 +215,7 @@ export function AppShell({
             </div>
           </div>
           <div className="app-topbar-actions">
+            <CommandPalette />
             {messagesHref && unreadMessages != null && unreadMessages > 0 ? (
               <Link className="button ghost" href={messagesHref} aria-label={`${unreadMessages} unread messages`}>
                 <IconMail className="login-password-icon" />

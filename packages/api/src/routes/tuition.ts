@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PERMISSIONS } from "@schoolapp/domain";
+import { PERMISSIONS, STATEMENT_PERIOD_PRESETS } from "@schoolapp/domain";
 import {
   AppError,
   assertPermission,
@@ -16,22 +16,35 @@ import {
   createInvoiceCredit,
   createPupilConcession,
   createStaffChildLink,
+  deleteFeeSchedule,
+  endFeeSchedule,
+  generateFeeScheduleCharges,
   listArrears,
   listBillingAccounts,
   listBillingRuns,
   listDiscountRules,
   listFeeSchedules,
+  listFinanceReceipts,
+  listInvoicePayments,
   listInvoices,
   listStaffChildLinks,
   loadAccountStatement,
   loadBillingAccount,
   loadBillingRun,
+  loadFamilyStatementDocument,
+  loadFeeSchedule,
   loadFinanceSettings,
   loadInvoice,
   loadPupilFeeProfile,
   loadTuitionDashboard,
+  parentAuthorisedAccountIds,
   previewBillingRun,
   recordInvoicePayment,
+  renderFamilyStatementZip,
+  renderFinancePdf,
+  financePdfFilename,
+  renderInvoicePdfBytes,
+  renderReceiptPdfBytes,
   reverseInvoicePayment,
   revokeStaffChildLink,
   updateDiscountRule,
@@ -75,6 +88,8 @@ export function registerTuitionRoutes(app: SchoolappApi) {
           midPeriodJoinPolicy: z.enum(["full", "prorate", "manual"]).optional(),
           midPeriodLeavePolicy: z.enum(["full", "prorate", "manual"]).optional(),
           monthlyInstalmentCount: z.number().int().min(1).max(12).optional(),
+          receiptPrefix: z.string().trim().min(1).max(12).optional(),
+          studentsCanViewFinance: z.boolean().optional(),
         })
         .safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid finance settings");
@@ -165,6 +180,67 @@ export function registerTuitionRoutes(app: SchoolappApi) {
           ...parsed.data,
         }),
       });
+    }),
+  );
+
+  app.get("/finance/fee-schedules/:scheduleId", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertTuitionRead(actor);
+      return c.json(await loadFeeSchedule(client, orgId, uuidRouteParam(c, "scheduleId")));
+    }),
+  );
+
+  app.delete("/finance/fee-schedules/:scheduleId", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageFeeSchedules(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      return c.json(
+        await deleteFeeSchedule(client, {
+          organisationId: orgId,
+          actorUserId: userId,
+          scheduleId: uuidRouteParam(c, "scheduleId"),
+        }),
+      );
+    }),
+  );
+
+  app.post("/finance/fee-schedules/:scheduleId/end", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageFeeSchedules(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      const parsed = z.object({ effectiveUntil: dateSchema }).safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Choose an end date");
+      return c.json({
+        schedule: await endFeeSchedule(client, {
+          organisationId: orgId,
+          actorUserId: userId,
+          scheduleId: uuidRouteParam(c, "scheduleId"),
+          effectiveUntil: parsed.data.effectiveUntil,
+        }),
+      });
+    }),
+  );
+
+  app.post("/finance/fee-schedules/:scheduleId/generate", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageBillingRuns(actor) && !canManageFeeSchedules(actor)) {
+        throw new AppError(403, "forbidden", "Missing permission");
+      }
+      const parsed = z
+        .object({
+          periodStart: dateSchema,
+          periodEnd: dateSchema,
+          dueOn: dateSchema.nullable().optional(),
+          instalmentNumber: z.number().int().min(1).max(24).nullable().optional(),
+        })
+        .safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid charge generation");
+      return c.json(
+        await generateFeeScheduleCharges(client, {
+          organisationId: orgId,
+          actorUserId: userId,
+          scheduleId: uuidRouteParam(c, "scheduleId"),
+          ...parsed.data,
+        }),
+      );
     }),
   );
 
@@ -399,6 +475,99 @@ export function registerTuitionRoutes(app: SchoolappApi) {
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertTuitionRead(actor);
       return c.json(await loadInvoice(client, orgId, uuidRouteParam(c, "invoiceId")));
+    }),
+  );
+
+  app.get("/finance/invoices/:invoiceId/pdf", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertTuitionRead(actor);
+      const pdf = await renderInvoicePdfBytes(client, orgId, uuidRouteParam(c, "invoiceId"));
+      return new Response(Buffer.from(pdf.bytes), {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="${pdf.filename}"`,
+          "Cache-Control": "no-store",
+        },
+      });
+    }),
+  );
+
+  app.get("/finance/receipts", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertTuitionRead(actor);
+      return c.json({
+        receipts: await listFinanceReceipts(client, orgId, {
+          invoiceId: c.req.query("invoiceId") || undefined,
+          billingAccountId: c.req.query("billingAccountId") || undefined,
+        }),
+      });
+    }),
+  );
+
+  app.get("/finance/receipts/:receiptId/pdf", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertTuitionRead(actor);
+      const pdf = await renderReceiptPdfBytes(client, orgId, uuidRouteParam(c, "receiptId"));
+      return new Response(Buffer.from(pdf.bytes), {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="${pdf.filename}"`,
+          "Cache-Control": "no-store",
+        },
+      });
+    }),
+  );
+
+  app.get("/finance/payments", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertTuitionRead(actor);
+      return c.json({ payments: await listInvoicePayments(client, orgId) });
+    }),
+  );
+
+  app.get("/finance/statements", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertTuitionRead(actor);
+      const accountId = c.req.query("billingAccountId");
+      if (!accountId) throw new AppError(400, "validation_failed", "Choose a family account");
+      const preset = (c.req.query("preset") ?? "current_academic_year") as (typeof STATEMENT_PERIOD_PRESETS)[number];
+      if (!STATEMENT_PERIOD_PRESETS.includes(preset)) {
+        throw new AppError(400, "validation_failed", "Unknown statement period");
+      }
+      const loaded = await loadFamilyStatementDocument(client, orgId, {
+        accountIds: [accountId],
+        preset,
+        today: new Date().toISOString().slice(0, 10),
+        customFrom: c.req.query("from") ?? null,
+        customTo: c.req.query("to") ?? null,
+      });
+      if (c.req.query("format") === "zip") {
+        const zip = await renderFamilyStatementZip(client, orgId, {
+          accountIds: [accountId],
+          preset,
+          today: new Date().toISOString().slice(0, 10),
+          customFrom: c.req.query("from") ?? null,
+          customTo: c.req.query("to") ?? null,
+        });
+        return new Response(Buffer.from(zip.bytes), {
+          headers: {
+            "Content-Type": "application/zip",
+            "Content-Disposition": `attachment; filename="${zip.filename}"`,
+            "Cache-Control": "no-store",
+          },
+        });
+      }
+      if (c.req.query("format") === "pdf") {
+        const bytes = renderFinancePdf(loaded.document);
+        return new Response(Buffer.from(bytes), {
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `attachment; filename="${financePdfFilename(loaded.document)}"`,
+            "Cache-Control": "no-store",
+          },
+        });
+      }
+      return c.json(loaded);
     }),
   );
 

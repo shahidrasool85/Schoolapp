@@ -168,6 +168,10 @@ export const PERMISSIONS = {
   FINANCE_INVOICES_READ: "finance.invoices.read",
   FINANCE_INVOICES_MANAGE: "finance.invoices.manage",
   FINANCE_ACCOUNTS_READ: "finance.accounts.read",
+  FINANCE_READ: "finance.read",
+  FINANCE_MANAGE: "finance.manage",
+  FINANCE_PAYMENTS_READ: "finance.payments.read",
+  FINANCE_PAYMENTS_MANAGE: "finance.payments.manage",
   MESSAGING_READ: "messaging.read",
   MESSAGING_READ_ASSIGNED: "messaging.read_assigned",
   MESSAGING_CREATE: "messaging.create",
@@ -302,7 +306,27 @@ export {
   todayInTimeZone,
   uniqueTermKey,
   validateTermDates,
+  validateClosureRange,
+  formatUkShortDate,
+  formatUkDateRange,
+  statementPeriodRange,
+  UK_TAX_YEAR_START_MONTH,
+  UK_TAX_YEAR_START_DAY,
+  STATEMENT_PERIOD_PRESETS,
+  type StatementPeriodPreset,
 } from "./academic-calendar.js";
+
+export {
+  GLOBAL_SEARCH_MIN_QUERY,
+  GLOBAL_SEARCH_RECORD_MIN_QUERY,
+  STAFF_SEARCH_DESTINATIONS,
+  PARENT_SEARCH_DESTINATIONS,
+  STUDENT_SEARCH_DESTINATIONS,
+  matchSearchDestinations,
+  destinationVisible,
+  type GlobalSearchDestination,
+  type GlobalSearchGroup,
+} from "./search.js";
 
 export {
   RECURRENCE_DELETE_BLOCKED,
@@ -1003,7 +1027,28 @@ export const SCHOOL_EVENT_TYPE_KEYS = [
   "class_event",
   "club",
   "meeting",
+  "bank_holiday",
+  "school_closure",
+  "non_teaching",
 ] as const;
+
+export const NON_TEACHING_EVENT_TYPE_KEYS = [
+  "school_holiday",
+  "inset_day",
+  "bank_holiday",
+  "school_closure",
+  "non_teaching",
+] as const;
+export type NonTeachingEventTypeKey = (typeof NON_TEACHING_EVENT_TYPE_KEYS)[number];
+
+export const NON_TEACHING_CLOSURE_KINDS = [
+  "half_term",
+  "bank_holiday",
+  "inset_day",
+  "school_closure",
+  "other",
+] as const;
+export type NonTeachingClosureKind = (typeof NON_TEACHING_CLOSURE_KINDS)[number];
 export type SchoolEventTypeKey = (typeof SCHOOL_EVENT_TYPE_KEYS)[number];
 
 export const COMMUNICATION_RELATED_KINDS = [
@@ -1310,6 +1355,8 @@ export const SCHOOL_CHARGE_CATEGORY_KEYS = [
   "tuition",
   "registration",
   "deposit",
+  "after_school",
+  "admissions",
 ] as const;
 export type SchoolChargeCategoryKey = (typeof SCHOOL_CHARGE_CATEGORY_KEYS)[number];
 
@@ -1428,6 +1475,9 @@ export const SCHOOL_INVOICE_LINE_KINDS = [
   "discount",
   "credit",
   "miscellaneous",
+  "music",
+  "after_school",
+  "admissions",
 ] as const;
 export type SchoolInvoiceLineKind = (typeof SCHOOL_INVOICE_LINE_KINDS)[number];
 

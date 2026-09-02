@@ -38,6 +38,7 @@ import { registerEngagementRoutes } from "./routes/engagement";
 import { registerOnboardingRoutes } from "./routes/onboarding";
 import { registerImportRoutes } from "./routes/imports";
 import { registerInternalMailRoutes } from "./routes/internal-mail";
+import { registerSearchRoutes } from "./routes/search";
 
 export type { ApiConfig, ApiEnv, SchoolappApi } from "./types";
 
@@ -87,6 +88,7 @@ export function createApiApp(config: ApiConfig) {
   registerPublicRoutes(app);
   registerPublicFormRoutes(app);
   registerInternalMailRoutes(app);
+  registerSearchRoutes(app);
   registerAuthRoutes(app);
   registerMeRoutes(app);
   registerPlatformRoutes(app);

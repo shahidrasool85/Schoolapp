@@ -11,6 +11,8 @@ import {
   todayInTimeZone,
   uniqueTermKey,
   validateTermDates,
+  validateClosureRange,
+  statementPeriodRange,
 } from "@schoolapp/domain";
 
 describe("recurrence effective-from defaults", () => {
@@ -177,5 +179,90 @@ describe("safe form reset after async submit", () => {
     expect(() => resetFormSafely(captured)).not.toThrow();
     expect(() => resetFormSafely(null)).not.toThrow();
     expect(calls).toEqual(["reset"]);
+  });
+});
+
+describe("closure range validation", () => {
+  it("keeps half terms inside the parent term and academic year", () => {
+    expect(
+      validateClosureRange({
+        startsOn: "2026-10-19",
+        endsOn: "2026-10-30",
+        yearStartsOn: "2026-09-07",
+        yearEndsOn: "2027-07-09",
+        termStartsOn: "2026-09-07",
+        termEndsOn: "2026-12-11",
+      }).ok,
+    ).toBe(true);
+    expect(
+      validateClosureRange({
+        startsOn: "2026-10-30",
+        endsOn: "2026-10-19",
+        yearStartsOn: "2026-09-07",
+        yearEndsOn: "2027-07-09",
+      }).ok,
+    ).toBe(false);
+    expect(
+      validateClosureRange({
+        startsOn: "2026-08-01",
+        endsOn: "2026-08-02",
+        yearStartsOn: "2026-09-07",
+        yearEndsOn: "2027-07-09",
+      }).ok,
+    ).toBe(false);
+    expect(
+      validateClosureRange({
+        startsOn: "2026-12-01",
+        endsOn: "2026-12-20",
+        yearStartsOn: "2026-09-07",
+        yearEndsOn: "2027-07-09",
+        termStartsOn: "2026-09-07",
+        termEndsOn: "2026-12-11",
+      }).ok,
+    ).toBe(false);
+  });
+});
+
+describe("statement period presets", () => {
+  it("resolves academic, UK tax, calendar and custom ranges", () => {
+    expect(
+      statementPeriodRange({
+        preset: "current_academic_year",
+        today: "2026-10-01",
+        currentAcademicYear: { startsOn: "2026-09-07", endsOn: "2027-07-09" },
+      }),
+    ).toEqual({ ok: true, from: "2026-09-07", to: "2027-07-09" });
+    expect(
+      statementPeriodRange({
+        preset: "current_uk_tax_year",
+        today: "2026-10-01",
+      }),
+    ).toEqual({ ok: true, from: "2026-04-06", to: "2027-04-05" });
+    expect(
+      statementPeriodRange({
+        preset: "previous_uk_tax_year",
+        today: "2026-10-01",
+      }),
+    ).toEqual({ ok: true, from: "2025-04-06", to: "2026-04-05" });
+    expect(
+      statementPeriodRange({
+        preset: "current_uk_tax_year",
+        today: "2026-04-05",
+      }),
+    ).toEqual({ ok: true, from: "2025-04-06", to: "2026-04-05" });
+    expect(
+      statementPeriodRange({
+        preset: "calendar_year",
+        today: "2026-10-01",
+      }),
+    ).toEqual({ ok: true, from: "2026-01-01", to: "2026-12-31" });
+    expect(
+      statementPeriodRange({
+        preset: "custom",
+        today: "2026-10-01",
+        customFrom: "2026-09-01",
+        customTo: "2027-07-31",
+      }),
+    ).toEqual({ ok: true, from: "2026-09-01", to: "2027-07-31" });
   });
 });

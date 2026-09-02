@@ -7,6 +7,10 @@ export type PaymentProviderKey = "fake" | "stripe";
 export type CreatePaymentSessionInput = {
   organisationId: string;
   chargeId: string;
+  invoiceId?: string | null;
+  billingAccountId?: string | null;
+  studentProfileId?: string | null;
+  chargeCategory?: string | null;
   sessionId: string;
   transactionId: string;
   reference: string;
@@ -167,12 +171,17 @@ export class StripePaymentProvider implements PaymentProvider {
     body.set("line_items[0][price_data][unit_amount]", String(input.amountMinor));
     body.set("line_items[0][price_data][product_data][name]", input.title);
     body.set("metadata[schoolapp_organisation_id]", input.organisationId);
-    body.set("metadata[schoolapp_charge_id]", input.chargeId);
+    if (input.chargeId) body.set("metadata[schoolapp_charge_id]", input.chargeId);
+    if (input.invoiceId) body.set("metadata[schoolapp_invoice_id]", input.invoiceId);
+    if (input.billingAccountId) body.set("metadata[schoolapp_billing_account_id]", input.billingAccountId);
+    if (input.studentProfileId) body.set("metadata[schoolapp_pupil_id]", input.studentProfileId);
+    if (input.chargeCategory) body.set("metadata[schoolapp_charge_category]", input.chargeCategory);
     body.set("metadata[schoolapp_session_id]", input.sessionId);
     body.set("metadata[schoolapp_transaction_id]", input.transactionId);
     body.set("metadata[schoolapp_reference]", input.reference);
     body.set("payment_intent_data[metadata][schoolapp_organisation_id]", input.organisationId);
-    body.set("payment_intent_data[metadata][schoolapp_charge_id]", input.chargeId);
+    if (input.chargeId) body.set("payment_intent_data[metadata][schoolapp_charge_id]", input.chargeId);
+    if (input.invoiceId) body.set("payment_intent_data[metadata][schoolapp_invoice_id]", input.invoiceId);
     body.set("payment_intent_data[metadata][schoolapp_session_id]", input.sessionId);
     if (input.idempotencyKey) body.set("metadata[schoolapp_idempotency_key]", input.idempotencyKey);
 

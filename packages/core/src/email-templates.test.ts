@@ -95,4 +95,22 @@ describe("transactional email templates", () => {
     expect(rendered.text).toContain("Under review");
     expect(escapeHtml("<b>x</b>")).toBe("&lt;b&gt;x&lt;/b&gt;");
   });
+
+  it("renders finance notices with a portal link and without sensitive pupil details", () => {
+    const invoice = renderEmailTemplate(
+      "finance_invoice_issued",
+      {
+        recipientName: "Pat Parent",
+        actionUrl: "https://kingswood.example.test/parent/finance",
+      },
+      branding,
+    );
+    expect(invoice.subject).toContain("invoice is available");
+    expect(invoice.text).toContain("An invoice is available in your Kingswood School portal");
+    expect(invoice.text.toLowerCase()).not.toContain("date of birth");
+    expect(invoice.text.toLowerCase()).not.toContain("card");
+    expect(invoice.html).toContain("/parent/finance");
+    const receipt = renderEmailTemplate("finance_payment_received", fixturePreviewData("finance_payment_received"), branding);
+    expect(receipt.text.toLowerCase()).toContain("receipt is available");
+  });
 });

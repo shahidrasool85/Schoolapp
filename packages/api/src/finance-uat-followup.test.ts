@@ -558,6 +558,136 @@ describe("Finance UAT follow-up", () => {
     expect(stillThere.status).toBe(200);
   });
 
+  it("keeps generate preview-only so invoices require explicit billing-run confirm", async () => {
+    const school = await createSchool(pools.owner, suffix());
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(token, school.orgId);
+    const seeded = await seedYear(app, hdrs);
+    await enableTuition(app, hdrs);
+    await app.request("/api/v1/students", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        legalName: "Generate Pupil",
+        academicYearId: seeded.yearId,
+        yearGroupId: seeded.year3Id,
+        classId: seeded.classAId,
+      }),
+    });
+    const schedule = await json<{ schedule: { id: string } }>(
+      await app.request("/api/v1/finance/fee-schedules", {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({
+          name: "Generate must preview",
+          academicYearId: seeded.yearId,
+          yearGroupId: seeded.year3Id,
+          annualAmountMinor: 2000000,
+          instalmentCount: 10,
+          billingFrequency: "monthly",
+          effectiveFrom: "2026-09-01",
+        }),
+      }),
+    );
+
+    const generated = await app.request(`/api/v1/finance/fee-schedules/${schedule.schedule.id}/generate`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ periodStart: "2026-09-01", periodEnd: "2026-09-30", dueOn: "2026-09-15" }),
+    });
+    expect(generated.status).toBe(200);
+    expect(generated.headers.get("deprecation")).toBe("true");
+    const generatedBody = await json<{
+      run: { id: string; status: string; isStale?: boolean };
+      items: Array<{ netAmountMinor: number; included?: boolean }>;
+      confirmSummary: { invoiceCount: number; totalMinor: number };
+      deprecated: boolean;
+      issuesInvoices: boolean;
+    }>(generated);
+    expect(generatedBody.deprecated).toBe(true);
+    expect(generatedBody.issuesInvoices).toBe(false);
+    expect(generatedBody.run.status).toBe("previewed");
+    expect(generatedBody.run.isStale).toBe(false);
+    expect(generatedBody.items.some((item) => item.netAmountMinor === 200000)).toBe(true);
+    expect(generatedBody.confirmSummary.invoiceCount).toBe(1);
+
+    const afterGenerate = await json<{ invoices: Array<{ id: string }> }>(
+      await app.request("/api/v1/finance/invoices", { headers: hdrs }),
+    );
+    expect(afterGenerate.invoices).toHaveLength(0);
+
+    const canonicalPreview = await json<{ run: { id: string; status: string } }>(
+      await app.request("/api/v1/finance/billing-runs/preview", {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({
+          academicYearId: seeded.yearId,
+          frequency: "monthly",
+          periodStart: "2026-10-01",
+          periodEnd: "2026-10-31",
+          dueOn: "2026-10-15",
+        }),
+      }),
+    );
+    expect(canonicalPreview.run.status).toBe("previewed");
+    const afterPreview = await json<{ invoices: Array<{ id: string }> }>(
+      await app.request("/api/v1/finance/invoices", { headers: hdrs }),
+    );
+    expect(afterPreview.invoices).toHaveLength(0);
+
+    const confirmed = await app.request(`/api/v1/finance/billing-runs/${generatedBody.run.id}/confirm`, {
+      method: "POST",
+      headers: hdrs,
+      body: "{}",
+    });
+    expect(confirmed.status).toBe(200);
+    const firstInvoices = await json<{ invoices: Array<{ id: string; totalMinor: number }> }>(
+      await app.request("/api/v1/finance/invoices", { headers: hdrs }),
+    );
+    expect(firstInvoices.invoices).toHaveLength(1);
+    expect(firstInvoices.invoices[0]!.totalMinor).toBe(200000);
+
+    const again = await app.request(`/api/v1/finance/billing-runs/${generatedBody.run.id}/confirm`, {
+      method: "POST",
+      headers: hdrs,
+      body: "{}",
+    });
+    expect(again.status).toBe(200);
+    const afterRetry = await json<{ invoices: Array<{ id: string }> }>(
+      await app.request("/api/v1/finance/invoices", { headers: hdrs }),
+    );
+    expect(afterRetry.invoices).toHaveLength(1);
+
+    await app.request(`/api/v1/finance/fee-schedules/${schedule.schedule.id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ annualAmountMinor: 2200000, instalmentCount: 10 }),
+    });
+    const blocked = await app.request(`/api/v1/finance/billing-runs/${canonicalPreview.run.id}/confirm`, {
+      method: "POST",
+      headers: hdrs,
+      body: "{}",
+    });
+    expect(blocked.status).toBe(409);
+    expect((await json<{ error: { code: string } }>(blocked)).error.code).toBe("stale_preview");
+    const stillOne = await json<{ invoices: Array<{ id: string }> }>(
+      await app.request("/api/v1/finance/invoices", { headers: hdrs }),
+    );
+    expect(stillOne.invoices).toHaveLength(1);
+
+    const generateAgain = await app.request(`/api/v1/finance/fee-schedules/${schedule.schedule.id}/generate`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ periodStart: "2026-11-01", periodEnd: "2026-11-30", dueOn: "2026-11-15" }),
+    });
+    expect(generateAgain.status).toBe(200);
+    expect((await json<{ run: { status: string } }>(generateAgain)).run.status).toBe("previewed");
+    const afterSecondGenerate = await json<{ invoices: Array<{ id: string }> }>(
+      await app.request("/api/v1/finance/invoices", { headers: hdrs }),
+    );
+    expect(afterSecondGenerate.invoices).toHaveLength(1);
+  });
+
   it("keeps teacher and cross-tenant finance isolation unchanged", async () => {
     const id = suffix();
     const school = await createSchool(pools.owner, id);

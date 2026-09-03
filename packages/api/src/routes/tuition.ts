@@ -233,14 +233,20 @@ export function registerTuitionRoutes(app: SchoolappApi) {
         })
         .safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid charge generation");
-      return c.json(
-        await generateFeeScheduleCharges(client, {
-          organisationId: orgId,
-          actorUserId: userId,
-          scheduleId: uuidRouteParam(c, "scheduleId"),
-          ...parsed.data,
-        }),
-      );
+      const preview = await generateFeeScheduleCharges(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        scheduleId: uuidRouteParam(c, "scheduleId"),
+        ...parsed.data,
+      });
+      c.header("Deprecation", "true");
+      return c.json({
+        ...preview,
+        deprecated: true,
+        issuesInvoices: false,
+        message:
+          "This endpoint is deprecated and preview-only. Confirm the billing run separately to issue invoices.",
+      });
     }),
   );
 

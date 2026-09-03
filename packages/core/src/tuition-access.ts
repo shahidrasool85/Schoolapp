@@ -768,6 +768,10 @@ export async function endFeeSchedule(
   });
 }
 
+/**
+ * Compatibility helper for POST /finance/fee-schedules/:id/generate.
+ * Preview-only: never issues invoices. Confirm through confirmBillingRun.
+ */
 export async function generateFeeScheduleCharges(
   client: Client,
   input: {
@@ -781,7 +785,7 @@ export async function generateFeeScheduleCharges(
   },
 ) {
   const loaded = await loadFeeSchedule(client, input.organisationId, input.scheduleId);
-  const preview = await previewBillingRun(client, {
+  return previewBillingRun(client, {
     organisationId: input.organisationId,
     actorUserId: input.actorUserId,
     academicYearId: String(loaded.schedule.academicYearId),
@@ -791,11 +795,6 @@ export async function generateFeeScheduleCharges(
     dueOn: input.dueOn,
     instalmentNumber: input.instalmentNumber,
     feeScheduleId: input.scheduleId,
-  });
-  return confirmBillingRun(client, {
-    organisationId: input.organisationId,
-    actorUserId: input.actorUserId,
-    billingRunId: String(preview.run.id),
   });
 }
 

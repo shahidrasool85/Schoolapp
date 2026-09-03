@@ -616,7 +616,10 @@ describe("Finance UAT follow-up", () => {
     );
     expect(afterGenerate.invoices).toHaveLength(0);
 
-    const canonicalPreview = await json<{ run: { id: string; status: string } }>(
+    const canonicalPreview = await json<{
+      run: { id: string; status: string };
+      items: Array<{ netAmountMinor: number }>;
+    }>(
       await app.request("/api/v1/finance/billing-runs/preview", {
         method: "POST",
         headers: hdrs,
@@ -626,10 +629,12 @@ describe("Finance UAT follow-up", () => {
           periodStart: "2026-10-01",
           periodEnd: "2026-10-31",
           dueOn: "2026-10-15",
+          instalmentNumber: 2,
         }),
       }),
     );
     expect(canonicalPreview.run.status).toBe("previewed");
+    expect(canonicalPreview.items.some((item) => item.netAmountMinor === 200000)).toBe(true);
     const afterPreview = await json<{ invoices: Array<{ id: string }> }>(
       await app.request("/api/v1/finance/invoices", { headers: hdrs }),
     );
@@ -661,7 +666,7 @@ describe("Finance UAT follow-up", () => {
     await app.request(`/api/v1/finance/fee-schedules/${schedule.schedule.id}`, {
       method: "PATCH",
       headers: hdrs,
-      body: JSON.stringify({ annualAmountMinor: 2200000, instalmentCount: 10 }),
+      body: JSON.stringify({ amountMinor: 220000, annualAmountMinor: 2200000, instalmentCount: 10 }),
     });
     const blocked = await app.request(`/api/v1/finance/billing-runs/${canonicalPreview.run.id}/confirm`, {
       method: "POST",

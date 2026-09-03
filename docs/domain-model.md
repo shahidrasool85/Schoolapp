@@ -283,8 +283,8 @@ Pupil-owned charges with separate settlement history. See [ADR 0024](./adr/0024-
 - `school_payment_transactions` — provider or `offline` channel; statuses `pending | succeeded | failed | cancelled | partially_refunded | refunded`
 - `school_payment_sessions` — hosted checkout session; provider session id
 - `school_payment_refunds` / `school_payment_receipts` — refund requests and HTML receipt snapshots
-- `school_payment_provider_events` — idempotent webhook claim (`provider_key`, `event_id`)
-- `school_payment_provider_configs` — future per-school account hook (`secret_ref` is a vault/env name)
+- `school_payment_provider_events` — idempotent webhook claim (`organisation_id`, `provider_key`, `event_id`)
+- `school_payment_provider_configs` — per-school payment provider (encrypted Stripe secret + webhook secret; opaque `webhook_endpoint_id`)
 
 Parents with guardianship + `portal_access` see and pay authorised children’s charges. Students do not initiate payments. Activity default `charge_policy = on_confirmed` does not charge waitlisted pupils. `source_kind = admissions` is reserved for later application fees.
 

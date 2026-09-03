@@ -6,7 +6,14 @@ import pg from "pg";
 import { migrate } from "@schoolapp/db";
 import { createPools, type DbPools } from "@schoolapp/db";
 import { FilesystemObjectStorage, NoopFileScanner } from "@schoolapp/storage";
-import { createPaymentProvider, paymentConfigFromEnv, FakeEmailProvider, type EmailDeliveryProvider } from "@schoolapp/core";
+import { createPaymentProvider, paymentConfigFromEnv, FakeEmailProvider, type EmailDeliveryProvider, type PaymentRuntimeConfig } from "@schoolapp/core";
+
+export const TEST_SECRETS_ENCRYPTION_KEY =
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+if (!process.env.SCHOOLAPP_SECRETS_ENCRYPTION_KEY) {
+  process.env.SCHOOLAPP_SECRETS_ENCRYPTION_KEY = TEST_SECRETS_ENCRYPTION_KEY;
+}
 import { createApiApp } from "./app";
 import type { ApiConfig, SchoolappApi } from "./types";
 
@@ -42,6 +49,8 @@ export function testApiConfig(
     trustProxy?: boolean;
     emailDeliveryProvider?: EmailDeliveryProvider;
     emailWorkerSecret?: string | null;
+    payments?: Partial<PaymentRuntimeConfig>;
+    stripeFetchImpl?: typeof fetch;
   } = {},
 ): ApiConfig {
   return {
@@ -64,12 +73,14 @@ export function testApiConfig(
     emailWorkerSecret: options.emailWorkerSecret ?? null,
     payments: {
       ...paymentConfigFromEnv({
-        PAYMENT_PROVIDER: "fake",
+        PAYMENT_PROVIDER: options.payments?.providerKey ?? "fake",
         FAKE_PAYMENT_WEBHOOK_SECRET: "test-fake-payment-webhook",
         AUTH_SECRET: TEST_AUTH_SECRET,
       }),
-      providerKey: "fake",
+      providerKey: options.payments?.providerKey ?? "fake",
       fakeWebhookSecret: "test-fake-payment-webhook",
+      fetchImpl: options.stripeFetchImpl ?? options.payments?.fetchImpl,
+      ...options.payments,
     },
     paymentProvider: createPaymentProvider({
       providerKey: "fake",
@@ -87,6 +98,8 @@ export function testApp(
     trustProxy?: boolean;
     emailDeliveryProvider?: EmailDeliveryProvider;
     emailWorkerSecret?: string | null;
+    payments?: Partial<PaymentRuntimeConfig>;
+    stripeFetchImpl?: typeof fetch;
   } = {},
 ): SchoolappApi {
   return createApiApp(testApiConfig(pools, options));

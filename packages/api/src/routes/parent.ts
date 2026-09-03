@@ -73,7 +73,7 @@ import {
   parentRespondToActivity,
 } from "../activities-portal";
 import { listParentCharges, loadParentCharge, startParentCheckout } from "../payments-portal";
-import { paymentProviderOf, publicOriginFromRequest } from "../payments-context";
+import { organisationPaymentProviderOf, publicOriginFromRequest } from "../payments-context";
 import { z } from "zod";
 import { uploadConversationAttachment } from "./messaging";
 import {
@@ -565,7 +565,7 @@ export function registerParentRoutes(app: SchoolappApi) {
         organisationId: orgId,
         actor,
         invoiceId,
-        provider: paymentProviderOf(c),
+        provider: await organisationPaymentProviderOf(c, client, orgId),
         amountMinor: parsed.data.amountMinor,
         idempotencyKey: parsed.data.idempotencyKey,
         successUrl: `${origin}/parent/finance/checkout/success?invoiceId=${invoiceId}`,
@@ -670,7 +670,7 @@ export function registerParentRoutes(app: SchoolappApi) {
         orgId,
         actor,
         chargeId,
-        provider: paymentProviderOf(c),
+        provider: await organisationPaymentProviderOf(c, client, orgId),
         amountMinor: parsed.data.amountMinor,
         idempotencyKey: parsed.data.idempotencyKey,
         successUrl: `${origin}/parent/payments/${chargeId}?status=pending`,

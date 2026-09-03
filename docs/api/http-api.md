@@ -543,7 +543,7 @@ User-facing errors include `response_deadline_passed`, `activity_full`, `no_long
 
 ## School charges and payments (Phase 15)
 
-Charges belong to a pupil. Parents pay after guardianship + `portal_access` on every request. Provider webhooks are authoritative; they never trust `X-Organisation-Id`, Host, or a client-selected tenant. Redirect `?status=` is not treated as success. Local/CI uses `PAYMENT_PROVIDER=fake`. Stripe credentials stay server-side.
+Charges belong to a pupil. Parents pay after guardianship + `portal_access` on every request. Provider webhooks are authoritative; they never trust `X-Organisation-Id`, Host, or a client-selected tenant. Redirect `?status=` is not treated as success. Local/CI uses `PAYMENT_PROVIDER=fake` when a school has no Stripe configuration. Each school stores its own encrypted Stripe credentials. Global `STRIPE_SECRET_KEY` is not used for school payments.
 
 ```http
 GET    /api/v1/finance/overview
@@ -565,6 +565,12 @@ GET    /api/v1/parent/payments
 GET    /api/v1/parent/children/{studentId}/payments
 GET    /api/v1/parent/payments/{chargeId}
 POST   /api/v1/parent/payments/{chargeId}/checkout
+GET    /api/v1/finance/payment-provider
+PUT    /api/v1/finance/payment-provider
+POST   /api/v1/finance/payment-provider/test
+POST   /api/v1/finance/payment-provider/enable
+POST   /api/v1/finance/payment-provider/disable
+POST   /api/v1/webhooks/payments/stripe/{endpointId}
 POST   /api/v1/webhooks/payments/{provider}
 GET    /api/v1/payments/demo/checkout/{sessionId}
 POST   /api/v1/payments/demo/checkout/{sessionId}/complete

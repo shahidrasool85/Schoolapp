@@ -519,10 +519,10 @@ See [ADR 0023](./adr/0023-phase14-activities-consents.md). Calendar list APIs in
 - Adjustments: `school_charge_adjustments` (waiver/reduction/subsidy/discount; never rewrite original amount)
 - Transactions: `school_payment_transactions` (provider or offline settlement attempts; immutable history)
 - Sessions / refunds / receipts: `school_payment_sessions`, `school_payment_refunds`, `school_payment_receipts`
-- Webhook processing: `school_payment_provider_events` (provider + event id unique; replay-safe)
-- Future per-school accounts: `school_payment_provider_configs.secret_ref` stores a vault/env key name, never a live secret
+- Webhook processing: `school_payment_provider_events` (organisation + provider + event id unique; replay-safe)
+- Per-school accounts: `school_payment_provider_configs` stores encrypted Stripe credentials, mode, webhook endpoint id, and connection status. Plaintext secrets are never stored.
 
-Money is integer minor units. Consent and payment stay separate. Default activity `charge_policy` is `on_confirmed` (waitlisted pupils are not charged). Provider webhooks are authoritative; tenant is resolved from stored session/payment references, never from `X-Organisation-Id`. Local/CI default is `PAYMENT_PROVIDER=fake`. See [ADR 0024](./adr/0024-phase15-payments.md).
+Money is integer minor units. Consent and payment stay separate. Default activity `charge_policy` is `on_confirmed` (waitlisted pupils are not charged). Provider webhooks are authoritative; the opaque per-school webhook path selects the signing secret, then tenant is resolved from stored session/payment references and must match that config. Local/CI default is `PAYMENT_PROVIDER=fake` when a school has no Stripe row. See [ADR 0024](./adr/0024-phase15-payments.md) and [ADR 0033](./adr/0033-per-school-stripe.md).
 
 ### 6.2g School messaging (Phase 16)
 

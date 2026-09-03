@@ -33,7 +33,11 @@ import {
   mapPaymentRefund,
   mapPaymentTransaction,
 } from "../serialize";
-import { paymentProviderOf, publicOriginFromRequest } from "../payments-context";
+import {
+  organisationPaymentProviderOf,
+  paymentRuntime,
+  publicOriginFromRequest,
+} from "../payments-context";
 
 const chargeBodySchema = z.object({
   title: z.string().trim().min(1).max(200),
@@ -400,7 +404,7 @@ export function registerFinanceRoutes(app: SchoolappApi) {
         organisationId: orgId,
         actorUserId: userId,
         chargeId: uuidRouteParam(c, "chargeId"),
-        provider: paymentProviderOf(c),
+        runtime: paymentRuntime(c),
         ...parsed.data,
       });
       return c.json({ refund: mapPaymentRefund(refund) }, 201);
@@ -481,7 +485,7 @@ export function registerFinanceRoutes(app: SchoolappApi) {
         organisationId: orgId,
         actor,
         chargeId,
-        provider: paymentProviderOf(c),
+        provider: await organisationPaymentProviderOf(c, client, orgId),
         requireGuardian: false,
         successUrl: `${origin}/school/finance/charges/${chargeId}?status=pending`,
         cancelUrl: `${origin}/school/finance/charges/${chargeId}?status=cancelled`,

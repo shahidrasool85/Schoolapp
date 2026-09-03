@@ -24,7 +24,8 @@ import {
   shouldGenerateActivityCharge,
   type ChargeBalance,
 } from "./payments.js";
-import type { PaymentProvider, ProviderEvent } from "./payment-provider.js";
+import type { PaymentProvider, PaymentRuntimeConfig, ProviderEvent } from "./payment-provider.js";
+import { resolveOrganisationPaymentProviderForRefund } from "./org-payment-provider.js";
 import { requireLinkedChild } from "./portal.js";
 import { guardianChildIds } from "./students-access.js";
 
@@ -945,7 +946,8 @@ export async function requestRefund(
     transactionId?: string | null;
     amountMinor: number;
     reason: string;
-    provider: PaymentProvider;
+    provider?: PaymentProvider;
+    runtime?: PaymentRuntimeConfig;
     idempotencyKey?: string | null;
   },
 ): Promise<Record<string, unknown>> {
@@ -980,11 +982,21 @@ export async function requestRefund(
     status = "succeeded";
     providerRefundId = `offline_re_${String(transaction.id).replace(/-/g, "").slice(0, 16)}`;
   } else {
-    if (transaction.provider_key !== input.provider.key || !transaction.provider_payment_id) {
+    const provider =
+      input.provider ??
+      (input.runtime
+        ? await resolveOrganisationPaymentProviderForRefund(
+            client,
+            input.organisationId,
+            input.runtime,
+            String(transaction.provider_key),
+          )
+        : null);
+    if (!provider || transaction.provider_key !== provider.key || !transaction.provider_payment_id) {
       throwFinance("refund_failed");
     }
     try {
-      const result = await input.provider.refund({
+      const result = await provider.refund({
         providerPaymentId: String(transaction.provider_payment_id),
         amountMinor: input.amountMinor,
         currency: String(transaction.currency),

@@ -1,9 +1,10 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { Alert, LoadingState, PageError, PageHeader, SectionCard } from "../../../../components/ui";
+import { Alert, Badge, Button, FormField, Input, LoadingState, PageError, PageHeader, SectionCard } from "../../../../components/ui";
 import { api } from "../../../../lib/api";
 import { userFacingError } from "../../../../lib/errors";
+import { usePermissions } from "../../../../lib/use-permissions";
 import { FinanceNav } from "../finance-nav";
 
 type Settings = {
@@ -206,6 +207,249 @@ export default function FinanceSettingsPage() {
           <button type="submit">Save settings</button>
         </form>
       </SectionCard>
+      <PaymentProviderSettings />
     </>
+  );
+}
+
+type PaymentProvider = {
+  provider: "stripe";
+  configured: boolean;
+  enabled: boolean;
+  mode: "test" | "live" | null;
+  connectionStatus: "not_configured" | "test_mode_configured" | "connected" | "attention_required";
+  secretKeyConfigured: boolean;
+  webhookSecretConfigured: boolean;
+  secretKeyHint: string | null;
+  providerAccountId: string | null;
+  displayName: string | null;
+  webhookEndpointId: string | null;
+  webhookPath: string | null;
+  webhookUrl: string | null;
+  lastConnectionTestedAt: string | null;
+  lastWebhookAt: string | null;
+  lastWebhookEventType: string | null;
+  lastWebhookErrorCode: string | null;
+  lastConnectionErrorCode: string | null;
+};
+
+const STATUS_LABEL: Record<PaymentProvider["connectionStatus"], string> = {
+  not_configured: "Not configured",
+  test_mode_configured: "Test mode configured",
+  connected: "Connected",
+  attention_required: "Attention required",
+};
+
+const STATUS_TONE: Record<PaymentProvider["connectionStatus"], "neutral" | "success" | "warning" | "danger"> = {
+  not_configured: "neutral",
+  test_mode_configured: "warning",
+  connected: "success",
+  attention_required: "danger",
+};
+
+function PaymentProviderSettings() {
+  const permissions = usePermissions();
+  const canManage = permissions.has("finance.settings.manage");
+  const [provider, setProvider] = useState<PaymentProvider | null>(null);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [mode, setMode] = useState<"test" | "live">("test");
+  const [secretKey, setSecretKey] = useState("");
+  const [webhookSecret, setWebhookSecret] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api<{ paymentProvider: PaymentProvider }>("/api/v1/finance/payment-provider")
+      .then((body) => {
+        setProvider(body.paymentProvider);
+        if (body.paymentProvider.mode) setMode(body.paymentProvider.mode);
+      })
+      .catch((err: Error) => setError(userFacingError(err, "Could not load payment settings.")));
+  }, []);
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canManage) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const body = await api<{ paymentProvider: PaymentProvider }>("/api/v1/finance/payment-provider", {
+        method: "PUT",
+        body: JSON.stringify({
+          mode,
+          ...(secretKey.trim() ? { secretKey: secretKey.trim() } : {}),
+          ...(webhookSecret.trim() ? { webhookSecret: webhookSecret.trim() } : {}),
+        }),
+      });
+      setProvider(body.paymentProvider);
+      setSecretKey("");
+      setWebhookSecret("");
+      setMessage("Payment settings saved. Secret keys are stored encrypted and are not shown again.");
+    } catch (err) {
+      setError(userFacingError(err as Error, "Could not save payment settings."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function testConnection() {
+    if (!canManage) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const body = await api<{ result: string; paymentProvider: PaymentProvider }>("/api/v1/finance/payment-provider/test", {
+        method: "POST",
+        body: "{}",
+      });
+      setProvider(body.paymentProvider);
+      if (body.result === "connected") setMessage("Stripe connection succeeded.");
+      else if (body.result === "configuration_incomplete") setError("Configuration incomplete. Save a Stripe secret key first.");
+      else setError("Stripe authentication failed. Check the secret key and try again.");
+    } catch (err) {
+      setError(userFacingError(err as Error, "Could not test the Stripe connection."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setEnabled(enabled: boolean) {
+    if (!canManage) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const body = await api<{ paymentProvider: PaymentProvider }>(
+        enabled ? "/api/v1/finance/payment-provider/enable" : "/api/v1/finance/payment-provider/disable",
+        { method: "POST", body: "{}" },
+      );
+      setProvider(body.paymentProvider);
+      setMessage(enabled ? "Stripe is enabled for this school." : "Stripe is disabled for this school.");
+    } catch (err) {
+      setError(userFacingError(err as Error, "Could not update Stripe."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (error && !provider) return null;
+  if (!provider) return null;
+
+  return (
+    <SectionCard title="Online payments">
+      <p className="muted">
+        Each school connects its own Stripe account. Parents at this school are charged only through this school’s
+        credentials. Never enter another school’s Stripe key here.
+      </p>
+      {message ? <Alert tone="success">{message}</Alert> : null}
+      {error ? <Alert tone="danger">{error}</Alert> : null}
+      <p>
+        <strong>Payment provider:</strong> Stripe{" "}
+        <Badge tone={STATUS_TONE[provider.connectionStatus]}>{STATUS_LABEL[provider.connectionStatus]}</Badge>
+        {provider.enabled ? <Badge tone="success">Enabled</Badge> : <Badge tone="neutral">Disabled</Badge>}
+      </p>
+      <dl className="stack">
+        {provider.displayName ? (
+          <div>
+            <dt>Stripe account</dt>
+            <dd>{provider.displayName}</dd>
+          </div>
+        ) : null}
+        <div>
+          <dt>Mode</dt>
+          <dd>{provider.mode === "live" ? "Live" : provider.mode === "test" ? "Test" : "Not set"}</dd>
+        </div>
+        <div>
+          <dt>Secret key</dt>
+          <dd>{provider.secretKeyConfigured ? provider.secretKeyHint ?? "Configured" : "Not configured"}</dd>
+        </div>
+        <div>
+          <dt>Webhook signing secret</dt>
+          <dd>{provider.webhookSecretConfigured ? "Configured" : "Not configured"}</dd>
+        </div>
+        {provider.webhookUrl ? (
+          <div>
+            <dt>Webhook URL</dt>
+            <dd>
+              <code>{provider.webhookUrl}</code>
+              <div className="muted">Create this endpoint in the school’s Stripe dashboard, then paste the signing secret.</div>
+            </dd>
+          </div>
+        ) : (
+          <div>
+            <dt>Webhook URL</dt>
+            <dd className="muted">Save a Stripe secret key to generate this school’s unique webhook URL.</dd>
+          </div>
+        )}
+        <div>
+          <dt>Last successful webhook</dt>
+          <dd>
+            {provider.lastWebhookAt
+              ? `${new Date(provider.lastWebhookAt).toLocaleString()}${provider.lastWebhookEventType ? ` (${provider.lastWebhookEventType})` : ""}`
+              : "None yet"}
+          </dd>
+        </div>
+        {provider.lastWebhookErrorCode || provider.lastConnectionErrorCode ? (
+          <div>
+            <dt>Last error</dt>
+            <dd>{provider.lastWebhookErrorCode ?? provider.lastConnectionErrorCode}</dd>
+          </div>
+        ) : null}
+      </dl>
+      {canManage ? (
+        <form className="stack" onSubmit={save}>
+          <FormField label="Mode" hint="Use Test while connecting a Stripe sandbox. Live keys must be marked Live.">
+            <select value={mode} onChange={(event) => setMode(event.target.value as "test" | "live")}>
+              <option value="test">Test</option>
+              <option value="live">Live</option>
+            </select>
+          </FormField>
+          <FormField
+            label="Stripe secret key"
+            hint={provider.secretKeyConfigured ? `Saved as ${provider.secretKeyHint}. Leave blank to keep the current key.` : "Starts with sk_test_ or sk_live_. It is stored encrypted and never shown again."}
+          >
+            <Input
+              type="password"
+              autoComplete="off"
+              value={secretKey}
+              onChange={(event) => setSecretKey(event.target.value)}
+              placeholder={provider.secretKeyConfigured ? "••••••••" : "sk_test_…"}
+            />
+          </FormField>
+          <FormField
+            label="Webhook signing secret"
+            hint={provider.webhookSecretConfigured ? "Configured. Leave blank to keep the current secret." : "From the school’s Stripe webhook endpoint. Starts with whsec_."}
+          >
+            <Input
+              type="password"
+              autoComplete="off"
+              value={webhookSecret}
+              onChange={(event) => setWebhookSecret(event.target.value)}
+              placeholder={provider.webhookSecretConfigured ? "••••••••" : "whsec_…"}
+            />
+          </FormField>
+          <div className="row">
+            <Button type="submit" disabled={busy}>
+              Save Stripe settings
+            </Button>
+            <Button type="button" disabled={busy || !provider.secretKeyConfigured} onClick={testConnection}>
+              Test Stripe connection
+            </Button>
+            {provider.enabled ? (
+              <Button type="button" disabled={busy} onClick={() => setEnabled(false)}>
+                Disable Stripe
+              </Button>
+            ) : (
+              <Button type="button" disabled={busy || !provider.secretKeyConfigured || !provider.webhookSecretConfigured} onClick={() => setEnabled(true)}>
+                Enable Stripe
+              </Button>
+            )}
+          </div>
+        </form>
+      ) : (
+        <p className="muted">Only a School Admin can change payment-provider credentials.</p>
+      )}
+    </SectionCard>
   );
 }

@@ -1558,4 +1558,47 @@ describe("RLS catalog", () => {
     expect(worker.rows).toHaveLength(1);
     expect(worker.rows[0]?.action_url).toContain("other-tenant-secret");
   });
+
+  it("keeps FORCE RLS from leaking payment-provider config across schools", async () => {
+    const id = randomUUID().slice(0, 8);
+    const userA = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Admin A', 'staff', 'active') returning id`,
+      [`rls-pay-admin-a-${id}@example.com`],
+    );
+    const userB = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Admin B', 'staff', 'active') returning id`,
+      [`rls-pay-admin-b-${id}@example.com`],
+    );
+    const orgA = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-pay-a-${id}`, "Pay A"],
+    );
+    const orgB = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-pay-b-${id}`, "Pay B"],
+    );
+    await pools.owner.query(
+      `insert into organisation_memberships (organisation_id, user_id, status)
+       values ($1, $2, 'active'), ($3, $4, 'active')`,
+      [orgA.rows[0]!.id, userA.rows[0]!.id, orgB.rows[0]!.id, userB.rows[0]!.id],
+    );
+    await pools.owner.query(
+      `insert into school_payment_provider_configs (
+         organisation_id, provider_key, secret_ref, is_active, mode, encrypted_secret_key, secret_key_hint
+       ) values
+         ($1, 'stripe', 'encrypted:v1', false, 'test', 'v1:org-a-blob', 'sk_test_••••aaa1'),
+         ($2, 'stripe', 'encrypted:v1', false, 'test', 'v1:org-b-blob', 'sk_test_••••bbb2')`,
+      [orgA.rows[0]!.id, orgB.rows[0]!.id],
+    );
+    await withTenantContext(pools.app, userA.rows[0]!.id, orgA.rows[0]!.id, async (client) => {
+      const seen = await client.query<{ organisation_id: string; encrypted_secret_key: string | null }>(
+        "select organisation_id, encrypted_secret_key from school_payment_provider_configs",
+      );
+      expect(seen.rows).toHaveLength(1);
+      expect(seen.rows[0]?.organisation_id).toBe(orgA.rows[0]!.id);
+      expect(seen.rows.map((row) => row.encrypted_secret_key)).not.toContain("v1:org-b-blob");
+    });
+  });
 });

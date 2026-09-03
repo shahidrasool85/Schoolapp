@@ -32,7 +32,6 @@ type Schedule = {
   name: string;
   academicYearId: string;
   academicYearName: string | null;
-  billingFrequency: string;
   yearGroupName: string | null;
   className: string | null;
   amountMinor: number;

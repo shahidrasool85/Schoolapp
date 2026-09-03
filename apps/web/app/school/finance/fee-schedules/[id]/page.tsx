@@ -213,12 +213,6 @@ export default function FeeScheduleDetailPage() {
     }
   }
 
-  if (error && !schedule) return <PageError title="Fee schedule unavailable" description={error} />;
-  if (!schedule) return <LoadingState label="Loading fee schedule…" />;
-
-  const impliedAnnual =
-    schedule.annualAmountMinor ??
-    (schedule.instalmentCount ? schedule.amountMinor * schedule.instalmentCount : null);
   const liveSummary = useMemo(() => {
     const annual = parseGbpPoundsToMinor(annualPounds);
     const count = Number(instalments);
@@ -226,6 +220,13 @@ export default function FeeScheduleDetailPage() {
     const summary = feeScheduleCreateSummary({ annualMinor: annual.amount, instalmentCount: count });
     return summary.ok ? summary : { text: summary.error, roundingNote: null, amountPerInstalmentMinor: null };
   }, [annualPounds, instalments]);
+
+  if (error && !schedule) return <PageError title="Fee schedule unavailable" description={error} />;
+  if (!schedule) return <LoadingState label="Loading fee schedule…" />;
+
+  const impliedAnnual =
+    schedule.annualAmountMinor ??
+    (schedule.instalmentCount ? schedule.amountMinor * schedule.instalmentCount : null);
   const invoicesGenerated = lifecycle?.invoiceCount ?? schedule.invoiceCount ?? 0;
   const billingRunsUsed = lifecycle?.billingRunCount ?? schedule.billingRunCount ?? 0;
 

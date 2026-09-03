@@ -3885,6 +3885,41 @@ export async function renderFamilyStatementZip(
   };
 }
 
+function reusableInvoiceCheckoutSession(
+  session: Record<string, unknown>,
+  amountMinor: number,
+): Record<string, unknown> | null {
+  if (String(session.status) !== "open") return null;
+  if (String(session.transaction_status ?? "pending") !== "pending") return null;
+  if (Number(session.amount_minor) !== amountMinor) return null;
+  if (!session.checkout_url) return null;
+  if (session.expires_at && new Date(String(session.expires_at)) <= new Date()) return null;
+  return session;
+}
+
+async function failInvoiceCheckout(
+  client: Client,
+  input: {
+    organisationId: string;
+    transactionId: string;
+    sessionId: string;
+    sessionStatus: "failed" | "expired";
+  },
+) {
+  await client.query(
+    `update school_payment_transactions
+        set status = 'failed', failed_at = now()
+      where id = $1 and organisation_id = $2 and status = 'pending'`,
+    [input.transactionId, input.organisationId],
+  );
+  await client.query(
+    `update school_payment_sessions
+        set status = $3
+      where id = $1 and organisation_id = $2 and status = 'open'`,
+    [input.sessionId, input.organisationId, input.sessionStatus],
+  );
+}
+
 export async function createInvoiceCheckoutSession(
   client: Client,
   input: {
@@ -3919,27 +3954,47 @@ export async function createInvoiceCheckoutSession(
   if (amount <= 0 || amount > outstanding) {
     throw new AppError(409, "overpayment", "This payment would exceed the amount outstanding");
   }
-  if (input.idempotencyKey) {
+  let idempotencyKey = input.idempotencyKey ?? null;
+  if (idempotencyKey) {
     const existing = await client.query(
-      `select * from school_payment_sessions where organisation_id = $1 and idempotency_key = $2 and status = 'open'`,
-      [input.organisationId, input.idempotencyKey],
+      `select s.*, t.status as transaction_status
+         from school_payment_sessions s
+         join school_payment_transactions t on t.id = s.transaction_id
+        where s.organisation_id = $1 and s.idempotency_key = $2
+        order by s.created_at desc
+        limit 1`,
+      [input.organisationId, idempotencyKey],
     );
     if (existing.rows[0]) {
-      return { session: existing.rows[0] as Record<string, unknown>, checkoutUrl: String(existing.rows[0].checkout_url) };
+      const reusable = reusableInvoiceCheckoutSession(existing.rows[0] as Record<string, unknown>, amount);
+      if (reusable) {
+        return { session: reusable, checkoutUrl: String(reusable.checkout_url) };
+      }
+      idempotencyKey = null;
     }
   }
   const existingOpen = await client.query(
-    `select * from school_payment_sessions
-      where organisation_id = $1 and invoice_id = $2 and created_by = $3 and status = 'open'
-      order by created_at desc
+    `select s.*, t.status as transaction_status
+       from school_payment_sessions s
+       join school_payment_transactions t on t.id = s.transaction_id
+      where s.organisation_id = $1 and s.invoice_id = $2 and s.created_by = $3 and s.status = 'open'
+      order by s.created_at desc
       limit 1`,
     [input.organisationId, input.invoiceId, input.actor.userId],
   );
   if (existingOpen.rows[0]) {
-    return {
-      session: existingOpen.rows[0] as Record<string, unknown>,
-      checkoutUrl: String(existingOpen.rows[0].checkout_url),
-    };
+    const reusable = reusableInvoiceCheckoutSession(existingOpen.rows[0] as Record<string, unknown>, amount);
+    if (reusable) {
+      return { session: reusable, checkoutUrl: String(reusable.checkout_url) };
+    }
+    await failInvoiceCheckout(client, {
+      organisationId: input.organisationId,
+      transactionId: String(existingOpen.rows[0].transaction_id),
+      sessionId: String(existingOpen.rows[0].id),
+      sessionStatus: existingOpen.rows[0].expires_at && new Date(String(existingOpen.rows[0].expires_at)) <= new Date()
+        ? "expired"
+        : "failed",
+    });
   }
   const payRef = await nextFinanceReference(client, input.organisationId, "payment");
   const tx = await client.query(
@@ -3956,7 +4011,7 @@ export async function createInvoiceCheckoutSession(
       invoice.currency,
       input.actor.userId,
       input.provider.key,
-      input.idempotencyKey ?? null,
+      idempotencyKey,
     ],
   );
   const sessionPlaceholder = await client.query<{ id: string }>(
@@ -3975,7 +4030,7 @@ export async function createInvoiceCheckoutSession(
       invoice.currency,
       input.successUrl,
       input.cancelUrl,
-      input.idempotencyKey ?? null,
+      idempotencyKey,
       input.actor.userId,
     ],
   );
@@ -3998,7 +4053,7 @@ export async function createInvoiceCheckoutSession(
     title: `Invoice ${String(invoice.reference)}`,
     successUrl: input.successUrl,
     cancelUrl: input.cancelUrl,
-    idempotencyKey: input.idempotencyKey,
+    idempotencyKey,
   });
   const session = await client.query(
     `update school_payment_sessions
@@ -4033,7 +4088,7 @@ export async function settleInvoiceProviderEvent(
       currency: string;
     };
   },
-) {
+): Promise<{ rejected?: { code: string; message: string } }> {
   const tx = await client.query(
     `select * from school_payment_transactions where id = $1 and organisation_id = $2 for update`,
     [input.session.transaction_id, input.organisationId],
@@ -4041,30 +4096,26 @@ export async function settleInvoiceProviderEvent(
   if (!tx.rows[0]) throw new AppError(400, "unknown_reference", "Unknown payment reference");
   const transaction = tx.rows[0] as Record<string, unknown>;
   if (input.event.amountMinor != null && Number(input.event.amountMinor) !== Number(transaction.amount_minor)) {
-    if (transaction.status === "pending") {
-      await client.query(
-        `update school_payment_transactions
-            set status = 'failed', failed_at = now()
-          where id = $1 and organisation_id = $2 and status = 'pending'`,
-        [transaction.id, input.organisationId],
-      );
-    }
-    throw new AppError(400, "amount_mismatch", "Provider amount does not match the session");
+    await failInvoiceCheckout(client, {
+      organisationId: input.organisationId,
+      transactionId: String(transaction.id),
+      sessionId: input.session.session_id,
+      sessionStatus: "failed",
+    });
+    return { rejected: { code: "amount_mismatch", message: "Provider amount does not match the session" } };
   }
   if (input.event.currency && input.event.currency.toUpperCase() !== String(transaction.currency).toUpperCase()) {
-    if (transaction.status === "pending") {
-      await client.query(
-        `update school_payment_transactions
-            set status = 'failed', failed_at = now()
-          where id = $1 and organisation_id = $2 and status = 'pending'`,
-        [transaction.id, input.organisationId],
-      );
-    }
-    throw new AppError(400, "currency_mismatch", "Provider currency does not match the session");
+    await failInvoiceCheckout(client, {
+      organisationId: input.organisationId,
+      transactionId: String(transaction.id),
+      sessionId: input.session.session_id,
+      sessionStatus: "failed",
+    });
+    return { rejected: { code: "currency_mismatch", message: "Provider currency does not match the session" } };
   }
-  if (input.event.outcome === "ignored") return;
+  if (input.event.outcome === "ignored") return {};
   if (input.event.outcome === "failed" || input.event.outcome === "cancelled") {
-    if (transaction.status !== "pending") return;
+    if (transaction.status !== "pending") return {};
     await client.query(
       `update school_payment_transactions
           set status = $3, failed_at = case when $3 = 'failed' then now() else failed_at end,
@@ -4077,7 +4128,7 @@ export async function settleInvoiceProviderEvent(
       input.organisationId,
       input.event.outcome === "cancelled" ? "cancelled" : "failed",
     ]);
-    return;
+    return {};
   }
   if (input.event.outcome === "refunded") {
     const invoiceMeta = await client.query<{ billing_account_id: string; created_by: string }>(
@@ -4101,10 +4152,10 @@ export async function settleInvoiceProviderEvent(
       amountMinor: Number(input.event.amountMinor ?? transaction.amount_minor),
       reason: "Provider refund",
     });
-    return;
+    return {};
   }
-  if (input.event.outcome !== "succeeded") return;
-  if (transaction.status !== "pending") return;
+  if (input.event.outcome !== "succeeded") return {};
+  if (transaction.status !== "pending") return {};
   await client.query(
     `update school_payment_transactions
         set status = 'succeeded', paid_at = now(), provider_payment_id = $3
@@ -4130,6 +4181,7 @@ export async function settleInvoiceProviderEvent(
       where organisation_id = $1 and invoice_payment_id = $2 and transaction_id is null`,
     [input.organisationId, payment.id, transaction.id],
   );
+  return {};
 }
 
 export async function loadStudentFinance(client: Client, organisationId: string, actor: Actor) {

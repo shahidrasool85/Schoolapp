@@ -564,6 +564,13 @@ describe("academic calendar, search and finance lifecycle", () => {
     });
     expect(checkout.status).toBe(200);
     const session = await json<{ sessionId: string; checkoutUrl: string }>(checkout);
+    const reuseOpen = await app.request(`/api/v1/parent/finance/invoices/${childAInvoice.id}/checkout`, {
+      method: "POST",
+      headers: parentHdrs,
+      body: JSON.stringify({ idempotencyKey: `pay-a-${id}` }),
+    });
+    expect(reuseOpen.status).toBe(200);
+    expect((await json<{ sessionId: string }>(reuseOpen)).sessionId).toBe(session.sessionId);
     const mismatchProvider = new FakePaymentProvider("test-fake-payment-webhook");
     const mismatchEvent = {
       providerKey: "fake" as const,
@@ -590,10 +597,18 @@ describe("academic calendar, search and finance lifecycle", () => {
       await app.request(`/api/v1/parent/finance/invoices/${childAInvoice.id}`, { headers: parentHdrs }),
     );
     expect(stillUnpaidAfterMismatch.invoice.outstandingMinor).toBe(200000);
-    const cancelled = await app.request(`/api/v1/payments/demo/checkout/${session.sessionId}/complete`, {
+    const retryAfterMismatch = await app.request(`/api/v1/parent/finance/invoices/${childAInvoice.id}/checkout`, {
+      method: "POST",
+      headers: parentHdrs,
+      body: JSON.stringify({ idempotencyKey: `pay-a-${id}` }),
+    });
+    expect(retryAfterMismatch.status).toBe(200);
+    const retried = await json<{ sessionId: string; checkoutUrl: string }>(retryAfterMismatch);
+    expect(retried.sessionId).not.toBe(session.sessionId);
+    const cancelled = await app.request(`/api/v1/payments/demo/checkout/${retried.sessionId}/complete`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ outcome: "cancelled", t: demoToken(session.checkoutUrl) }),
+      body: JSON.stringify({ outcome: "cancelled", t: demoToken(retried.checkoutUrl) }),
     });
     expect(cancelled.status).toBe(200);
     const stillDue = await json<{ invoice: { outstandingMinor: number; status: string } }>(

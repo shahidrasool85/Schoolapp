@@ -95,6 +95,7 @@ export function registerPaymentWebhookRoutes(app: SchoolappApi) {
     const eventRowId = claimed.rows[0]!.event_row_id;
 
     try {
+      let rejected: { code: string; message: string } | undefined;
       await withTenantContext(pools.app, row.context_user_id, row.organisation_id, async (client) => {
         if (!row.session_id) {
           const session = await client.query<{ id: string }>(
@@ -107,7 +108,7 @@ export function registerPaymentWebhookRoutes(app: SchoolappApi) {
           row.session_id = session.rows[0].id;
         }
         if (row.invoice_id) {
-          await settleInvoiceProviderEvent(client, {
+          const settled = await settleInvoiceProviderEvent(client, {
             organisationId: row.organisation_id,
             event,
             session: {
@@ -118,6 +119,7 @@ export function registerPaymentWebhookRoutes(app: SchoolappApi) {
               currency: row.currency,
             },
           });
+          rejected = settled.rejected;
         } else if (row.charge_id) {
           await settleProviderEvent(client, {
             organisationId: row.organisation_id,
@@ -135,6 +137,20 @@ export function registerPaymentWebhookRoutes(app: SchoolappApi) {
         }
       });
       await pools.app.query("select finish_payment_provider_event($1, 'processed')", [eventRowId]);
+      if (rejected) {
+        console.info("payment_webhook", {
+          provider: provider.key,
+          eventId: event.eventId,
+          eventType: event.eventType,
+          outcome: event.outcome,
+          result: "rejected",
+          errorCode: rejected.code,
+          invoiceId: row.invoice_id,
+          chargeId: row.charge_id,
+          transactionId: row.transaction_id,
+        });
+        return c.json({ error: rejected }, 400);
+      }
       console.info("payment_webhook", {
         provider: provider.key,
         eventId: event.eventId,

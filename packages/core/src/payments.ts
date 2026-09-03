@@ -248,7 +248,7 @@ export function financeUserError(code: string): { status: number; code: string; 
     case "overpayment":
       return { status: 409, code, message: "This payment would exceed the amount outstanding" };
     case "currency_mismatch":
-      return { status: 400, code, message: "Currency does not match the charge" };
+      return { status: 400, code, message: "Currency does not match the payment session" };
     case "provider_unavailable":
       return { status: 503, code, message: "The payment provider is temporarily unavailable" };
     case "stale_session":

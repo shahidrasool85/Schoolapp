@@ -333,6 +333,93 @@ describe("Finance UAT follow-up", () => {
     });
     expect(blocked.status).toBe(409);
     expect((await json<{ error: { message: string } }>(blocked)).error.message).toMatch(/stale/i);
+
+    const listed = await json<{
+      runs: Array<{ id: string; status: string; isStale: boolean; previewStatus?: string }>;
+    }>(await app.request("/api/v1/finance/billing-runs", { headers: hdrs }));
+    const listedRun = listed.runs.find((run) => run.id === preview.run.id);
+    expect(listedRun?.isStale).toBe(true);
+    expect(listedRun?.status).toBe("stale");
+  });
+
+  it("keeps excluded pupils visible on a preview and does not invoice them", async () => {
+    const school = await createSchool(pools.owner, suffix());
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(token, school.orgId);
+    const seeded = await seedYear(app, hdrs);
+    await enableTuition(app, hdrs);
+    await app.request("/api/v1/students", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        legalName: "Included Pupil",
+        academicYearId: seeded.yearId,
+        yearGroupId: seeded.year3Id,
+      }),
+    });
+    await app.request("/api/v1/students", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        legalName: "Excluded Pupil",
+        academicYearId: seeded.yearId,
+        yearGroupId: seeded.year5Id,
+      }),
+    });
+    await app.request("/api/v1/finance/fee-schedules", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        name: "Year 3 only",
+        academicYearId: seeded.yearId,
+        yearGroupId: seeded.year3Id,
+        annualAmountMinor: 2000000,
+        instalmentCount: 10,
+        billingFrequency: "monthly",
+        effectiveFrom: "2026-09-01",
+      }),
+    });
+    const preview = await json<{
+      run: { id: string; status: string };
+      items: Array<{
+        legalName: string;
+        included?: boolean;
+        exclusionReason?: string | null;
+        netAmountMinor: number;
+      }>;
+      includedItems?: Array<{ legalName: string }>;
+      excludedItems?: Array<{ legalName: string; exclusionReason?: string | null }>;
+    }>(
+      await app.request("/api/v1/finance/billing-runs/preview", {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({
+          academicYearId: seeded.yearId,
+          frequency: "monthly",
+          periodStart: "2026-09-01",
+          periodEnd: "2026-09-30",
+          instalmentNumber: 1,
+        }),
+      }),
+    );
+    expect(preview.run.status).toBe("previewed");
+    const included = preview.includedItems ?? preview.items.filter((item) => item.included !== false && item.netAmountMinor > 0);
+    const excluded = preview.excludedItems ?? preview.items.filter((item) => item.included === false || item.netAmountMinor <= 0);
+    expect(included.some((item) => item.legalName === "Included Pupil")).toBe(true);
+    expect(excluded.some((item) => item.legalName === "Excluded Pupil")).toBe(true);
+    expect(excluded.find((item) => item.legalName === "Excluded Pupil")?.exclusionReason).toMatch(/fee schedule/i);
+
+    const confirmed = await app.request(`/api/v1/finance/billing-runs/${preview.run.id}/confirm`, {
+      method: "POST",
+      headers: hdrs,
+      body: "{}",
+    });
+    expect(confirmed.status).toBe(200);
+    const invoices = await json<{ invoices: Array<{ totalMinor: number }> }>(
+      await app.request("/api/v1/finance/invoices", { headers: hdrs }),
+    );
+    expect(invoices.invoices).toHaveLength(1);
+    expect(invoices.invoices[0]!.totalMinor).toBe(200000);
   });
 
   it("shows a legacy label when instalment metadata cannot be derived", async () => {

@@ -167,7 +167,8 @@ function documentLines(doc: FinancePdfDocument): string[] {
     for (const entry of doc.entries) {
       const debit = entry.debitMinor ? ` charge ${money(entry.debitMinor, doc.currency)}` : "";
       const credit = entry.creditMinor ? ` paid ${money(entry.creditMinor, doc.currency)}` : "";
-      push(`${formatUkShortDate(entry.date)}  ${entry.reference}  ${entry.kind}${debit}${credit}  bal ${money(entry.balanceMinor, doc.currency)}`);
+      const pupils = entry.description ? ` (${entry.description})` : "";
+      push(`${formatUkShortDate(entry.date)}  ${entry.reference}${pupils}  ${entry.kind}${debit}${credit}  bal ${money(entry.balanceMinor, doc.currency)}`);
     }
     lines.push("");
     push(`Closing balance: ${money(doc.closingMinor, doc.currency)}`);

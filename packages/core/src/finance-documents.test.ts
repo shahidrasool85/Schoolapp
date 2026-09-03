@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { financePdfFilename, renderFinancePdf, zipStoreFiles, type FinanceInvoiceDocument } from "./finance-documents.js";
+import {
+  financePdfFilename,
+  renderFinancePdf,
+  zipStoreFiles,
+  type FinanceInvoiceDocument,
+  type FinanceStatementDocument,
+} from "./finance-documents.js";
 
 const invoice: FinanceInvoiceDocument = {
   kind: "invoice",
@@ -32,6 +38,37 @@ describe("finance PDF documents", () => {
     expect(text).not.toContain("VAT Invoice");
     expect(text).toContain("LuvLearn");
     expect(financePdfFilename(invoice)).toBe("KSW-INV-2026-000123.pdf");
+  });
+
+  it("keeps pupil attribution on family statement lines", () => {
+    const statement: FinanceStatementDocument = {
+      kind: "statement",
+      schoolName: "Kingswood School",
+      familyName: "Family Rasool",
+      pupilNames: ["Child A", "Child B"],
+      periodLabel: "current academic year",
+      from: "2026-09-01",
+      to: "2027-07-31",
+      currency: "GBP",
+      openingMinor: 0,
+      closingMinor: 200000,
+      outstandingMinor: 200000,
+      entries: [
+        {
+          date: "2026-09-15",
+          kind: "invoice",
+          reference: "KSW-INV-1",
+          description: "Child A",
+          debitMinor: 200000,
+          creditMinor: 0,
+          balanceMinor: 200000,
+        },
+      ],
+    };
+    const text = Buffer.from(renderFinancePdf(statement)).toString("latin1");
+    expect(text).toContain("Child A");
+    expect(text).toContain("KSW-INV-1");
+    expect(text).toContain("Opening balance");
   });
 
   it("builds a ZIP of stored documents without mutating records", () => {

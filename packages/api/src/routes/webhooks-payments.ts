@@ -80,6 +80,16 @@ export function registerPaymentWebhookRoutes(app: SchoolappApi) {
       [provider.key, event.eventId, event.eventType, row.organisation_id, row.charge_id, row.transaction_id],
     );
     if (claimed.rows[0]?.already_processed) {
+      console.info("payment_webhook", {
+        provider: provider.key,
+        eventId: event.eventId,
+        eventType: event.eventType,
+        outcome: event.outcome,
+        result: "replayed",
+        invoiceId: row.invoice_id,
+        chargeId: row.charge_id,
+        transactionId: row.transaction_id,
+      });
       return c.json({ ok: true, replayed: true });
     }
     const eventRowId = claimed.rows[0]!.event_row_id;
@@ -125,10 +135,31 @@ export function registerPaymentWebhookRoutes(app: SchoolappApi) {
         }
       });
       await pools.app.query("select finish_payment_provider_event($1, 'processed')", [eventRowId]);
+      console.info("payment_webhook", {
+        provider: provider.key,
+        eventId: event.eventId,
+        eventType: event.eventType,
+        outcome: event.outcome,
+        result: "processed",
+        invoiceId: row.invoice_id,
+        chargeId: row.charge_id,
+        transactionId: row.transaction_id,
+      });
       return c.json({ ok: true });
     } catch (error) {
       const code = error instanceof AppError ? error.code : "processing_failed";
       await pools.app.query("select finish_payment_provider_event($1, 'failed', $2)", [eventRowId, code]);
+      console.info("payment_webhook", {
+        provider: provider.key,
+        eventId: event.eventId,
+        eventType: event.eventType,
+        outcome: event.outcome,
+        result: "failed",
+        errorCode: code,
+        invoiceId: row.invoice_id,
+        chargeId: row.charge_id,
+        transactionId: row.transaction_id,
+      });
       if (error instanceof AppError) throw error;
       throw new AppError(400, "validation_failed", "The payment event could not be processed");
     }

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  billingRunDisplayStatus,
+  billingRunItemExclusionReason,
+  billingRunItemIsIncluded,
+  billingRunStatusLabel,
+} from "@schoolapp/domain";
+import {
   applyDiscounts,
   applyMidPeriodPolicy,
   arrearsBucket,
@@ -562,6 +568,31 @@ describe("billing run preview display and stale detection", () => {
     expect(
       billingRunItemSignature(stored[0]!).split(":"),
     ).toEqual(["pupil-1", "sched-1", "200000", "0", "200000"]);
+  });
+
+  it("labels billing runs as preview, stale preview, or issued", () => {
+    expect(billingRunDisplayStatus({ status: "previewed" })).toBe("preview");
+    expect(billingRunStatusLabel("preview")).toMatch(/no invoices issued/i);
+    expect(billingRunDisplayStatus({ status: "previewed", isStale: true })).toBe("stale");
+    expect(billingRunStatusLabel("stale")).toMatch(/regenerate/i);
+    expect(billingRunDisplayStatus({ status: "confirmed" })).toBe("issued");
+    expect(billingRunStatusLabel("issued")).toBe("Issued");
+  });
+
+  it("explains why a preview pupil is excluded without changing amounts", () => {
+    expect(billingRunItemIsIncluded({ error: null, netAmountMinor: 200000 })).toBe(true);
+    expect(billingRunItemExclusionReason({ error: null, warning: null, netAmountMinor: 200000 })).toBeNull();
+    expect(
+      billingRunItemExclusionReason({
+        error: "already_invoiced",
+        warning: "already_invoiced",
+        netAmountMinor: 0,
+      }),
+    ).toMatch(/Already invoiced/);
+    expect(
+      billingRunItemExclusionReason({ error: null, warning: "no_fee_schedule", netAmountMinor: 0 }),
+    ).toMatch(/No active fee schedule/);
+    expect(billingRunItemIsIncluded({ error: "already_invoiced", netAmountMinor: 0 })).toBe(false);
   });
 
   it("summarises confirmation as pupil, invoice and total counts", () => {

@@ -513,6 +513,32 @@ describe("academic calendar, search and finance lifecycle", () => {
     });
     expect(checkout.status).toBe(200);
     const session = await json<{ sessionId: string; checkoutUrl: string }>(checkout);
+    const mismatchProvider = new FakePaymentProvider("test-fake-payment-webhook");
+    const mismatchEvent = {
+      providerKey: "fake" as const,
+      eventId: `currency-mismatch-${session.sessionId}`,
+      eventType: "demo.succeeded",
+      providerSessionId: `fake_sess_${session.sessionId.replace(/-/g, "")}`,
+      providerPaymentId: `fake_pay_${session.sessionId.replace(/-/g, "")}`,
+      providerRefundId: null,
+      amountMinor: 200000,
+      currency: "USD",
+      outcome: "succeeded" as const,
+    };
+    const mismatch = await app.request("/api/v1/webhooks/payments/fake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Schoolapp-Payment-Signature": mismatchProvider.signEvent(mismatchEvent),
+      },
+      body: JSON.stringify(mismatchEvent),
+    });
+    expect(mismatch.status).toBe(400);
+    expect((await json<{ error: { code?: string; message: string } }>(mismatch)).error.message).toMatch(/currency/i);
+    const stillUnpaidAfterMismatch = await json<{ invoice: { outstandingMinor: number } }>(
+      await app.request(`/api/v1/parent/finance/invoices/${childAInvoice.id}`, { headers: parentHdrs }),
+    );
+    expect(stillUnpaidAfterMismatch.invoice.outstandingMinor).toBe(200000);
     const cancelled = await app.request(`/api/v1/payments/demo/checkout/${session.sessionId}/complete`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

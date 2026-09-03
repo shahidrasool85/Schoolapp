@@ -242,7 +242,7 @@ describe("Timetable calendar finance UAT hotfix", () => {
         endsAt: "10:00",
         classId: structure.classAId,
         subjectId: structure.subjectId,
-        effectiveFrom: "2026-09-03",
+        effectiveFrom: "2026-09-10",
         teachers: [{ staffProfileId: teacher.staffProfileId, isPrimary: true }],
       }),
     });
@@ -253,7 +253,7 @@ describe("Timetable calendar finance UAT hotfix", () => {
       message: string;
     }>(created);
     expect(createdBody.message).toMatch(/Recurring lesson saved/i);
-    expect(createdBody.firstOccurrence?.date).toBe("2026-09-07");
+    expect(createdBody.firstOccurrence?.date).toBe("2026-09-14");
 
     const listed = await json<{ entries: Array<{ id: string; lifecycleStatus: string }> }>(
       await app.request("/api/v1/timetable/entries", { headers: hdrs }),
@@ -263,11 +263,11 @@ describe("Timetable calendar finance UAT hotfix", () => {
 
     const week = await json<{ occurrences: Array<{ date: string; entryId: string }> }>(
       await app.request(
-        `/api/v1/timetable/occurrences?from=2026-09-07&to=2026-09-11&classId=${structure.classAId}`,
+        `/api/v1/timetable/occurrences?from=2026-09-14&to=2026-09-18&classId=${structure.classAId}`,
         { headers: hdrs },
       ),
     );
-    expect(week.occurrences.map((item) => item.date)).toEqual(["2026-09-07"]);
+    expect(week.occurrences.map((item) => item.date)).toEqual(["2026-09-14"]);
 
     const deleted = await app.request(`/api/v1/timetable/entries/${createdBody.entry.id}`, {
       method: "DELETE",

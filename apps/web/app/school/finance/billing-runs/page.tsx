@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { billingRunDisplayStatus, billingRunStatusLabel } from "@schoolapp/domain";
 import { Alert, DataTable, EmptyState, LoadingState, PageError, PageHeader, SectionCard, StatusBadge } from "../../../../components/ui";
 import { api } from "../../../../lib/api";
 import { userFacingError } from "../../../../lib/errors";
@@ -15,6 +16,8 @@ type Run = {
   periodStart: string;
   periodEnd: string;
   status: string;
+  previewStatus?: string;
+  isStale?: boolean;
   itemCount: number;
   warningCount: number;
   expectedTotalMinor: number;
@@ -70,7 +73,7 @@ export default function BillingRunsPage() {
     <>
       <PageHeader
         title="Billing runs"
-        description="Preview first. Confirming creates invoices. Repeating the same period will not duplicate them."
+        description="Preview first — a preview never charges parents. Confirming issues invoices. Repeating the same period will not duplicate them."
       />
       <FinanceNav />
       {message ? <Alert tone="success">{message}</Alert> : null}
@@ -142,7 +145,22 @@ export default function BillingRunsPage() {
               </td>
               <td>{formatMinor(run.expectedTotalMinor, run.currency)}</td>
               <td>
-                <StatusBadge status={run.status} />
+                <StatusBadge
+                  status={billingRunDisplayStatus({
+                    status: run.status,
+                    isStale: run.isStale,
+                    previewStatus: run.previewStatus,
+                  })}
+                />
+                <div className="muted">
+                  {billingRunStatusLabel(
+                    billingRunDisplayStatus({
+                      status: run.status,
+                      isStale: run.isStale,
+                      previewStatus: run.previewStatus,
+                    }),
+                  )}
+                </div>
               </td>
             </tr>
           ))}

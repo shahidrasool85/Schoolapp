@@ -430,18 +430,53 @@ describe("academic calendar, search and finance lifecycle", () => {
       body: JSON.stringify({ periodStart: "2026-09-01", periodEnd: "2026-09-30", dueOn: "2026-09-15" }),
     });
     expect(genSep3.status).toBe(200);
+    const sep3Preview = await json<{
+      run: { id: string; status: string };
+      deprecated: boolean;
+      issuesInvoices: boolean;
+    }>(genSep3);
+    expect(sep3Preview.run.status).toBe("previewed");
+    expect(sep3Preview.deprecated).toBe(true);
+    expect(sep3Preview.issuesInvoices).toBe(false);
     const genSep5 = await app.request(`/api/v1/finance/fee-schedules/${year5.schedule.id}/generate`, {
       method: "POST",
       headers: hdrs,
       body: JSON.stringify({ periodStart: "2026-09-01", periodEnd: "2026-09-30", dueOn: "2026-09-15" }),
     });
     expect(genSep5.status).toBe(200);
+    const sep5Preview = await json<{ run: { id: string; status: string } }>(genSep5);
+    expect(sep5Preview.run.status).toBe("previewed");
     const again = await app.request(`/api/v1/finance/fee-schedules/${year3.schedule.id}/generate`, {
       method: "POST",
       headers: hdrs,
       body: JSON.stringify({ periodStart: "2026-09-01", periodEnd: "2026-09-30", dueOn: "2026-09-15" }),
     });
     expect(again.status).toBe(200);
+    expect((await json<{ run: { id: string; status: string } }>(again)).run.status).toBe("previewed");
+
+    const invoicesBeforeConfirm = await json<{ invoices: Array<{ id: string }> }>(
+      await app.request("/api/v1/finance/invoices", { headers: hdrs }),
+    );
+    expect(invoicesBeforeConfirm.invoices).toHaveLength(0);
+
+    expect(
+      (
+        await app.request(`/api/v1/finance/billing-runs/${sep3Preview.run.id}/confirm`, {
+          method: "POST",
+          headers: hdrs,
+          body: "{}",
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await app.request(`/api/v1/finance/billing-runs/${sep5Preview.run.id}/confirm`, {
+          method: "POST",
+          headers: hdrs,
+          body: "{}",
+        })
+      ).status,
+    ).toBe(200);
 
     const invoices = await json<{ invoices: Array<{ id: string; reference: string; totalMinor: number; billingAccountName: string | null }> }>(
       await app.request("/api/v1/finance/invoices", { headers: hdrs }),
@@ -474,6 +509,22 @@ describe("academic calendar, search and finance lifecycle", () => {
       body: JSON.stringify({ periodStart: "2026-10-01", periodEnd: "2026-10-31", dueOn: "2026-10-15" }),
     });
     expect(genOct.status).toBe(200);
+    const octPreview = await json<{ run: { id: string; status: string } }>(genOct);
+    expect(octPreview.run.status).toBe("previewed");
+    const invoicesAfterOctPreview = await json<{ invoices: Array<{ totalMinor: number }> }>(
+      await app.request("/api/v1/finance/invoices", { headers: hdrs }),
+    );
+    expect(invoicesAfterOctPreview.invoices).toHaveLength(3);
+    expect(invoicesAfterOctPreview.invoices.some((invoice) => invoice.totalMinor === 220000)).toBe(false);
+    expect(
+      (
+        await app.request(`/api/v1/finance/billing-runs/${octPreview.run.id}/confirm`, {
+          method: "POST",
+          headers: hdrs,
+          body: "{}",
+        })
+      ).status,
+    ).toBe(200);
     const afterChange = await json<{ invoice: { totalMinor: number } }>(
       await app.request(`/api/v1/finance/invoices/${childAInvoice.id}`, { headers: hdrs }),
     );
@@ -513,10 +564,51 @@ describe("academic calendar, search and finance lifecycle", () => {
     });
     expect(checkout.status).toBe(200);
     const session = await json<{ sessionId: string; checkoutUrl: string }>(checkout);
-    const cancelled = await app.request(`/api/v1/payments/demo/checkout/${session.sessionId}/complete`, {
+    const reuseOpen = await app.request(`/api/v1/parent/finance/invoices/${childAInvoice.id}/checkout`, {
+      method: "POST",
+      headers: parentHdrs,
+      body: JSON.stringify({ idempotencyKey: `pay-a-${id}` }),
+    });
+    expect(reuseOpen.status).toBe(200);
+    expect((await json<{ sessionId: string }>(reuseOpen)).sessionId).toBe(session.sessionId);
+    const mismatchProvider = new FakePaymentProvider("test-fake-payment-webhook");
+    const mismatchEvent = {
+      providerKey: "fake" as const,
+      eventId: `currency-mismatch-${session.sessionId}`,
+      eventType: "demo.succeeded",
+      providerSessionId: `fake_sess_${session.sessionId.replace(/-/g, "")}`,
+      providerPaymentId: `fake_pay_${session.sessionId.replace(/-/g, "")}`,
+      providerRefundId: null,
+      amountMinor: 200000,
+      currency: "USD",
+      outcome: "succeeded" as const,
+    };
+    const mismatch = await app.request("/api/v1/webhooks/payments/fake", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Schoolapp-Payment-Signature": mismatchProvider.signEvent(mismatchEvent),
+      },
+      body: JSON.stringify(mismatchEvent),
+    });
+    expect(mismatch.status).toBe(400);
+    expect((await json<{ error: { code?: string; message: string } }>(mismatch)).error.message).toMatch(/currency/i);
+    const stillUnpaidAfterMismatch = await json<{ invoice: { outstandingMinor: number } }>(
+      await app.request(`/api/v1/parent/finance/invoices/${childAInvoice.id}`, { headers: parentHdrs }),
+    );
+    expect(stillUnpaidAfterMismatch.invoice.outstandingMinor).toBe(200000);
+    const retryAfterMismatch = await app.request(`/api/v1/parent/finance/invoices/${childAInvoice.id}/checkout`, {
+      method: "POST",
+      headers: parentHdrs,
+      body: JSON.stringify({ idempotencyKey: `pay-a-${id}` }),
+    });
+    expect(retryAfterMismatch.status).toBe(200);
+    const retried = await json<{ sessionId: string; checkoutUrl: string }>(retryAfterMismatch);
+    expect(retried.sessionId).not.toBe(session.sessionId);
+    const cancelled = await app.request(`/api/v1/payments/demo/checkout/${retried.sessionId}/complete`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ outcome: "cancelled", t: demoToken(session.checkoutUrl) }),
+      body: JSON.stringify({ outcome: "cancelled", t: demoToken(retried.checkoutUrl) }),
     });
     expect(cancelled.status).toBe(200);
     const stillDue = await json<{ invoice: { outstandingMinor: number; status: string } }>(

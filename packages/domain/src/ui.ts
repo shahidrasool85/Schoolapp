@@ -101,6 +101,7 @@ const SUCCESS_STATUSES = new Set([
   "enrolled",
   "marked",
   "paid",
+  "issued",
   "present",
   "published",
   "ready",
@@ -132,6 +133,7 @@ const WARNING_STATUSES = new Set([
   "validating",
   "superseded",
   "stale",
+  "preview",
   "previewed",
 ]);
 

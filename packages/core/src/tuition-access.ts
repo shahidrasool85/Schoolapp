@@ -2,6 +2,8 @@ import type pg from "pg";
 import {
   PERMISSIONS,
   STAFF_ROLE_KEYS,
+  billingRunItemExclusionReason,
+  billingRunItemIsIncluded,
   feeScheduleAnnualMatchesInstalments,
   feeScheduleInstalmentPlan,
   overlappingActiveFeeScheduleMessage,
@@ -34,7 +36,7 @@ import {
   type FinanceReceiptDocument,
   type FinanceStatementDocument,
 } from "./finance-documents.js";
-import { formatMoney } from "./money.js";
+import { formatMoney, redactProviderReference } from "./money.js";
 import {
   applyDiscounts,
   applyMidPeriodPolicy,
@@ -766,6 +768,10 @@ export async function endFeeSchedule(
   });
 }
 
+/**
+ * Compatibility helper for POST /finance/fee-schedules/:id/generate.
+ * Preview-only: never issues invoices. Confirm through confirmBillingRun.
+ */
 export async function generateFeeScheduleCharges(
   client: Client,
   input: {
@@ -779,7 +785,7 @@ export async function generateFeeScheduleCharges(
   },
 ) {
   const loaded = await loadFeeSchedule(client, input.organisationId, input.scheduleId);
-  const preview = await previewBillingRun(client, {
+  return previewBillingRun(client, {
     organisationId: input.organisationId,
     actorUserId: input.actorUserId,
     academicYearId: String(loaded.schedule.academicYearId),
@@ -789,11 +795,6 @@ export async function generateFeeScheduleCharges(
     dueOn: input.dueOn,
     instalmentNumber: input.instalmentNumber,
     feeScheduleId: input.scheduleId,
-  });
-  return confirmBillingRun(client, {
-    organisationId: input.organisationId,
-    actorUserId: input.actorUserId,
-    billingRunId: String(preview.run.id),
   });
 }
 
@@ -2260,9 +2261,13 @@ export async function loadBillingRun(client: Client, organisationId: string, bil
   const mappedItems = items.rows.map((row) =>
     mapBillingRunItem(row as Record<string, unknown>, mappedRun, scheduleById),
   );
+  const includedItems = mappedItems.filter((item) => item.included);
+  const excludedItems = mappedItems.filter((item) => !item.included);
   return {
     run: mappedRun,
     items: mappedItems,
+    includedItems,
+    excludedItems,
     confirmSummary: billingRunConfirmSummary(
       mappedItems.map((item) => ({
         studentProfileId: String(item.studentProfileId),
@@ -2394,6 +2399,15 @@ function mapBillingRunItem(
     instalmentLabel: display.instalmentLabel,
     annualFeeLabel: display.annualFeeLabel,
     usedLegacyMetadataLabel: display.usedLegacyMetadataLabel,
+    included: billingRunItemIsIncluded({
+      error: row.error_code == null ? null : String(row.error_code),
+      netAmountMinor: Number(row.net_amount_minor),
+    }),
+    exclusionReason: billingRunItemExclusionReason({
+      error: row.error_code == null ? null : String(row.error_code),
+      warning: row.warning_code == null ? null : String(row.warning_code),
+      netAmountMinor: Number(row.net_amount_minor),
+    }),
     calculation,
   };
 }
@@ -2426,6 +2440,22 @@ function mapBillingRun(row: Record<string, unknown>, staleReason: string | null 
   };
 }
 
+async function mapBillingRunsWithStale(
+  client: Client,
+  organisationId: string,
+  rows: Array<Record<string, unknown>>,
+) {
+  const mapped = [];
+  for (const row of rows) {
+    const staleReason =
+      String(row.status) === "previewed"
+        ? await billingRunPreviewStaleReason(client, organisationId, row)
+        : null;
+    mapped.push(mapBillingRun(row, staleReason));
+  }
+  return mapped;
+}
+
 export async function listBillingRuns(client: Client, organisationId: string) {
   const rows = await client.query(
     `select r.*, y.name as academic_year_name
@@ -2436,7 +2466,7 @@ export async function listBillingRuns(client: Client, organisationId: string) {
       limit 50`,
     [organisationId],
   );
-  return rows.rows.map((row) => mapBillingRun(row as Record<string, unknown>));
+  return mapBillingRunsWithStale(client, organisationId, rows.rows as Array<Record<string, unknown>>);
 }
 
 function mapInvoice(row: Record<string, unknown>) {
@@ -2944,41 +2974,69 @@ export async function loadAccountStatement(
   to: string,
 ) {
   const invoices = await client.query(
-    `select id, reference, invoice_date, total_minor, status
-       from school_invoices
-      where organisation_id = $1 and billing_account_id = $2 and status <> 'void'
-        and invoice_date <= $3::date
-      order by invoice_date, reference`,
+    `select i.id, i.reference, i.invoice_date, i.total_minor, i.status,
+            coalesce((
+              select string_agg(distinct sp.legal_name, ', ' order by sp.legal_name)
+                from school_invoice_lines l
+                join student_profiles sp on sp.id = l.student_profile_id
+               where l.invoice_id = i.id and l.organisation_id = i.organisation_id
+                 and l.student_profile_id is not null
+            ), '') as pupil_names
+       from school_invoices i
+      where i.organisation_id = $1 and i.billing_account_id = $2 and i.status <> 'void'
+        and i.invoice_date <= $3::date
+      order by i.invoice_date, i.reference`,
     [organisationId, accountId, to],
   );
   const payments = await client.query(
-    `select id, reference, received_on, amount_minor, status, invoice_id
-       from school_invoice_payments
-      where organisation_id = $1 and billing_account_id = $2 and status = 'succeeded'
-        and received_on <= $3::date
-      order by received_on, reference`,
+    `select p.id, p.reference, p.received_on, p.amount_minor, p.status, p.invoice_id,
+            coalesce((
+              select string_agg(distinct sp.legal_name, ', ' order by sp.legal_name)
+                from school_invoice_lines l
+                join student_profiles sp on sp.id = l.student_profile_id
+               where l.invoice_id = p.invoice_id and l.organisation_id = p.organisation_id
+                 and l.student_profile_id is not null
+            ), '') as pupil_names
+       from school_invoice_payments p
+      where p.organisation_id = $1 and p.billing_account_id = $2 and p.status = 'succeeded'
+        and p.received_on <= $3::date
+      order by p.received_on, p.reference`,
     [organisationId, accountId, to],
   );
   const credits = await client.query(
-    `select id, reference, created_at, amount_minor, kind, status
-       from school_invoice_credits
-      where organisation_id = $1 and billing_account_id = $2 and status = 'applied'
-        and created_at::date <= $3::date
-      order by created_at, reference`,
+    `select c.id, c.reference, c.created_at, c.amount_minor, c.kind, c.status, c.invoice_id,
+            coalesce((
+              select string_agg(distinct sp.legal_name, ', ' order by sp.legal_name)
+                from school_invoice_lines l
+                join student_profiles sp on sp.id = l.student_profile_id
+               where l.invoice_id = c.invoice_id and l.organisation_id = c.organisation_id
+                 and l.student_profile_id is not null
+            ), '') as pupil_names
+       from school_invoice_credits c
+      where c.organisation_id = $1 and c.billing_account_id = $2 and c.status = 'applied'
+        and c.created_at::date <= $3::date
+      order by c.created_at, c.reference`,
     [organisationId, accountId, to],
   );
   const entries: Array<{
     date: string;
     kind: string;
     reference: string;
+    pupilNames: string[];
     debitMinor: number;
     creditMinor: number;
   }> = [];
+  const pupilNamesFrom = (value: unknown): string[] =>
+    String(value ?? "")
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean);
   for (const invoice of invoices.rows) {
     entries.push({
       date: asIsoDate(invoice.invoice_date),
       kind: "invoice",
       reference: String(invoice.reference),
+      pupilNames: pupilNamesFrom(invoice.pupil_names),
       debitMinor: Number(invoice.total_minor),
       creditMinor: 0,
     });
@@ -2988,6 +3046,7 @@ export async function loadAccountStatement(
       date: asIsoDate(payment.received_on),
       kind: "payment",
       reference: String(payment.reference),
+      pupilNames: pupilNamesFrom(payment.pupil_names),
       debitMinor: 0,
       creditMinor: Number(payment.amount_minor),
     });
@@ -2997,6 +3056,7 @@ export async function loadAccountStatement(
       date: asIsoDate(credit.created_at),
       kind: String(credit.kind),
       reference: String(credit.reference),
+      pupilNames: pupilNamesFrom(credit.pupil_names),
       debitMinor: 0,
       creditMinor: Number(credit.amount_minor),
     });
@@ -3057,7 +3117,11 @@ export async function loadTuitionDashboard(client: Client, organisationId: strin
     overdueMinor: overdue.reduce((sum, item) => sum + item.outstandingMinor, 0),
     creditsMinor: Number(invoiceTotals.rows[0]?.credits ?? 0),
     currency: settings.currency,
-    upcomingRuns: upcoming.rows.map((row) => mapBillingRun(row as Record<string, unknown>)),
+    upcomingRuns: await mapBillingRunsWithStale(
+      client,
+      organisationId,
+      upcoming.rows as Array<Record<string, unknown>>,
+    ),
     recentPayments: recentPayments.rows.map((row) => ({
       ...mapInvoicePayment(row as Record<string, unknown>),
       invoiceReference: row.invoice_reference,
@@ -3511,7 +3575,7 @@ export async function createInvoiceReceipt(
     currency: String(invoice.invoice.currency),
     amountMinor: input.amountMinor,
     paymentMethod: input.method,
-    providerReference: input.providerReference ?? null,
+    providerReference: redactProviderReference(input.providerReference),
     remainingMinor: Number(invoice.invoice.outstandingMinor),
     status: "succeeded",
   };
@@ -3752,6 +3816,7 @@ export async function loadFamilyStatementDocument(
         date: entry.date,
         kind: entry.kind,
         reference: entry.reference,
+        description: entry.pupilNames.length ? entry.pupilNames.join(", ") : null,
         debitMinor: entry.debitMinor,
         creditMinor: entry.creditMinor,
         balanceMinor: entry.balanceMinor,
@@ -3820,6 +3885,41 @@ export async function renderFamilyStatementZip(
   };
 }
 
+function reusableInvoiceCheckoutSession(
+  session: Record<string, unknown>,
+  amountMinor: number,
+): Record<string, unknown> | null {
+  if (String(session.status) !== "open") return null;
+  if (String(session.transaction_status ?? "pending") !== "pending") return null;
+  if (Number(session.amount_minor) !== amountMinor) return null;
+  if (!session.checkout_url) return null;
+  if (session.expires_at && new Date(String(session.expires_at)) <= new Date()) return null;
+  return session;
+}
+
+async function failInvoiceCheckout(
+  client: Client,
+  input: {
+    organisationId: string;
+    transactionId: string;
+    sessionId: string;
+    sessionStatus: "failed" | "expired";
+  },
+) {
+  await client.query(
+    `update school_payment_transactions
+        set status = 'failed', failed_at = now()
+      where id = $1 and organisation_id = $2 and status = 'pending'`,
+    [input.transactionId, input.organisationId],
+  );
+  await client.query(
+    `update school_payment_sessions
+        set status = $3
+      where id = $1 and organisation_id = $2 and status = 'open'`,
+    [input.sessionId, input.organisationId, input.sessionStatus],
+  );
+}
+
 export async function createInvoiceCheckoutSession(
   client: Client,
   input: {
@@ -3854,14 +3954,47 @@ export async function createInvoiceCheckoutSession(
   if (amount <= 0 || amount > outstanding) {
     throw new AppError(409, "overpayment", "This payment would exceed the amount outstanding");
   }
-  if (input.idempotencyKey) {
+  let idempotencyKey = input.idempotencyKey ?? null;
+  if (idempotencyKey) {
     const existing = await client.query(
-      `select * from school_payment_sessions where organisation_id = $1 and idempotency_key = $2 and status = 'open'`,
-      [input.organisationId, input.idempotencyKey],
+      `select s.*, t.status as transaction_status
+         from school_payment_sessions s
+         join school_payment_transactions t on t.id = s.transaction_id
+        where s.organisation_id = $1 and s.idempotency_key = $2
+        order by s.created_at desc
+        limit 1`,
+      [input.organisationId, idempotencyKey],
     );
     if (existing.rows[0]) {
-      return { session: existing.rows[0] as Record<string, unknown>, checkoutUrl: String(existing.rows[0].checkout_url) };
+      const reusable = reusableInvoiceCheckoutSession(existing.rows[0] as Record<string, unknown>, amount);
+      if (reusable) {
+        return { session: reusable, checkoutUrl: String(reusable.checkout_url) };
+      }
+      idempotencyKey = null;
     }
+  }
+  const existingOpen = await client.query(
+    `select s.*, t.status as transaction_status
+       from school_payment_sessions s
+       join school_payment_transactions t on t.id = s.transaction_id
+      where s.organisation_id = $1 and s.invoice_id = $2 and s.created_by = $3 and s.status = 'open'
+      order by s.created_at desc
+      limit 1`,
+    [input.organisationId, input.invoiceId, input.actor.userId],
+  );
+  if (existingOpen.rows[0]) {
+    const reusable = reusableInvoiceCheckoutSession(existingOpen.rows[0] as Record<string, unknown>, amount);
+    if (reusable) {
+      return { session: reusable, checkoutUrl: String(reusable.checkout_url) };
+    }
+    await failInvoiceCheckout(client, {
+      organisationId: input.organisationId,
+      transactionId: String(existingOpen.rows[0].transaction_id),
+      sessionId: String(existingOpen.rows[0].id),
+      sessionStatus: existingOpen.rows[0].expires_at && new Date(String(existingOpen.rows[0].expires_at)) <= new Date()
+        ? "expired"
+        : "failed",
+    });
   }
   const payRef = await nextFinanceReference(client, input.organisationId, "payment");
   const tx = await client.query(
@@ -3878,7 +4011,7 @@ export async function createInvoiceCheckoutSession(
       invoice.currency,
       input.actor.userId,
       input.provider.key,
-      input.idempotencyKey ?? null,
+      idempotencyKey,
     ],
   );
   const sessionPlaceholder = await client.query<{ id: string }>(
@@ -3897,7 +4030,7 @@ export async function createInvoiceCheckoutSession(
       invoice.currency,
       input.successUrl,
       input.cancelUrl,
-      input.idempotencyKey ?? null,
+      idempotencyKey,
       input.actor.userId,
     ],
   );
@@ -3920,7 +4053,7 @@ export async function createInvoiceCheckoutSession(
     title: `Invoice ${String(invoice.reference)}`,
     successUrl: input.successUrl,
     cancelUrl: input.cancelUrl,
-    idempotencyKey: input.idempotencyKey,
+    idempotencyKey,
   });
   const session = await client.query(
     `update school_payment_sessions
@@ -3955,7 +4088,7 @@ export async function settleInvoiceProviderEvent(
       currency: string;
     };
   },
-) {
+): Promise<{ rejected?: { code: string; message: string } }> {
   const tx = await client.query(
     `select * from school_payment_transactions where id = $1 and organisation_id = $2 for update`,
     [input.session.transaction_id, input.organisationId],
@@ -3963,11 +4096,26 @@ export async function settleInvoiceProviderEvent(
   if (!tx.rows[0]) throw new AppError(400, "unknown_reference", "Unknown payment reference");
   const transaction = tx.rows[0] as Record<string, unknown>;
   if (input.event.amountMinor != null && Number(input.event.amountMinor) !== Number(transaction.amount_minor)) {
-    throw new AppError(400, "amount_mismatch", "Provider amount does not match the session");
+    await failInvoiceCheckout(client, {
+      organisationId: input.organisationId,
+      transactionId: String(transaction.id),
+      sessionId: input.session.session_id,
+      sessionStatus: "failed",
+    });
+    return { rejected: { code: "amount_mismatch", message: "Provider amount does not match the session" } };
   }
-  if (input.event.outcome === "ignored") return;
+  if (input.event.currency && input.event.currency.toUpperCase() !== String(transaction.currency).toUpperCase()) {
+    await failInvoiceCheckout(client, {
+      organisationId: input.organisationId,
+      transactionId: String(transaction.id),
+      sessionId: input.session.session_id,
+      sessionStatus: "failed",
+    });
+    return { rejected: { code: "currency_mismatch", message: "Provider currency does not match the session" } };
+  }
+  if (input.event.outcome === "ignored") return {};
   if (input.event.outcome === "failed" || input.event.outcome === "cancelled") {
-    if (transaction.status !== "pending") return;
+    if (transaction.status !== "pending") return {};
     await client.query(
       `update school_payment_transactions
           set status = $3, failed_at = case when $3 = 'failed' then now() else failed_at end,
@@ -3980,7 +4128,7 @@ export async function settleInvoiceProviderEvent(
       input.organisationId,
       input.event.outcome === "cancelled" ? "cancelled" : "failed",
     ]);
-    return;
+    return {};
   }
   if (input.event.outcome === "refunded") {
     const invoiceMeta = await client.query<{ billing_account_id: string; created_by: string }>(
@@ -4004,10 +4152,10 @@ export async function settleInvoiceProviderEvent(
       amountMinor: Number(input.event.amountMinor ?? transaction.amount_minor),
       reason: "Provider refund",
     });
-    return;
+    return {};
   }
-  if (input.event.outcome !== "succeeded") return;
-  if (transaction.status !== "pending") return;
+  if (input.event.outcome !== "succeeded") return {};
+  if (transaction.status !== "pending") return {};
   await client.query(
     `update school_payment_transactions
         set status = 'succeeded', paid_at = now(), provider_payment_id = $3
@@ -4033,6 +4181,7 @@ export async function settleInvoiceProviderEvent(
       where organisation_id = $1 and invoice_payment_id = $2 and transaction_id is null`,
     [input.organisationId, payment.id, transaction.id],
   );
+  return {};
 }
 
 export async function loadStudentFinance(client: Client, organisationId: string, actor: Actor) {

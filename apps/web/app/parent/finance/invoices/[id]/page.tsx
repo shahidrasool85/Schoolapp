@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DataTable, LoadingState, PageError, PageHeader, StatusBadge } from "../../../../../components/ui";
 import { api, downloadAuthenticated } from "../../../../../lib/api";
 import { userFacingError } from "../../../../../lib/errors";
@@ -27,6 +27,7 @@ export default function ParentInvoicePage() {
   const [data, setData] = useState<Bundle | null>(null);
   const [error, setError] = useState("");
   const [paying, setPaying] = useState(false);
+  const payingRef = useRef(false);
 
   async function reload() {
     setData(await api<Bundle>(`/api/v1/parent/finance/invoices/${params.id}`));
@@ -37,6 +38,8 @@ export default function ParentInvoicePage() {
   }, [params.id]);
 
   async function pay() {
+    if (payingRef.current) return;
+    payingRef.current = true;
     setError("");
     setPaying(true);
     try {
@@ -46,6 +49,7 @@ export default function ParentInvoicePage() {
       });
       window.location.href = body.checkoutUrl;
     } catch (err) {
+      payingRef.current = false;
       setError(userFacingError(err as Error, "Payment is not available for this invoice."));
       setPaying(false);
     }

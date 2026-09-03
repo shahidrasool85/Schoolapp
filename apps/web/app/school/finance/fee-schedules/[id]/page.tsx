@@ -1,9 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { feeScheduleDeletedRedirect, formatUkNumericDate, parseGbpPoundsToMinor } from "@schoolapp/domain";
+import {
+  feeScheduleAnnualMatchesInstalments,
+  feeScheduleCreateSummary,
+  feeScheduleDeletedRedirect,
+  formatUkNumericDate,
+  parseGbpPoundsToMinor,
+} from "@schoolapp/domain";
 import {
   Alert,
   Button,
@@ -76,6 +82,8 @@ export default function FeeScheduleDetailPage() {
   const [notice, setNotice] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [annualPounds, setAnnualPounds] = useState("");
+  const [instalments, setInstalments] = useState("");
 
   async function load() {
     const body = await api<{ schedule: Schedule; lifecycle: Lifecycle }>(
@@ -83,6 +91,11 @@ export default function FeeScheduleDetailPage() {
     );
     setSchedule(body.schedule);
     setLifecycle(body.lifecycle);
+    const annual =
+      body.schedule.annualAmountMinor ??
+      (body.schedule.instalmentCount ? body.schedule.amountMinor * body.schedule.instalmentCount : body.schedule.amountMinor);
+    setAnnualPounds((annual / 100).toFixed(2));
+    setInstalments(body.schedule.instalmentCount ? String(body.schedule.instalmentCount) : "1");
   }
 
   useEffect(() => {
@@ -93,9 +106,28 @@ export default function FeeScheduleDetailPage() {
     event.preventDefault();
     if (!schedule) return;
     const form = new FormData(event.currentTarget);
-    const amount = parseGbpPoundsToMinor(String(form.get("amount") ?? ""));
-    if (!amount.ok) {
-      setError(amount.error);
+    const annual = parseGbpPoundsToMinor(String(form.get("annual") ?? annualPounds));
+    if (!annual.ok) {
+      setError(annual.error);
+      return;
+    }
+    const instalmentCount = Number(String(form.get("instalments") ?? instalments));
+    if (!Number.isInteger(instalmentCount) || instalmentCount < 1 || instalmentCount > 24) {
+      setError("Instalments per year must be a whole number between 1 and 24.");
+      return;
+    }
+    const plan = feeScheduleCreateSummary({ annualMinor: annual.amount, instalmentCount });
+    if (!plan.ok) {
+      setError(plan.error);
+      return;
+    }
+    const annualCheck = feeScheduleAnnualMatchesInstalments({
+      amountMinor: plan.amountPerInstalmentMinor,
+      instalmentCount,
+      annualAmountMinor: annual.amount,
+    });
+    if (!annualCheck.ok) {
+      setError(annualCheck.error);
       return;
     }
     try {
@@ -103,12 +135,9 @@ export default function FeeScheduleDetailPage() {
         method: "PATCH",
         body: JSON.stringify({
           name: form.get("name"),
-          amountMinor: amount.amount,
-          annualAmountMinor:
-            schedule.instalmentCount && amount.amount !== schedule.amountMinor
-              ? amount.amount * schedule.instalmentCount
-              : schedule.annualAmountMinor,
-          instalmentCount: schedule.instalmentCount,
+          amountMinor: plan.amountPerInstalmentMinor,
+          annualAmountMinor: annual.amount,
+          instalmentCount,
           effectiveUntil: form.get("effectiveUntil") || null,
           isActive: form.get("isActive") === "on",
           description: form.get("description") || null,
@@ -121,23 +150,24 @@ export default function FeeScheduleDetailPage() {
     }
   }
 
-  async function generate(event: FormEvent<HTMLFormElement>) {
+  async function previewPeriod(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!schedule) return;
     const form = new FormData(event.currentTarget);
     try {
-      await api(`/api/v1/finance/fee-schedules/${schedule.id}/generate`, {
+      const body = await api<{ run: { id: string } }>("/api/v1/finance/billing-runs/preview", {
         method: "POST",
         body: JSON.stringify({
+          academicYearId: schedule.academicYearId,
+          frequency: schedule.billingFrequency,
           periodStart: form.get("periodStart"),
           periodEnd: form.get("periodEnd"),
           dueOn: form.get("dueOn") || null,
         }),
       });
-      setNotice("Charges generated. Repeat runs for the same period will not duplicate invoices.");
-      await load();
+      router.push(`/school/finance/billing-runs/${body.run.id}`);
     } catch (err) {
-      setError(userFacingError(err as Error, "Could not generate charges."));
+      setError(userFacingError(err as Error, "Could not preview this billing period."));
     }
   }
 
@@ -182,6 +212,14 @@ export default function FeeScheduleDetailPage() {
       setDeleting(false);
     }
   }
+
+  const liveSummary = useMemo(() => {
+    const annual = parseGbpPoundsToMinor(annualPounds);
+    const count = Number(instalments);
+    if (!annual.ok || !Number.isInteger(count) || count < 1) return null;
+    const summary = feeScheduleCreateSummary({ annualMinor: annual.amount, instalmentCount: count });
+    return summary.ok ? summary : { text: summary.error, roundingNote: null, amountPerInstalmentMinor: null };
+  }, [annualPounds, instalments]);
 
   if (error && !schedule) return <PageError title="Fee schedule unavailable" description={error} />;
   if (!schedule) return <LoadingState label="Loading fee schedule…" />;
@@ -279,9 +317,40 @@ export default function FeeScheduleDetailPage() {
                 <input name="name" defaultValue={schedule.name} required />
               </label>
               <label>
-                Amount per instalment (£)
-                <input name="amount" defaultValue={(schedule.amountMinor / 100).toFixed(2)} required />
+                Annual tuition fee (£)
+                <input
+                  name="annual"
+                  required
+                  value={annualPounds}
+                  onChange={(event) => setAnnualPounds(event.target.value)}
+                />
               </label>
+              <label>
+                Number of instalments
+                <input
+                  name="instalments"
+                  type="number"
+                  min={1}
+                  max={24}
+                  required
+                  value={instalments}
+                  onChange={(event) => setInstalments(event.target.value)}
+                />
+              </label>
+              <p>
+                Regular instalment:{" "}
+                <strong>
+                  {liveSummary && "amountPerInstalmentMinor" in liveSummary && liveSummary.amountPerInstalmentMinor != null
+                    ? formatMinor(liveSummary.amountPerInstalmentMinor, schedule.currency)
+                    : "—"}
+                </strong>
+              </p>
+              {liveSummary ? (
+                <p className="muted">
+                  {liveSummary.text}
+                  {liveSummary.roundingNote ? ` ${liveSummary.roundingNote}` : ""}
+                </p>
+              ) : null}
               <label>
                 Effective until
                 <input name="effectiveUntil" type="date" defaultValue={schedule.effectiveUntil ?? ""} />
@@ -292,8 +361,11 @@ export default function FeeScheduleDetailPage() {
               <button type="submit">Save</button>
             </form>
           </SectionCard>
-          <SectionCard title="Generate / apply charges">
-            <form className="stack" onSubmit={generate}>
+          <SectionCard title="Preview this period">
+            <p className="muted">
+              Creates a billing-run preview only. Invoices are issued later from the billing run, after you confirm.
+            </p>
+            <form className="stack" onSubmit={previewPeriod}>
               <label>
                 Period start
                 <input name="periodStart" type="date" required />
@@ -306,7 +378,7 @@ export default function FeeScheduleDetailPage() {
                 Due date
                 <input name="dueOn" type="date" />
               </label>
-              <button type="submit">Generate charges</button>
+              <button type="submit">Preview billing run</button>
             </form>
           </SectionCard>
           <p className="toolbar">

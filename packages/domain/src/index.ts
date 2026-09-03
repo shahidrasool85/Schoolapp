@@ -300,6 +300,11 @@ export {
   effectiveFromBeforeAcademicYear,
   FEE_SCHEDULES_PATH,
   FEE_SCHEDULE_DELETED_NOTICE,
+  billingRunDisplayStatus,
+  billingRunItemExclusionReason,
+  billingRunItemIsIncluded,
+  billingRunStatusLabel,
+  BILLING_RUN_DISPLAY_STATUSES,
   feeScheduleAnnualMatchesInstalments,
   feeScheduleCreateSummary,
   feeScheduleDeletedRedirect,
@@ -323,6 +328,7 @@ export {
   UK_TAX_YEAR_START_MONTH,
   UK_TAX_YEAR_START_DAY,
   STATEMENT_PERIOD_PRESETS,
+  type BillingRunDisplayStatus,
   type StatementPeriodPreset,
 } from "./academic-calendar.js";
 

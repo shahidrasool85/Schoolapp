@@ -337,3 +337,67 @@ export function feeScheduleAnnualMatchesInstalments(input: {
   }
   return { ok: true };
 }
+
+export const BILLING_RUN_DISPLAY_STATUSES = ["preview", "stale", "issued", "cancelled"] as const;
+export type BillingRunDisplayStatus = (typeof BILLING_RUN_DISPLAY_STATUSES)[number];
+
+export function billingRunDisplayStatus(input: {
+  status: string;
+  isStale?: boolean;
+  previewStatus?: string | null;
+}): BillingRunDisplayStatus {
+  const stale =
+    Boolean(input.isStale) || input.status === "stale" || input.previewStatus === "stale";
+  if (stale) return "stale";
+  if (input.status === "confirmed" || input.status === "issued") return "issued";
+  if (input.status === "cancelled") return "cancelled";
+  return "preview";
+}
+
+export function billingRunStatusLabel(status: BillingRunDisplayStatus): string {
+  switch (status) {
+    case "preview":
+      return "Preview — no invoices issued";
+    case "stale":
+      return "Stale preview — regenerate before issuing";
+    case "issued":
+      return "Issued";
+    case "cancelled":
+      return "Cancelled";
+  }
+}
+
+export function billingRunItemIsIncluded(input: {
+  error?: string | null;
+  netAmountMinor: number;
+}): boolean {
+  return !input.error && input.netAmountMinor > 0;
+}
+
+export function billingRunItemExclusionReason(input: {
+  error?: string | null;
+  warning?: string | null;
+  netAmountMinor: number;
+}): string | null {
+  if (input.error === "already_invoiced" || input.warning === "already_invoiced") {
+    return "Already invoiced for this schedule and period";
+  }
+  if (input.warning === "no_fee_schedule") {
+    return "No active fee schedule matches this pupil";
+  }
+  if (input.warning === "manual_mid_period") {
+    return "Mid-period join requires a manual charge";
+  }
+  if (input.error) {
+    return input.error.replaceAll("_", " ");
+  }
+  if (!billingRunItemIsIncluded(input)) {
+    if (input.warning === "prorated") {
+      return "Proration reduced this charge to zero";
+    }
+    return input.warning
+      ? input.warning.replaceAll("_", " ")
+      : "Nothing to bill for this pupil in this period";
+  }
+  return null;
+}

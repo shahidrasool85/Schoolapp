@@ -11,7 +11,15 @@ type Statement = {
   to: string;
   openingBalanceMinor: number;
   closingBalanceMinor: number;
-  entries: Array<{ date: string; kind: string; reference: string; debitMinor: number; creditMinor: number; balanceMinor: number }>;
+    entries: Array<{
+      date: string;
+      kind: string;
+      reference: string;
+      description?: string | null;
+      debitMinor: number;
+      creditMinor: number;
+      balanceMinor: number;
+    }>;
 };
 
 type FamilyDocument = {
@@ -27,6 +35,7 @@ type FamilyDocument = {
       date: string;
       kind: string;
       reference: string;
+      description?: string | null;
       debitMinor: number;
       creditMinor: number;
       balanceMinor: number;
@@ -158,6 +167,7 @@ export default function ParentStatementPage() {
                 <th>Date</th>
                 <th>Type</th>
                 <th>Reference</th>
+                <th>Pupil(s)</th>
                 <th>Debit</th>
                 <th>Credit</th>
                 <th>Balance</th>
@@ -169,6 +179,7 @@ export default function ParentStatementPage() {
                 <td>{entry.date}</td>
                 <td>{entry.kind}</td>
                 <td>{entry.reference}</td>
+                <td>{entry.description || "—"}</td>
                 <td>{entry.debitMinor ? formatMinor(entry.debitMinor, currency) : "—"}</td>
                 <td>{entry.creditMinor ? formatMinor(entry.creditMinor, currency) : "—"}</td>
                 <td>{formatMinor(entry.balanceMinor, currency)}</td>

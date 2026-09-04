@@ -389,11 +389,11 @@ export async function testOrganisationStripeConnection(
   });
   const updated = await client.query<ConfigRow>(
     `update school_payment_provider_configs
-        set connection_status = $3,
+        set connection_status = $2,
             last_connection_tested_at = now(),
-            last_connection_error_code = $4,
-            provider_account_id = coalesce($5, provider_account_id),
-            display_name = coalesce($6, display_name),
+            last_connection_error_code = $3,
+            provider_account_id = coalesce($4, provider_account_id),
+            display_name = coalesce($5, display_name),
             updated_at = now()
       where organisation_id = $1 and provider_key = 'stripe'
       returning id, organisation_id, provider_key, secret_ref, is_active, mode, webhook_endpoint_id,
@@ -401,7 +401,6 @@ export async function testOrganisationStripeConnection(
                 provider_account_id, display_name, connection_status, last_connection_tested_at,
                 last_connection_error_code, last_webhook_at, last_webhook_event_type, last_webhook_error_code`,
     [
-      input.organisationId,
       input.organisationId,
       connectionStatus,
       tested.result === "connected" ? null : tested.result,

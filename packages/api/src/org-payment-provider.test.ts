@@ -219,10 +219,11 @@ describe("per-school Stripe configuration", () => {
         } as Response;
       }
       if (String(url).includes("/v1/refunds")) {
-        return { ok: true, status: 200, json: async () => ({ id: "re_test_1", status: "succeeded" }) } as Response;
+        return { ok: true, status: 200, json: async () => ({ id: `re_${randomUUID()}`, status: "succeeded" }) } as Response;
       }
       const auth = headers?.Authorization ?? "";
-      const id = auth.includes("sk_test_school_b") ? "cs_b" : "cs_a";
+      const prefix = auth.includes("sk_test_school_b") ? "b" : "a";
+      const id = `cs_${prefix}_${randomUUID()}`;
       return {
         ok: true,
         status: 200,
@@ -352,13 +353,13 @@ describe("per-school Stripe configuration", () => {
     const eventA = checkoutEvent({
       eventId: `evt_a_${id}`,
       sessionId: sessionA.rows[0]!.provider_session_id,
-      paymentId: "pi_a",
+      paymentId: `pi_a_${id}`,
       amountMinor: Number(sessionA.rows[0]!.amount_minor),
     });
     const eventB = checkoutEvent({
       eventId: `evt_b_${id}`,
       sessionId: sessionB.rows[0]!.provider_session_id,
-      paymentId: "pi_b",
+      paymentId: `pi_b_${id}`,
       amountMinor: Number(sessionB.rows[0]!.amount_minor),
     });
     const bodyAevt = JSON.stringify(eventA);
@@ -402,7 +403,7 @@ describe("per-school Stripe configuration", () => {
     const crossSettle = checkoutEvent({
       eventId: `evt_cross_${id}`,
       sessionId: sessionB.rows[0]!.provider_session_id,
-      paymentId: "pi_cross",
+      paymentId: `pi_cross_${id}`,
       amountMinor: Number(sessionB.rows[0]!.amount_minor),
     });
     const crossBody = JSON.stringify(crossSettle);
@@ -454,7 +455,7 @@ describe("per-school Stripe configuration", () => {
     const chargeEvent = checkoutEvent({
       eventId: `evt_charge_${id}`,
       sessionId: chargeSession.rows[0]!.provider_session_id,
-      paymentId: "pi_charge_a",
+      paymentId: `pi_charge_${id}`,
       amountMinor: Number(chargeSession.rows[0]!.amount_minor),
     });
     const chargeBody = JSON.stringify(chargeEvent);

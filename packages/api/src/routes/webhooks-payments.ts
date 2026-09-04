@@ -225,6 +225,7 @@ async function processVerifiedPaymentEvent(
       transactionId: row.transaction_id,
     });
     if (error instanceof AppError) throw error;
+    console.error("payment_webhook_unhandled", error);
     throw new AppError(400, "validation_failed", "The payment event could not be processed");
   }
 }

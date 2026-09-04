@@ -50,7 +50,7 @@ Consent/registration and payment remain separate. Default `charge_policy = on_co
 
 ### Organisation vs platform provider accounts
 
-Phase 15 uses **one platform provider configuration** (environment variables). `school_payment_provider_configs.secret_ref` is the extension point for later per-school accounts: it stores a vault/env key name, never a live secret. Stripe Connect is not implemented.
+Phase 15 shipped **one platform provider configuration** (environment variables). Per-school Stripe accounts are implemented in [ADR 0033](./0033-per-school-stripe.md): encrypted credentials on `school_payment_provider_configs`, unique webhook endpoints, fail-closed resolution. Stripe Connect is still not implemented.
 
 ### Admissions extension point
 
@@ -69,7 +69,7 @@ STRIPE_PUBLISHABLE_KEY=
 STRIPE_API_BASE=https://api.stripe.com
 ```
 
-Set `PAYMENT_PROVIDER=stripe` only when the Stripe secret key and webhook secret are present on the server. Success/cancel URLs are derived from the request origin, not from client-supplied tenant hosts. The webhook endpoint is `POST /api/v1/webhooks/payments/{provider}`.
+Do not put a school Stripe key in global env. Per-school credentials and webhook URLs are described in ADR 0033. Back up `SCHOOLAPP_SECRETS_ENCRYPTION_KEY` separately from PostgreSQL; a database backup alone cannot restore encrypted school Stripe credentials. Success/cancel URLs are derived from the request origin, not from client-supplied tenant hosts. The fake/demo webhook remains `POST /api/v1/webhooks/payments/fake`. Stripe webhooks are `POST /api/v1/webhooks/payments/stripe/{endpointId}`.
 
 ## Consequences
 

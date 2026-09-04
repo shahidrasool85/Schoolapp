@@ -251,6 +251,12 @@ export function financeUserError(code: string): { status: number; code: string; 
       return { status: 400, code, message: "Currency does not match the payment session" };
     case "provider_unavailable":
       return { status: 503, code, message: "The payment provider is temporarily unavailable" };
+    case "payment_provider_not_configured":
+      return { status: 503, code, message: "Online card payments are not configured for this school" };
+    case "payment_provider_disabled":
+      return { status: 503, code, message: "Online card payments are currently disabled" };
+    case "test_live_mismatch":
+      return { status: 400, code, message: "The Stripe secret key does not match the selected mode" };
     case "stale_session":
       return { status: 409, code, message: "This payment session is no longer valid" };
     default:

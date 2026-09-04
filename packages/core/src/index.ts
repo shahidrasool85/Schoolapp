@@ -716,6 +716,44 @@ export {
 } from "./payment-provider.js";
 
 export {
+  SECRETS_ENCRYPTION_ENV,
+  parseSecretsEncryptionKey,
+  secretsEncryptionKeyFromEnv,
+  requireSecretsEncryptionKey,
+  encryptSecret,
+  decryptSecret,
+  detectStripeSecretMode,
+  assertStripeSecretMatchesMode,
+  assertStripeWebhookSecretFormat,
+  stripeSecretHint,
+  paymentProviderAuditSafe,
+  looksLikeSecret,
+  payloadContainsSecret,
+} from "./encrypted-secrets.js";
+
+export {
+  stripeWebhookPath,
+  stripeWebhookUrl,
+  emptyOrganisationPaymentProvider,
+  mapOrganisationPaymentProvider,
+  derivePaymentProviderConnectionStatus,
+  paymentProviderAuditPayload,
+  loadOrganisationPaymentProviderConfig,
+  loadOrganisationPaymentProviderPublic,
+  upsertOrganisationStripeConfig,
+  setOrganisationStripeEnabled,
+  testOrganisationStripeConnection,
+  testStripeSecretKey,
+  resolveOrganisationPaymentProvider,
+  resolveOrganisationPaymentProviderForRefund,
+  loadStripeWebhookEndpoint,
+  recordOrganisationWebhookResult,
+  type PaymentProviderConnectionStatus,
+  type OrganisationPaymentProviderPublic,
+  type StripeWebhookEndpoint,
+} from "./org-payment-provider.js";
+
+export {
   FINANCE_READ_PERMISSIONS,
   FINANCE_MANAGE_PERMISSIONS,
   canReadSchoolFinance,

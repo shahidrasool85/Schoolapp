@@ -36,5 +36,6 @@ ADRs capture *why* we chose an approach. The narrative proposal is in [ARCHITECT
 | [0030](./0030-phase20-onboarding.md) | Production school onboarding, branding, account lifecycle, mail port, and CSV import | Accepted |
 | [0031](./0031-transactional-email.md) | Central transactional email delivery, SMTP adapter, and mail_outbox retries | Accepted |
 | [0032](./0032-user-profiles-photos.md) | Canonical user/staff/parent profiles and tenant-safe profile photos | Accepted |
+| [0033](./0033-per-school-stripe.md) | Per-school Stripe accounts, encrypted credentials, unique webhooks | Accepted |
 
 Convention: one decision per file. If a decision is reversed, mark it **Superseded** and add a new ADR — do not silently edit history.

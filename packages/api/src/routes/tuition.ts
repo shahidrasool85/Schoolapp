@@ -10,6 +10,10 @@ import {
   canManageFinanceSettings,
   canManageInvoices,
   canRecordOffline,
+  loadOrganisationPaymentProviderPublic,
+  setOrganisationStripeEnabled,
+  testOrganisationStripeConnection,
+  upsertOrganisationStripeConfig,
   confirmBillingRun,
   createDiscountRule,
   createFeeSchedule,
@@ -55,6 +59,7 @@ import {
 } from "@schoolapp/core";
 import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
+import { paymentRuntime, publicOriginFromRequest } from "../payments-context";
 import { uuidRouteParam, withSchoolActor } from "../school-context";
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -95,6 +100,83 @@ export function registerTuitionRoutes(app: SchoolappApi) {
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid finance settings");
       return c.json({
         settings: await updateFinanceSettings(client, { organisationId: orgId, actorUserId: userId, patch: parsed.data }),
+      });
+    }),
+  );
+
+  app.get("/finance/payment-provider", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertTuitionRead(actor);
+      return c.json({
+        paymentProvider: await loadOrganisationPaymentProviderPublic(client, orgId, publicOriginFromRequest(c)),
+      });
+    }),
+  );
+
+  app.put("/finance/payment-provider", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageFinanceSettings(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      const parsed = z
+        .object({
+          mode: z.enum(["test", "live"]).optional(),
+          secretKey: z.string().trim().min(10).max(255).optional(),
+          webhookSecret: z.string().trim().min(10).max(255).optional(),
+          enabled: z.boolean().optional(),
+          providerAccountId: z.string().trim().min(1).max(120).nullable().optional(),
+        })
+        .safeParse(await c.req.json());
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid payment provider configuration");
+      return c.json({
+        paymentProvider: await upsertOrganisationStripeConfig(client, {
+          organisationId: orgId,
+          actorUserId: userId,
+          origin: publicOriginFromRequest(c),
+          ...parsed.data,
+        }),
+      });
+    }),
+  );
+
+  app.post("/finance/payment-provider/test", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageFinanceSettings(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      const tested = await testOrganisationStripeConnection(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        runtime: paymentRuntime(c),
+        origin: publicOriginFromRequest(c),
+      });
+      return c.json({
+        result: tested.result,
+        paymentProvider: tested.paymentProvider,
+      });
+    }),
+  );
+
+  app.post("/finance/payment-provider/enable", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageFinanceSettings(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      return c.json({
+        paymentProvider: await setOrganisationStripeEnabled(client, {
+          organisationId: orgId,
+          actorUserId: userId,
+          enabled: true,
+          origin: publicOriginFromRequest(c),
+        }),
+      });
+    }),
+  );
+
+  app.post("/finance/payment-provider/disable", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageFinanceSettings(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      return c.json({
+        paymentProvider: await setOrganisationStripeEnabled(client, {
+          organisationId: orgId,
+          actorUserId: userId,
+          enabled: false,
+          origin: publicOriginFromRequest(c),
+        }),
       });
     }),
   );

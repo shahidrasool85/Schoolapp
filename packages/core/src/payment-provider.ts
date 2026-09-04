@@ -71,6 +71,20 @@ export type PaymentRuntimeConfig = {
   fetchImpl?: typeof fetch;
 };
 
+/**
+ * Platform/runtime defaults. Per-school Stripe secret key and webhook secret
+ * are stored encrypted on school_payment_provider_configs and are never read
+ * from STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET for tenant payments.
+ *
+ * Precedence for checkout/refund:
+ * 1. Organisation Stripe config, if a row exists (fail closed when disabled/incomplete)
+ * 2. Fake provider when PAYMENT_PROVIDER=fake (local/CI default) and no org row
+ * 3. Fail closed — never silently use a platform Stripe account
+ *
+ * STRIPE_API_BASE remains an optional infrastructure default.
+ * STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET are retained only for StripePaymentProvider
+ * unit tests and are ignored for school payment resolution.
+ */
 export function paymentConfigFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): PaymentRuntimeConfig {
@@ -148,13 +162,13 @@ export class FakePaymentProvider implements PaymentProvider {
 export class StripePaymentProvider implements PaymentProvider {
   readonly key = "stripe" as const;
   private readonly secretKey: string;
-  private readonly webhookSecret: string;
+  private readonly webhookSecret: string | null;
   private readonly apiBase: string;
   private readonly fetchImpl: typeof fetch;
 
   constructor(config: PaymentRuntimeConfig) {
-    this.secretKey = config.stripeSecretKey!;
-    this.webhookSecret = config.stripeWebhookSecret!;
+    this.secretKey = config.stripeSecretKey ?? "";
+    this.webhookSecret = config.stripeWebhookSecret;
     this.apiBase = config.stripeApiBase ?? "https://api.stripe.com";
     this.fetchImpl = config.fetchImpl ?? fetch;
   }
@@ -215,6 +229,9 @@ export class StripePaymentProvider implements PaymentProvider {
   }
 
   verifyWebhook(rawBody: string, signature: string | null): ProviderEvent {
+    if (!this.webhookSecret) {
+      throw new AppError(401, "unauthenticated", "Invalid provider signature");
+    }
     const event = verifyStripeSignature(rawBody, signature, this.webhookSecret);
     return mapStripeEvent(event);
   }

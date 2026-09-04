@@ -69,7 +69,7 @@ STRIPE_PUBLISHABLE_KEY=
 STRIPE_API_BASE=https://api.stripe.com
 ```
 
-Do not put a school Stripe key in global env. Per-school credentials and webhook URLs are described in ADR 0033. Success/cancel URLs are derived from the request origin, not from client-supplied tenant hosts. The fake/demo webhook remains `POST /api/v1/webhooks/payments/fake`. Stripe webhooks are `POST /api/v1/webhooks/payments/stripe/{endpointId}`.
+Do not put a school Stripe key in global env. Per-school credentials and webhook URLs are described in ADR 0033. Back up `SCHOOLAPP_SECRETS_ENCRYPTION_KEY` separately from PostgreSQL; a database backup alone cannot restore encrypted school Stripe credentials. Success/cancel URLs are derived from the request origin, not from client-supplied tenant hosts. The fake/demo webhook remains `POST /api/v1/webhooks/payments/fake`. Stripe webhooks are `POST /api/v1/webhooks/payments/stripe/{endpointId}`.
 
 ## Consequences
 

@@ -106,6 +106,7 @@ These are **different** systems.
 
 - Prefer a UK/EU VM region when the operator hosts; this is policy, not a statutory UK-only hosting mandate.
 - Backups encrypted, tested restores, tenant-aware backup access.
+- `SCHOOLAPP_SECRETS_ENCRYPTION_KEY` must be backed up securely and **separately from PostgreSQL**. Never store it in the database or Git. A database restore without the same key cannot decrypt organisation Stripe credentials. After schools have stored payment credentials, keep the same key; changing or losing it makes those blobs unreadable. Key rotation is not implemented. See [ADR 0033](../adr/0033-per-school-stripe.md).
 - Separate production and development data; never use real pupil data in dev.
 - WAF/rate limit at nginx.
 - Object storage: any configured S3-compatible endpoint (managed or self-hosted). MinIO is not required. Filesystem storage is allowed on Plesk only when `OBJECT_STORAGE_FS_ROOT` is an absolute persistent path **outside** the Git `httpdocs` deploy tree (see [storage.md](../storage.md)).

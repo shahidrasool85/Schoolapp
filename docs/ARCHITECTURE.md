@@ -520,7 +520,7 @@ See [ADR 0023](./adr/0023-phase14-activities-consents.md). Calendar list APIs in
 - Transactions: `school_payment_transactions` (provider or offline settlement attempts; immutable history)
 - Sessions / refunds / receipts: `school_payment_sessions`, `school_payment_refunds`, `school_payment_receipts`
 - Webhook processing: `school_payment_provider_events` (organisation + provider + event id unique; replay-safe)
-- Per-school accounts: `school_payment_provider_configs` stores encrypted Stripe credentials, mode, webhook endpoint id, and connection status. Plaintext secrets are never stored.
+- Per-school accounts: `school_payment_provider_configs` stores encrypted Stripe credentials, mode, webhook endpoint id, and connection status. Plaintext secrets are never stored. The master key `SCHOOLAPP_SECRETS_ENCRYPTION_KEY` is backed up separately from PostgreSQL; a database restore without the same key cannot decrypt those credentials (see [ADR 0033](./adr/0033-per-school-stripe.md)).
 
 Money is integer minor units. Consent and payment stay separate. Default activity `charge_policy` is `on_confirmed` (waitlisted pupils are not charged). Provider webhooks are authoritative; the opaque per-school webhook path selects the signing secret, then tenant is resolved from stored session/payment references and must match that config. Local/CI default is `PAYMENT_PROVIDER=fake` when a school has no Stripe row. See [ADR 0024](./adr/0024-phase15-payments.md) and [ADR 0033](./adr/0033-per-school-stripe.md).
 

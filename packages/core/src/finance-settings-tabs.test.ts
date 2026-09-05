@@ -15,7 +15,7 @@ describe("finance settings tabs", () => {
     expect(parseFinanceSettingsTab(undefined)).toBe("general");
     expect(parseFinanceSettingsTab("")).toBe("general");
     expect(parseFinanceSettingsTab("nope")).toBe("general");
-    expect(parseFinanceSettingsTab("ONLINE PAYMENTS")).toBe("online-payments");
+    expect(parseFinanceSettingsTab("ONLINE-PAYMENTS")).toBe("online-payments");
   });
 
   it("deep-links each settings tab", () => {

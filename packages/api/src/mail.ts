@@ -26,6 +26,22 @@ export function mailOf(c: Context<ApiEnv>): MailProvider {
   return wrapMailProvider(inner, async () => undefined);
 }
 
+/** Public form acknowledgements: enqueue only. The existing worker delivers later. */
+export async function enqueueAckMail(c: Context<ApiEnv>, message: MailMessage): Promise<void> {
+  try {
+    const inner = new OutboxMailProvider(async (queued) => {
+      await enqueueTransactionalEmail(c, queued);
+    });
+    await inner.send(message);
+  } catch (error) {
+    if (error instanceof Error && error.message === "mail_password_forbidden") throw error;
+    console.error("mail_enqueue_failed", {
+      purpose: message.purpose,
+      templateKey: message.templateKey,
+    });
+  }
+}
+
 function wrapMailProvider(
   inner: MailProvider,
   afterEnqueue: () => Promise<void>,

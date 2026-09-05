@@ -23,7 +23,7 @@ import {
 } from "@schoolapp/core";
 import type { ApiEnv, SchoolappApi } from "../types";
 import { requestedOrganisationId } from "../auth-middleware";
-import { queueAdmissionsApplicationAck } from "../admissions-mail";
+import { queueAdmissionsFormAck } from "../admissions-mail";
 import {
   readUploadedFile,
   scannerOf,
@@ -286,7 +286,7 @@ export function registerPublicFormRoutes(app: SchoolappApi) {
         const groups = Array.isArray(definition.yearGroups)
           ? (definition.yearGroups as Array<{ id: string; name: string }>)
           : [];
-        await queueAdmissionsApplicationAck(c, {
+        await queueAdmissionsFormAck(c, {
           organisationId: school.organisationId,
           organisationName: school.name,
           result,

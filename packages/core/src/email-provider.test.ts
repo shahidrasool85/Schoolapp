@@ -113,6 +113,7 @@ describe("email provider abstraction", () => {
     expect(mailOutboxCanRetry("queued", "staff_invite")).toBe(true);
     expect(mailOutboxCanRetry("failed", "staff_invite")).toBe(false);
     expect(mailOutboxCanRetry("failed", "password_reset")).toBe(false);
+    expect(mailOutboxCanRetry("failed", "admissions_enquiry_received")).toBe(true);
     expect(mailOutboxCanRetry("failed", "admissions_application_received")).toBe(true);
     expect(mailOutboxCanRetry("cancelled", "admissions_application_received")).toBe(false);
   });

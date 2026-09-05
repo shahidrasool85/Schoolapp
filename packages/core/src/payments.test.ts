@@ -19,6 +19,7 @@ import {
   mapStripeEvent,
   type StripeCheckoutFailureLog,
 } from "./payment-provider.js";
+import { applyVatToEnteredAmount, schoolVatPolicyFromSettings } from "./vat.js";
 
 describe("charge status and activity policy", () => {
   it("derives issued, partial, paid, waived and refunded", () => {
@@ -241,6 +242,57 @@ describe("stripe webhook helper", () => {
     expect(params.get("cancel_url")).toBe(
       "https://kingswood.luvlearn.co.uk/parent/finance/checkout/cancel?invoiceId=inv-ksw-500",
     );
+  });
+
+  it("charges LuvLearn VAT gross outstanding without Stripe Tax or Managed Payments fields", async () => {
+    const vat = applyVatToEnteredAmount(
+      50_000,
+      schoolVatPolicyFromSettings({
+        vatEnabled: true,
+        vatRegistrationNumber: "GB123456789",
+        vatRatePercent: 20,
+        vatPricesInclusive: false,
+      }),
+    );
+    expect(vat).toMatchObject({ netMinor: 50_000, vatMinor: 10_000, grossMinor: 60_000 });
+
+    let posted = "";
+    const provider = new StripePaymentProvider({
+      providerKey: "stripe",
+      fakeWebhookSecret: "unused",
+      stripeSecretKey: "sk_test_placeholder",
+      stripeWebhookSecret: "whsec_test",
+      fetchImpl: (async (_url, init) => {
+        posted = String(init?.body ?? "");
+        return {
+          ok: true,
+          json: async () => ({ id: "cs_vat_600", url: "https://checkout.stripe.com/c/pay/cs_vat_600" }),
+        } as Response;
+      }) as typeof fetch,
+    });
+    await provider.createSession({
+      organisationId: "org-vat",
+      chargeId: "",
+      invoiceId: "inv-vat-600",
+      sessionId: "sess-vat",
+      transactionId: "tx-vat",
+      reference: "VAT-INV-2026-000001",
+      amountMinor: vat.grossMinor,
+      currency: "GBP",
+      title: "Invoice VAT-INV-2026-000001",
+      successUrl: "https://school.test/success",
+      cancelUrl: "https://school.test/cancel",
+    });
+    const params = new URLSearchParams(posted);
+    expect(params.get("line_items[0][price_data][unit_amount]")).toBe("60000");
+    expect(params.get("managed_payments[enabled]")).toBe("false");
+    expect(params.has("payment_method_types[0]")).toBe(false);
+    expect(posted).not.toMatch(/payment_method_types/);
+    expect(params.has("automatic_tax[enabled]")).toBe(false);
+    expect(posted).not.toMatch(/automatic_tax/);
+    expect(params.has("line_items[0][price_data][product_data][tax_code]")).toBe(false);
+    expect(params.has("line_items[0][price_data][tax_behavior]")).toBe(false);
+    expect(posted).not.toMatch(/tax_code|tax_behavior/);
   });
 
   it("logs sanitised Stripe 400 diagnostics without secrets or the raw response body", async () => {

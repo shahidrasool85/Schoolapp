@@ -326,7 +326,7 @@ export class StripePaymentProvider implements PaymentProvider {
     body.set("success_url", input.successUrl);
     body.set("cancel_url", input.cancelUrl);
     body.set("client_reference_id", input.reference);
-    body.set("payment_method_types[0]", "card");
+    // Stripe Managed Payments rejects an explicit payment_method_types list.
     body.set("line_items[0][quantity]", "1");
     body.set("line_items[0][price_data][currency]", input.currency.toLowerCase());
     body.set("line_items[0][price_data][unit_amount]", String(input.amountMinor));

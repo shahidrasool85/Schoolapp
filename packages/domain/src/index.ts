@@ -291,6 +291,16 @@ export {
   type StatusTone,
 } from "./ui.js";
 
+export {
+  DEFAULT_FINANCE_SETTINGS_TAB,
+  FINANCE_SETTINGS_PATH,
+  FINANCE_SETTINGS_TABS,
+  FINANCE_SETTINGS_TAB_ITEMS,
+  financeSettingsTabHref,
+  parseFinanceSettingsTab,
+  type FinanceSettingsTab,
+} from "./finance-settings-tabs.js";
+
 export { captureSubmitTarget, resetFormSafely } from "./forms.js";
 
 export {

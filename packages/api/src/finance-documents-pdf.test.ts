@@ -220,6 +220,7 @@ describe("Finance invoice and receipt PDFs", () => {
       body: JSON.stringify({
         name: "Year 3 tuition",
         academicYearId: year.academicYear.id,
+        yearGroupId: year3.id,
         amountMinor: 200000,
         billingFrequency: "monthly",
         effectiveFrom: "2026-01-01",
@@ -276,6 +277,10 @@ describe("Finance invoice and receipt PDFs", () => {
     expect(text).toContain("11112222");
     expect(text).toContain("bursar@riverside.test");
     expect(text).toContain("Pat Parent");
+    expect(text).not.toContain("Family —");
+    expect(text).toContain("Tuition fees");
+    expect(text).toContain("Tuition fees – Year 3");
+    expect(text).not.toContain("Shahid Rasool tuition");
     expect(text).toContain("14 Oak Road");
     expect(text).toContain("INVOICE");
     expect(text).toContain("£");
@@ -327,6 +332,8 @@ describe("Finance invoice and receipt PDFs", () => {
     expect(receiptText).toContain("Bank transfer");
     expect(receiptText).toContain("Riverside Bank");
     expect(receiptText).toContain(invoice.reference);
+    expect(receiptText).toContain("Pupil: Shahid Rasool");
+    expect(receiptText).not.toContain("Family —");
     expect(receiptText).not.toContain("pi_");
     const cardReceiptText = extractPdfText(
       new Uint8Array(
@@ -354,6 +361,7 @@ describe("Finance invoice and receipt PDFs", () => {
     expect(issued.paymentInstructions).toBe("Quote the invoice number.");
     expect(issued.footer).toBe("Company registered in England.");
     expect(issued.logoObjectId).toBeTruthy();
+    expect(issued.documentTemplate).toMatchObject({ logoMode: "school", showAddress: true, showSchoolName: true });
     const issuedLogoId = String(issued.logoObjectId);
 
     const receiptRow = await pools.owner.query<{ snapshot: Record<string, unknown> }>(
@@ -385,8 +393,10 @@ describe("Finance invoice and receipt PDFs", () => {
         bankAccountName: "New Account",
         bankAccountNumber: "99999999",
         bankSortCode: "00-00-00",
-        paymentInstructions: "New payment instructions",
-        invoiceFooter: "Changed footer",
+          paymentInstructions: "New payment instructions",
+          invoiceFooter: "Changed footer",
+          documentShowAddress: false,
+          documentLogoMode: "none",
       }),
     });
     expect(changedSettings.status).toBe(200);
@@ -432,6 +442,18 @@ describe("Finance invoice and receipt PDFs", () => {
     );
     expect(currentLogo.rows[0]!.logo_object_id).toBeTruthy();
     expect(currentLogo.rows[0]!.logo_object_id).not.toBe(issuedLogoId);
+
+    await pools.owner.query(
+      `update stored_objects set status = 'deleted', deleted_at = now() where id = $1 and organisation_id = $2`,
+      [issuedLogoId, schoolA.orgId],
+    );
+    const deletedLogoPdf = await app.request(`/api/v1/finance/invoices/${invoice.id}/pdf`, { headers: hdrsA });
+    expect(deletedLogoPdf.status).toBe(200);
+    const deletedLogoBytes = Buffer.from(await deletedLogoPdf.arrayBuffer());
+    expect(deletedLogoBytes.toString("latin1")).not.toContain("/Subtype /Image");
+    const deletedLogoText = extractPdfText(new Uint8Array(deletedLogoBytes));
+    expect(deletedLogoText).toContain(schoolA.name);
+    expect(deletedLogoText).not.toContain("Changed School");
 
     const enableVat = await app.request("/api/v1/finance/settings", {
       method: "PATCH",
@@ -491,5 +513,102 @@ describe("Finance invoice and receipt PDFs", () => {
       body: JSON.stringify({ bankName: "Stolen Bank" }),
     });
     expect(teacherPatch.status).toBe(403);
+  });
+
+  it("previews sample documents without consuming numbers and keeps finance logos tenant-scoped", async () => {
+    const id = suffix();
+    const schoolA = await createSchool(pools.owner, `pa-${id}`, "Preview A");
+    const schoolB = await createSchool(pools.owner, `pb-${id}`, "Preview B");
+    const tokenA = await login(app, schoolA.adminEmail, "password-12x");
+    const tokenB = await login(app, schoolB.adminEmail, "password-12x");
+    const hdrsA = headers(tokenA, schoolA.orgId);
+    const hdrsB = headers(tokenB, schoolB.orgId);
+
+    const before = await pools.owner.query<{ invoices: string; receipts: string; seq: string }>(
+      `select
+         (select count(*)::text from school_invoices where organisation_id = $1) as invoices,
+         (select count(*)::text from school_payment_receipts where organisation_id = $1) as receipts,
+         (select coalesce(sum(last_value), 0)::text from school_finance_counters where organisation_id = $1) as seq`,
+      [schoolA.orgId],
+    );
+
+    await app.request("/api/v1/finance/settings", {
+      method: "PATCH",
+      headers: hdrsA,
+      body: JSON.stringify({
+        invoiceFooter: "Preview footer note",
+        documentShowAddress: false,
+        vatEnabled: true,
+        vatRegistrationNumber: "GB123456789",
+        vatRatePercent: 20,
+        vatPricesInclusive: true,
+      }),
+    });
+
+    const preview = await app.request("/api/v1/finance/documents/preview/invoice", { headers: hdrsA });
+    expect(preview.status).toBe(200);
+    const previewText = extractPdfText(new Uint8Array(await preview.arrayBuffer()));
+    expect(previewText).toContain("SAMPLE — preview only");
+    expect(previewText).toContain("Example Pupil");
+    expect(previewText).toContain("Tuition fees – Year 3");
+    expect(previewText).toContain("VAT invoice");
+    expect(previewText).toContain("GB123456789");
+    expect(previewText).toContain("£500.00");
+    expect(previewText).toContain("£100.00");
+    expect(previewText).toContain("£600.00");
+    expect(previewText).not.toContain("Family —");
+
+    const receiptPreview = await app.request("/api/v1/finance/documents/preview/receipt", { headers: hdrsA });
+    expect(receiptPreview.status).toBe(200);
+    const receiptText = extractPdfText(new Uint8Array(await receiptPreview.arrayBuffer()));
+    expect(receiptText).toContain("SAMPLE — preview only");
+    expect(receiptText).toContain("Pupil: Example Pupil");
+
+    const after = await pools.owner.query<{ invoices: string; receipts: string; seq: string }>(
+      `select
+         (select count(*)::text from school_invoices where organisation_id = $1) as invoices,
+         (select count(*)::text from school_payment_receipts where organisation_id = $1) as receipts,
+         (select coalesce(sum(last_value), 0)::text from school_finance_counters where organisation_id = $1) as seq`,
+      [schoolA.orgId],
+    );
+    expect(after.rows[0]!.invoices).toBe(before.rows[0]!.invoices);
+    expect(after.rows[0]!.receipts).toBe(before.rows[0]!.receipts);
+    expect(after.rows[0]!.seq).toBe(before.rows[0]!.seq);
+
+    const logo = await app.request("/api/v1/finance/settings/logo", {
+      method: "POST",
+      headers: headers(tokenA, schoolA.orgId, false),
+      body: imageForm(solidPng(64, 48, [20, 80, 160])),
+    });
+    expect(logo.status).toBe(201);
+    const uploaded = await json<{ objectId: string }>(logo);
+    expect(uploaded.objectId).toBeTruthy();
+    const stolen = await app.request("/api/v1/finance/settings/logo", { headers: hdrsB });
+    expect(stolen.status).toBe(404);
+    await pools.owner.query(
+      `update school_finance_settings
+          set finance_logo_object_id = $1, document_logo_mode = 'finance'
+        where organisation_id = $2`,
+      [uploaded.objectId, schoolB.orgId],
+    );
+    expect((await app.request("/api/v1/finance/settings/logo", { headers: hdrsB })).status).toBe(404);
+    const previewB = await app.request("/api/v1/finance/documents/preview/invoice", { headers: hdrsB });
+    expect(previewB.status).toBe(200);
+    expect(Buffer.from(await previewB.arrayBuffer()).toString("latin1")).not.toContain("/Subtype /Image");
+    const teacherId = await insertUser(pools.owner, {
+      email: `teacher-${id}@example.com`,
+      password: "password-12x",
+      fullName: "Teacher",
+      kind: "staff",
+    });
+    await addMembership(pools.owner, schoolA.orgId, teacherId, "school.teacher");
+    const teacherToken = await login(app, `teacher-${id}@example.com`, "password-12x");
+    expect(
+      (
+        await app.request("/api/v1/finance/documents/preview/invoice", {
+          headers: headers(teacherToken, schoolA.orgId),
+        })
+      ).status,
+    ).toBe(403);
   });
 });

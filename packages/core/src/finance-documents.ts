@@ -2,6 +2,13 @@ import { formatUkNumericDate } from "@schoolapp/domain";
 import { formatVatRateLabel } from "./vat.js";
 import { formatMoney } from "./money.js";
 import {
+  DEFAULT_FINANCE_DOCUMENT_TEMPLATE,
+  financePayerDisplayName,
+  freezeDocumentTemplate,
+  presentTuitionLineDescription,
+  type FinanceDocumentTemplate,
+} from "./finance-document-template.js";
+import {
   DEFAULT_FINANCE_ACCENT,
   PDF_MARGIN_BOTTOM,
   PDF_MARGIN_LEFT,
@@ -30,6 +37,7 @@ export type FinanceObjectStore = {
 export type FinanceDocumentLine = {
   description: string;
   pupilName?: string | null;
+  classOrYear?: string | null;
   amountMinor: number;
   date?: string | null;
   activity?: string | null;
@@ -65,6 +73,8 @@ export type FinanceSchoolBranding = {
   bankSortCode?: string | null;
   paymentInstructions?: string | null;
   logoObjectId?: string | null;
+  documentTemplate?: FinanceDocumentTemplate | null;
+  samplePreview?: boolean;
 };
 
 export type FinanceInvoiceDocument = FinanceSchoolBranding & {
@@ -260,12 +270,17 @@ function addressLines(doc: FinanceSchoolBranding & { billToAddressLines?: string
   return [];
 }
 
+function documentTemplateOf(doc: FinanceSchoolBranding): FinanceDocumentTemplate {
+  return doc.documentTemplate ?? DEFAULT_FINANCE_DOCUMENT_TEMPLATE;
+}
+
 function schoolContactLines(doc: FinanceSchoolBranding): string[] {
+  const template = documentTemplateOf(doc);
   const lines: string[] = [];
-  if (nonEmpty(doc.schoolPhone)) lines.push(doc.schoolPhone!);
-  if (nonEmpty(doc.schoolEmail)) lines.push(doc.schoolEmail!);
-  if (nonEmpty(doc.schoolWebsite)) lines.push(doc.schoolWebsite!);
-  if (!lines.length && nonEmpty(doc.schoolContact)) {
+  if (template.showPhone && nonEmpty(doc.schoolPhone)) lines.push(doc.schoolPhone!);
+  if (template.showEmail && nonEmpty(doc.schoolEmail)) lines.push(doc.schoolEmail!);
+  if (template.showWebsite && nonEmpty(doc.schoolWebsite)) lines.push(doc.schoolWebsite!);
+  if (!lines.length && template.showPhone && template.showEmail && nonEmpty(doc.schoolContact)) {
     return doc.schoolContact!.split("·").map((part) => part.trim()).filter(Boolean);
   }
   return lines;
@@ -336,10 +351,18 @@ function invoiceColumns(doc: FinanceInvoiceDocument): TableColumn[] {
   return cols;
 }
 
-function lineDescription(line: FinanceDocumentLine): string {
+function lineDescription(line: FinanceDocumentLine, doc?: FinanceInvoiceDocument): string {
+  const presented = presentTuitionLineDescription({
+    kind: line.kind,
+    description: line.description,
+    pupilName: line.pupilName,
+    pupilNames: doc?.pupilNames,
+    classOrYear: line.classOrYear ?? doc?.classOrYear,
+  });
+  if ((line.kind ?? "").toLowerCase() === "tuition" && presented !== line.description) return presented;
   const pupil = nonEmpty(line.pupilName);
-  if (pupil && !line.description.includes(pupil)) return `${line.description} (${pupil})`;
-  return line.description;
+  if (pupil && !presented.includes(pupil)) return `${presented} (${pupil})`;
+  return presented;
 }
 
 function lineActivity(line: FinanceDocumentLine): string {
@@ -404,47 +427,75 @@ class DocumentPainter {
 
   drawSchoolHeader(title: string, compact: boolean): void {
     const startY = PDF_PAGE_HEIGHT - PDF_MARGIN_TOP;
+    const template = documentTemplateOf(this.doc);
+    const logoBoxW = compact ? 110 : 168;
+    const logoBoxH = compact ? 48 : 72;
     let logoHeight = 0;
+    let textX = PDF_MARGIN_LEFT;
+    let textWidthMax = CONTENT_WIDTH;
     if (this.logo) {
-      const maxH = compact ? 40 : 64;
-      const maxW = compact ? 96 : 140;
-      const fitted = fittedImageSize(this.logo, maxW, maxH);
+      const fitted = fittedImageSize(this.logo, logoBoxW, logoBoxH);
       logoHeight = fitted.height;
-      this.pdf.drawImage(
-        this.logo,
-        PDF_PAGE_WIDTH - PDF_MARGIN_RIGHT - fitted.width,
-        startY - fitted.height,
-        fitted.width,
-        fitted.height,
-      );
+      this.pdf.drawImage(this.logo, PDF_MARGIN_LEFT, startY - fitted.height, fitted.width, fitted.height);
+      textX = PDF_MARGIN_LEFT + logoBoxW + 12;
+      textWidthMax = CONTENT_WIDTH - logoBoxW - 12;
     }
-    const textWidthMax = CONTENT_WIDTH - (this.logo ? 148 : 0);
     this.y = startY;
-    this.wrapped(this.doc.schoolName, { size: compact ? 11 : 13, font: "bold", color: INK, width: textWidthMax });
+    if (template.showSchoolName) {
+      this.wrapped(this.doc.schoolName, {
+        size: compact ? 11 : 13,
+        font: "bold",
+        color: INK,
+        width: textWidthMax,
+        x: textX,
+      });
+    }
     if (!compact) {
       this.gap(2);
-      for (const line of addressLines(this.doc, "school")) {
-        this.wrapped(line, { size: 9, color: MUTED, width: textWidthMax });
+      if (
+        template.showLegalName &&
+        nonEmpty(this.doc.schoolLegalName) &&
+        this.doc.schoolLegalName !== this.doc.schoolName
+      ) {
+        this.wrapped(this.doc.schoolLegalName!, { size: 9, color: MUTED, width: textWidthMax, x: textX });
+      }
+      if (template.showAddress) {
+        for (const line of addressLines(this.doc, "school")) {
+          this.wrapped(line, { size: 9, color: MUTED, width: textWidthMax, x: textX });
+        }
       }
       for (const line of schoolContactLines(this.doc)) {
-        this.textLine(line, { size: 9, color: MUTED });
+        this.textLine(line, { size: 9, color: MUTED, x: textX });
       }
     }
     const headerBottom = Math.min(this.y, startY - logoHeight - 4);
     this.y = headerBottom - 10;
     this.pdf.line(PDF_MARGIN_LEFT, this.y + 6, PDF_PAGE_WIDTH - PDF_MARGIN_RIGHT, this.y + 6, this.accent, compact ? 1 : 1.6);
     this.textLine(title, { size: compact ? 13 : 18, font: "bold", color: this.accent });
+    if (this.doc.samplePreview) {
+      this.textLine("SAMPLE — preview only", { size: 8, font: "bold", color: MUTED });
+    }
     this.gap(compact ? 6 : 12);
   }
 
   drawFooter(pageIndex: number, pageCount: number): void {
+    const template = documentTemplateOf(this.doc);
     const legal = nonEmpty(this.doc.schoolLegalName) ?? this.doc.schoolName;
     const bank = bankFooterLines(this.doc);
+    const contact = schoolContactLines(this.doc).join(" · ");
     const y = 28;
     this.pdf.line(PDF_MARGIN_LEFT, 46, PDF_PAGE_WIDTH - PDF_MARGIN_RIGHT, 46, RULE, 0.5);
-    this.pdf.text({ text: legal, x: PDF_MARGIN_LEFT, y, size: 8, color: MUTED });
+    if (template.footerShowLegal) {
+      this.pdf.text({ text: legal, x: PDF_MARGIN_LEFT, y, size: 8, color: MUTED });
+    } else if (template.footerShowContact && contact) {
+      this.pdf.text({ text: contact, x: PDF_MARGIN_LEFT, y, size: 8, color: MUTED });
+    }
+    if (template.footerShowLegal && template.footerShowContact && contact) {
+      this.pdf.text({ text: contact, x: PDF_MARGIN_LEFT, y: y - 11, size: 8, color: MUTED });
+    }
     if (showBankDetails(this.doc) && bank.length) {
-      this.pdf.text({ text: bank.join("   "), x: PDF_MARGIN_LEFT, y: y - 11, size: 8, color: MUTED });
+      const bankY = template.footerShowLegal && template.footerShowContact && contact ? y - 22 : y - 11;
+      this.pdf.text({ text: bank.join("   "), x: PDF_MARGIN_LEFT, y: bankY, size: 8, color: MUTED });
     }
     const pageLabel = `Page ${pageIndex + 1} of ${pageCount}`;
     this.pdf.text({
@@ -566,7 +617,7 @@ function renderInvoice(doc: FinanceInvoiceDocument): Uint8Array {
   painter.onNewPage = () => drawHeader(true);
   drawHeader(false);
 
-  const billName = nonEmpty(doc.billToName) ?? doc.familyName;
+  const billName = financePayerDisplayName(doc);
   const leftX = PDF_MARGIN_LEFT;
   const rightX = PDF_MARGIN_LEFT + CONTENT_WIDTH / 2 + 12;
   const blockTop = painter.y;
@@ -592,7 +643,7 @@ function renderInvoice(doc: FinanceInvoiceDocument): Uint8Array {
     ["TERMS", nonEmpty(doc.terms) ?? ""],
     ["DUE DATE", displayDate(doc.dueDate)],
   ];
-  if (doc.vatInvoice && nonEmpty(doc.vatRegistrationNumber)) {
+  if (doc.vatInvoice && documentTemplateOf(doc).showVatNumber && nonEmpty(doc.vatRegistrationNumber)) {
     metaRows.push(["VAT NUMBER", doc.vatRegistrationNumber!]);
   }
   const metaEnd = painter.drawKv(metaRows, rightX, blockTop);
@@ -626,9 +677,10 @@ function renderInvoice(doc: FinanceInvoiceDocument): Uint8Array {
     drawInvoiceRow(painter, columns, {
       date: displayDate(line.date ?? doc.invoiceDate),
       activity: lineActivity(line),
-      description: doc.vatInvoice && lineActivity(line)
-        ? `${lineActivity(line)} — ${lineDescription(line)}`
-        : lineDescription(line),
+      description:
+        doc.vatInvoice && lineActivity(line) && (line.kind ?? "").toLowerCase() !== "tuition"
+          ? `${lineActivity(line)} — ${lineDescription(line, doc)}`
+          : lineDescription(line, doc),
       qty: showQty && line.quantity != null ? String(line.quantity) : "",
       rate: showQty && line.rateMinor != null ? money(line.rateMinor, doc.currency, false) : "",
       amount: money(line.amountMinor, doc.currency, false),
@@ -703,7 +755,7 @@ function renderReceipt(doc: FinanceReceiptDocument): Uint8Array {
   painter.onNewPage = () => painter.drawSchoolHeader("RECEIPT", true);
   painter.drawSchoolHeader("RECEIPT", false);
 
-  const billName = nonEmpty(doc.billToName) ?? doc.familyName;
+  const billName = financePayerDisplayName(doc);
   const blockTop = painter.y;
   const leftWidth = CONTENT_WIDTH / 2 - 16;
   painter.pdf.text({ text: "RECEIVED FROM", x: PDF_MARGIN_LEFT, y: blockTop - 9, size: 8, font: "bold", color: MUTED });
@@ -732,6 +784,11 @@ function renderReceipt(doc: FinanceReceiptDocument): Uint8Array {
     blockTop,
   );
   painter.y = Math.min(leftY, metaEnd) - 12;
+  if (doc.pupilNames.length === 1) {
+    painter.textLine(`Pupil: ${doc.pupilNames[0]}`, { size: 8, color: MUTED });
+  } else if (doc.pupilNames.length > 1) {
+    painter.wrapped(`Pupils: ${doc.pupilNames.join(", ")}`, { size: 8, color: MUTED });
+  }
 
   const columns: TableColumn[] = [
     { key: "n", title: "", width: 24, align: "left" },
@@ -929,5 +986,8 @@ export function applyFrozenSchoolBranding<T extends FinanceSchoolBranding>(
     bankSortCode: pick("bankSortCode"),
     paymentInstructions: pick("paymentInstructions"),
     logoObjectId: pick("logoObjectId"),
+    documentTemplate: snapshotHas(raw, "documentTemplate")
+      ? freezeDocumentTemplate(raw)
+      : DEFAULT_FINANCE_DOCUMENT_TEMPLATE,
   };
 }

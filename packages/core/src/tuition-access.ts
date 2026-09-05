@@ -8,6 +8,7 @@ import {
   feeScheduleInstalmentPlan,
   overlappingActiveFeeScheduleMessage,
   statementPeriodRange,
+  formatUkNumericDateRange,
   type Actor,
   type SchoolBillingFrequency,
   type SchoolDiscountStackingMode,
@@ -30,13 +31,31 @@ import {
 import { enqueueOutboxMail } from "./finance-mail-queue.js";
 import {
   financePdfFilename,
+  isSensitiveProviderReference,
   renderFinancePdf,
+  snapshotWithoutLogo,
+  applyFrozenSchoolBranding,
   zipStoreFiles,
   type FinanceInvoiceDocument,
+  type FinanceObjectStore,
   type FinanceReceiptDocument,
   type FinanceStatementDocument,
 } from "./finance-documents.js";
-import { formatMoney, redactProviderReference } from "./money.js";
+import {
+  applyVatToEnteredAmount,
+  freezeIssuedVat,
+  issuedVatSnapshot,
+  parseVatLineTreatment,
+  schoolVatPolicyFromSettings,
+  sumVatSplits,
+  validateSchoolVatPolicy,
+  vatRateBpsToPercent,
+  vatRatePercentToBps,
+  type SchoolVatPolicy,
+  type VatLineTreatment,
+} from "./vat.js";
+import { resolveFinanceAccent, type FinancePdfLogo } from "./finance-pdf.js";
+import { redactProviderReference } from "./money.js";
 import {
   applyDiscounts,
   applyMidPeriodPolicy,
@@ -127,6 +146,16 @@ export type FinanceSettings = {
   monthlyInstalmentCount: number;
   receiptPrefix: string;
   studentsCanViewFinance: boolean;
+  financeEmail: string | null;
+  bankName: string | null;
+  bankAccountName: string | null;
+  bankAccountNumber: string | null;
+  bankSortCode: string | null;
+  vatEnabled: boolean;
+  vatRegistrationNumber: string | null;
+  vatRateBps: number;
+  vatRatePercent: number;
+  vatPricesInclusive: boolean;
 };
 
 function mapSettings(row: Record<string, unknown>): FinanceSettings {
@@ -150,6 +179,16 @@ function mapSettings(row: Record<string, unknown>): FinanceSettings {
     monthlyInstalmentCount: Number(row.monthly_instalment_count),
     receiptPrefix: String(row.receipt_prefix ?? "RCT"),
     studentsCanViewFinance: Boolean(row.students_can_view_finance),
+    financeEmail: row.finance_email ? String(row.finance_email) : null,
+    bankName: row.bank_name ? String(row.bank_name) : null,
+    bankAccountName: row.bank_account_name ? String(row.bank_account_name) : null,
+    bankAccountNumber: row.bank_account_number ? String(row.bank_account_number) : null,
+    bankSortCode: row.bank_sort_code ? String(row.bank_sort_code) : null,
+    vatEnabled: Boolean(row.vat_enabled),
+    vatRegistrationNumber: row.vat_registration_number ? String(row.vat_registration_number) : null,
+    vatRateBps: Number(row.vat_rate_bps ?? 0),
+    vatRatePercent: Number(row.vat_rate_bps ?? 0) / 100,
+    vatPricesInclusive: row.vat_prices_inclusive !== false,
   };
 }
 
@@ -186,6 +225,16 @@ export async function updateFinanceSettings(
       monthlyInstalmentCount: number;
       receiptPrefix: string;
       studentsCanViewFinance: boolean;
+      financeEmail: string | null;
+      bankName: string | null;
+      bankAccountName: string | null;
+      bankAccountNumber: string | null;
+      bankSortCode: string | null;
+      vatEnabled: boolean;
+      vatRegistrationNumber: string | null;
+      vatRateBps: number | null;
+      vatRatePercent: number | null;
+      vatPricesInclusive: boolean;
     }>;
   },
 ): Promise<FinanceSettings> {
@@ -212,9 +261,58 @@ export async function updateFinanceSettings(
         monthlyInstalmentCount: input.patch.monthlyInstalmentCount,
         receiptPrefix: input.patch.receiptPrefix,
         studentsCanViewFinance: input.patch.studentsCanViewFinance,
+        financeEmail: input.patch.financeEmail,
+        bankName: input.patch.bankName,
+        bankAccountName: input.patch.bankAccountName,
+        bankAccountNumber: input.patch.bankAccountNumber,
+        bankSortCode: input.patch.bankSortCode,
+        vatEnabled: input.patch.vatEnabled,
+        vatRegistrationNumber: input.patch.vatRegistrationNumber,
+        vatRateBps: input.patch.vatRateBps,
+        vatPricesInclusive: input.patch.vatPricesInclusive,
       }).filter(([, value]) => value !== undefined),
     ),
   } as FinanceSettings;
+  next.financeEmail = next.financeEmail?.trim() ? next.financeEmail.trim() : null;
+  next.bankName = next.bankName?.trim() ? next.bankName.trim() : null;
+  next.bankAccountName = next.bankAccountName?.trim() ? next.bankAccountName.trim() : null;
+  next.bankAccountNumber = next.bankAccountNumber?.trim() ? next.bankAccountNumber.trim() : null;
+  next.bankSortCode = next.bankSortCode?.trim() ? next.bankSortCode.trim() : null;
+  next.vatEnabled = Boolean(next.vatEnabled);
+  next.vatPricesInclusive = next.vatPricesInclusive !== false;
+  if (input.patch.vatRatePercent != null && input.patch.vatRateBps == null) {
+    try {
+      next.vatRateBps = vatRatePercentToBps(input.patch.vatRatePercent);
+    } catch {
+      throw new AppError(400, "validation_failed", "VAT rate must be between 0 and 100");
+    }
+  }
+  next.vatRateBps = Number.isInteger(next.vatRateBps) ? next.vatRateBps : 0;
+  next.vatRegistrationNumber = next.vatRegistrationNumber?.trim() ? next.vatRegistrationNumber.trim() : null;
+  try {
+    const vatPolicy = schoolVatPolicyFromSettings({
+      vatEnabled: next.vatEnabled,
+      vatRegistrationNumber: next.vatRegistrationNumber,
+      vatRateBps: next.vatRateBps,
+      vatPricesInclusive: next.vatPricesInclusive,
+    });
+    if (next.vatEnabled) validateSchoolVatPolicy(vatPolicy);
+    next.vatRegistrationNumber = vatPolicy.registrationNumber;
+    next.vatRateBps = vatPolicy.rateBps;
+    next.vatRatePercent = vatRateBpsToPercent(vatPolicy.rateBps);
+    next.vatPricesInclusive = vatPolicy.pricesInclusive;
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "";
+    if (code === "vat_registration_required") {
+      throw new AppError(400, "validation_failed", "Enter a VAT registration number to issue VAT invoices");
+    }
+    if (code === "invalid_vat_rate" || code === "invalid_vat_registration") {
+      throw new AppError(400, "validation_failed", "Check the VAT rate and registration number");
+    }
+    throw error;
+  }
+  if (next.paymentInstructions != null) next.paymentInstructions = next.paymentInstructions.trim() || null;
+  if (next.invoiceFooter != null) next.invoiceFooter = next.invoiceFooter.trim() || null;
   if (!isSchoolBillingFrequency(next.defaultBillingFrequency)) {
     throw new AppError(400, "validation_failed", "Invalid billing frequency");
   }
@@ -247,6 +345,15 @@ export async function updateFinanceSettings(
             monthly_instalment_count = $17,
             receipt_prefix = $19,
             students_can_view_finance = $20,
+            finance_email = $21,
+            bank_name = $22,
+            bank_account_name = $23,
+            bank_account_number = $24,
+            bank_sort_code = $25,
+            vat_enabled = $26,
+            vat_registration_number = $27,
+            vat_rate_bps = $28,
+            vat_prices_inclusive = $29,
             updated_by = $18
       where organisation_id = $1`,
     [
@@ -270,6 +377,15 @@ export async function updateFinanceSettings(
       input.actorUserId,
       next.receiptPrefix,
       next.studentsCanViewFinance,
+      next.financeEmail,
+      next.bankName,
+      next.bankAccountName,
+      next.bankAccountNumber,
+      next.bankSortCode,
+      next.vatEnabled,
+      next.vatRegistrationNumber,
+      next.vatRateBps,
+      next.vatPricesInclusive,
     ],
   );
   await writeAudit(client, {
@@ -1629,6 +1745,19 @@ function quoteScheduleFields(
   };
 }
 
+function vatForQuotedTuition(
+  standardAmountMinor: number,
+  discounts: AppliedDiscount[],
+  policy: SchoolVatPolicy,
+  treatment: VatLineTreatment,
+) {
+  const fee = applyVatToEnteredAmount(standardAmountMinor, policy, treatment);
+  const discountSplits = discounts.map((discount) =>
+    applyVatToEnteredAmount(-discount.calculatedMinor, policy, treatment),
+  );
+  return { fee, discounts: discountSplits, totals: sumVatSplits([fee, ...discountSplits]) };
+}
+
 function resolveQuoteInstalmentNumber(
   schedule: Record<string, unknown>,
   input: { frequency: SchoolBillingFrequency; periodStart: string; instalmentNumber?: number | null },
@@ -1812,6 +1941,7 @@ export async function quotePupilTuition(
           chargeableDays: join.chargeableDays,
           periodDays: join.periodDays,
           familyStudentIds: family.map((member) => member.studentProfileId),
+          vatTreatment: parseVatLineTreatment(schedule.vat_treatment),
         },
       }),
     });
@@ -1871,9 +2001,16 @@ export async function previewBillingRun(
   const runId = existing.rows[0] ? String(existing.rows[0].id) : null;
   const reference =
     existing.rows[0]?.reference ?? (await nextFinanceReference(client, input.organisationId, "billing_run"));
+  const vatPolicy = schoolVatPolicyFromSettings(settings);
   const totals = quotes.reduce(
     (acc, quote) => {
-      acc.expected += quote.netAmountMinor;
+      const treatment = parseVatLineTreatment(quote.calculation.vatTreatment);
+      acc.expected += vatForQuotedTuition(
+        quote.standardAmountMinor,
+        quote.appliedDiscounts,
+        vatPolicy,
+        treatment,
+      ).totals.grossMinor;
       if (quote.warning) acc.warnings += 1;
       if (quote.error) acc.errors += 1;
       return acc;
@@ -2022,6 +2159,18 @@ export async function confirmBillingRun(
     );
   }
   const settings = await loadFinanceSettings(client, input.organisationId);
+  const vatPolicy = schoolVatPolicyFromSettings(settings);
+  if (vatPolicy.enabled) {
+    try {
+      validateSchoolVatPolicy(vatPolicy);
+    } catch {
+      throw new AppError(
+        400,
+        "validation_failed",
+        "VAT is enabled but the registration number is missing. Update Finance Settings before issuing invoices.",
+      );
+    }
+  }
   const items = await client.query(
     `select * from school_billing_run_items where billing_run_id = $1 and organisation_id = $2`,
     [input.billingRunId, input.organisationId],
@@ -2076,7 +2225,16 @@ export async function confirmBillingRun(
         settings.currency,
         settings.paymentInstructions,
         settings.invoiceFooter,
-        JSON.stringify({ stackingMode: settings.discountStackingMode, siblingOrderMode: settings.siblingOrderMode }),
+        JSON.stringify({
+          stackingMode: settings.discountStackingMode,
+          siblingOrderMode: settings.siblingOrderMode,
+          vat: {
+            enabled: vatPolicy.enabled,
+            registrationNumber: vatPolicy.registrationNumber,
+            rateBps: vatPolicy.enabled ? vatPolicy.rateBps : null,
+            pricesInclusive: vatPolicy.enabled ? vatPolicy.pricesInclusive : null,
+          },
+        }),
         input.actorUserId,
       ],
     );
@@ -2084,13 +2242,18 @@ export async function confirmBillingRun(
     let sort = 0;
     let subtotal = 0;
     let discounts = 0;
+    const vatSplits: Array<{ netMinor: number; vatMinor: number; grossMinor: number }> = [];
     for (const item of group) {
       const calc = (item.calculation ?? {}) as Record<string, unknown>;
+      const tuitionEntered = Number(item.standard_amount_minor);
+      const vatTreatment = parseVatLineTreatment(calc.vatTreatment);
+      const tuitionVat = applyVatToEnteredAmount(tuitionEntered, vatPolicy, vatTreatment);
       await client.query(
         `insert into school_invoice_lines (
            organisation_id, invoice_id, sort_order, kind, student_profile_id, fee_schedule_id,
-           description, quantity, unit_amount_minor, amount_minor, calculation_snapshot
-         ) values ($1,$2,$3,'tuition',$4,$5,$6,1,$7,$7,$8::jsonb)`,
+           description, quantity, unit_amount_minor, amount_minor, calculation_snapshot,
+           vat_treatment, vat_rate_bps, vat_net_minor, vat_amount_minor, vat_gross_minor
+         ) values ($1,$2,$3,'tuition',$4,$5,$6,1,$7,$7,$8::jsonb,$9,$10,$11,$12,$13)`,
         [
           input.organisationId,
           invoiceId,
@@ -2098,19 +2261,28 @@ export async function confirmBillingRun(
           item.student_profile_id,
           item.fee_schedule_id,
           `${String(calc.legalName ?? "Pupil")} tuition`,
-          Number(item.standard_amount_minor),
-          JSON.stringify(calc),
+          tuitionEntered,
+          JSON.stringify({ ...calc, vat: tuitionVat }),
+          tuitionVat.treatment,
+          tuitionVat.mode ? tuitionVat.rateBps : null,
+          tuitionVat.netMinor,
+          tuitionVat.vatMinor,
+          tuitionVat.grossMinor,
         ],
       );
-      subtotal += Number(item.standard_amount_minor);
+      vatSplits.push(tuitionVat);
+      subtotal += tuitionEntered;
       sort += 1;
       const applied = Array.isArray(calc.applied) ? (calc.applied as AppliedDiscount[]) : [];
       for (const discount of applied) {
+        const discountEntered = -discount.calculatedMinor;
+        const discountVat = applyVatToEnteredAmount(discountEntered, vatPolicy, vatTreatment);
         await client.query(
           `insert into school_invoice_lines (
              organisation_id, invoice_id, sort_order, kind, student_profile_id, discount_rule_id,
-             concession_id, description, quantity, unit_amount_minor, amount_minor, calculation_snapshot
-           ) values ($1,$2,$3,'discount',$4,$5,$6,$7,1,$8,$9,$10::jsonb)`,
+             concession_id, description, quantity, unit_amount_minor, amount_minor, calculation_snapshot,
+             vat_treatment, vat_rate_bps, vat_net_minor, vat_amount_minor, vat_gross_minor
+           ) values ($1,$2,$3,'discount',$4,$5,$6,$7,1,$8,$9,$10::jsonb,$11,$12,$13,$14,$15)`,
           [
             input.organisationId,
             invoiceId,
@@ -2120,10 +2292,16 @@ export async function confirmBillingRun(
             discount.concessionId,
             discount.name,
             discount.calculatedMinor,
-            -discount.calculatedMinor,
-            JSON.stringify(discount),
+            discountEntered,
+            JSON.stringify({ ...discount, vat: discountVat }),
+            discountVat.treatment,
+            discountVat.mode ? discountVat.rateBps : null,
+            discountVat.netMinor,
+            discountVat.vatMinor,
+            discountVat.grossMinor,
           ],
         );
+        vatSplits.push(discountVat);
         discounts += discount.calculatedMinor;
         sort += 1;
       }
@@ -2132,7 +2310,9 @@ export async function confirmBillingRun(
         [item.id, input.organisationId, invoiceId],
       );
     }
-    const total = subtotal - discounts;
+    const vatTotals = sumVatSplits(vatSplits);
+    const vatIssued = issuedVatSnapshot(vatPolicy, vatTotals);
+    const total = vatIssued.grossMinor;
     const status = deriveInvoiceStatus({
       current: "issued",
       totalMinor: total,
@@ -2149,9 +2329,29 @@ export async function confirmBillingRun(
               outstanding_minor = $5,
               status = $7,
               issued_by = $6,
-              issued_at = now()
+              issued_at = now(),
+              vat_enabled = $8,
+              vat_registration_number = $9,
+              vat_rate_bps = $10,
+              vat_prices_inclusive = $11,
+              vat_net_minor = $12,
+              vat_amount_minor = $13
         where id = $1 and organisation_id = $2`,
-      [invoiceId, input.organisationId, subtotal, discounts, total, input.actorUserId, status],
+      [
+        invoiceId,
+        input.organisationId,
+        subtotal,
+        discounts,
+        total,
+        input.actorUserId,
+        status,
+        vatIssued.enabled,
+        vatIssued.registrationNumber,
+        vatIssued.rateBps,
+        vatIssued.pricesInclusive,
+        vatIssued.netMinor,
+        vatIssued.vatMinor,
+      ],
     );
     await writeAudit(client, {
       organisationId: input.organisationId,
@@ -2491,6 +2691,12 @@ function mapInvoice(row: Record<string, unknown>) {
     totalMinor: Number(row.total_minor),
     paidMinor: Number(row.paid_minor),
     outstandingMinor: Number(row.outstanding_minor),
+    vatEnabled: Boolean(row.vat_enabled),
+    vatRegistrationNumber: row.vat_registration_number ? String(row.vat_registration_number) : null,
+    vatRateBps: row.vat_rate_bps == null ? null : Number(row.vat_rate_bps),
+    vatPricesInclusive: row.vat_prices_inclusive == null ? null : Boolean(row.vat_prices_inclusive),
+    vatNetMinor: Number(row.vat_net_minor ?? 0),
+    vatAmountMinor: Number(row.vat_amount_minor ?? 0),
     paymentInstructions: row.payment_instructions_snapshot ?? null,
     invoiceFooter: row.invoice_footer_snapshot ?? null,
     deliveryState: row.delivery_state,
@@ -2613,6 +2819,11 @@ export async function loadInvoice(client: Client, organisationId: string, invoic
       quantity: Number(line.quantity),
       unitAmountMinor: Number(line.unit_amount_minor),
       amountMinor: Number(line.amount_minor),
+      vatTreatment: line.vat_treatment ?? "none",
+      vatRateBps: line.vat_rate_bps == null ? null : Number(line.vat_rate_bps),
+      vatNetMinor: Number(line.vat_net_minor ?? 0),
+      vatAmountMinor: Number(line.vat_amount_minor ?? 0),
+      vatGrossMinor: Number(line.vat_gross_minor ?? line.amount_minor ?? 0),
       calculation: line.calculation_snapshot,
     })),
     payments: payments.rows.map(mapInvoicePayment),
@@ -3434,32 +3645,124 @@ export async function applyOptionalPupilImportFinance(
   });
 }
 
-async function loadSchoolFinanceProfile(client: Client, organisationId: string) {
+type SchoolFinanceProfile = {
+  schoolName: string;
+  schoolLegalName: string | null;
+  schoolAddress: string | null;
+  schoolAddressLines: string[];
+  schoolPhone: string | null;
+  schoolEmail: string | null;
+  schoolWebsite: string | null;
+  schoolContact: string | null;
+  accentColor: string;
+  bankName: string | null;
+  bankAccountName: string | null;
+  bankAccountNumber: string | null;
+  bankSortCode: string | null;
+  paymentInstructions: string | null;
+  paymentDueDays: number;
+  logoObjectId: string | null;
+};
+
+function compactLines(values: Array<string | null | undefined>): string[] {
+  return values.map((value) => value?.trim() ?? "").filter(Boolean);
+}
+
+async function loadSchoolFinanceProfile(client: Client, organisationId: string): Promise<SchoolFinanceProfile> {
+  const settings = await loadFinanceSettings(client, organisationId);
   const row = await client.query<{
     name: string;
+    legal_name: string | null;
     address_line_1: string | null;
     address_line_2: string | null;
     city: string | null;
     postcode: string | null;
     contact_email: string | null;
     contact_telephone: string | null;
+    website: string | null;
+    primary_colour: string | null;
+    accent_colour: string | null;
+    logo_object_id: string | null;
   }>(
-    `select o.name, s.address_line_1, s.address_line_2, s.city, s.postcode, s.contact_email, s.contact_telephone
+    `select o.name, o.legal_name, s.address_line_1, s.address_line_2, s.city, s.postcode,
+            s.contact_email, s.contact_telephone, s.website, s.primary_colour, s.accent_colour,
+            s.logo_object_id
        from organisations o
        left join organisation_settings s on s.organisation_id = o.id
       where o.id = $1`,
     [organisationId],
   );
   const school = row.rows[0];
-  const address = [school?.address_line_1, school?.address_line_2, school?.city, school?.postcode]
-    .filter(Boolean)
-    .join(", ");
-  const contact = [school?.contact_telephone, school?.contact_email].filter(Boolean).join(" · ");
+  const addressLines = compactLines([school?.address_line_1, school?.address_line_2, school?.city, school?.postcode]);
+  const email = settings.financeEmail || school?.contact_email || null;
+  const contact = compactLines([school?.contact_telephone, email]).join(" · ");
   return {
     schoolName: school?.name ?? "School",
-    schoolAddress: address || null,
+    schoolLegalName: school?.legal_name || school?.name || null,
+    schoolAddress: addressLines.join(", ") || null,
+    schoolAddressLines: addressLines,
+    schoolPhone: school?.contact_telephone || null,
+    schoolEmail: email,
+    schoolWebsite: school?.website || null,
     schoolContact: contact || null,
+    accentColor: resolveFinanceAccent(school?.primary_colour, school?.accent_colour),
+    bankName: settings.bankName,
+    bankAccountName: settings.bankAccountName,
+    bankAccountNumber: settings.bankAccountNumber,
+    bankSortCode: settings.bankSortCode,
+    paymentInstructions: settings.paymentInstructions,
+    paymentDueDays: settings.paymentDueDays,
+    logoObjectId: school?.logo_object_id ?? null,
   };
+}
+
+function brandingFromSchool(school: SchoolFinanceProfile) {
+  return {
+    schoolName: school.schoolName,
+    schoolLegalName: school.schoolLegalName,
+    schoolAddress: school.schoolAddress,
+    schoolAddressLines: school.schoolAddressLines,
+    schoolPhone: school.schoolPhone,
+    schoolEmail: school.schoolEmail,
+    schoolWebsite: school.schoolWebsite,
+    schoolContact: school.schoolContact,
+    accentColor: school.accentColor,
+    bankName: school.bankName,
+    bankAccountName: school.bankAccountName,
+    bankAccountNumber: school.bankAccountNumber,
+    bankSortCode: school.bankSortCode,
+    paymentInstructions: school.paymentInstructions,
+    logoObjectId: school.logoObjectId,
+  };
+}
+
+async function loadOrganisationLogo(
+  client: Client,
+  organisationId: string,
+  objectStore?: FinanceObjectStore | null,
+  logoObjectId?: string | null,
+): Promise<FinancePdfLogo | null> {
+  if (!objectStore || !logoObjectId) return null;
+  const row = await client.query<{ storage_key: string; content_type: string }>(
+    `select so.storage_key, so.content_type
+       from stored_objects so
+      where so.id = $1
+        and so.organisation_id = $2
+        and so.domain = 'branding'
+        and so.status = 'active'
+        and so.deleted_at is null
+      limit 1`,
+    [logoObjectId, organisationId],
+  );
+  const object = row.rows[0];
+  if (!object) return null;
+  try {
+    const got = await objectStore.getObject(object.storage_key);
+    if (!got?.body?.byteLength) return null;
+    return { bytes: got.body, contentType: object.content_type };
+  } catch {
+    return null;
+  }
 }
 
 async function payerContact(client: Client, organisationId: string, billingAccountId: string) {
@@ -3473,6 +3776,42 @@ async function payerContact(client: Client, organisationId: string, billingAccou
   return row.rows[0] ?? { email: null, full_name: null };
 }
 
+async function payerBillingDetails(client: Client, organisationId: string, billingAccountId: string) {
+  const row = await client.query<{
+    account_name: string | null;
+    full_name: string | null;
+    address_line1: string | null;
+    address_line2: string | null;
+    address_town: string | null;
+    address_county: string | null;
+    address_postcode: string | null;
+  }>(
+    `select a.name as account_name, u.full_name, u.address_line1, u.address_line2,
+            u.address_town, u.address_county, u.address_postcode
+       from school_billing_accounts a
+       left join users u on u.id = a.primary_payer_user_id
+      where a.id = $1 and a.organisation_id = $2`,
+    [billingAccountId, organisationId],
+  );
+  const found = row.rows[0];
+  return {
+    billToName: found?.full_name?.trim() || found?.account_name || "Family",
+    familyName: found?.account_name || found?.full_name || "Family",
+    billToAddressLines: compactLines([
+      found?.address_line1,
+      found?.address_line2,
+      found?.address_town,
+      found?.address_county,
+      found?.address_postcode,
+    ]),
+  };
+}
+
+function invoiceTerms(dueDays: number | null | undefined): string | null {
+  if (!dueDays || dueDays <= 0) return null;
+  return `Net ${dueDays}`;
+}
+
 export async function persistInvoiceDisplaySnapshot(client: Client, organisationId: string, invoiceId: string) {
   const existing = await client.query<{ display_snapshot: Record<string, unknown> }>(
     `select display_snapshot from school_invoices where id = $1 and organisation_id = $2`,
@@ -3483,7 +3822,7 @@ export async function persistInvoiceDisplaySnapshot(client: Client, organisation
   const doc = await buildInvoiceDocument(client, organisationId, invoiceId);
   await client.query(
     `update school_invoices set display_snapshot = $3::jsonb where id = $1 and organisation_id = $2`,
-    [invoiceId, organisationId, JSON.stringify(doc)],
+    [invoiceId, organisationId, JSON.stringify(snapshotWithoutLogo(doc))],
   );
 }
 
@@ -3495,6 +3834,7 @@ async function buildInvoiceDocument(
   const school = await loadSchoolFinanceProfile(client, organisationId);
   const loaded = await loadInvoice(client, organisationId, invoiceId);
   const invoice = loaded.invoice;
+  const billed = await payerBillingDetails(client, organisationId, String(invoice.billingAccountId));
   const pupilNames = [
     ...new Set(loaded.lines.map((line) => line.studentLegalName).filter((name): name is string => Boolean(name))),
   ];
@@ -3504,31 +3844,86 @@ async function buildInvoiceDocument(
       return String(calc.yearGroupName ?? "") || null;
     })
     .find(Boolean);
+  const instalment = await client.query<{ instalment_number: number | null; monthly_count: number | null }>(
+    `select r.instalment_number, s.monthly_instalment_count as monthly_count
+       from school_invoices i
+       left join school_billing_runs r on r.id = i.billing_run_id
+       left join school_finance_settings s on s.organisation_id = i.organisation_id
+      where i.id = $1 and i.organisation_id = $2`,
+    [invoiceId, organisationId],
+  );
+  const instalmentNumber = instalment.rows[0]?.instalment_number;
   return {
     kind: "invoice",
-    schoolName: school.schoolName,
-    schoolAddress: school.schoolAddress,
-    schoolContact: school.schoolContact,
+    ...brandingFromSchool(school),
+    paymentInstructions: invoice.paymentInstructions ? String(invoice.paymentInstructions) : school.paymentInstructions,
     invoiceNumber: String(invoice.reference),
     invoiceDate: String(invoice.invoiceDate),
     dueDate: String(invoice.dueDate),
-    familyName: String(invoice.billingAccountName ?? "Family"),
+    terms: invoiceTerms(school.paymentDueDays),
+    familyName: billed.familyName,
+    billToName: billed.billToName,
+    billToAddressLines: billed.billToAddressLines,
     pupilNames,
     classOrYear: classOrYear ?? null,
     description: loaded.lines[0]?.description ?? "School fees",
-    billingPeriod: `${invoice.billingPeriodStart} – ${invoice.billingPeriodEnd}`,
+    billingPeriod: formatUkNumericDateRange(String(invoice.billingPeriodStart), String(invoice.billingPeriodEnd)),
+    instalmentLabel:
+      instalmentNumber != null
+        ? `Instalment ${instalmentNumber}${instalment.rows[0]?.monthly_count ? ` of ${instalment.rows[0].monthly_count}` : ""}`
+        : null,
     currency: String(invoice.currency),
+    subtotalMinor: Number(invoice.subtotalMinor),
+    discountTotalMinor: Number(invoice.discountTotalMinor),
+    creditTotalMinor: Number(invoice.creditTotalMinor),
     amountMinor: Number(invoice.totalMinor),
     paidMinor: Number(invoice.paidMinor),
     outstandingMinor: Number(invoice.outstandingMinor),
     status: String(invoice.status),
-    lines: loaded.lines.map((line) => ({
-      description: String(line.description),
-      pupilName: line.studentLegalName,
-      amountMinor: Number(line.amountMinor),
-    })),
+    vatInvoice: Boolean(invoice.vatEnabled),
+    vatRegistrationNumber: invoice.vatRegistrationNumber ?? null,
+    vatRateBps: invoice.vatRateBps ?? null,
+    vatPricesInclusive: invoice.vatPricesInclusive ?? null,
+    vatNetMinor: invoice.vatEnabled ? Number(invoice.vatNetMinor) : Number(invoice.totalMinor),
+    vatAmountMinor: invoice.vatEnabled ? Number(invoice.vatAmountMinor) : 0,
+    lines: loaded.lines.map((line) => {
+      const kind = String(line.kind);
+      const usesQty = ["trip", "club", "examination", "activity", "registration", "meal", "music", "after_school", "admissions"].includes(kind);
+      return {
+        description: String(line.description),
+        pupilName: line.studentLegalName,
+        amountMinor: Number(line.amountMinor),
+        date: String(invoice.invoiceDate),
+        kind,
+        quantity: usesQty ? Number(line.quantity) : null,
+        rateMinor: usesQty ? Number(line.unitAmountMinor) : null,
+        vatTreatment: line.vatTreatment ?? (invoice.vatEnabled ? "standard" : "none"),
+        vatRateBps: line.vatRateBps ?? invoice.vatRateBps ?? null,
+        netMinor: invoice.vatEnabled ? Number(line.vatNetMinor ?? line.amountMinor) : Number(line.amountMinor),
+        vatMinor: invoice.vatEnabled ? Number(line.vatAmountMinor ?? 0) : 0,
+        grossMinor: invoice.vatEnabled ? Number(line.vatGrossMinor ?? line.amountMinor) : Number(line.amountMinor),
+      };
+    }),
     footer: invoice.invoiceFooter ? String(invoice.invoiceFooter) : null,
-    vatInvoice: false,
+  };
+}
+
+function hydrateInvoiceSnapshot(
+  snapshot: FinanceInvoiceDocument,
+  school: SchoolFinanceProfile,
+): FinanceInvoiceDocument {
+  const frozen = applyFrozenSchoolBranding(snapshot, brandingFromSchool(school));
+  const raw = snapshot as FinanceInvoiceDocument & Record<string, unknown>;
+  const vat = freezeIssuedVat(raw);
+  return {
+    ...frozen,
+    footer: Object.prototype.hasOwnProperty.call(raw, "footer") ? snapshot.footer ?? null : snapshot.footer,
+    vatInvoice: vat.enabled,
+    vatRegistrationNumber: vat.registrationNumber,
+    vatRateBps: vat.rateBps,
+    vatPricesInclusive: vat.pricesInclusive,
+    vatNetMinor: vat.netMinor,
+    vatAmountMinor: vat.vatMinor,
   };
 }
 
@@ -3554,6 +3949,7 @@ export async function createInvoiceReceipt(
   if (existing.rows[0]) return;
   const invoice = await loadInvoice(client, input.organisationId, input.invoiceId);
   const school = await loadSchoolFinanceProfile(client, input.organisationId);
+  const billed = await payerBillingDetails(client, input.organisationId, String(invoice.invoice.billingAccountId));
   const payer = input.payerUserId
     ? await client.query<{ full_name: string }>(`select full_name from users where id = $1`, [input.payerUserId])
     : { rows: [] as Array<{ full_name: string }> };
@@ -3561,21 +3957,32 @@ export async function createInvoiceReceipt(
     ...new Set(invoice.lines.map((line) => line.studentLegalName).filter((name): name is string => Boolean(name))),
   ];
   const reference = await nextFinanceReference(client, input.organisationId, "receipt");
+  const humanReference = isSensitiveProviderReference(input.providerReference)
+    ? null
+    : redactProviderReference(input.providerReference);
   const snapshot: FinanceReceiptDocument = {
     kind: "receipt",
-    schoolName: school.schoolName,
-    schoolAddress: school.schoolAddress,
-    schoolContact: school.schoolContact,
+    ...brandingFromSchool(school),
     receiptNumber: reference,
     paymentDate: input.receivedOn,
-    familyName: String(invoice.invoice.billingAccountName ?? "Family"),
+    familyName: billed.familyName,
+    billToName: payer.rows[0]?.full_name?.trim() || billed.billToName,
+    billToAddressLines: billed.billToAddressLines,
     pupilNames,
     invoiceReferences: [String(invoice.invoice.reference)],
+    allocations: [
+      {
+        invoiceNumber: String(invoice.invoice.reference),
+        invoiceDate: String(invoice.invoice.invoiceDate),
+        amountMinor: input.amountMinor,
+      },
+    ],
     description: `Payment for ${invoice.invoice.reference}`,
     currency: String(invoice.invoice.currency),
     amountMinor: input.amountMinor,
     paymentMethod: input.method,
-    providerReference: redactProviderReference(input.providerReference),
+    providerReference: humanReference,
+    memo: humanReference,
     remainingMinor: Number(invoice.invoice.outstandingMinor),
     status: "succeeded",
   };
@@ -3590,7 +3997,7 @@ export async function createInvoiceReceipt(
       input.invoicePaymentId,
       input.transactionId ?? null,
       reference,
-      JSON.stringify(snapshot),
+      JSON.stringify(snapshotWithoutLogo(snapshot)),
     ],
   );
 }
@@ -3661,7 +4068,12 @@ async function queueRefundIssuedMail(client: Client, organisationId: string, cre
   );
 }
 
-export async function renderInvoicePdfBytes(client: Client, organisationId: string, invoiceId: string) {
+export async function renderInvoicePdfBytes(
+  client: Client,
+  organisationId: string,
+  invoiceId: string,
+  options?: { objectStore?: FinanceObjectStore | null },
+) {
   await persistInvoiceDisplaySnapshot(client, organisationId, invoiceId);
   const row = await client.query<{ display_snapshot: FinanceInvoiceDocument }>(
     `select display_snapshot from school_invoices where id = $1 and organisation_id = $2`,
@@ -3669,43 +4081,82 @@ export async function renderInvoicePdfBytes(client: Client, organisationId: stri
   );
   if (!row.rows[0]) notFound();
   const snapshot = row.rows[0].display_snapshot;
-  const doc = snapshot?.kind === "invoice" ? snapshot : await buildInvoiceDocument(client, organisationId, invoiceId);
+  const built = snapshot?.kind === "invoice" ? snapshot : await buildInvoiceDocument(client, organisationId, invoiceId);
+  const school = await loadSchoolFinanceProfile(client, organisationId);
   const live = await loadInvoice(client, organisationId, invoiceId);
-  const reproduced: FinanceInvoiceDocument = {
-    ...doc,
+  const reproduced = hydrateInvoiceSnapshot(built, school);
+  const logo = await loadOrganisationLogo(client, organisationId, options?.objectStore, reproduced.logoObjectId);
+  const withLiveBalance: FinanceInvoiceDocument = {
+    ...reproduced,
     paidMinor: Number(live.invoice.paidMinor),
     outstandingMinor: Number(live.invoice.outstandingMinor),
+    creditTotalMinor: built.creditTotalMinor ?? Number(live.invoice.creditTotalMinor),
     status: String(live.invoice.status),
+    logo,
   };
-  return { filename: financePdfFilename(reproduced), bytes: renderFinancePdf(reproduced) };
+  return { filename: financePdfFilename(withLiveBalance), bytes: renderFinancePdf(withLiveBalance) };
 }
 
-export async function renderReceiptPdfBytes(client: Client, organisationId: string, receiptId: string) {
-  const row = await client.query<{ snapshot: FinanceReceiptDocument; reference: string }>(
+function normalizeReceiptSnapshot(
+  snapshot: Record<string, unknown> | FinanceReceiptDocument | null | undefined,
+  reference: string,
+  school: SchoolFinanceProfile,
+): FinanceReceiptDocument {
+  const raw = (snapshot ?? {}) as Record<string, unknown>;
+  if (raw.kind === "receipt") {
+    const doc = raw as unknown as FinanceReceiptDocument;
+    return {
+      ...doc,
+      ...hydrateReceiptBranding(doc, school),
+      receiptNumber: doc.receiptNumber || reference,
+    };
+  }
+  const amountMinor = Number(raw.amountMinor ?? 0);
+  const invoiceRef = String(raw.chargeReference ?? raw.receiptReference ?? "");
+  return {
+    kind: "receipt",
+    ...brandingFromSchool(school),
+    receiptNumber: String(raw.receiptReference ?? reference),
+    paymentDate: String(raw.paidAt ?? raw.paymentDate ?? "").slice(0, 10),
+    familyName: String(raw.payerName ?? raw.familyName ?? "Family"),
+    billToName: String(raw.payerName ?? raw.familyName ?? "Family"),
+    pupilNames: raw.pupilName ? [String(raw.pupilName)] : [],
+    invoiceReferences: invoiceRef ? [invoiceRef] : [],
+    allocations: invoiceRef
+      ? [{ invoiceNumber: invoiceRef, invoiceDate: null, amountMinor }]
+      : [],
+    description: String(raw.chargeTitle ?? raw.description ?? "Payment"),
+    currency: String(raw.currency ?? "GBP"),
+    amountMinor,
+    paymentMethod: String(raw.channel === "offline" ? "other" : raw.provider ?? raw.paymentMethod ?? "card"),
+    providerReference: isSensitiveProviderReference(String(raw.providerReference ?? ""))
+      ? null
+      : String(raw.providerReference ?? "") || null,
+    remainingMinor: Number(raw.remainingMinor ?? 0),
+    status: String(raw.status ?? "succeeded"),
+  };
+}
+
+function hydrateReceiptBranding(doc: FinanceReceiptDocument, school: SchoolFinanceProfile): FinanceReceiptDocument {
+  return applyFrozenSchoolBranding(doc, brandingFromSchool(school));
+}
+
+export async function renderReceiptPdfBytes(
+  client: Client,
+  organisationId: string,
+  receiptId: string,
+  options?: { objectStore?: FinanceObjectStore | null },
+) {
+  const row = await client.query<{ snapshot: Record<string, unknown>; reference: string }>(
     `select snapshot, reference from school_payment_receipts where id = $1 and organisation_id = $2`,
     [receiptId, organisationId],
   );
   if (!row.rows[0]) notFound();
-  const snapshot = row.rows[0].snapshot;
-  const doc: FinanceReceiptDocument =
-    snapshot?.kind === "receipt"
-      ? snapshot
-      : {
-          kind: "receipt",
-          schoolName: "School",
-          receiptNumber: row.rows[0].reference,
-          paymentDate: "",
-          familyName: "Family",
-          pupilNames: [],
-          invoiceReferences: [],
-          description: "Payment",
-          currency: "GBP",
-          amountMinor: 0,
-          paymentMethod: "other",
-          remainingMinor: 0,
-          status: "succeeded",
-        };
-  return { filename: financePdfFilename(doc), bytes: renderFinancePdf(doc) };
+  const school = await loadSchoolFinanceProfile(client, organisationId);
+  const doc = normalizeReceiptSnapshot(row.rows[0].snapshot, row.rows[0].reference, school);
+  const logo = await loadOrganisationLogo(client, organisationId, options?.objectStore, doc.logoObjectId);
+  const rendered: FinanceReceiptDocument = { ...doc, logo };
+  return { filename: financePdfFilename(rendered), bytes: renderFinancePdf(rendered) };
 }
 
 export async function listFinanceReceipts(
@@ -3832,7 +4283,7 @@ export async function loadFamilyStatementDocument(
   );
   const document: FinanceStatementDocument = {
     kind: "statement",
-    schoolName: school.schoolName,
+    ...brandingFromSchool(school),
     familyName: names.rows.map((row) => row.name).join(" / ") || "Family",
     pupilNames: pupils.rows.map((row) => row.legal_name),
     periodLabel: input.preset.replace(/_/g, " "),
@@ -3867,15 +4318,22 @@ export async function renderFamilyStatementZip(
   client: Client,
   organisationId: string,
   input: Parameters<typeof loadFamilyStatementDocument>[2],
+  options?: { objectStore?: FinanceObjectStore | null },
 ) {
   const loaded = await loadFamilyStatementDocument(client, organisationId, input);
-  const files = [{ name: financePdfFilename(loaded.document), data: renderFinancePdf(loaded.document) }];
+  const logo = await loadOrganisationLogo(client, organisationId, options?.objectStore, loaded.document.logoObjectId);
+  const files = [
+    {
+      name: financePdfFilename(loaded.document),
+      data: renderFinancePdf({ ...loaded.document, logo }),
+    },
+  ];
   for (const invoice of loaded.invoices) {
-    const pdf = await renderInvoicePdfBytes(client, organisationId, invoice.id);
+    const pdf = await renderInvoicePdfBytes(client, organisationId, invoice.id, options);
     files.push({ name: `invoices/${pdf.filename}`, data: pdf.bytes });
   }
   for (const receipt of loaded.receipts) {
-    const pdf = await renderReceiptPdfBytes(client, organisationId, receipt.id);
+    const pdf = await renderReceiptPdfBytes(client, organisationId, receipt.id, options);
     files.push({ name: `receipts/${pdf.filename}`, data: pdf.bytes });
   }
   return {
@@ -3883,6 +4341,22 @@ export async function renderFamilyStatementZip(
     bytes: zipStoreFiles(files),
     document: loaded.document,
   };
+}
+
+export async function renderStatementPdfBytes(
+  client: Client,
+  organisationId: string,
+  document: FinanceStatementDocument,
+  options?: { objectStore?: FinanceObjectStore | null },
+) {
+  const logo = await loadOrganisationLogo(
+    client,
+    organisationId,
+    options?.objectStore,
+    document.logoObjectId ?? (await loadSchoolFinanceProfile(client, organisationId)).logoObjectId,
+  );
+  const rendered = { ...document, logo };
+  return { filename: financePdfFilename(rendered), bytes: renderFinancePdf(rendered) };
 }
 
 function reusableInvoiceCheckoutSession(
@@ -3947,6 +4421,8 @@ export async function createInvoiceCheckoutSession(
   if (!accountIds.includes(String(invoice.billing_account_id))) notFound();
   await refreshInvoiceStatus(client, input.organisationId, input.invoiceId);
   const outstanding = Number(invoice.outstanding_minor);
+  // Collect the outstanding gross invoice total calculated by LuvLearn. Do not
+  // ask Stripe Tax to recalculate VAT.
   if (!["issued", "partially_paid", "overdue"].includes(String(invoice.status)) || outstanding <= 0) {
     throw new AppError(409, "payment_unavailable", "This invoice is not payable");
   }

@@ -105,6 +105,66 @@ describe("RLS catalog", () => {
     }
   });
 
+  it("adds optional invoice document bank and finance email settings", async () => {
+    const result = await pools.owner.query<{ column_name: string }>(
+      `select column_name
+         from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'school_finance_settings'
+          and column_name in (
+            'finance_email', 'bank_name', 'bank_account_name', 'bank_account_number', 'bank_sort_code'
+          )
+        order by column_name`,
+    );
+    expect(result.rows.map((row) => row.column_name)).toEqual([
+      "bank_account_name",
+      "bank_account_number",
+      "bank_name",
+      "bank_sort_code",
+      "finance_email",
+    ]);
+  });
+
+  it("adds optional school VAT settings defaulting to off", async () => {
+    const result = await pools.owner.query<{ column_name: string }>(
+      `select column_name
+         from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'school_finance_settings'
+          and column_name in (
+            'vat_enabled', 'vat_registration_number', 'vat_rate_bps', 'vat_prices_inclusive'
+          )
+        order by column_name`,
+    );
+    expect(result.rows.map((row) => row.column_name)).toEqual([
+      "vat_enabled",
+      "vat_prices_inclusive",
+      "vat_rate_bps",
+      "vat_registration_number",
+    ]);
+    const invoices = await pools.owner.query<{ column_name: string }>(
+      `select column_name
+         from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'school_invoices'
+          and column_name in ('vat_enabled', 'vat_amount_minor', 'vat_net_minor')
+        order by column_name`,
+    );
+    expect(invoices.rows.map((row) => row.column_name)).toEqual([
+      "vat_amount_minor",
+      "vat_enabled",
+      "vat_net_minor",
+    ]);
+    const schedules = await pools.owner.query<{ column_name: string }>(
+      `select column_name
+         from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'school_fee_schedules'
+          and column_name = 'vat_treatment'`,
+    );
+    expect(schedules.rows.map((row) => row.column_name)).toEqual(["vat_treatment"]);
+  });
+
   it("grants the app role DML on finance tables", async () => {
     const result = await pools.owner.query<{ table_name: string; can_select: boolean }>(
       `select t.table_name, has_table_privilege('schoolapp_app', t.table_name, 'SELECT') as can_select

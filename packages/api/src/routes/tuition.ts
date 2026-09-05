@@ -45,10 +45,9 @@ import {
   previewBillingRun,
   recordInvoicePayment,
   renderFamilyStatementZip,
-  renderFinancePdf,
-  financePdfFilename,
   renderInvoicePdfBytes,
   renderReceiptPdfBytes,
+  renderStatementPdfBytes,
   reverseInvoicePayment,
   revokeStaffChildLink,
   updateDiscountRule,
@@ -61,6 +60,7 @@ import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
 import { paymentRuntime, publicOriginFromRequest } from "../payments-context";
 import { uuidRouteParam, withSchoolActor } from "../school-context";
+import { storageOf } from "../file-service";
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -95,6 +95,16 @@ export function registerTuitionRoutes(app: SchoolappApi) {
           monthlyInstalmentCount: z.number().int().min(1).max(12).optional(),
           receiptPrefix: z.string().trim().min(1).max(12).optional(),
           studentsCanViewFinance: z.boolean().optional(),
+          financeEmail: z.string().trim().max(200).nullable().optional(),
+          bankName: z.string().trim().max(120).nullable().optional(),
+          bankAccountName: z.string().trim().max(120).nullable().optional(),
+          bankAccountNumber: z.string().trim().max(20).nullable().optional(),
+          bankSortCode: z.string().trim().max(12).nullable().optional(),
+          vatEnabled: z.boolean().optional(),
+          vatRegistrationNumber: z.string().trim().max(40).nullable().optional(),
+          vatRatePercent: z.number().min(0).max(100).optional(),
+          vatRateBps: z.number().int().min(0).max(10000).optional(),
+          vatPricesInclusive: z.boolean().optional(),
         })
         .safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid finance settings");
@@ -573,7 +583,9 @@ export function registerTuitionRoutes(app: SchoolappApi) {
   app.get("/finance/invoices/:invoiceId/pdf", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertTuitionRead(actor);
-      const pdf = await renderInvoicePdfBytes(client, orgId, uuidRouteParam(c, "invoiceId"));
+      const pdf = await renderInvoicePdfBytes(client, orgId, uuidRouteParam(c, "invoiceId"), {
+        objectStore: storageOf(c),
+      });
       return new Response(Buffer.from(pdf.bytes), {
         headers: {
           "Content-Type": "application/pdf",
@@ -599,7 +611,9 @@ export function registerTuitionRoutes(app: SchoolappApi) {
   app.get("/finance/receipts/:receiptId/pdf", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertTuitionRead(actor);
-      const pdf = await renderReceiptPdfBytes(client, orgId, uuidRouteParam(c, "receiptId"));
+      const pdf = await renderReceiptPdfBytes(client, orgId, uuidRouteParam(c, "receiptId"), {
+        objectStore: storageOf(c),
+      });
       return new Response(Buffer.from(pdf.bytes), {
         headers: {
           "Content-Type": "application/pdf",
@@ -634,13 +648,18 @@ export function registerTuitionRoutes(app: SchoolappApi) {
         customTo: c.req.query("to") ?? null,
       });
       if (c.req.query("format") === "zip") {
-        const zip = await renderFamilyStatementZip(client, orgId, {
-          accountIds: [accountId],
-          preset,
-          today: new Date().toISOString().slice(0, 10),
-          customFrom: c.req.query("from") ?? null,
-          customTo: c.req.query("to") ?? null,
-        });
+        const zip = await renderFamilyStatementZip(
+          client,
+          orgId,
+          {
+            accountIds: [accountId],
+            preset,
+            today: new Date().toISOString().slice(0, 10),
+            customFrom: c.req.query("from") ?? null,
+            customTo: c.req.query("to") ?? null,
+          },
+          { objectStore: storageOf(c) },
+        );
         return new Response(Buffer.from(zip.bytes), {
           headers: {
             "Content-Type": "application/zip",
@@ -650,11 +669,11 @@ export function registerTuitionRoutes(app: SchoolappApi) {
         });
       }
       if (c.req.query("format") === "pdf") {
-        const bytes = renderFinancePdf(loaded.document);
-        return new Response(Buffer.from(bytes), {
+        const pdf = await renderStatementPdfBytes(client, orgId, loaded.document, { objectStore: storageOf(c) });
+        return new Response(Buffer.from(pdf.bytes), {
           headers: {
             "Content-Type": "application/pdf",
-            "Content-Disposition": `attachment; filename="${financePdfFilename(loaded.document)}"`,
+            "Content-Disposition": `attachment; filename="${pdf.filename}"`,
             "Cache-Control": "no-store",
           },
         });

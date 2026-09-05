@@ -25,6 +25,15 @@ type Settings = {
   midPeriodJoinPolicy: string;
   midPeriodLeavePolicy: string;
   monthlyInstalmentCount: number;
+  financeEmail: string | null;
+  bankName: string | null;
+  bankAccountName: string | null;
+  bankAccountNumber: string | null;
+  bankSortCode: string | null;
+  vatEnabled: boolean;
+  vatRegistrationNumber: string | null;
+  vatRatePercent: number;
+  vatPricesInclusive: boolean;
 };
 
 export default function FinanceSettingsPage() {
@@ -34,7 +43,15 @@ export default function FinanceSettingsPage() {
 
   useEffect(() => {
     api<{ settings: Settings }>("/api/v1/finance/settings")
-      .then((body) => setSettings(body.settings))
+      .then((body) =>
+        setSettings({
+          ...body.settings,
+          vatEnabled: Boolean(body.settings.vatEnabled),
+          vatRegistrationNumber: body.settings.vatRegistrationNumber ?? null,
+          vatRatePercent: Number(body.settings.vatRatePercent ?? 0),
+          vatPricesInclusive: body.settings.vatPricesInclusive !== false,
+        }),
+      )
       .catch((err: Error) => setError(userFacingError(err, "Could not load finance settings.")));
   }, []);
 
@@ -170,17 +187,6 @@ export default function FinanceSettingsPage() {
             </select>
           </label>
           <label>
-            Payment instructions
-            <textarea
-              value={settings.paymentInstructions ?? ""}
-              onChange={(event) => setSettings({ ...settings, paymentInstructions: event.target.value })}
-            />
-          </label>
-          <label>
-            Invoice footer
-            <textarea value={settings.invoiceFooter ?? ""} onChange={(event) => setSettings({ ...settings, invoiceFooter: event.target.value })} />
-          </label>
-          <label>
             <input
               type="checkbox"
               checked={settings.parentsCanViewInvoices}
@@ -207,8 +213,157 @@ export default function FinanceSettingsPage() {
           <button type="submit">Save settings</button>
         </form>
       </SectionCard>
+      <SectionCard title="Invoice & Receipt details">
+        <p className="muted">
+          School name, address, phone, website and logo come from School Settings. Bank details are optional payment
+          instructions for this school’s invoices and receipts. They are not Stripe or card credentials.
+        </p>
+        <form className="stack" onSubmit={save}>
+          <FormField label="Finance / bursar email" hint="Shown on invoices and receipts. Leave blank to use the school contact email.">
+            <Input
+              type="email"
+              value={settings.financeEmail ?? ""}
+              onChange={(event) => setSettings({ ...settings, financeEmail: event.target.value || null })}
+            />
+          </FormField>
+          <FormField label="Bank name">
+            <Input
+              value={settings.bankName ?? ""}
+              onChange={(event) => setSettings({ ...settings, bankName: event.target.value || null })}
+            />
+          </FormField>
+          <FormField label="Account name">
+            <Input
+              value={settings.bankAccountName ?? ""}
+              onChange={(event) => setSettings({ ...settings, bankAccountName: event.target.value || null })}
+            />
+          </FormField>
+          <FormField label="Account number">
+            <Input
+              value={settings.bankAccountNumber ?? ""}
+              autoComplete="off"
+              onChange={(event) => setSettings({ ...settings, bankAccountNumber: event.target.value || null })}
+            />
+          </FormField>
+          <FormField label="Sort code">
+            <Input
+              value={settings.bankSortCode ?? ""}
+              autoComplete="off"
+              onChange={(event) => setSettings({ ...settings, bankSortCode: event.target.value || null })}
+            />
+          </FormField>
+          <FormField label="Payment instructions" hint="Shown on outstanding invoices. Leave blank to omit.">
+            <textarea
+              value={settings.paymentInstructions ?? ""}
+              onChange={(event) => setSettings({ ...settings, paymentInstructions: event.target.value || null })}
+            />
+          </FormField>
+          <FormField label="Invoice footer note" hint="Optional legal or payment note printed under the totals.">
+            <textarea
+              value={settings.invoiceFooter ?? ""}
+              onChange={(event) => setSettings({ ...settings, invoiceFooter: event.target.value || null })}
+            />
+          </FormField>
+          <Button type="submit">Save invoice details</Button>
+        </form>
+      </SectionCard>
+      <SectionCard title="VAT / Tax">
+        <p className="muted">
+          VAT is optional and school-specific. Do not enable it unless this school should issue VAT invoices. Changing
+          these settings does not rewrite invoices that have already been issued.
+        </p>
+        <form className="stack" onSubmit={save}>
+          <FormField label="Use VAT on invoices?">
+            <select
+              value={settings.vatEnabled ? "yes" : "no"}
+              onChange={(event) => setSettings({ ...settings, vatEnabled: event.target.value === "yes" })}
+            >
+              <option value="no">No</option>
+              <option value="yes">Yes</option>
+            </select>
+          </FormField>
+          {settings.vatEnabled ? (
+            <>
+              <FormField
+                label="VAT registration number"
+                hint="Shown on VAT invoices. Format is not restricted to a UK number."
+              >
+                <Input
+                  value={settings.vatRegistrationNumber ?? ""}
+                  maxLength={40}
+                  onChange={(event) => setSettings({ ...settings, vatRegistrationNumber: event.target.value || null })}
+                />
+              </FormField>
+              <FormField label="Default VAT rate (%)" hint="Enter the percentage this school uses. It is not fixed at 20%.">
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  value={Number.isFinite(settings.vatRatePercent) ? settings.vatRatePercent : 0}
+                  onChange={(event) => setSettings({ ...settings, vatRatePercent: Number(event.target.value) })}
+                />
+              </FormField>
+              <FormField label="Are the fee amounts you enter inclusive of VAT?">
+                <label>
+                  <input
+                    type="radio"
+                    name="vatPricesInclusive"
+                    checked={settings.vatPricesInclusive}
+                    onChange={() => setSettings({ ...settings, vatPricesInclusive: true })}
+                  />{" "}
+                  Yes — the amount entered already includes VAT
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="vatPricesInclusive"
+                    checked={!settings.vatPricesInclusive}
+                    onChange={() => setSettings({ ...settings, vatPricesInclusive: false })}
+                  />{" "}
+                  No — VAT is added to the amount entered
+                </label>
+              </FormField>
+              <VatExamples ratePercent={settings.vatRatePercent} inclusive={settings.vatPricesInclusive} />
+            </>
+          ) : (
+            <p className="muted">Invoices will continue to say “This is not a VAT invoice.” Fee amounts are unchanged.</p>
+          )}
+          <Button type="submit">Save VAT settings</Button>
+        </form>
+      </SectionCard>
       <PaymentProviderSettings />
     </>
+  );
+}
+
+function formatPounds(minor: number): string {
+  return `£${(minor / 100).toFixed(2)}`;
+}
+
+function VatExamples({ ratePercent, inclusive }: { ratePercent: number; inclusive: boolean }) {
+  const enteredInclusive = 60000;
+  const enteredExclusive = 50000;
+  const rate = Number.isFinite(ratePercent) ? ratePercent : 0;
+  const rateBps = Math.round(rate * 100);
+  const exclusiveVat = rateBps <= 0 ? 0 : Math.round((enteredExclusive * rateBps) / 10000);
+  const inclusiveVat = rateBps <= 0 ? 0 : Math.round((enteredInclusive * rateBps) / (10000 + rateBps));
+  return (
+    <div className="muted">
+      <p>Example at {rate.toFixed(2)}%:</p>
+      <p>
+        VAT inclusive — entered {formatPounds(enteredInclusive)}, net {formatPounds(enteredInclusive - inclusiveVat)}, VAT{" "}
+        {formatPounds(inclusiveVat)}, parent pays {formatPounds(enteredInclusive)}.
+      </p>
+      <p>
+        VAT exclusive — entered {formatPounds(enteredExclusive)}, net {formatPounds(enteredExclusive)}, VAT{" "}
+        {formatPounds(exclusiveVat)}, parent pays {formatPounds(enteredExclusive + exclusiveVat)}.
+      </p>
+      <p>No VAT — entered {formatPounds(enteredInclusive)}, parent pays {formatPounds(enteredInclusive)}.</p>
+      <p>
+        Current setting: {inclusive ? "amounts you enter already include VAT." : "VAT is added to the amounts you enter."}
+      </p>
+    </div>
   );
 }
 

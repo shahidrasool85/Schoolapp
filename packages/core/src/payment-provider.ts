@@ -327,6 +327,9 @@ export class StripePaymentProvider implements PaymentProvider {
     body.set("cancel_url", input.cancelUrl);
     body.set("client_reference_id", input.reference);
     // Stripe Managed Payments rejects an explicit payment_method_types list.
+    // Account-level Stripe Tax requires a product tax_code unless Checkout
+    // sessions opt out. LuvLearn invoices are not VAT invoices.
+    body.set("automatic_tax[enabled]", "false");
     body.set("line_items[0][quantity]", "1");
     body.set("line_items[0][price_data][currency]", input.currency.toLowerCase());
     body.set("line_items[0][price_data][unit_amount]", String(input.amountMinor));

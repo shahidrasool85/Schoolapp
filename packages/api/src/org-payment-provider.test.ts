@@ -354,6 +354,11 @@ describe("per-school Stripe configuration", () => {
     expect(
       checkoutCalls.every((call) => new URLSearchParams(call.body).get("line_items[0][price_data][currency]") === "gbp"),
     ).toBe(true);
+    expect(
+      checkoutCalls.every((call) => new URLSearchParams(call.body).get("automatic_tax[enabled]") === "false"),
+    ).toBe(true);
+    expect(checkoutCalls.every((call) => !call.body.includes("tax_code"))).toBe(true);
+    expect(checkoutCalls.every((call) => !call.body.includes("tax_behavior"))).toBe(true);
 
     const sessionA = await pools.owner.query<{ provider_session_id: string; amount_minor: string }>(
       `select provider_session_id, amount_minor::text from school_payment_sessions

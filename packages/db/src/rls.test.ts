@@ -1619,6 +1619,58 @@ describe("RLS catalog", () => {
     expect(worker.rows[0]?.action_url).toContain("other-tenant-secret");
   });
 
+  it("accepts admissions enquiry acknowledgements in mail_outbox and allows school retry", async () => {
+    const id = randomUUID().slice(0, 8);
+    const org = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`enq-mail-${id}`, "Enquiry Mail School"],
+    );
+    const user = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Admin', 'staff', 'active') returning id`,
+      [`enq-mail-${id}@example.com`],
+    );
+    await pools.owner.query(
+      `insert into organisation_memberships (organisation_id, user_id, status)
+       values ($1, $2, 'active')`,
+      [org.rows[0]!.id, user.rows[0]!.id],
+    );
+    const inserted = await pools.owner.query<{ id: string }>(
+      `insert into mail_outbox (
+         organisation_id, purpose, template_key, to_email, to_name, subject, body_text, status
+       ) values (
+         $1, 'admissions_enquiry_received', 'admissions_enquiry_received',
+         'parent@example.com', 'Priya Cole', 'Thank you for your enquiry', 'Queued body', 'failed'
+       )
+       returning id`,
+      [org.rows[0]!.id],
+    );
+    await withTenantContext(pools.app, user.rows[0]!.id, org.rows[0]!.id, async (client) => {
+      const requeued = await client.query<{ requeue_mail_outbox_message: boolean }>(
+        "select requeue_mail_outbox_message($1, $2)",
+        [org.rows[0]!.id, inserted.rows[0]!.id],
+      );
+      expect(requeued.rows[0]?.requeue_mail_outbox_message).toBe(true);
+      const leaked = await client.query("select id from mail_outbox where organisation_id <> $1", [org.rows[0]!.id]);
+      expect(leaked.rows).toEqual([]);
+    });
+    const row = await pools.owner.query<{ status: string; purpose: string }>(
+      "select status, purpose from mail_outbox where id = $1",
+      [inserted.rows[0]!.id],
+    );
+    expect(row.rows[0]?.status).toBe("queued");
+    expect(row.rows[0]?.purpose).toBe("admissions_enquiry_received");
+    await expect(
+      pools.app.query(
+        `insert into mail_outbox (
+           organisation_id, purpose, template_key, to_email, subject, body_text, status
+         ) values ($1, 'admissions_enquiry_received', 'admissions_enquiry_received',
+                   'blocked@example.com', 'Nope', 'Nope', 'queued')`,
+        [org.rows[0]!.id],
+      ),
+    ).rejects.toThrow();
+  });
+
   it("keeps FORCE RLS from leaking payment-provider config across schools", async () => {
     const id = randomUUID().slice(0, 8);
     const userA = await pools.owner.query<{ id: string }>(

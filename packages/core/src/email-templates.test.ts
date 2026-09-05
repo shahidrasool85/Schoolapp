@@ -86,6 +86,29 @@ describe("transactional email templates", () => {
     expect(rendered.html).toContain("Year 3");
   });
 
+  it("renders enquiry acknowledgement with school branding and no sensitive notes", () => {
+    const rendered = renderEmailTemplate(
+      "admissions_enquiry_received",
+      {
+        ...fixturePreviewData("admissions_enquiry_received"),
+        recipientName: '<img src=x onerror=alert(1)>Jordan',
+      },
+      branding,
+    );
+    expect(rendered.subject).toBe("Thank you for your enquiry – Kingswood School");
+    expect(rendered.text).toContain("Dear Jordan,");
+    expect(rendered.text).toContain("Thank you for contacting Kingswood School.");
+    expect(rendered.text).toContain("We have received your enquiry and a member of our team will get back to you shortly.");
+    expect(rendered.text).toContain("Kind regards,");
+    expect(rendered.html).not.toContain("<img src=x");
+    expect(rendered.html).not.toContain("onerror=");
+    expect(rendered.text.toLowerCase()).not.toContain("allerg");
+    expect(rendered.text.toLowerCase()).not.toContain("date of birth");
+    expect(rendered.text.toLowerCase()).not.toContain("please send dates");
+    expect(rendered.text.toLowerCase()).not.toContain("medical");
+    expect(rendered.text.toLowerCase()).not.toContain("safeguard");
+  });
+
   it("renders the status-update foundation template", () => {
     const rendered = renderEmailTemplate(
       "admissions_status_update",

@@ -190,7 +190,9 @@ export function mailOutboxCanRetry(status: string, purpose: string): boolean {
   if (status === "queued") return true;
   return (
     status === "failed" &&
-    (purpose === "admissions_application_received" || purpose === "admissions_status_update")
+    (purpose === "admissions_enquiry_received" ||
+      purpose === "admissions_application_received" ||
+      purpose === "admissions_status_update")
   );
 }
 
@@ -391,6 +393,7 @@ export function redactActionUrls(value: string): string {
 
 export function purposeToTemplateKey(purpose: MailPurpose): EmailTemplateKey {
   if (purpose === "password_reset") return "password_reset";
+  if (purpose === "admissions_enquiry_received") return "admissions_enquiry_received";
   if (purpose === "admissions_application_received") return "admissions_application_received";
   if (purpose === "admissions_status_update") return "admissions_status_update";
   if (purpose === "finance_invoice_issued") return "finance_invoice_issued";

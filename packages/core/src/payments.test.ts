@@ -182,9 +182,11 @@ describe("stripe webhook helper", () => {
     expect(posted).toContain("metadata%5Bschoolapp_charge_category%5D=tuition");
     expect(posted).not.toContain("schoolapp_charge_id");
     expect(posted).not.toContain("payment_method_types");
+    expect(posted).toContain("automatic_tax%5Benabled%5D=false");
+    expect(posted).not.toContain("tax_code");
   });
 
-  it("creates a £500 GBP Checkout Session without payment_method_types and keeps tenant HTTPS return URLs", async () => {
+  it("creates a £500 GBP Checkout Session without tax or payment_method_types and keeps tenant HTTPS return URLs", async () => {
     let posted = "";
     let requestedUrl = "";
     const provider = new StripePaymentProvider({
@@ -222,6 +224,11 @@ describe("stripe webhook helper", () => {
     const params = new URLSearchParams(posted);
     expect(params.has("payment_method_types[0]")).toBe(false);
     expect(posted).not.toMatch(/payment_method_types/);
+    expect(params.get("automatic_tax[enabled]")).toBe("false");
+    expect(params.has("line_items[0][price_data][product_data][tax_code]")).toBe(false);
+    expect(params.has("line_items[0][price_data][tax_behavior]")).toBe(false);
+    expect(params.has("tax_id_collection[enabled]")).toBe(false);
+    expect(posted).not.toMatch(/tax_code|tax_behavior|tax_id_collection/);
     expect(params.get("line_items[0][price_data][unit_amount]")).toBe("50000");
     expect(params.get("line_items[0][price_data][currency]")).toBe("gbp");
     expect(params.get("mode")).toBe("payment");

@@ -9,6 +9,7 @@ import {
   paymentMethodLabel,
   renderFinancePdf,
   zipStoreFiles,
+  applyFrozenSchoolBranding,
   type FinanceInvoiceDocument,
   type FinanceReceiptDocument,
   type FinanceStatementDocument,
@@ -253,6 +254,75 @@ describe("finance PDF documents", () => {
     const raw = Buffer.from(bytes).toString("latin1");
     expect(raw).toContain("/Subtype /Image");
     expect(extractPdfText(bytes)).toContain("INVOICE");
+  });
+
+  it("freezes issued school identity including explicit nulls", () => {
+    const frozen = applyFrozenSchoolBranding(
+      {
+        schoolName: "Issued School",
+        schoolLegalName: "Issued Ltd",
+        schoolAddress: null,
+        schoolAddressLines: [],
+        schoolPhone: null,
+        schoolEmail: "bursar@issued.test",
+        schoolWebsite: null,
+        schoolContact: null,
+        accentColor: "#4A90C7",
+        bankName: null,
+        bankAccountName: null,
+        bankAccountNumber: null,
+        bankSortCode: null,
+        paymentInstructions: "Quote the invoice number.",
+        logoObjectId: "logo-issued",
+      },
+      {
+        schoolName: "Changed School",
+        schoolLegalName: "Changed Ltd",
+        schoolAddress: "99 New Road",
+        schoolAddressLines: ["99 New Road"],
+        schoolPhone: "0000 000 0000",
+        schoolEmail: "new@changed.test",
+        schoolWebsite: "www.changed.test",
+        schoolContact: "0000 000 0000 · new@changed.test",
+        accentColor: "#ff0000",
+        bankName: "New Bank",
+        bankAccountName: "New Account",
+        bankAccountNumber: "99999999",
+        bankSortCode: "00-00-00",
+        paymentInstructions: "New instructions",
+        logoObjectId: "logo-new",
+      },
+    );
+    expect(frozen.schoolName).toBe("Issued School");
+    expect(frozen.schoolLegalName).toBe("Issued Ltd");
+    expect(frozen.schoolAddress).toBeNull();
+    expect(frozen.schoolAddressLines).toEqual([]);
+    expect(frozen.schoolPhone).toBeNull();
+    expect(frozen.schoolEmail).toBe("bursar@issued.test");
+    expect(frozen.schoolWebsite).toBeNull();
+    expect(frozen.bankName).toBeNull();
+    expect(frozen.bankAccountNumber).toBeNull();
+    expect(frozen.paymentInstructions).toBe("Quote the invoice number.");
+    expect(frozen.logoObjectId).toBe("logo-issued");
+  });
+
+  it("fills only missing keys on legacy snapshots from current school settings", () => {
+    const filled = applyFrozenSchoolBranding(
+      { schoolName: "Legacy Header" },
+      {
+        schoolName: "Live School",
+        schoolLegalName: "Live Ltd",
+        schoolAddress: "1 Live Street",
+        schoolAddressLines: ["1 Live Street"],
+        bankName: "Live Bank",
+        paymentInstructions: "Live instructions",
+        logoObjectId: "logo-live",
+      },
+    );
+    expect(filled.schoolName).toBe("Legacy Header");
+    expect(filled.bankName).toBe("Live Bank");
+    expect(filled.schoolAddressLines).toEqual(["1 Live Street"]);
+    expect(filled.logoObjectId).toBe("logo-live");
   });
 
   it("keeps immutable snapshot line amounts while showing live balance", () => {

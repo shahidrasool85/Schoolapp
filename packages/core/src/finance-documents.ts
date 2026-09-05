@@ -58,6 +58,7 @@ export type FinanceSchoolBranding = {
   bankAccountNumber?: string | null;
   bankSortCode?: string | null;
   paymentInstructions?: string | null;
+  logoObjectId?: string | null;
 };
 
 export type FinanceInvoiceDocument = FinanceSchoolBranding & {
@@ -812,4 +813,49 @@ export function financePdfFilename(doc: FinancePdfDocument): string {
 export function snapshotWithoutLogo<T extends { logo?: FinancePdfLogo | null }>(doc: T): Omit<T, "logo"> {
   const { logo: _logo, ...rest } = doc;
   return rest;
+}
+
+function snapshotHas(raw: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(raw, key);
+}
+
+/**
+ * Newly issued invoices/receipts store school identity in the snapshot, including explicit nulls.
+ * Live school settings are used only for legacy snapshots that omit a key entirely.
+ */
+export function applyFrozenSchoolBranding<T extends FinanceSchoolBranding>(
+  snapshot: T,
+  live: FinanceSchoolBranding & { schoolName: string },
+): T & FinanceSchoolBranding {
+  const raw = snapshot as T & Record<string, unknown>;
+  const pick = <K extends keyof FinanceSchoolBranding>(key: K): T[K] => {
+    if (snapshotHas(raw, key as string)) {
+      return ((snapshot[key] as T[K] | undefined) ?? null) as T[K];
+    }
+    return (live[key] as T[K] | undefined) ?? (null as T[K]);
+  };
+  return {
+    ...snapshot,
+    schoolName: snapshotHas(raw, "schoolName")
+      ? snapshot.schoolName?.trim()
+        ? snapshot.schoolName
+        : "School"
+      : live.schoolName,
+    schoolLegalName: pick("schoolLegalName"),
+    schoolAddress: pick("schoolAddress"),
+    schoolAddressLines: snapshotHas(raw, "schoolAddressLines")
+      ? snapshot.schoolAddressLines ?? []
+      : live.schoolAddressLines ?? [],
+    schoolPhone: pick("schoolPhone"),
+    schoolEmail: pick("schoolEmail"),
+    schoolWebsite: pick("schoolWebsite"),
+    schoolContact: pick("schoolContact"),
+    accentColor: pick("accentColor"),
+    bankName: pick("bankName"),
+    bankAccountName: pick("bankAccountName"),
+    bankAccountNumber: pick("bankAccountNumber"),
+    bankSortCode: pick("bankSortCode"),
+    paymentInstructions: pick("paymentInstructions"),
+    logoObjectId: pick("logoObjectId"),
+  };
 }

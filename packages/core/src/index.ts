@@ -1246,6 +1246,7 @@ export {
   paymentMethodLabel,
   invoiceStatusLabel,
   snapshotWithoutLogo,
+  applyFrozenSchoolBranding,
   type FinanceInvoiceDocument,
   type FinanceReceiptDocument,
   type FinanceStatementDocument,

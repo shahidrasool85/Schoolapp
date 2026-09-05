@@ -320,6 +320,103 @@ describe("Finance invoice and receipt PDFs", () => {
     expect(receiptText).toContain(invoice.reference);
     expect(receiptText).not.toContain("pi_");
 
+    const issuedSnapshot = await pools.owner.query<{ display_snapshot: Record<string, unknown> }>(
+      `select display_snapshot from school_invoices where id = $1 and organisation_id = $2`,
+      [invoice.id, schoolA.orgId],
+    );
+    const issued = issuedSnapshot.rows[0]!.display_snapshot;
+    expect(issued.schoolName).toBe(schoolA.name);
+    expect(issued.schoolLegalName).toBe(`${schoolA.name} Ltd`);
+    expect(issued.schoolAddress).toContain("1 School Road");
+    expect(issued.schoolPhone).toBe("0121 111 1111");
+    expect(issued.schoolEmail).toBe("bursar@riverside.test");
+    expect(issued.schoolWebsite).toBe(`www.${idA}.test`);
+    expect(issued.bankName).toBe("Riverside Bank");
+    expect(issued.bankAccountName).toBe("Riverside School");
+    expect(issued.bankAccountNumber).toBe("11112222");
+    expect(issued.bankSortCode).toBe("11-22-33");
+    expect(issued.paymentInstructions).toBe("Quote the invoice number.");
+    expect(issued.footer).toBe("Company registered in England.");
+    expect(issued.logoObjectId).toBeTruthy();
+    const issuedLogoId = String(issued.logoObjectId);
+
+    const receiptRow = await pools.owner.query<{ snapshot: Record<string, unknown> }>(
+      `select snapshot from school_payment_receipts where id = $1 and organisation_id = $2`,
+      [bankReceipt.id, schoolA.orgId],
+    );
+    const issuedReceipt = receiptRow.rows[0]!.snapshot;
+    expect(issuedReceipt.schoolName).toBe(schoolA.name);
+    expect(issuedReceipt.bankName).toBe("Riverside Bank");
+    expect(issuedReceipt.schoolEmail).toBe("bursar@riverside.test");
+    expect(issuedReceipt.logoObjectId).toBe(issuedLogoId);
+
+    await pools.owner.query(`update organisations set name = 'Changed School', legal_name = 'Changed Ltd' where id = $1`, [
+      schoolA.orgId,
+    ]);
+    await pools.owner.query(
+      `update organisation_settings
+          set address_line_1 = '99 New Road', contact_telephone = '0000 000 0000',
+              contact_email = 'office@changed.test', website = 'www.changed.test'
+        where organisation_id = $1`,
+      [schoolA.orgId],
+    );
+    const changedSettings = await app.request("/api/v1/finance/settings", {
+      method: "PATCH",
+      headers: hdrsA,
+      body: JSON.stringify({
+        financeEmail: "new@changed.test",
+        bankName: "New Bank",
+        bankAccountName: "New Account",
+        bankAccountNumber: "99999999",
+        bankSortCode: "00-00-00",
+        paymentInstructions: "New payment instructions",
+        invoiceFooter: "Changed footer",
+      }),
+    });
+    expect(changedSettings.status).toBe(200);
+    const newLogo = await app.request("/api/v1/onboarding/branding/logo", {
+      method: "POST",
+      headers: headers(tokenA, schoolA.orgId, false),
+      body: imageForm(solidPng(64, 48, [200, 20, 20])),
+    });
+    expect(newLogo.status).toBe(201);
+
+    const reprintText = extractPdfText(
+      new Uint8Array(await (await app.request(`/api/v1/finance/invoices/${invoice.id}/pdf`, { headers: hdrsA })).arrayBuffer()),
+    );
+    expect(reprintText).toContain(schoolA.name);
+    expect(reprintText).toContain("1 School Road");
+    expect(reprintText).toContain("0121 111 1111");
+    expect(reprintText).toContain("bursar@riverside.test");
+    expect(reprintText).toContain(`www.${idA}.test`);
+    expect(reprintText).toContain("Riverside Bank");
+    expect(reprintText).toContain("11112222");
+    expect(reprintText).toContain("11-22-33");
+    expect(reprintText).toContain("Company registered in England.");
+    expect(reprintText).not.toContain("Changed School");
+    expect(reprintText).not.toContain("99 New Road");
+    expect(reprintText).not.toContain("New Bank");
+    expect(reprintText).not.toContain("new@changed.test");
+    expect(reprintText).not.toContain("Changed footer");
+
+    const reprintReceipt = extractPdfText(
+      new Uint8Array(
+        await (await app.request(`/api/v1/finance/receipts/${bankReceipt.id}/pdf`, { headers: hdrsA })).arrayBuffer(),
+      ),
+    );
+    expect(reprintReceipt).toContain(schoolA.name);
+    expect(reprintReceipt).toContain("Riverside Bank");
+    expect(reprintReceipt).toContain("bursar@riverside.test");
+    expect(reprintReceipt).not.toContain("Changed School");
+    expect(reprintReceipt).not.toContain("New Bank");
+
+    const currentLogo = await pools.owner.query<{ logo_object_id: string | null }>(
+      `select logo_object_id from organisation_settings where organisation_id = $1`,
+      [schoolA.orgId],
+    );
+    expect(currentLogo.rows[0]!.logo_object_id).toBeTruthy();
+    expect(currentLogo.rows[0]!.logo_object_id).not.toBe(issuedLogoId);
+
     const stolen = await app.request(`/api/v1/finance/invoices/${invoice.id}/pdf`, { headers: hdrsB });
     expect(stolen.status).toBe(404);
 

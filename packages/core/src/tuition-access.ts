@@ -34,6 +34,7 @@ import {
   isSensitiveProviderReference,
   renderFinancePdf,
   snapshotWithoutLogo,
+  applyFrozenSchoolBranding,
   zipStoreFiles,
   type FinanceInvoiceDocument,
   type FinanceObjectStore,
@@ -3492,6 +3493,7 @@ type SchoolFinanceProfile = {
   bankSortCode: string | null;
   paymentInstructions: string | null;
   paymentDueDays: number;
+  logoObjectId: string | null;
 };
 
 function compactLines(values: Array<string | null | undefined>): string[] {
@@ -3512,9 +3514,11 @@ async function loadSchoolFinanceProfile(client: Client, organisationId: string):
     website: string | null;
     primary_colour: string | null;
     accent_colour: string | null;
+    logo_object_id: string | null;
   }>(
     `select o.name, o.legal_name, s.address_line_1, s.address_line_2, s.city, s.postcode,
-            s.contact_email, s.contact_telephone, s.website, s.primary_colour, s.accent_colour
+            s.contact_email, s.contact_telephone, s.website, s.primary_colour, s.accent_colour,
+            s.logo_object_id
        from organisations o
        left join organisation_settings s on s.organisation_id = o.id
       where o.id = $1`,
@@ -3540,6 +3544,7 @@ async function loadSchoolFinanceProfile(client: Client, organisationId: string):
     bankSortCode: settings.bankSortCode,
     paymentInstructions: settings.paymentInstructions,
     paymentDueDays: settings.paymentDueDays,
+    logoObjectId: school?.logo_object_id ?? null,
   };
 }
 
@@ -3559,6 +3564,7 @@ function brandingFromSchool(school: SchoolFinanceProfile) {
     bankAccountNumber: school.bankAccountNumber,
     bankSortCode: school.bankSortCode,
     paymentInstructions: school.paymentInstructions,
+    logoObjectId: school.logoObjectId,
   };
 }
 
@@ -3566,20 +3572,19 @@ async function loadOrganisationLogo(
   client: Client,
   organisationId: string,
   objectStore?: FinanceObjectStore | null,
+  logoObjectId?: string | null,
 ): Promise<FinancePdfLogo | null> {
-  if (!objectStore) return null;
+  if (!objectStore || !logoObjectId) return null;
   const row = await client.query<{ storage_key: string; content_type: string }>(
     `select so.storage_key, so.content_type
-       from organisation_settings s
-       join stored_objects so
-         on so.id = s.logo_object_id
-        and so.organisation_id = s.organisation_id
-      where s.organisation_id = $1
+       from stored_objects so
+      where so.id = $1
+        and so.organisation_id = $2
         and so.domain = 'branding'
         and so.status = 'active'
         and so.deleted_at is null
       limit 1`,
-    [organisationId],
+    [logoObjectId, organisationId],
   );
   const object = row.rows[0];
   if (!object) return null;
@@ -3729,29 +3734,11 @@ function hydrateInvoiceSnapshot(
   snapshot: FinanceInvoiceDocument,
   school: SchoolFinanceProfile,
 ): FinanceInvoiceDocument {
+  const frozen = applyFrozenSchoolBranding(snapshot, brandingFromSchool(school));
   const raw = snapshot as FinanceInvoiceDocument & Record<string, unknown>;
-  const pick = <K extends keyof SchoolFinanceProfile>(key: K, fallback: SchoolFinanceProfile[K]) =>
-    Object.prototype.hasOwnProperty.call(raw, key) ? ((raw[key] as SchoolFinanceProfile[K] | undefined) ?? null) : fallback;
   return {
-    ...snapshot,
-    schoolName: snapshot.schoolName || school.schoolName,
-    schoolLegalName: pick("schoolLegalName" as keyof SchoolFinanceProfile, school.schoolLegalName) as string | null,
-    schoolAddress: snapshot.schoolAddress ?? school.schoolAddress,
-    schoolAddressLines: snapshot.schoolAddressLines?.length ? snapshot.schoolAddressLines : school.schoolAddressLines,
-    schoolPhone: Object.prototype.hasOwnProperty.call(raw, "schoolPhone") ? snapshot.schoolPhone ?? null : school.schoolPhone,
-    schoolEmail: Object.prototype.hasOwnProperty.call(raw, "schoolEmail") ? snapshot.schoolEmail ?? null : school.schoolEmail,
-    schoolWebsite: Object.prototype.hasOwnProperty.call(raw, "schoolWebsite") ? snapshot.schoolWebsite ?? null : school.schoolWebsite,
-    schoolContact: snapshot.schoolContact ?? school.schoolContact,
-    accentColor: snapshot.accentColor ?? school.accentColor,
-    bankName: Object.prototype.hasOwnProperty.call(raw, "bankName") ? snapshot.bankName ?? null : school.bankName,
-    bankAccountName: Object.prototype.hasOwnProperty.call(raw, "bankAccountName") ? snapshot.bankAccountName ?? null : school.bankAccountName,
-    bankAccountNumber: Object.prototype.hasOwnProperty.call(raw, "bankAccountNumber")
-      ? snapshot.bankAccountNumber ?? null
-      : school.bankAccountNumber,
-    bankSortCode: Object.prototype.hasOwnProperty.call(raw, "bankSortCode") ? snapshot.bankSortCode ?? null : school.bankSortCode,
-    paymentInstructions: Object.prototype.hasOwnProperty.call(raw, "paymentInstructions")
-      ? snapshot.paymentInstructions ?? null
-      : school.paymentInstructions,
+    ...frozen,
+    footer: Object.prototype.hasOwnProperty.call(raw, "footer") ? snapshot.footer ?? null : snapshot.footer,
   };
 }
 
@@ -3912,16 +3899,17 @@ export async function renderInvoicePdfBytes(
   const built = snapshot?.kind === "invoice" ? snapshot : await buildInvoiceDocument(client, organisationId, invoiceId);
   const school = await loadSchoolFinanceProfile(client, organisationId);
   const live = await loadInvoice(client, organisationId, invoiceId);
-  const logo = await loadOrganisationLogo(client, organisationId, options?.objectStore);
-  const reproduced: FinanceInvoiceDocument = {
-    ...hydrateInvoiceSnapshot(built, school),
+  const reproduced = hydrateInvoiceSnapshot(built, school);
+  const logo = await loadOrganisationLogo(client, organisationId, options?.objectStore, reproduced.logoObjectId);
+  const withLiveBalance: FinanceInvoiceDocument = {
+    ...reproduced,
     paidMinor: Number(live.invoice.paidMinor),
     outstandingMinor: Number(live.invoice.outstandingMinor),
     creditTotalMinor: built.creditTotalMinor ?? Number(live.invoice.creditTotalMinor),
     status: String(live.invoice.status),
     logo,
   };
-  return { filename: financePdfFilename(reproduced), bytes: renderFinancePdf(reproduced) };
+  return { filename: financePdfFilename(withLiveBalance), bytes: renderFinancePdf(withLiveBalance) };
 }
 
 function normalizeReceiptSnapshot(
@@ -3965,24 +3953,7 @@ function normalizeReceiptSnapshot(
 }
 
 function hydrateReceiptBranding(doc: FinanceReceiptDocument, school: SchoolFinanceProfile): FinanceReceiptDocument {
-  const raw = doc as FinanceReceiptDocument & Record<string, unknown>;
-  const has = (key: string) => Object.prototype.hasOwnProperty.call(raw, key);
-  return {
-    ...doc,
-    schoolName: doc.schoolName || school.schoolName,
-    schoolLegalName: has("schoolLegalName") ? doc.schoolLegalName ?? null : school.schoolLegalName,
-    schoolAddress: doc.schoolAddress ?? school.schoolAddress,
-    schoolAddressLines: doc.schoolAddressLines?.length ? doc.schoolAddressLines : school.schoolAddressLines,
-    schoolPhone: has("schoolPhone") ? doc.schoolPhone ?? null : school.schoolPhone,
-    schoolEmail: has("schoolEmail") ? doc.schoolEmail ?? null : school.schoolEmail,
-    schoolWebsite: has("schoolWebsite") ? doc.schoolWebsite ?? null : school.schoolWebsite,
-    schoolContact: doc.schoolContact ?? school.schoolContact,
-    accentColor: doc.accentColor ?? school.accentColor,
-    bankName: has("bankName") ? doc.bankName ?? null : school.bankName,
-    bankAccountName: has("bankAccountName") ? doc.bankAccountName ?? null : school.bankAccountName,
-    bankAccountNumber: has("bankAccountNumber") ? doc.bankAccountNumber ?? null : school.bankAccountNumber,
-    bankSortCode: has("bankSortCode") ? doc.bankSortCode ?? null : school.bankSortCode,
-  };
+  return applyFrozenSchoolBranding(doc, brandingFromSchool(school));
 }
 
 export async function renderReceiptPdfBytes(
@@ -3998,7 +3969,7 @@ export async function renderReceiptPdfBytes(
   if (!row.rows[0]) notFound();
   const school = await loadSchoolFinanceProfile(client, organisationId);
   const doc = normalizeReceiptSnapshot(row.rows[0].snapshot, row.rows[0].reference, school);
-  const logo = await loadOrganisationLogo(client, organisationId, options?.objectStore);
+  const logo = await loadOrganisationLogo(client, organisationId, options?.objectStore, doc.logoObjectId);
   const rendered: FinanceReceiptDocument = { ...doc, logo };
   return { filename: financePdfFilename(rendered), bytes: renderFinancePdf(rendered) };
 }
@@ -4165,7 +4136,7 @@ export async function renderFamilyStatementZip(
   options?: { objectStore?: FinanceObjectStore | null },
 ) {
   const loaded = await loadFamilyStatementDocument(client, organisationId, input);
-  const logo = await loadOrganisationLogo(client, organisationId, options?.objectStore);
+  const logo = await loadOrganisationLogo(client, organisationId, options?.objectStore, loaded.document.logoObjectId);
   const files = [
     {
       name: financePdfFilename(loaded.document),
@@ -4193,7 +4164,12 @@ export async function renderStatementPdfBytes(
   document: FinanceStatementDocument,
   options?: { objectStore?: FinanceObjectStore | null },
 ) {
-  const logo = await loadOrganisationLogo(client, organisationId, options?.objectStore);
+  const logo = await loadOrganisationLogo(
+    client,
+    organisationId,
+    options?.objectStore,
+    document.logoObjectId ?? (await loadSchoolFinanceProfile(client, organisationId)).logoObjectId,
+  );
   const rendered = { ...document, logo };
   return { filename: financePdfFilename(rendered), bytes: renderFinancePdf(rendered) };
 }

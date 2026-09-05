@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { Dispatch, FormEvent, SetStateAction, useEffect, useRef, useState } from "react";
 import { Alert, Badge, Button, FormField, Input, LoadingState, PageError, PageHeader, SectionCard } from "../../../../components/ui";
-import { api } from "../../../../lib/api";
+import { api, downloadAuthenticated, fetchAuthenticatedBlobUrl } from "../../../../lib/api";
 import { userFacingError } from "../../../../lib/errors";
 import { usePermissions } from "../../../../lib/use-permissions";
 import { FinanceNav } from "../finance-nav";
@@ -34,6 +34,20 @@ type Settings = {
   vatRegistrationNumber: string | null;
   vatRatePercent: number;
   vatPricesInclusive: boolean;
+  financeLogoObjectId: string | null;
+  documentLogoMode: "school" | "finance" | "none";
+  documentTemplate: {
+    logoMode: "school" | "finance" | "none";
+    showSchoolName: boolean;
+    showLegalName: boolean;
+    showAddress: boolean;
+    showPhone: boolean;
+    showEmail: boolean;
+    showWebsite: boolean;
+    showVatNumber: boolean;
+    footerShowContact: boolean;
+    footerShowLegal: boolean;
+  };
 };
 
 export default function FinanceSettingsPage() {
@@ -50,6 +64,20 @@ export default function FinanceSettingsPage() {
           vatRegistrationNumber: body.settings.vatRegistrationNumber ?? null,
           vatRatePercent: Number(body.settings.vatRatePercent ?? 0),
           vatPricesInclusive: body.settings.vatPricesInclusive !== false,
+          financeLogoObjectId: body.settings.financeLogoObjectId ?? null,
+          documentLogoMode: body.settings.documentLogoMode ?? body.settings.documentTemplate?.logoMode ?? "school",
+          documentTemplate: {
+            logoMode: body.settings.documentTemplate?.logoMode ?? "school",
+            showSchoolName: body.settings.documentTemplate?.showSchoolName !== false,
+            showLegalName: body.settings.documentTemplate?.showLegalName !== false,
+            showAddress: body.settings.documentTemplate?.showAddress !== false,
+            showPhone: body.settings.documentTemplate?.showPhone !== false,
+            showEmail: body.settings.documentTemplate?.showEmail !== false,
+            showWebsite: body.settings.documentTemplate?.showWebsite !== false,
+            showVatNumber: body.settings.documentTemplate?.showVatNumber !== false,
+            footerShowContact: Boolean(body.settings.documentTemplate?.footerShowContact),
+            footerShowLegal: body.settings.documentTemplate?.footerShowLegal !== false,
+          },
         }),
       )
       .catch((err: Error) => setError(userFacingError(err, "Could not load finance settings.")));
@@ -62,7 +90,19 @@ export default function FinanceSettingsPage() {
     try {
       const body = await api<{ settings: Settings }>("/api/v1/finance/settings", {
         method: "PATCH",
-        body: JSON.stringify(settings),
+        body: JSON.stringify({
+          ...settings,
+          documentLogoMode: settings.documentLogoMode,
+          documentShowSchoolName: settings.documentTemplate.showSchoolName,
+          documentShowLegalName: settings.documentTemplate.showLegalName,
+          documentShowAddress: settings.documentTemplate.showAddress,
+          documentShowPhone: settings.documentTemplate.showPhone,
+          documentShowEmail: settings.documentTemplate.showEmail,
+          documentShowWebsite: settings.documentTemplate.showWebsite,
+          documentShowVatNumber: settings.documentTemplate.showVatNumber,
+          documentFooterShowContact: settings.documentTemplate.footerShowContact,
+          documentFooterShowLegal: settings.documentTemplate.footerShowLegal,
+        }),
       });
       setSettings(body.settings);
       setMessage("Settings saved. Existing invoices are not changed.");
@@ -213,10 +253,11 @@ export default function FinanceSettingsPage() {
           <button type="submit">Save settings</button>
         </form>
       </SectionCard>
-      <SectionCard title="Invoice & Receipt details">
+      <DocumentTemplateSettings settings={settings} setSettings={setSettings} save={save} setError={setError} />
+      <SectionCard title="Payment details">
         <p className="muted">
-          School name, address, phone, website and logo come from School Settings. Bank details are optional payment
-          instructions for this school’s invoices and receipts. They are not Stripe or card credentials.
+          Optional bank details printed on outstanding invoices and bank-transfer receipts. These are not Stripe or card
+          credentials.
         </p>
         <form className="stack" onSubmit={save}>
           <FormField label="Finance / bursar email" hint="Shown on invoices and receipts. Leave blank to use the school contact email.">
@@ -258,13 +299,7 @@ export default function FinanceSettingsPage() {
               onChange={(event) => setSettings({ ...settings, paymentInstructions: event.target.value || null })}
             />
           </FormField>
-          <FormField label="Invoice footer note" hint="Optional legal or payment note printed under the totals.">
-            <textarea
-              value={settings.invoiceFooter ?? ""}
-              onChange={(event) => setSettings({ ...settings, invoiceFooter: event.target.value || null })}
-            />
-          </FormField>
-          <Button type="submit">Save invoice details</Button>
+          <Button type="submit">Save payment details</Button>
         </form>
       </SectionCard>
       <SectionCard title="VAT / Tax">
@@ -334,6 +369,226 @@ export default function FinanceSettingsPage() {
       </SectionCard>
       <PaymentProviderSettings />
     </>
+  );
+}
+
+function DocumentTemplateSettings({
+  settings,
+  setSettings,
+  save,
+  setError,
+}: {
+  settings: Settings;
+  setSettings: Dispatch<SetStateAction<Settings | null>>;
+  save: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  setError: Dispatch<SetStateAction<string>>;
+}) {
+  const logoInput = useRef<HTMLInputElement>(null);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [previewing, setPreviewing] = useState<"invoice" | "receipt" | null>(null);
+
+  useEffect(() => {
+    let revoked: string | null = null;
+    if (!settings.financeLogoObjectId) {
+      setLogoUrl(null);
+      return;
+    }
+    fetchAuthenticatedBlobUrl("/api/v1/finance/settings/logo")
+      .then((url) => {
+        revoked = url;
+        setLogoUrl(url);
+      })
+      .catch(() => setLogoUrl(null));
+    return () => {
+      if (revoked) URL.revokeObjectURL(revoked);
+    };
+  }, [settings.financeLogoObjectId]);
+
+  function patchTemplate(patch: Partial<Settings["documentTemplate"]>) {
+    setSettings({ ...settings, documentTemplate: { ...settings.documentTemplate, ...patch } });
+  }
+
+  async function uploadLogo(file: File) {
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const body = await api<{ settings: Settings }>("/api/v1/finance/settings/logo", { method: "POST", body: form });
+      setSettings({
+        ...settings,
+        ...body.settings,
+        documentLogoMode: body.settings.documentLogoMode ?? "finance",
+        financeLogoObjectId: body.settings.financeLogoObjectId ?? null,
+        documentTemplate: body.settings.documentTemplate ?? { ...settings.documentTemplate, logoMode: "finance" },
+      });
+    } catch (err) {
+      setError(userFacingError(err as Error, "Could not upload the finance logo."));
+    }
+  }
+
+  async function removeLogo() {
+    try {
+      const body = await api<{ settings: Settings }>("/api/v1/finance/settings/logo", { method: "DELETE" });
+      setSettings({
+        ...settings,
+        ...body.settings,
+        financeLogoObjectId: null,
+        documentLogoMode: body.settings.documentLogoMode ?? settings.documentLogoMode,
+        documentTemplate: body.settings.documentTemplate ?? settings.documentTemplate,
+      });
+    } catch (err) {
+      setError(userFacingError(err as Error, "Could not remove the finance logo."));
+    }
+  }
+
+  async function preview(kind: "invoice" | "receipt") {
+    setPreviewing(kind);
+    try {
+      await downloadAuthenticated(`/api/v1/finance/documents/preview/${kind}`, `sample-${kind}.pdf`);
+    } catch (err) {
+      setError(userFacingError(err as Error, "Could not open the preview."));
+    } finally {
+      setPreviewing(null);
+    }
+  }
+
+  return (
+    <SectionCard title="Invoice & Receipt templates">
+      <p className="muted">
+        Controls how this school’s invoices and receipts look. Changing a template does not rewrite invoices that have
+        already been issued. Use the school logo, upload a dedicated finance logo, or print the school name only.
+      </p>
+      <form className="stack" onSubmit={save}>
+        <FormField label="Document logo">
+          <label>
+            <input
+              type="radio"
+              name="documentLogoMode"
+              checked={settings.documentLogoMode === "school"}
+              onChange={() =>
+                setSettings({
+                  ...settings,
+                  documentLogoMode: "school",
+                  documentTemplate: { ...settings.documentTemplate, logoMode: "school" },
+                })
+              }
+            />{" "}
+            Use school logo
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="documentLogoMode"
+              checked={settings.documentLogoMode === "finance"}
+              onChange={() =>
+                setSettings({
+                  ...settings,
+                  documentLogoMode: "finance",
+                  documentTemplate: { ...settings.documentTemplate, logoMode: "finance" },
+                })
+              }
+            />{" "}
+            Use a dedicated invoice/receipt logo
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="documentLogoMode"
+              checked={settings.documentLogoMode === "none"}
+              onChange={() =>
+                setSettings({
+                  ...settings,
+                  documentLogoMode: "none",
+                  documentTemplate: { ...settings.documentTemplate, logoMode: "none" },
+                })
+              }
+            />{" "}
+            School name only (no logo)
+          </label>
+        </FormField>
+        {settings.documentLogoMode === "finance" ? (
+          <div className="stack">
+            {logoUrl ? <img src={logoUrl} alt="Finance document logo" style={{ maxHeight: 72, width: "auto" }} /> : (
+              <p className="muted">No dedicated finance logo yet. The school logo is used until you upload one.</p>
+            )}
+            <input
+              ref={logoInput}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              hidden
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) void uploadLogo(file);
+              }}
+            />
+            <div className="button-row">
+              <Button type="button" onClick={() => logoInput.current?.click()}>
+                {settings.financeLogoObjectId ? "Replace finance logo" : "Upload finance logo"}
+              </Button>
+              {settings.financeLogoObjectId ? (
+                <Button type="button" variant="secondary" onClick={() => void removeLogo()}>
+                  Remove
+                </Button>
+              ) : null}
+            </div>
+            <p className="muted">PNG or JPEG recommended. Transparent PNG is supported. SVG is not accepted.</p>
+          </div>
+        ) : null}
+        <p className="muted">Header fields</p>
+        {(
+          [
+            ["showSchoolName", "School name"],
+            ["showLegalName", "Legal / company name"],
+            ["showAddress", "Address"],
+            ["showPhone", "Telephone"],
+            ["showEmail", "Email"],
+            ["showWebsite", "Website"],
+            ["showVatNumber", "VAT registration number (when VAT applies)"],
+          ] as const
+        ).map(([key, label]) => (
+          <label key={key}>
+            <input
+              type="checkbox"
+              checked={settings.documentTemplate[key]}
+              onChange={(event) => patchTemplate({ [key]: event.target.checked })}
+            />{" "}
+            {label}
+          </label>
+        ))}
+        <FormField label="Invoice footer note" hint="Optional legal or payment note printed under the totals. Clearing this removes it from future invoices only.">
+          <textarea
+            value={settings.invoiceFooter ?? ""}
+            onChange={(event) => setSettings({ ...settings, invoiceFooter: event.target.value || null })}
+          />
+        </FormField>
+        <label>
+          <input
+            type="checkbox"
+            checked={settings.documentTemplate.footerShowLegal}
+            onChange={(event) => patchTemplate({ footerShowLegal: event.target.checked })}
+          />{" "}
+          Show legal / company name in the page footer
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={settings.documentTemplate.footerShowContact}
+            onChange={(event) => patchTemplate({ footerShowContact: event.target.checked })}
+          />{" "}
+          Show telephone, email and website in the page footer
+        </label>
+        <div className="button-row">
+          <Button type="submit">Save template</Button>
+          <Button type="button" variant="secondary" disabled={previewing !== null} onClick={() => void preview("invoice")}>
+            {previewing === "invoice" ? "Preparing…" : "Preview invoice"}
+          </Button>
+          <Button type="button" variant="secondary" disabled={previewing !== null} onClick={() => void preview("receipt")}>
+            {previewing === "receipt" ? "Preparing…" : "Preview receipt"}
+          </Button>
+        </div>
+        <p className="muted">Previews use sample data only. They do not create invoices, receipts, payments or numbers.</p>
+      </form>
+    </SectionCard>
   );
 }
 

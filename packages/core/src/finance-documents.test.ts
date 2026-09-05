@@ -14,6 +14,7 @@ import {
   type FinanceReceiptDocument,
   type FinanceStatementDocument,
 } from "./finance-documents.js";
+import { DEFAULT_FINANCE_DOCUMENT_TEMPLATE } from "./finance-document-template.js";
 import { encodeWinAnsiBytes, extractPdfText as extractText } from "./finance-pdf.js";
 
 function crc32(bytes: Uint8Array): number {
@@ -127,6 +128,93 @@ describe("finance PDF documents", () => {
     expect(financePdfFilename(outstandingInvoice)).toBe("RIV-INV-2026-000001.pdf");
   });
 
+  it("prints the payer name without a Family prefix and rewrites generated tuition lines", () => {
+    const text = extractPdfText(
+      renderFinancePdf({
+        ...outstandingInvoice,
+        billToName: "Family — Shahid Rasool",
+        familyName: "Family — Shahid Rasool",
+        classOrYear: "Year 3",
+        lines: [
+          { description: "Amina Rasool tuition", pupilName: "Amina Rasool", amountMinor: 200000, kind: "tuition" },
+          { description: "Music lesson package", pupilName: "Amina Rasool", amountMinor: 4000, kind: "miscellaneous" },
+        ],
+      }),
+    );
+    expect(text).toContain("INVOICE TO");
+    expect(text).toContain("Shahid Rasool");
+    expect(text).not.toMatch(/Family —/);
+    expect(text).toContain("Tuition fees – Year 3");
+    expect(text).not.toContain("Amina Rasool tuition");
+    expect(text).toContain("Music lesson package");
+  });
+
+  it("omits the pupil line on receipts when none are known and lists multiple pupils when they are", () => {
+    const none = extractPdfText(
+      renderFinancePdf({
+        kind: "receipt",
+        ...school,
+        receiptNumber: "RIV-RCT-NONE",
+        paymentDate: "2026-09-05",
+        familyName: "Family — Example",
+        billToName: "Example Parent",
+        pupilNames: [],
+        invoiceReferences: ["RIV-INV-1"],
+        description: "Payment",
+        currency: "GBP",
+        amountMinor: 1000,
+        paymentMethod: "card",
+        remainingMinor: 0,
+        status: "succeeded",
+      }),
+    );
+    expect(none).toContain("Example Parent");
+    expect(none).not.toContain("Pupil:");
+    expect(none).not.toContain("Pupils:");
+    expect(none).not.toContain("Family —");
+
+    const many = extractPdfText(
+      renderFinancePdf({
+        kind: "receipt",
+        ...school,
+        receiptNumber: "RIV-RCT-MANY",
+        paymentDate: "2026-09-05",
+        familyName: "Family",
+        billToName: "Pat Parent",
+        pupilNames: ["Child One", "Child Two"],
+        invoiceReferences: ["RIV-INV-1"],
+        description: "Payment",
+        currency: "GBP",
+        amountMinor: 1000,
+        paymentMethod: "card",
+        remainingMinor: 0,
+        status: "succeeded",
+      }),
+    );
+    expect(many).toContain("Pupils: Child One, Child Two");
+  });
+
+  it("honours header and footer template toggles and marks sample previews", () => {
+    const hidden = extractPdfText(
+      renderFinancePdf({
+        ...outstandingInvoice,
+        samplePreview: true,
+        documentTemplate: {
+          ...DEFAULT_FINANCE_DOCUMENT_TEMPLATE,
+          showAddress: false,
+          showPhone: false,
+          showWebsite: false,
+          footerShowLegal: false,
+          footerShowContact: true,
+        },
+      }),
+    );
+    expect(hidden).toContain("SAMPLE — preview only");
+    expect(hidden).not.toContain("12 Chapel Lane");
+    expect(hidden).not.toContain("0121 000 0000");
+    expect(hidden).toContain("finance@riverside.test");
+  });
+
   it("encodes sterling, en-dash and em-dash instead of mojibake", () => {
     const bytes = renderFinancePdf({
       ...outstandingInvoice,
@@ -150,7 +238,8 @@ describe("finance PDF documents", () => {
     expect(content).toContain("\\226");
     expect(content).toContain("\\227");
     const text = extractPdfText(bytes);
-    expect(text).toContain("Family — Shahid Rasool");
+    expect(text).toContain("Shahid Rasool");
+    expect(text).not.toContain("Family —");
     expect(text).toContain("01/09/2026–30/09/2026");
     expect(text).toContain("O'Connor's tuition — September");
     expect(text).toContain("£");
@@ -342,6 +431,25 @@ describe("finance PDF documents", () => {
     expect(frozen.bankAccountNumber).toBeNull();
     expect(frozen.paymentInstructions).toBe("Quote the invoice number.");
     expect(frozen.logoObjectId).toBe("logo-issued");
+    expect(frozen.documentTemplate).toEqual(DEFAULT_FINANCE_DOCUMENT_TEMPLATE);
+  });
+
+  it("keeps issued document-template flags instead of later live settings", () => {
+    const frozen = applyFrozenSchoolBranding(
+      {
+        schoolName: "Issued School",
+        documentTemplate: { ...DEFAULT_FINANCE_DOCUMENT_TEMPLATE, showAddress: false, logoMode: "none" },
+        logoObjectId: "logo-issued",
+      },
+      {
+        schoolName: "Changed School",
+        documentTemplate: { ...DEFAULT_FINANCE_DOCUMENT_TEMPLATE, showAddress: true, logoMode: "school" },
+        logoObjectId: "logo-new",
+      },
+    );
+    expect(frozen.documentTemplate?.showAddress).toBe(false);
+    expect(frozen.documentTemplate?.logoMode).toBe("none");
+    expect(frozen.logoObjectId).toBe("logo-issued");
   });
 
   it("fills only missing keys on legacy snapshots from current school settings", () => {
@@ -355,12 +463,14 @@ describe("finance PDF documents", () => {
         bankName: "Live Bank",
         paymentInstructions: "Live instructions",
         logoObjectId: "logo-live",
+        documentTemplate: { ...DEFAULT_FINANCE_DOCUMENT_TEMPLATE, showAddress: false },
       },
     );
     expect(filled.schoolName).toBe("Legacy Header");
     expect(filled.bankName).toBe("Live Bank");
     expect(filled.schoolAddressLines).toEqual(["1 Live Street"]);
     expect(filled.logoObjectId).toBe("logo-live");
+    expect(filled.documentTemplate).toEqual(DEFAULT_FINANCE_DOCUMENT_TEMPLATE);
   });
 
   it("keeps immutable snapshot line amounts while showing live balance", () => {
@@ -405,6 +515,9 @@ describe("finance PDF documents", () => {
     const card = extractPdfText(renderFinancePdf(receipt));
     expect(card).toContain("RECEIPT");
     expect(card).toContain("RECEIVED FROM");
+    expect(card).toContain("Shahid Rasool");
+    expect(card).not.toContain("Family —");
+    expect(card).toContain("Pupil: Amina Rasool");
     expect(card).toContain("Card payment (Stripe)");
     expect(card).not.toContain("INVOICE TO");
     expect(card).not.toContain("Example Bank");

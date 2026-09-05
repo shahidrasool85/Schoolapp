@@ -50,6 +50,8 @@ import {
   renderStatementPdfBytes,
   reverseInvoicePayment,
   revokeStaffChildLink,
+  setFinanceDocumentLogo,
+  renderFinanceDocumentPreviewPdf,
   updateDiscountRule,
   updateFeeSchedule,
   updateFinanceSettings,
@@ -60,7 +62,8 @@ import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
 import { paymentRuntime, publicOriginFromRequest } from "../payments-context";
 import { uuidRouteParam, withSchoolActor } from "../school-context";
-import { storageOf } from "../file-service";
+import { storageOf, scannerOf, readUploadedFile, insertPendingObject, putAndActivateObject, runUpload, profileForDomain, storageErrorToAppError } from "../file-service";
+import { assertBrandingImageDimensions, validateUpload } from "@schoolapp/storage";
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -105,11 +108,116 @@ export function registerTuitionRoutes(app: SchoolappApi) {
           vatRatePercent: z.number().min(0).max(100).optional(),
           vatRateBps: z.number().int().min(0).max(10000).optional(),
           vatPricesInclusive: z.boolean().optional(),
+          documentLogoMode: z.enum(["school", "finance", "none"]).optional(),
+          documentShowSchoolName: z.boolean().optional(),
+          documentShowLegalName: z.boolean().optional(),
+          documentShowAddress: z.boolean().optional(),
+          documentShowPhone: z.boolean().optional(),
+          documentShowEmail: z.boolean().optional(),
+          documentShowWebsite: z.boolean().optional(),
+          documentShowVatNumber: z.boolean().optional(),
+          documentFooterShowContact: z.boolean().optional(),
+          documentFooterShowLegal: z.boolean().optional(),
         })
         .safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid finance settings");
       return c.json({
         settings: await updateFinanceSettings(client, { organisationId: orgId, actorUserId: userId, patch: parsed.data }),
+      });
+    }),
+  );
+
+  app.get("/finance/settings/logo", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      if (!canManageFinanceSettings(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      const settings = await loadFinanceSettings(client, orgId);
+      if (!settings.financeLogoObjectId) throw new AppError(404, "not_found", "No finance logo");
+      const row = await client.query<{ storage_key: string; content_type: string; original_filename: string }>(
+        `select storage_key, content_type, original_filename from stored_objects
+          where id = $1 and organisation_id = $2 and domain = 'branding' and status = 'active' and deleted_at is null`,
+        [settings.financeLogoObjectId, orgId],
+      );
+      if (!row.rows[0]) throw new AppError(404, "not_found", "No finance logo");
+      const got = await storageOf(c).getObject(row.rows[0].storage_key);
+      if (!got?.body) throw new AppError(404, "not_found", "No finance logo");
+      return new Response(Buffer.from(got.body), {
+        headers: {
+          "Content-Type": row.rows[0].content_type || "image/png",
+          "Cache-Control": "no-store",
+        },
+      });
+    }),
+  );
+
+  app.post("/finance/settings/logo", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageFinanceSettings(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      const uploaded = await readUploadedFile(c);
+      const profile = profileForDomain("branding");
+      let validated;
+      try {
+        validated = validateUpload({
+          filename: uploaded.filename,
+          declaredMime: uploaded.mime,
+          bytes: uploaded.bytes,
+          profile,
+        });
+        assertBrandingImageDimensions({
+          bytes: uploaded.bytes,
+          kind: validated.kind,
+          purpose: "logo",
+        });
+      } catch (error) {
+        throw storageErrorToAppError(error);
+      }
+      const stored = await runUpload(storageOf(c), async (track) => {
+        const pending = await insertPendingObject(client, {
+          organisationId: orgId,
+          domain: "branding",
+          ownerRecordId: orgId,
+          storage: storageOf(c),
+          validated,
+          uploadedBy: userId,
+        });
+        track(pending.storageKey);
+        await putAndActivateObject(client, storageOf(c), scannerOf(c), {
+          organisationId: orgId,
+          objectId: pending.id,
+          storageKey: pending.storageKey,
+          bytes: uploaded.bytes,
+          contentType: validated.storedContentType,
+          filename: validated.originalFilename,
+          actorUserId: userId,
+          domain: "branding",
+        });
+        await setFinanceDocumentLogo(client, { organisationId: orgId, actorUserId: userId, objectId: pending.id });
+        return pending;
+      });
+      return c.json({ settings: await loadFinanceSettings(client, orgId), objectId: stored.id }, 201);
+    }),
+  );
+
+  app.delete("/finance/settings/logo", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageFinanceSettings(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      return c.json({
+        settings: await setFinanceDocumentLogo(client, { organisationId: orgId, actorUserId: userId, objectId: null }),
+      });
+    }),
+  );
+
+  app.get("/finance/documents/preview/:kind", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      if (!canManageFinanceSettings(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      const kind = c.req.param("kind");
+      if (kind !== "invoice" && kind !== "receipt") throw new AppError(404, "not_found", "Not found");
+      const pdf = await renderFinanceDocumentPreviewPdf(client, orgId, kind, { objectStore: storageOf(c) });
+      return new Response(Buffer.from(pdf.bytes), {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `inline; filename="${pdf.filename}"`,
+          "Cache-Control": "no-store",
+        },
       });
     }),
   );

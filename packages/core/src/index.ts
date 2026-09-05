@@ -900,11 +900,13 @@ export {
   quotePupilTuition,
   recordInvoicePayment,
   renderFamilyStatementZip,
+  renderFinanceDocumentPreviewPdf,
   renderInvoicePdfBytes,
   renderReceiptPdfBytes,
   renderStatementPdfBytes,
   reverseInvoicePayment,
   revokeStaffChildLink,
+  setFinanceDocumentLogo,
   settleInvoiceProviderEvent,
   updateDiscountRule,
   updateFeeSchedule,
@@ -1276,3 +1278,13 @@ export {
   type FinanceObjectStore,
   type FinancePdfLogo,
 } from "./finance-documents.js";
+
+export {
+  DEFAULT_FINANCE_DOCUMENT_TEMPLATE,
+  financePayerDisplayName,
+  presentTuitionLineDescription,
+  resolveFinanceLogoObjectId,
+  freezeDocumentTemplate,
+  type FinanceDocumentTemplate,
+  type FinanceDocumentLogoMode,
+} from "./finance-document-template.js";

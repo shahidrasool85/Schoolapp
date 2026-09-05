@@ -182,7 +182,8 @@ describe("stripe webhook helper", () => {
     expect(posted).toContain("metadata%5Bschoolapp_charge_category%5D=tuition");
     expect(posted).not.toContain("schoolapp_charge_id");
     expect(posted).not.toContain("payment_method_types");
-    expect(posted).toContain("automatic_tax%5Benabled%5D=false");
+    expect(posted).toContain("managed_payments%5Benabled%5D=false");
+    expect(posted).not.toContain("automatic_tax");
     expect(posted).not.toContain("tax_code");
   });
 
@@ -224,7 +225,9 @@ describe("stripe webhook helper", () => {
     const params = new URLSearchParams(posted);
     expect(params.has("payment_method_types[0]")).toBe(false);
     expect(posted).not.toMatch(/payment_method_types/);
-    expect(params.get("automatic_tax[enabled]")).toBe("false");
+    expect(params.get("managed_payments[enabled]")).toBe("false");
+    expect(params.has("automatic_tax[enabled]")).toBe(false);
+    expect(posted).not.toMatch(/automatic_tax/);
     expect(params.has("line_items[0][price_data][product_data][tax_code]")).toBe(false);
     expect(params.has("line_items[0][price_data][tax_behavior]")).toBe(false);
     expect(params.has("tax_id_collection[enabled]")).toBe(false);

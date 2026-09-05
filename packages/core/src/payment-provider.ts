@@ -326,10 +326,13 @@ export class StripePaymentProvider implements PaymentProvider {
     body.set("success_url", input.successUrl);
     body.set("cancel_url", input.cancelUrl);
     body.set("client_reference_id", input.reference);
-    // Stripe Managed Payments rejects an explicit payment_method_types list.
-    // Account-level Stripe Tax requires a product tax_code unless Checkout
-    // sessions opt out. LuvLearn invoices are not VAT invoices.
-    body.set("automatic_tax[enabled]", "false");
+    // Some Stripe accounts default Managed Payments on Checkout Sessions even
+    // when Dashboard onboarding still shows Get started. That path forbids
+    // automatic_tax[enabled]=false and requires a product tax_code. School
+    // tuition Checkout keeps the school as merchant of record: opt out per
+    // session and omit automatic_tax so the invoice outstanding is charged
+    // unchanged. Do not send payment_method_types (dynamic methods / MP).
+    body.set("managed_payments[enabled]", "false");
     body.set("line_items[0][quantity]", "1");
     body.set("line_items[0][price_data][currency]", input.currency.toLowerCase());
     body.set("line_items[0][price_data][unit_amount]", String(input.amountMinor));

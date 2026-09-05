@@ -355,8 +355,9 @@ describe("per-school Stripe configuration", () => {
       checkoutCalls.every((call) => new URLSearchParams(call.body).get("line_items[0][price_data][currency]") === "gbp"),
     ).toBe(true);
     expect(
-      checkoutCalls.every((call) => new URLSearchParams(call.body).get("automatic_tax[enabled]") === "false"),
+      checkoutCalls.every((call) => new URLSearchParams(call.body).get("managed_payments[enabled]") === "false"),
     ).toBe(true);
+    expect(checkoutCalls.every((call) => !call.body.includes("automatic_tax"))).toBe(true);
     expect(checkoutCalls.every((call) => !call.body.includes("tax_code"))).toBe(true);
     expect(checkoutCalls.every((call) => !call.body.includes("tax_behavior"))).toBe(true);
 

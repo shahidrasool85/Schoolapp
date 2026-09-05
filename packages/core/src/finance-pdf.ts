@@ -571,6 +571,7 @@ export function fittedImageSize(
   maxWidth: number,
   maxHeight: number,
 ): { width: number; height: number } {
-  const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
+  if (image.width <= 0 || image.height <= 0) return { width: maxWidth, height: maxHeight };
+  const scale = Math.min(maxWidth / image.width, maxHeight / image.height);
   return { width: image.width * scale, height: image.height * scale };
 }

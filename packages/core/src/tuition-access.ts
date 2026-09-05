@@ -30,6 +30,14 @@ import {
 } from "./mail.js";
 import { enqueueOutboxMail } from "./finance-mail-queue.js";
 import {
+  DEFAULT_FINANCE_DOCUMENT_TEMPLATE,
+  financeDocumentTemplateFromSettings,
+  parseFinanceDocumentLogoMode,
+  resolveFinanceLogoObjectId,
+  type FinanceDocumentLogoMode,
+  type FinanceDocumentTemplate,
+} from "./finance-document-template.js";
+import {
   financePdfFilename,
   isSensitiveProviderReference,
   renderFinancePdf,
@@ -156,6 +164,9 @@ export type FinanceSettings = {
   vatRateBps: number;
   vatRatePercent: number;
   vatPricesInclusive: boolean;
+  financeLogoObjectId: string | null;
+  documentLogoMode: FinanceDocumentLogoMode;
+  documentTemplate: FinanceDocumentTemplate;
 };
 
 function mapSettings(row: Record<string, unknown>): FinanceSettings {
@@ -189,6 +200,9 @@ function mapSettings(row: Record<string, unknown>): FinanceSettings {
     vatRateBps: Number(row.vat_rate_bps ?? 0),
     vatRatePercent: Number(row.vat_rate_bps ?? 0) / 100,
     vatPricesInclusive: row.vat_prices_inclusive !== false,
+    financeLogoObjectId: row.finance_logo_object_id ? String(row.finance_logo_object_id) : null,
+    documentLogoMode: parseFinanceDocumentLogoMode(row.document_logo_mode ? String(row.document_logo_mode) : "school"),
+    documentTemplate: financeDocumentTemplateFromSettings(row),
   };
 }
 
@@ -235,6 +249,16 @@ export async function updateFinanceSettings(
       vatRateBps: number | null;
       vatRatePercent: number | null;
       vatPricesInclusive: boolean;
+      documentLogoMode: FinanceDocumentLogoMode;
+      documentShowSchoolName: boolean;
+      documentShowLegalName: boolean;
+      documentShowAddress: boolean;
+      documentShowPhone: boolean;
+      documentShowEmail: boolean;
+      documentShowWebsite: boolean;
+      documentShowVatNumber: boolean;
+      documentFooterShowContact: boolean;
+      documentFooterShowLegal: boolean;
     }>;
   },
 ): Promise<FinanceSettings> {
@@ -270,9 +294,27 @@ export async function updateFinanceSettings(
         vatRegistrationNumber: input.patch.vatRegistrationNumber,
         vatRateBps: input.patch.vatRateBps,
         vatPricesInclusive: input.patch.vatPricesInclusive,
+        documentLogoMode: input.patch.documentLogoMode,
+        documentTemplate: undefined,
       }).filter(([, value]) => value !== undefined),
     ),
   } as FinanceSettings;
+  if (input.patch.documentLogoMode != null) {
+    next.documentLogoMode = parseFinanceDocumentLogoMode(input.patch.documentLogoMode);
+  }
+  next.documentTemplate = {
+    ...next.documentTemplate,
+    logoMode: next.documentLogoMode,
+    showSchoolName: input.patch.documentShowSchoolName ?? next.documentTemplate.showSchoolName,
+    showLegalName: input.patch.documentShowLegalName ?? next.documentTemplate.showLegalName,
+    showAddress: input.patch.documentShowAddress ?? next.documentTemplate.showAddress,
+    showPhone: input.patch.documentShowPhone ?? next.documentTemplate.showPhone,
+    showEmail: input.patch.documentShowEmail ?? next.documentTemplate.showEmail,
+    showWebsite: input.patch.documentShowWebsite ?? next.documentTemplate.showWebsite,
+    showVatNumber: input.patch.documentShowVatNumber ?? next.documentTemplate.showVatNumber,
+    footerShowContact: input.patch.documentFooterShowContact ?? next.documentTemplate.footerShowContact,
+    footerShowLegal: input.patch.documentFooterShowLegal ?? next.documentTemplate.footerShowLegal,
+  };
   next.financeEmail = next.financeEmail?.trim() ? next.financeEmail.trim() : null;
   next.bankName = next.bankName?.trim() ? next.bankName.trim() : null;
   next.bankAccountName = next.bankAccountName?.trim() ? next.bankAccountName.trim() : null;
@@ -354,6 +396,16 @@ export async function updateFinanceSettings(
             vat_registration_number = $27,
             vat_rate_bps = $28,
             vat_prices_inclusive = $29,
+            document_logo_mode = $30,
+            document_show_school_name = $31,
+            document_show_legal_name = $32,
+            document_show_address = $33,
+            document_show_phone = $34,
+            document_show_email = $35,
+            document_show_website = $36,
+            document_show_vat_number = $37,
+            document_footer_show_contact = $38,
+            document_footer_show_legal = $39,
             updated_by = $18
       where organisation_id = $1`,
     [
@@ -386,6 +438,16 @@ export async function updateFinanceSettings(
       next.vatRegistrationNumber,
       next.vatRateBps,
       next.vatPricesInclusive,
+      next.documentTemplate.logoMode,
+      next.documentTemplate.showSchoolName,
+      next.documentTemplate.showLegalName,
+      next.documentTemplate.showAddress,
+      next.documentTemplate.showPhone,
+      next.documentTemplate.showEmail,
+      next.documentTemplate.showWebsite,
+      next.documentTemplate.showVatNumber,
+      next.documentTemplate.footerShowContact,
+      next.documentTemplate.footerShowLegal,
     ],
   );
   await writeAudit(client, {
@@ -3661,7 +3723,10 @@ type SchoolFinanceProfile = {
   bankSortCode: string | null;
   paymentInstructions: string | null;
   paymentDueDays: number;
+  schoolLogoObjectId: string | null;
+  financeLogoObjectId: string | null;
   logoObjectId: string | null;
+  documentTemplate: FinanceDocumentTemplate;
 };
 
 function compactLines(values: Array<string | null | undefined>): string[] {
@@ -3712,7 +3777,14 @@ async function loadSchoolFinanceProfile(client: Client, organisationId: string):
     bankSortCode: settings.bankSortCode,
     paymentInstructions: settings.paymentInstructions,
     paymentDueDays: settings.paymentDueDays,
-    logoObjectId: school?.logo_object_id ?? null,
+    schoolLogoObjectId: school?.logo_object_id ?? null,
+    financeLogoObjectId: settings.financeLogoObjectId,
+    logoObjectId: resolveFinanceLogoObjectId({
+      logoMode: settings.documentLogoMode,
+      financeLogoObjectId: settings.financeLogoObjectId,
+      schoolLogoObjectId: school?.logo_object_id ?? null,
+    }),
+    documentTemplate: settings.documentTemplate,
   };
 }
 
@@ -3733,6 +3805,7 @@ function brandingFromSchool(school: SchoolFinanceProfile) {
     bankSortCode: school.bankSortCode,
     paymentInstructions: school.paymentInstructions,
     logoObjectId: school.logoObjectId,
+    documentTemplate: school.documentTemplate ?? DEFAULT_FINANCE_DOCUMENT_TEMPLATE,
   };
 }
 
@@ -3763,6 +3836,126 @@ async function loadOrganisationLogo(
   } catch {
     return null;
   }
+}
+
+export async function setFinanceDocumentLogo(
+  client: Client,
+  input: { organisationId: string; actorUserId: string; objectId: string | null },
+) {
+  if (input.objectId) {
+    const owned = await client.query(
+      `select id from stored_objects
+        where id = $1 and organisation_id = $2 and domain = 'branding' and status = 'active' and deleted_at is null`,
+      [input.objectId, input.organisationId],
+    );
+    if (!owned.rows[0]) {
+      throw new AppError(404, "not_found", "That logo is not available for this school");
+    }
+  }
+  await client.query(
+    `update school_finance_settings
+        set finance_logo_object_id = $2, document_logo_mode = case when $2::uuid is null then document_logo_mode else 'finance' end, updated_by = $3
+      where organisation_id = $1`,
+    [input.organisationId, input.objectId, input.actorUserId],
+  );
+  await writeAudit(client, {
+    organisationId: input.organisationId,
+    actorUserId: input.actorUserId,
+    action: input.objectId ? "finance.document_logo.uploaded" : "finance.document_logo.removed",
+    entityType: "school_finance_settings",
+    entityId: input.organisationId,
+    after: { financeLogoObjectId: input.objectId },
+  });
+  return loadFinanceSettings(client, input.organisationId);
+}
+
+function sampleFinanceDocuments(
+  school: SchoolFinanceProfile,
+  settings: FinanceSettings,
+): { invoice: FinanceInvoiceDocument; receipt: FinanceReceiptDocument } {
+  const policy = schoolVatPolicyFromSettings(settings);
+  const entered = !policy.enabled || policy.pricesInclusive ? 60_000 : 50_000;
+  const vat = applyVatToEnteredAmount(entered, policy);
+  const branding = brandingFromSchool(school);
+  const invoice: FinanceInvoiceDocument = {
+    kind: "invoice",
+    ...branding,
+    invoiceNumber: "SAMPLE-INV",
+    invoiceDate: "2026-09-01",
+    dueDate: "2026-09-15",
+    terms: invoiceTerms(school.paymentDueDays),
+    familyName: "Example Parent",
+    billToName: "Example Parent",
+    billToAddressLines: ["1 Sample Street", "Solihull", "B91 1AA"],
+    pupilNames: ["Example Pupil"],
+    classOrYear: "Year 3",
+    description: "Tuition fees – Year 3",
+    billingPeriod: "01/09/2026–30/09/2026",
+    currency: settings.currency || "GBP",
+    subtotalMinor: vat.netMinor,
+    discountTotalMinor: 0,
+    creditTotalMinor: 0,
+    amountMinor: vat.grossMinor,
+    paidMinor: 0,
+    outstandingMinor: vat.grossMinor,
+    status: "issued",
+    vatInvoice: policy.enabled,
+    vatRegistrationNumber: settings.vatRegistrationNumber,
+    vatRateBps: vat.rateBps,
+    vatPricesInclusive: policy.enabled ? policy.pricesInclusive : null,
+    vatNetMinor: vat.netMinor,
+    vatAmountMinor: vat.vatMinor,
+    samplePreview: true,
+    lines: [
+      {
+        description: "Example Pupil tuition",
+        pupilName: "Example Pupil",
+        amountMinor: entered,
+        kind: "tuition",
+        date: "2026-09-01",
+        vatRateBps: vat.rateBps,
+        netMinor: vat.netMinor,
+        vatMinor: vat.vatMinor,
+        grossMinor: vat.grossMinor,
+      },
+    ],
+    footer: settings.invoiceFooter,
+  };
+  const receipt: FinanceReceiptDocument = {
+    kind: "receipt",
+    ...branding,
+    receiptNumber: "SAMPLE-RCT",
+    paymentDate: "2026-09-05",
+    familyName: "Example Parent",
+    billToName: "Example Parent",
+    billToAddressLines: ["1 Sample Street", "Solihull", "B91 1AA"],
+    pupilNames: ["Example Pupil"],
+    invoiceReferences: ["SAMPLE-INV"],
+    allocations: [{ invoiceNumber: "SAMPLE-INV", invoiceDate: "2026-09-01", amountMinor: vat.grossMinor }],
+    description: "Payment for SAMPLE-INV",
+    currency: settings.currency || "GBP",
+    amountMinor: vat.grossMinor,
+    paymentMethod: "card",
+    remainingMinor: 0,
+    status: "succeeded",
+    samplePreview: true,
+  };
+  return { invoice, receipt };
+}
+
+export async function renderFinanceDocumentPreviewPdf(
+  client: Client,
+  organisationId: string,
+  kind: "invoice" | "receipt",
+  options?: { objectStore?: FinanceObjectStore | null },
+) {
+  const settings = await loadFinanceSettings(client, organisationId);
+  const school = await loadSchoolFinanceProfile(client, organisationId);
+  const samples = sampleFinanceDocuments(school, settings);
+  const doc = kind === "receipt" ? samples.receipt : samples.invoice;
+  const logo = await loadOrganisationLogo(client, organisationId, options?.objectStore, school.logoObjectId);
+  const withLogo = { ...doc, logo };
+  return { filename: kind === "receipt" ? "sample-receipt.pdf" : "sample-invoice.pdf", bytes: renderFinancePdf(withLogo) };
 }
 
 async function payerContact(client: Client, organisationId: string, billingAccountId: string) {
@@ -3892,6 +4085,7 @@ async function buildInvoiceDocument(
       return {
         description: String(line.description),
         pupilName: line.studentLegalName,
+        classOrYear: String((line.calculation as Record<string, unknown> | null)?.yearGroupName ?? "") || null,
         amountMinor: Number(line.amountMinor),
         date: String(invoice.invoiceDate),
         kind,

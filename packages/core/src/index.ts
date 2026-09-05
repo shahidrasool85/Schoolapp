@@ -708,11 +708,15 @@ export {
   verifyStripeSignature,
   mapStripeEvent,
   safeProviderMetadata,
+  originSchemeAndHost,
+  buildStripeCheckoutFailureLog,
   type PaymentProvider,
   type PaymentRuntimeConfig,
   type ProviderEvent,
   type CreatePaymentSessionInput,
   type PaymentSessionResult,
+  type StripeCheckoutFailureLog,
+  type StripeCheckoutFailureDiagnostics,
 } from "./payment-provider.js";
 
 export {

@@ -310,16 +310,31 @@ describe("Finance invoice and receipt PDFs", () => {
       await app.request("/api/v1/finance/receipts", { headers: hdrsA }),
     );
     expect(receipts.receipts.length).toBeGreaterThanOrEqual(2);
-    const bankReceipt = receipts.receipts.find((row) => row.reference.startsWith("RIV-RCT-"))!;
+    const receiptRows = await pools.owner.query<{ id: string; reference: string; snapshot: { paymentMethod?: string } }>(
+      `select id, reference, snapshot from school_payment_receipts where organisation_id = $1 and invoice_id = $2`,
+      [schoolA.orgId, invoice.id],
+    );
+    const bankReceipt = receiptRows.rows.find((row) => (row.snapshot.paymentMethod ?? "").includes("bank"))!;
+    const cardReceipt = receiptRows.rows.find((row) => (row.snapshot.paymentMethod ?? "").includes("card"))!;
+    expect(bankReceipt).toBeTruthy();
+    expect(cardReceipt).toBeTruthy();
     const receiptPdf = await app.request(`/api/v1/finance/receipts/${bankReceipt.id}/pdf`, { headers: hdrsA });
     expect(receiptPdf.status).toBe(200);
     expect(receiptPdf.headers.get("content-type")).toContain("application/pdf");
     expect(receiptPdf.headers.get("content-disposition")).toContain(`${bankReceipt.reference}.pdf`);
     const receiptText = extractPdfText(new Uint8Array(await receiptPdf.arrayBuffer()));
     expect(receiptText).toContain("RECEIPT");
-    expect(receiptText).toMatch(/Bank transfer|Card payment \(Stripe\)/);
+    expect(receiptText).toContain("Bank transfer");
+    expect(receiptText).toContain("Riverside Bank");
     expect(receiptText).toContain(invoice.reference);
     expect(receiptText).not.toContain("pi_");
+    const cardReceiptText = extractPdfText(
+      new Uint8Array(
+        await (await app.request(`/api/v1/finance/receipts/${cardReceipt.id}/pdf`, { headers: hdrsA })).arrayBuffer(),
+      ),
+    );
+    expect(cardReceiptText).toContain("Card payment (Stripe)");
+    expect(cardReceiptText).not.toContain("Riverside Bank");
 
     const issuedSnapshot = await pools.owner.query<{ display_snapshot: Record<string, unknown> }>(
       `select display_snapshot from school_invoices where id = $1 and organisation_id = $2`,

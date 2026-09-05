@@ -341,8 +341,19 @@ describe("per-school Stripe configuration", () => {
       body: JSON.stringify({ idempotencyKey: `pay-b-${id}` }),
     });
     expect(payB.status).toBe(200);
-    expect(calls.some((call) => call.auth === "Bearer sk_test_school_a_aaaaaaaa" && call.url.includes("/v1/checkout/sessions"))).toBe(true);
-    expect(calls.some((call) => call.auth === "Bearer sk_test_school_b_bbbbbbbb" && call.url.includes("/v1/checkout/sessions"))).toBe(true);
+    const checkoutA = (await payA.json()) as { checkoutUrl: string; sessionId: string };
+    const checkoutB = (await payB.json()) as { checkoutUrl: string; sessionId: string };
+    expect(checkoutA.checkoutUrl).toContain("https://checkout.stripe.test/");
+    expect(checkoutB.checkoutUrl).toContain("https://checkout.stripe.test/");
+    expect(checkoutA.sessionId).toBeTruthy();
+    expect(checkoutB.sessionId).toBeTruthy();
+    const checkoutCalls = calls.filter((call) => call.url.includes("/v1/checkout/sessions"));
+    expect(checkoutCalls.some((call) => call.auth === "Bearer sk_test_school_a_aaaaaaaa")).toBe(true);
+    expect(checkoutCalls.some((call) => call.auth === "Bearer sk_test_school_b_bbbbbbbb")).toBe(true);
+    expect(checkoutCalls.every((call) => !call.body.includes("payment_method_types"))).toBe(true);
+    expect(
+      checkoutCalls.every((call) => new URLSearchParams(call.body).get("line_items[0][price_data][currency]") === "gbp"),
+    ).toBe(true);
 
     const sessionA = await pools.owner.query<{ provider_session_id: string; amount_minor: string }>(
       `select provider_session_id, amount_minor::text from school_payment_sessions

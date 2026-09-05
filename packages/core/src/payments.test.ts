@@ -181,6 +181,56 @@ describe("stripe webhook helper", () => {
     expect(posted).toContain("metadata%5Bschoolapp_pupil_id%5D=pupil-1");
     expect(posted).toContain("metadata%5Bschoolapp_charge_category%5D=tuition");
     expect(posted).not.toContain("schoolapp_charge_id");
+    expect(posted).not.toContain("payment_method_types");
+  });
+
+  it("creates a £500 GBP Checkout Session without payment_method_types and keeps tenant HTTPS return URLs", async () => {
+    let posted = "";
+    let requestedUrl = "";
+    const provider = new StripePaymentProvider({
+      providerKey: "stripe",
+      fakeWebhookSecret: "unused",
+      stripeSecretKey: "sk_test_placeholder",
+      stripeWebhookSecret: "whsec_test",
+      fetchImpl: (async (url, init) => {
+        requestedUrl = String(url);
+        posted = String(init?.body ?? "");
+        return {
+          ok: true,
+          json: async () => ({ id: "cs_ksw_500", url: "https://checkout.stripe.com/c/pay/cs_ksw_500" }),
+        } as Response;
+      }) as typeof fetch,
+    });
+    const created = await provider.createSession({
+      organisationId: "org-kingswood",
+      chargeId: "",
+      invoiceId: "inv-ksw-500",
+      billingAccountId: "fam-1",
+      studentProfileId: "pupil-1",
+      chargeCategory: "tuition",
+      sessionId: "sess-1",
+      transactionId: "tx-1",
+      reference: "KSW-INV-2026-000001",
+      amountMinor: 50000,
+      currency: "GBP",
+      title: "Invoice KSW-INV-2026-000001",
+      successUrl: "https://kingswood.luvlearn.co.uk/parent/finance/checkout/success?invoiceId=inv-ksw-500",
+      cancelUrl: "https://kingswood.luvlearn.co.uk/parent/finance/checkout/cancel?invoiceId=inv-ksw-500",
+    });
+    expect(requestedUrl).toContain("/v1/checkout/sessions");
+    expect(created.checkoutUrl).toBe("https://checkout.stripe.com/c/pay/cs_ksw_500");
+    const params = new URLSearchParams(posted);
+    expect(params.has("payment_method_types[0]")).toBe(false);
+    expect(posted).not.toMatch(/payment_method_types/);
+    expect(params.get("line_items[0][price_data][unit_amount]")).toBe("50000");
+    expect(params.get("line_items[0][price_data][currency]")).toBe("gbp");
+    expect(params.get("mode")).toBe("payment");
+    expect(params.get("success_url")).toBe(
+      "https://kingswood.luvlearn.co.uk/parent/finance/checkout/success?invoiceId=inv-ksw-500",
+    );
+    expect(params.get("cancel_url")).toBe(
+      "https://kingswood.luvlearn.co.uk/parent/finance/checkout/cancel?invoiceId=inv-ksw-500",
+    );
   });
 
   it("logs sanitised Stripe 400 diagnostics without secrets or the raw response body", async () => {

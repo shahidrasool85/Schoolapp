@@ -182,6 +182,8 @@ export class StripePaymentProvider implements PaymentProvider {
     body.set("payment_method_types[0]", "card");
     body.set("line_items[0][quantity]", "1");
     body.set("line_items[0][price_data][currency]", input.currency.toLowerCase());
+    // Amount is the LuvLearn outstanding gross (VAT already included when enabled).
+    // Do not set automatic_tax: Stripe Tax must not recalculate a different total.
     body.set("line_items[0][price_data][unit_amount]", String(input.amountMinor));
     body.set("line_items[0][price_data][product_data][name]", input.title);
     body.set("metadata[schoolapp_organisation_id]", input.organisationId);

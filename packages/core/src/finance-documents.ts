@@ -1,4 +1,5 @@
 import { formatUkNumericDate } from "@schoolapp/domain";
+import { formatVatRateLabel } from "./vat.js";
 import { formatMoney } from "./money.js";
 import {
   DEFAULT_FINANCE_ACCENT,
@@ -35,6 +36,11 @@ export type FinanceDocumentLine = {
   quantity?: number | null;
   rateMinor?: number | null;
   kind?: string | null;
+  vatTreatment?: "none" | "standard" | "inherit" | null;
+  vatRateBps?: number | null;
+  netMinor?: number | null;
+  vatMinor?: number | null;
+  grossMinor?: number | null;
 };
 
 export type FinanceReceiptAllocation = {
@@ -86,6 +92,11 @@ export type FinanceInvoiceDocument = FinanceSchoolBranding & {
   lines: FinanceDocumentLine[];
   footer?: string | null;
   vatInvoice: boolean;
+  vatRegistrationNumber?: string | null;
+  vatRateBps?: number | null;
+  vatPricesInclusive?: boolean | null;
+  vatNetMinor?: number | null;
+  vatAmountMinor?: number | null;
   logo?: FinancePdfLogo | null;
 };
 
@@ -173,8 +184,8 @@ const QTY_RATE_KINDS = new Set([
 ]);
 
 export const PAYMENT_METHOD_LABELS: Record<string, string> = {
-  card: "Stripe / Card",
-  stripe: "Stripe / Card",
+  card: "Card payment (Stripe)",
+  stripe: "Card payment (Stripe)",
   bank_transfer: "Bank transfer",
   cash: "Cash",
   cheque: "Cheque",
@@ -187,7 +198,7 @@ export function paymentMethodLabel(method: string | null | undefined): string {
   const key = (method ?? "").trim().toLowerCase();
   if (!key) return "Other / manual";
   if (PAYMENT_METHOD_LABELS[key]) return PAYMENT_METHOD_LABELS[key];
-  if (key.includes("stripe") || key.includes("card")) return "Stripe / Card";
+  if (key.includes("stripe") || key.includes("card")) return "Card payment (Stripe)";
   if (key.includes("bank") || key.includes("transfer")) return "Bank transfer";
   if (key.includes("cash")) return "Cash";
   if (key.includes("cheque") || key.includes("check")) return "Cheque";
@@ -260,6 +271,15 @@ function schoolContactLines(doc: FinanceSchoolBranding): string[] {
   return lines;
 }
 
+function showBankDetails(doc: FinancePdfDocument): boolean {
+  if (doc.kind === "invoice") return doc.outstandingMinor > 0;
+  if (doc.kind === "receipt") {
+    const method = (doc.paymentMethod ?? "").toLowerCase();
+    return method.includes("bank") || method.includes("transfer");
+  }
+  return false;
+}
+
 function bankFooterLines(doc: FinanceSchoolBranding): string[] {
   const parts: string[] = [];
   if (nonEmpty(doc.bankAccountNumber)) parts.push(`Account number: ${doc.bankAccountNumber}`);
@@ -291,17 +311,25 @@ function lineShowsQtyRate(line: FinanceDocumentLine): boolean {
 type TableColumn = { key: string; title: string; width: number; align: "left" | "right" };
 
 function invoiceColumns(doc: FinanceInvoiceDocument): TableColumn[] {
-  const showQtyRate = doc.lines.some(lineShowsQtyRate);
+  const vat = Boolean(doc.vatInvoice);
+  const showQtyRate = !vat && doc.lines.some(lineShowsQtyRate);
   const cols: TableColumn[] = [
-    { key: "date", title: "DATE", width: 68, align: "left" },
-    { key: "activity", title: "ACTIVITY", width: 78, align: "left" },
-    { key: "description", title: "DESCRIPTION", width: 0, align: "left" },
+    { key: "date", title: "DATE", width: vat ? 58 : 68, align: "left" },
   ];
+  if (!vat) cols.push({ key: "activity", title: "ACTIVITY", width: 78, align: "left" });
+  cols.push({ key: "description", title: "DESCRIPTION", width: 0, align: "left" });
   if (showQtyRate) {
     cols.push({ key: "qty", title: "QTY", width: 36, align: "right" });
     cols.push({ key: "rate", title: "RATE", width: 58, align: "right" });
   }
-  cols.push({ key: "amount", title: "AMOUNT", width: 70, align: "right" });
+  if (vat) {
+    cols.push({ key: "net", title: "NET", width: 62, align: "right" });
+    cols.push({ key: "vatRate", title: "VAT %", width: 42, align: "right" });
+    cols.push({ key: "vat", title: "VAT", width: 58, align: "right" });
+    cols.push({ key: "gross", title: "GROSS", width: 64, align: "right" });
+  } else {
+    cols.push({ key: "amount", title: "AMOUNT", width: 70, align: "right" });
+  }
   const used = cols.reduce((sum, col) => sum + col.width, 0);
   const desc = cols.find((col) => col.key === "description")!;
   desc.width = CONTENT_WIDTH - used;
@@ -378,8 +406,8 @@ class DocumentPainter {
     const startY = PDF_PAGE_HEIGHT - PDF_MARGIN_TOP;
     let logoHeight = 0;
     if (this.logo) {
-      const maxH = compact ? 36 : 58;
-      const maxW = compact ? 88 : 118;
+      const maxH = compact ? 40 : 64;
+      const maxW = compact ? 96 : 140;
       const fitted = fittedImageSize(this.logo, maxW, maxH);
       logoHeight = fitted.height;
       this.pdf.drawImage(
@@ -390,10 +418,11 @@ class DocumentPainter {
         fitted.height,
       );
     }
-    const textWidthMax = CONTENT_WIDTH - (this.logo ? 132 : 0);
+    const textWidthMax = CONTENT_WIDTH - (this.logo ? 148 : 0);
     this.y = startY;
-    this.textLine(this.doc.schoolName, { size: compact ? 11 : 14, font: "bold", color: INK });
+    this.wrapped(this.doc.schoolName, { size: compact ? 11 : 13, font: "bold", color: INK, width: textWidthMax });
     if (!compact) {
+      this.gap(2);
       for (const line of addressLines(this.doc, "school")) {
         this.wrapped(line, { size: 9, color: MUTED, width: textWidthMax });
       }
@@ -402,10 +431,10 @@ class DocumentPainter {
       }
     }
     const headerBottom = Math.min(this.y, startY - logoHeight - 4);
-    this.y = headerBottom - 8;
+    this.y = headerBottom - 10;
     this.pdf.line(PDF_MARGIN_LEFT, this.y + 6, PDF_PAGE_WIDTH - PDF_MARGIN_RIGHT, this.y + 6, this.accent, compact ? 1 : 1.6);
-    this.textLine(title, { size: compact ? 13 : 20, font: "bold", color: this.accent });
-    this.gap(compact ? 4 : 10);
+    this.textLine(title, { size: compact ? 13 : 18, font: "bold", color: this.accent });
+    this.gap(compact ? 6 : 12);
   }
 
   drawFooter(pageIndex: number, pageCount: number): void {
@@ -414,7 +443,7 @@ class DocumentPainter {
     const y = 28;
     this.pdf.line(PDF_MARGIN_LEFT, 46, PDF_PAGE_WIDTH - PDF_MARGIN_RIGHT, 46, RULE, 0.5);
     this.pdf.text({ text: legal, x: PDF_MARGIN_LEFT, y, size: 8, color: MUTED });
-    if (bank.length) {
+    if (showBankDetails(this.doc) && bank.length) {
       this.pdf.text({ text: bank.join("   "), x: PDF_MARGIN_LEFT, y: y - 11, size: 8, color: MUTED });
     }
     const pageLabel = `Page ${pageIndex + 1} of ${pageCount}`;
@@ -429,12 +458,16 @@ class DocumentPainter {
 
   drawKv(rows: Array<[string, string]>, x: number, startY: number): number {
     let y = startY;
-    const labelWidth = 78;
+    const labelWidth = 92;
+    const valueWidth = PDF_PAGE_WIDTH - PDF_MARGIN_RIGHT - x - labelWidth;
     for (const [label, value] of rows) {
       if (!nonEmpty(value)) continue;
+      const wrapped = wrapText(value, Math.max(80, valueWidth), 9);
       this.pdf.text({ text: label, x, y: y - 9, size: 8, font: "bold", color: MUTED });
-      this.pdf.text({ text: value, x: x + labelWidth, y: y - 9, size: 9, color: INK });
-      y -= 14;
+      wrapped.forEach((line, index) => {
+        this.pdf.text({ text: line, x: x + labelWidth, y: y - 9 - index * 11, size: 9, color: INK });
+      });
+      y -= Math.max(14, wrapped.length * 11 + 3);
     }
     return y;
   }
@@ -537,26 +570,37 @@ function renderInvoice(doc: FinanceInvoiceDocument): Uint8Array {
   const leftX = PDF_MARGIN_LEFT;
   const rightX = PDF_MARGIN_LEFT + CONTENT_WIDTH / 2 + 12;
   const blockTop = painter.y;
+  const leftWidth = CONTENT_WIDTH / 2 - 16;
   painter.pdf.text({ text: "INVOICE TO", x: leftX, y: blockTop - 9, size: 8, font: "bold", color: MUTED });
-  painter.pdf.text({ text: billName, x: leftX, y: blockTop - 24, size: 10, font: "bold", color: INK });
-  let leftY = blockTop - 38;
+  const nameLines = wrapText(billName, leftWidth, 10, "bold");
+  let leftY = blockTop - 24;
+  nameLines.forEach((line) => {
+    painter.pdf.text({ text: line, x: leftX, y: leftY, size: 10, font: "bold", color: INK });
+    leftY -= 13;
+  });
+  leftY -= 4;
   for (const line of addressLines(doc, "billTo")) {
-    painter.pdf.text({ text: line, x: leftX, y: leftY, size: 9, color: INK });
-    leftY -= 12;
+    const wrapped = wrapText(line, leftWidth, 9);
+    for (const part of wrapped) {
+      painter.pdf.text({ text: part, x: leftX, y: leftY, size: 9, color: INK });
+      leftY -= 12;
+    }
   }
-  const metaEnd = painter.drawKv(
-    [
-      ["INVOICE", doc.invoiceNumber],
-      ["DATE", displayDate(doc.invoiceDate)],
-      ["TERMS", nonEmpty(doc.terms) ?? ""],
-      ["DUE DATE", displayDate(doc.dueDate)],
-    ],
-    rightX,
-    blockTop,
-  );
-  painter.y = Math.min(leftY, metaEnd) - 8;
+  const metaRows: Array<[string, string]> = [
+    ["INVOICE", doc.invoiceNumber],
+    ["DATE", displayDate(doc.invoiceDate)],
+    ["TERMS", nonEmpty(doc.terms) ?? ""],
+    ["DUE DATE", displayDate(doc.dueDate)],
+  ];
+  if (doc.vatInvoice && nonEmpty(doc.vatRegistrationNumber)) {
+    metaRows.push(["VAT NUMBER", doc.vatRegistrationNumber!]);
+  }
+  const metaEnd = painter.drawKv(metaRows, rightX, blockTop);
+  painter.y = Math.min(leftY, metaEnd) - 12;
 
-  if (!doc.vatInvoice) {
+  if (doc.vatInvoice) {
+    painter.textLine("VAT invoice", { size: 8, font: "bold", color: MUTED });
+  } else {
     painter.textLine("This is not a VAT invoice.", { size: 8, color: MUTED });
   }
   if (nonEmpty(doc.billingPeriod)) {
@@ -566,30 +610,49 @@ function renderInvoice(doc: FinanceInvoiceDocument): Uint8Array {
     painter.textLine(doc.instalmentLabel!, { size: 8, color: MUTED });
   }
   if (doc.classOrYear) painter.textLine(`Year group / class: ${doc.classOrYear}`, { size: 8, color: MUTED });
-  painter.gap(6);
+  if (doc.pupilNames.length) {
+    painter.wrapped(`Pupil${doc.pupilNames.length === 1 ? "" : "s"}: ${doc.pupilNames.join(", ")}`, { size: 8, color: MUTED });
+  }
+  painter.gap(8);
 
   inTable = true;
   drawTableHeader(painter, columns);
   for (const line of doc.lines) {
     const showQty = lineShowsQtyRate(line);
+    const vatRate = line.vatRateBps ?? doc.vatRateBps;
+    const net = line.netMinor ?? line.amountMinor;
+    const vat = line.vatMinor ?? 0;
+    const gross = line.grossMinor ?? line.amountMinor;
     drawInvoiceRow(painter, columns, {
       date: displayDate(line.date ?? doc.invoiceDate),
       activity: lineActivity(line),
-      description: lineDescription(line),
+      description: doc.vatInvoice && lineActivity(line)
+        ? `${lineActivity(line)} — ${lineDescription(line)}`
+        : lineDescription(line),
       qty: showQty && line.quantity != null ? String(line.quantity) : "",
       rate: showQty && line.rateMinor != null ? money(line.rateMinor, doc.currency, false) : "",
       amount: money(line.amountMinor, doc.currency, false),
+      net: money(net, doc.currency, false),
+      vatRate: vatRate != null ? formatVatRateLabel(vatRate) : "",
+      vat: money(vat, doc.currency, false),
+      gross: money(gross, doc.currency, false),
     });
   }
   inTable = false;
 
   const subtotal = doc.subtotalMinor ?? doc.amountMinor + Math.abs(doc.discountTotalMinor ?? 0);
-  const summary: Array<{ label: string; value: string; emphasize?: boolean }> = [
-    { label: "Subtotal", value: money(subtotal, doc.currency) },
-  ];
-  if (doc.discountTotalMinor) summary.push({ label: "Discounts", value: money(-Math.abs(doc.discountTotalMinor), doc.currency) });
+  const summary: Array<{ label: string; value: string; emphasize?: boolean }> = [];
+  if (doc.vatInvoice) {
+    summary.push({ label: "Net", value: money(doc.vatNetMinor ?? subtotal, doc.currency) });
+    const vatLabel = doc.vatRateBps != null ? `VAT at ${formatVatRateLabel(doc.vatRateBps)}` : "VAT";
+    summary.push({ label: vatLabel, value: money(doc.vatAmountMinor ?? 0, doc.currency) });
+    summary.push({ label: "Invoice total", value: money(doc.amountMinor, doc.currency) });
+  } else {
+    summary.push({ label: "Subtotal", value: money(subtotal, doc.currency) });
+    if (doc.discountTotalMinor) summary.push({ label: "Discounts", value: money(-Math.abs(doc.discountTotalMinor), doc.currency) });
+    summary.push({ label: "Invoice total", value: money(doc.amountMinor, doc.currency) });
+  }
   if (doc.creditTotalMinor) summary.push({ label: "Credits", value: money(-Math.abs(doc.creditTotalMinor), doc.currency) });
-  summary.push({ label: "Invoice total", value: money(doc.amountMinor, doc.currency) });
   if (doc.paidMinor) summary.push({ label: "Payments received", value: money(doc.paidMinor, doc.currency) });
   summary.push({ label: "BALANCE DUE", value: money(doc.outstandingMinor, doc.currency), emphasize: true });
   const status = invoiceStatusLabel(doc.status, doc.outstandingMinor);
@@ -642,12 +705,21 @@ function renderReceipt(doc: FinanceReceiptDocument): Uint8Array {
 
   const billName = nonEmpty(doc.billToName) ?? doc.familyName;
   const blockTop = painter.y;
-  painter.pdf.text({ text: "INVOICE TO", x: PDF_MARGIN_LEFT, y: blockTop - 9, size: 8, font: "bold", color: MUTED });
-  painter.pdf.text({ text: billName, x: PDF_MARGIN_LEFT, y: blockTop - 24, size: 10, font: "bold", color: INK });
-  let leftY = blockTop - 38;
+  const leftWidth = CONTENT_WIDTH / 2 - 16;
+  painter.pdf.text({ text: "RECEIVED FROM", x: PDF_MARGIN_LEFT, y: blockTop - 9, size: 8, font: "bold", color: MUTED });
+  const nameLines = wrapText(billName, leftWidth, 10, "bold");
+  let leftY = blockTop - 24;
+  nameLines.forEach((line) => {
+    painter.pdf.text({ text: line, x: PDF_MARGIN_LEFT, y: leftY, size: 10, font: "bold", color: INK });
+    leftY -= 13;
+  });
+  leftY -= 4;
   for (const line of addressLines(doc, "billTo")) {
-    painter.pdf.text({ text: line, x: PDF_MARGIN_LEFT, y: leftY, size: 9, color: INK });
-    leftY -= 12;
+    const wrapped = wrapText(line, leftWidth, 9);
+    for (const part of wrapped) {
+      painter.pdf.text({ text: part, x: PDF_MARGIN_LEFT, y: leftY, size: 9, color: INK });
+      leftY -= 12;
+    }
   }
   const method = paymentMethodLabel(doc.paymentMethod);
   const metaEnd = painter.drawKv(
@@ -659,7 +731,7 @@ function renderReceipt(doc: FinanceReceiptDocument): Uint8Array {
     PDF_MARGIN_LEFT + CONTENT_WIDTH / 2 + 12,
     blockTop,
   );
-  painter.y = Math.min(leftY, metaEnd) - 10;
+  painter.y = Math.min(leftY, metaEnd) - 12;
 
   const columns: TableColumn[] = [
     { key: "n", title: "", width: 24, align: "left" },

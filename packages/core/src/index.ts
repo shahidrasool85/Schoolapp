@@ -830,6 +830,23 @@ export {
 } from "./tuition.js";
 
 export {
+  applyVatToEnteredAmount,
+  applyVatToInvoiceLines,
+  defaultSchoolVatPolicy,
+  formatVatRateLabel,
+  freezeIssuedVat,
+  parseVatLineTreatment,
+  schoolVatPolicyFromSettings,
+  splitVatAmount,
+  sumVatSplits,
+  vatRateBpsToPercent,
+  vatRatePercentToBps,
+  type SchoolVatPolicy,
+  type VatLineTreatment,
+  type VatSplit,
+} from "./vat.js";
+
+export {
   TUITION_READ_PERMISSIONS,
   applyOptionalPupilImportFinance,
   assertTuitionRead,

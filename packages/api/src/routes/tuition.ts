@@ -100,6 +100,11 @@ export function registerTuitionRoutes(app: SchoolappApi) {
           bankAccountName: z.string().trim().max(120).nullable().optional(),
           bankAccountNumber: z.string().trim().max(20).nullable().optional(),
           bankSortCode: z.string().trim().max(12).nullable().optional(),
+          vatEnabled: z.boolean().optional(),
+          vatRegistrationNumber: z.string().trim().max(40).nullable().optional(),
+          vatRatePercent: z.number().min(0).max(100).optional(),
+          vatRateBps: z.number().int().min(0).max(10000).optional(),
+          vatPricesInclusive: z.boolean().optional(),
         })
         .safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid finance settings");

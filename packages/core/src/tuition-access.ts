@@ -41,6 +41,19 @@ import {
   type FinanceReceiptDocument,
   type FinanceStatementDocument,
 } from "./finance-documents.js";
+import {
+  applyVatToEnteredAmount,
+  freezeIssuedVat,
+  issuedVatSnapshot,
+  parseVatLineTreatment,
+  schoolVatPolicyFromSettings,
+  sumVatSplits,
+  validateSchoolVatPolicy,
+  vatRateBpsToPercent,
+  vatRatePercentToBps,
+  type SchoolVatPolicy,
+  type VatLineTreatment,
+} from "./vat.js";
 import { resolveFinanceAccent, type FinancePdfLogo } from "./finance-pdf.js";
 import { redactProviderReference } from "./money.js";
 import {
@@ -138,6 +151,11 @@ export type FinanceSettings = {
   bankAccountName: string | null;
   bankAccountNumber: string | null;
   bankSortCode: string | null;
+  vatEnabled: boolean;
+  vatRegistrationNumber: string | null;
+  vatRateBps: number;
+  vatRatePercent: number;
+  vatPricesInclusive: boolean;
 };
 
 function mapSettings(row: Record<string, unknown>): FinanceSettings {
@@ -166,6 +184,11 @@ function mapSettings(row: Record<string, unknown>): FinanceSettings {
     bankAccountName: row.bank_account_name ? String(row.bank_account_name) : null,
     bankAccountNumber: row.bank_account_number ? String(row.bank_account_number) : null,
     bankSortCode: row.bank_sort_code ? String(row.bank_sort_code) : null,
+    vatEnabled: Boolean(row.vat_enabled),
+    vatRegistrationNumber: row.vat_registration_number ? String(row.vat_registration_number) : null,
+    vatRateBps: Number(row.vat_rate_bps ?? 0),
+    vatRatePercent: Number(row.vat_rate_bps ?? 0) / 100,
+    vatPricesInclusive: row.vat_prices_inclusive !== false,
   };
 }
 
@@ -207,6 +230,11 @@ export async function updateFinanceSettings(
       bankAccountName: string | null;
       bankAccountNumber: string | null;
       bankSortCode: string | null;
+      vatEnabled: boolean;
+      vatRegistrationNumber: string | null;
+      vatRateBps: number | null;
+      vatRatePercent: number | null;
+      vatPricesInclusive: boolean;
     }>;
   },
 ): Promise<FinanceSettings> {
@@ -238,6 +266,10 @@ export async function updateFinanceSettings(
         bankAccountName: input.patch.bankAccountName,
         bankAccountNumber: input.patch.bankAccountNumber,
         bankSortCode: input.patch.bankSortCode,
+        vatEnabled: input.patch.vatEnabled,
+        vatRegistrationNumber: input.patch.vatRegistrationNumber,
+        vatRateBps: input.patch.vatRateBps,
+        vatPricesInclusive: input.patch.vatPricesInclusive,
       }).filter(([, value]) => value !== undefined),
     ),
   } as FinanceSettings;
@@ -246,6 +278,39 @@ export async function updateFinanceSettings(
   next.bankAccountName = next.bankAccountName?.trim() ? next.bankAccountName.trim() : null;
   next.bankAccountNumber = next.bankAccountNumber?.trim() ? next.bankAccountNumber.trim() : null;
   next.bankSortCode = next.bankSortCode?.trim() ? next.bankSortCode.trim() : null;
+  next.vatEnabled = Boolean(next.vatEnabled);
+  next.vatPricesInclusive = next.vatPricesInclusive !== false;
+  if (input.patch.vatRatePercent != null && input.patch.vatRateBps == null) {
+    try {
+      next.vatRateBps = vatRatePercentToBps(input.patch.vatRatePercent);
+    } catch {
+      throw new AppError(400, "validation_failed", "VAT rate must be between 0 and 100");
+    }
+  }
+  next.vatRateBps = Number.isInteger(next.vatRateBps) ? next.vatRateBps : 0;
+  next.vatRegistrationNumber = next.vatRegistrationNumber?.trim() ? next.vatRegistrationNumber.trim() : null;
+  try {
+    const vatPolicy = schoolVatPolicyFromSettings({
+      vatEnabled: next.vatEnabled,
+      vatRegistrationNumber: next.vatRegistrationNumber,
+      vatRateBps: next.vatRateBps,
+      vatPricesInclusive: next.vatPricesInclusive,
+    });
+    if (next.vatEnabled) validateSchoolVatPolicy(vatPolicy);
+    next.vatRegistrationNumber = vatPolicy.registrationNumber;
+    next.vatRateBps = vatPolicy.rateBps;
+    next.vatRatePercent = vatRateBpsToPercent(vatPolicy.rateBps);
+    next.vatPricesInclusive = vatPolicy.pricesInclusive;
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "";
+    if (code === "vat_registration_required") {
+      throw new AppError(400, "validation_failed", "Enter a VAT registration number to issue VAT invoices");
+    }
+    if (code === "invalid_vat_rate" || code === "invalid_vat_registration") {
+      throw new AppError(400, "validation_failed", "Check the VAT rate and registration number");
+    }
+    throw error;
+  }
   if (next.paymentInstructions != null) next.paymentInstructions = next.paymentInstructions.trim() || null;
   if (next.invoiceFooter != null) next.invoiceFooter = next.invoiceFooter.trim() || null;
   if (!isSchoolBillingFrequency(next.defaultBillingFrequency)) {
@@ -285,6 +350,10 @@ export async function updateFinanceSettings(
             bank_account_name = $23,
             bank_account_number = $24,
             bank_sort_code = $25,
+            vat_enabled = $26,
+            vat_registration_number = $27,
+            vat_rate_bps = $28,
+            vat_prices_inclusive = $29,
             updated_by = $18
       where organisation_id = $1`,
     [
@@ -313,6 +382,10 @@ export async function updateFinanceSettings(
       next.bankAccountName,
       next.bankAccountNumber,
       next.bankSortCode,
+      next.vatEnabled,
+      next.vatRegistrationNumber,
+      next.vatRateBps,
+      next.vatPricesInclusive,
     ],
   );
   await writeAudit(client, {
@@ -1672,6 +1745,19 @@ function quoteScheduleFields(
   };
 }
 
+function vatForQuotedTuition(
+  standardAmountMinor: number,
+  discounts: AppliedDiscount[],
+  policy: SchoolVatPolicy,
+  treatment: VatLineTreatment,
+) {
+  const fee = applyVatToEnteredAmount(standardAmountMinor, policy, treatment);
+  const discountSplits = discounts.map((discount) =>
+    applyVatToEnteredAmount(-discount.calculatedMinor, policy, treatment),
+  );
+  return { fee, discounts: discountSplits, totals: sumVatSplits([fee, ...discountSplits]) };
+}
+
 function resolveQuoteInstalmentNumber(
   schedule: Record<string, unknown>,
   input: { frequency: SchoolBillingFrequency; periodStart: string; instalmentNumber?: number | null },
@@ -1855,6 +1941,7 @@ export async function quotePupilTuition(
           chargeableDays: join.chargeableDays,
           periodDays: join.periodDays,
           familyStudentIds: family.map((member) => member.studentProfileId),
+          vatTreatment: parseVatLineTreatment(schedule.vat_treatment),
         },
       }),
     });
@@ -1914,9 +2001,16 @@ export async function previewBillingRun(
   const runId = existing.rows[0] ? String(existing.rows[0].id) : null;
   const reference =
     existing.rows[0]?.reference ?? (await nextFinanceReference(client, input.organisationId, "billing_run"));
+  const vatPolicy = schoolVatPolicyFromSettings(settings);
   const totals = quotes.reduce(
     (acc, quote) => {
-      acc.expected += quote.netAmountMinor;
+      const treatment = parseVatLineTreatment(quote.calculation.vatTreatment);
+      acc.expected += vatForQuotedTuition(
+        quote.standardAmountMinor,
+        quote.appliedDiscounts,
+        vatPolicy,
+        treatment,
+      ).totals.grossMinor;
       if (quote.warning) acc.warnings += 1;
       if (quote.error) acc.errors += 1;
       return acc;
@@ -2065,6 +2159,18 @@ export async function confirmBillingRun(
     );
   }
   const settings = await loadFinanceSettings(client, input.organisationId);
+  const vatPolicy = schoolVatPolicyFromSettings(settings);
+  if (vatPolicy.enabled) {
+    try {
+      validateSchoolVatPolicy(vatPolicy);
+    } catch {
+      throw new AppError(
+        400,
+        "validation_failed",
+        "VAT is enabled but the registration number is missing. Update Finance Settings before issuing invoices.",
+      );
+    }
+  }
   const items = await client.query(
     `select * from school_billing_run_items where billing_run_id = $1 and organisation_id = $2`,
     [input.billingRunId, input.organisationId],
@@ -2119,7 +2225,16 @@ export async function confirmBillingRun(
         settings.currency,
         settings.paymentInstructions,
         settings.invoiceFooter,
-        JSON.stringify({ stackingMode: settings.discountStackingMode, siblingOrderMode: settings.siblingOrderMode }),
+        JSON.stringify({
+          stackingMode: settings.discountStackingMode,
+          siblingOrderMode: settings.siblingOrderMode,
+          vat: {
+            enabled: vatPolicy.enabled,
+            registrationNumber: vatPolicy.registrationNumber,
+            rateBps: vatPolicy.enabled ? vatPolicy.rateBps : null,
+            pricesInclusive: vatPolicy.enabled ? vatPolicy.pricesInclusive : null,
+          },
+        }),
         input.actorUserId,
       ],
     );
@@ -2127,13 +2242,18 @@ export async function confirmBillingRun(
     let sort = 0;
     let subtotal = 0;
     let discounts = 0;
+    const vatSplits: Array<{ netMinor: number; vatMinor: number; grossMinor: number }> = [];
     for (const item of group) {
       const calc = (item.calculation ?? {}) as Record<string, unknown>;
+      const tuitionEntered = Number(item.standard_amount_minor);
+      const vatTreatment = parseVatLineTreatment(calc.vatTreatment);
+      const tuitionVat = applyVatToEnteredAmount(tuitionEntered, vatPolicy, vatTreatment);
       await client.query(
         `insert into school_invoice_lines (
            organisation_id, invoice_id, sort_order, kind, student_profile_id, fee_schedule_id,
-           description, quantity, unit_amount_minor, amount_minor, calculation_snapshot
-         ) values ($1,$2,$3,'tuition',$4,$5,$6,1,$7,$7,$8::jsonb)`,
+           description, quantity, unit_amount_minor, amount_minor, calculation_snapshot,
+           vat_treatment, vat_rate_bps, vat_net_minor, vat_amount_minor, vat_gross_minor
+         ) values ($1,$2,$3,'tuition',$4,$5,$6,1,$7,$7,$8::jsonb,$9,$10,$11,$12,$13)`,
         [
           input.organisationId,
           invoiceId,
@@ -2141,19 +2261,28 @@ export async function confirmBillingRun(
           item.student_profile_id,
           item.fee_schedule_id,
           `${String(calc.legalName ?? "Pupil")} tuition`,
-          Number(item.standard_amount_minor),
-          JSON.stringify(calc),
+          tuitionEntered,
+          JSON.stringify({ ...calc, vat: tuitionVat }),
+          tuitionVat.treatment,
+          tuitionVat.mode ? tuitionVat.rateBps : null,
+          tuitionVat.netMinor,
+          tuitionVat.vatMinor,
+          tuitionVat.grossMinor,
         ],
       );
-      subtotal += Number(item.standard_amount_minor);
+      vatSplits.push(tuitionVat);
+      subtotal += tuitionEntered;
       sort += 1;
       const applied = Array.isArray(calc.applied) ? (calc.applied as AppliedDiscount[]) : [];
       for (const discount of applied) {
+        const discountEntered = -discount.calculatedMinor;
+        const discountVat = applyVatToEnteredAmount(discountEntered, vatPolicy, vatTreatment);
         await client.query(
           `insert into school_invoice_lines (
              organisation_id, invoice_id, sort_order, kind, student_profile_id, discount_rule_id,
-             concession_id, description, quantity, unit_amount_minor, amount_minor, calculation_snapshot
-           ) values ($1,$2,$3,'discount',$4,$5,$6,$7,1,$8,$9,$10::jsonb)`,
+             concession_id, description, quantity, unit_amount_minor, amount_minor, calculation_snapshot,
+             vat_treatment, vat_rate_bps, vat_net_minor, vat_amount_minor, vat_gross_minor
+           ) values ($1,$2,$3,'discount',$4,$5,$6,$7,1,$8,$9,$10::jsonb,$11,$12,$13,$14,$15)`,
           [
             input.organisationId,
             invoiceId,
@@ -2163,10 +2292,16 @@ export async function confirmBillingRun(
             discount.concessionId,
             discount.name,
             discount.calculatedMinor,
-            -discount.calculatedMinor,
-            JSON.stringify(discount),
+            discountEntered,
+            JSON.stringify({ ...discount, vat: discountVat }),
+            discountVat.treatment,
+            discountVat.mode ? discountVat.rateBps : null,
+            discountVat.netMinor,
+            discountVat.vatMinor,
+            discountVat.grossMinor,
           ],
         );
+        vatSplits.push(discountVat);
         discounts += discount.calculatedMinor;
         sort += 1;
       }
@@ -2175,7 +2310,9 @@ export async function confirmBillingRun(
         [item.id, input.organisationId, invoiceId],
       );
     }
-    const total = subtotal - discounts;
+    const vatTotals = sumVatSplits(vatSplits);
+    const vatIssued = issuedVatSnapshot(vatPolicy, vatTotals);
+    const total = vatIssued.grossMinor;
     const status = deriveInvoiceStatus({
       current: "issued",
       totalMinor: total,
@@ -2192,9 +2329,29 @@ export async function confirmBillingRun(
               outstanding_minor = $5,
               status = $7,
               issued_by = $6,
-              issued_at = now()
+              issued_at = now(),
+              vat_enabled = $8,
+              vat_registration_number = $9,
+              vat_rate_bps = $10,
+              vat_prices_inclusive = $11,
+              vat_net_minor = $12,
+              vat_amount_minor = $13
         where id = $1 and organisation_id = $2`,
-      [invoiceId, input.organisationId, subtotal, discounts, total, input.actorUserId, status],
+      [
+        invoiceId,
+        input.organisationId,
+        subtotal,
+        discounts,
+        total,
+        input.actorUserId,
+        status,
+        vatIssued.enabled,
+        vatIssued.registrationNumber,
+        vatIssued.rateBps,
+        vatIssued.pricesInclusive,
+        vatIssued.netMinor,
+        vatIssued.vatMinor,
+      ],
     );
     await writeAudit(client, {
       organisationId: input.organisationId,
@@ -2534,6 +2691,12 @@ function mapInvoice(row: Record<string, unknown>) {
     totalMinor: Number(row.total_minor),
     paidMinor: Number(row.paid_minor),
     outstandingMinor: Number(row.outstanding_minor),
+    vatEnabled: Boolean(row.vat_enabled),
+    vatRegistrationNumber: row.vat_registration_number ? String(row.vat_registration_number) : null,
+    vatRateBps: row.vat_rate_bps == null ? null : Number(row.vat_rate_bps),
+    vatPricesInclusive: row.vat_prices_inclusive == null ? null : Boolean(row.vat_prices_inclusive),
+    vatNetMinor: Number(row.vat_net_minor ?? 0),
+    vatAmountMinor: Number(row.vat_amount_minor ?? 0),
     paymentInstructions: row.payment_instructions_snapshot ?? null,
     invoiceFooter: row.invoice_footer_snapshot ?? null,
     deliveryState: row.delivery_state,
@@ -2656,6 +2819,11 @@ export async function loadInvoice(client: Client, organisationId: string, invoic
       quantity: Number(line.quantity),
       unitAmountMinor: Number(line.unit_amount_minor),
       amountMinor: Number(line.amount_minor),
+      vatTreatment: line.vat_treatment ?? "none",
+      vatRateBps: line.vat_rate_bps == null ? null : Number(line.vat_rate_bps),
+      vatNetMinor: Number(line.vat_net_minor ?? 0),
+      vatAmountMinor: Number(line.vat_amount_minor ?? 0),
+      vatGrossMinor: Number(line.vat_gross_minor ?? line.amount_minor ?? 0),
       calculation: line.calculation_snapshot,
     })),
     payments: payments.rows.map(mapInvoicePayment),
@@ -3712,6 +3880,12 @@ async function buildInvoiceDocument(
     paidMinor: Number(invoice.paidMinor),
     outstandingMinor: Number(invoice.outstandingMinor),
     status: String(invoice.status),
+    vatInvoice: Boolean(invoice.vatEnabled),
+    vatRegistrationNumber: invoice.vatRegistrationNumber ?? null,
+    vatRateBps: invoice.vatRateBps ?? null,
+    vatPricesInclusive: invoice.vatPricesInclusive ?? null,
+    vatNetMinor: invoice.vatEnabled ? Number(invoice.vatNetMinor) : Number(invoice.totalMinor),
+    vatAmountMinor: invoice.vatEnabled ? Number(invoice.vatAmountMinor) : 0,
     lines: loaded.lines.map((line) => {
       const kind = String(line.kind);
       const usesQty = ["trip", "club", "examination", "activity", "registration", "meal", "music", "after_school", "admissions"].includes(kind);
@@ -3723,10 +3897,14 @@ async function buildInvoiceDocument(
         kind,
         quantity: usesQty ? Number(line.quantity) : null,
         rateMinor: usesQty ? Number(line.unitAmountMinor) : null,
+        vatTreatment: line.vatTreatment ?? (invoice.vatEnabled ? "standard" : "none"),
+        vatRateBps: line.vatRateBps ?? invoice.vatRateBps ?? null,
+        netMinor: invoice.vatEnabled ? Number(line.vatNetMinor ?? line.amountMinor) : Number(line.amountMinor),
+        vatMinor: invoice.vatEnabled ? Number(line.vatAmountMinor ?? 0) : 0,
+        grossMinor: invoice.vatEnabled ? Number(line.vatGrossMinor ?? line.amountMinor) : Number(line.amountMinor),
       };
     }),
     footer: invoice.invoiceFooter ? String(invoice.invoiceFooter) : null,
-    vatInvoice: false,
   };
 }
 
@@ -3736,9 +3914,16 @@ function hydrateInvoiceSnapshot(
 ): FinanceInvoiceDocument {
   const frozen = applyFrozenSchoolBranding(snapshot, brandingFromSchool(school));
   const raw = snapshot as FinanceInvoiceDocument & Record<string, unknown>;
+  const vat = freezeIssuedVat(raw);
   return {
     ...frozen,
     footer: Object.prototype.hasOwnProperty.call(raw, "footer") ? snapshot.footer ?? null : snapshot.footer,
+    vatInvoice: vat.enabled,
+    vatRegistrationNumber: vat.registrationNumber,
+    vatRateBps: vat.rateBps,
+    vatPricesInclusive: vat.pricesInclusive,
+    vatNetMinor: vat.netMinor,
+    vatAmountMinor: vat.vatMinor,
   };
 }
 
@@ -4236,6 +4421,8 @@ export async function createInvoiceCheckoutSession(
   if (!accountIds.includes(String(invoice.billing_account_id))) notFound();
   await refreshInvoiceStatus(client, input.organisationId, input.invoiceId);
   const outstanding = Number(invoice.outstanding_minor);
+  // Collect the outstanding gross invoice total calculated by LuvLearn. Do not
+  // ask Stripe Tax to recalculate VAT.
   if (!["issued", "partially_paid", "overdue"].includes(String(invoice.status)) || outstanding <= 0) {
     throw new AppError(409, "payment_unavailable", "This invoice is not payable");
   }

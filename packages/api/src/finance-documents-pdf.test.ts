@@ -124,7 +124,7 @@ describe("Finance invoice and receipt PDFs", () => {
     const hdrsA = headers(tokenA, schoolA.orgId);
     const hdrsB = headers(tokenB, schoolB.orgId);
 
-    const saved = await json<{ settings: { bankName: string | null; financeEmail: string | null } }>(
+    const saved = await json<{ settings: { bankName: string | null; financeEmail: string | null; vatEnabled: boolean } }>(
       await app.request("/api/v1/finance/settings", {
         method: "PATCH",
         headers: hdrsA,
@@ -144,6 +144,7 @@ describe("Finance invoice and receipt PDFs", () => {
     );
     expect(saved.settings.bankName).toBe("Riverside Bank");
     expect(saved.settings.financeEmail).toBe("bursar@riverside.test");
+    expect(saved.settings.vatEnabled).toBe(false);
 
     const otherSettings = await json<{ settings: { bankName: string | null } }>(
       await app.request("/api/v1/finance/settings", { headers: hdrsB }),
@@ -316,7 +317,7 @@ describe("Finance invoice and receipt PDFs", () => {
     expect(receiptPdf.headers.get("content-disposition")).toContain(`${bankReceipt.reference}.pdf`);
     const receiptText = extractPdfText(new Uint8Array(await receiptPdf.arrayBuffer()));
     expect(receiptText).toContain("RECEIPT");
-    expect(receiptText).toMatch(/Bank transfer|Stripe \/ Card/);
+    expect(receiptText).toMatch(/Bank transfer|Card payment \(Stripe\)/);
     expect(receiptText).toContain(invoice.reference);
     expect(receiptText).not.toContain("pi_");
 
@@ -389,9 +390,9 @@ describe("Finance invoice and receipt PDFs", () => {
     expect(reprintText).toContain("0121 111 1111");
     expect(reprintText).toContain("bursar@riverside.test");
     expect(reprintText).toContain(`www.${idA}.test`);
-    expect(reprintText).toContain("Riverside Bank");
-    expect(reprintText).toContain("11112222");
-    expect(reprintText).toContain("11-22-33");
+    expect(reprintText).not.toContain("Riverside Bank");
+    expect(reprintText).not.toContain("11112222");
+    expect(reprintText).not.toContain("11-22-33");
     expect(reprintText).toContain("Company registered in England.");
     expect(reprintText).not.toContain("Changed School");
     expect(reprintText).not.toContain("99 New Road");
@@ -416,6 +417,29 @@ describe("Finance invoice and receipt PDFs", () => {
     );
     expect(currentLogo.rows[0]!.logo_object_id).toBeTruthy();
     expect(currentLogo.rows[0]!.logo_object_id).not.toBe(issuedLogoId);
+
+    const enableVat = await app.request("/api/v1/finance/settings", {
+      method: "PATCH",
+      headers: hdrsA,
+      body: JSON.stringify({
+        vatEnabled: true,
+        vatRegistrationNumber: "GB999999999",
+        vatRatePercent: 20,
+        vatPricesInclusive: false,
+      }),
+    });
+    expect(enableVat.status).toBe(200);
+    const afterVatEnabled = extractPdfText(
+      new Uint8Array(await (await app.request(`/api/v1/finance/invoices/${invoice.id}/pdf`, { headers: hdrsA })).arrayBuffer()),
+    );
+    expect(afterVatEnabled).toContain("This is not a VAT invoice.");
+    expect(afterVatEnabled).not.toContain("GB999999999");
+
+    const otherVat = await json<{ settings: { vatEnabled: boolean; vatRegistrationNumber: string | null } }>(
+      await app.request("/api/v1/finance/settings", { headers: hdrsB }),
+    );
+    expect(otherVat.settings.vatEnabled).toBe(false);
+    expect(otherVat.settings.vatRegistrationNumber).toBeNull();
 
     const stolen = await app.request(`/api/v1/finance/invoices/${invoice.id}/pdf`, { headers: hdrsB });
     expect(stolen.status).toBe(404);

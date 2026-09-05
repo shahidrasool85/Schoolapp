@@ -175,6 +175,8 @@ describe("finance PDF documents", () => {
     );
     expect(paid).toContain("PAID");
     expect(paid).toContain("£0.00");
+    expect(paid).not.toContain("Pay by bank transfer");
+    expect(paid).not.toContain("Example Bank");
 
     const voided = extractPdfText(renderFinancePdf({ ...outstandingInvoice, status: "void" }));
     expect(voided).toContain("VOID");
@@ -197,6 +199,42 @@ describe("finance PDF documents", () => {
     expect(text).toContain("Tuition");
     expect(text).toContain("Discount");
     expect(text).not.toMatch(/QTY[\s\S]*RATE/);
+  });
+
+  it("renders VAT invoices with net, rate, VAT and gross instead of the non-VAT notice", () => {
+    const text = extractPdfText(
+      renderFinancePdf({
+        ...outstandingInvoice,
+        vatInvoice: true,
+        vatRegistrationNumber: "GB123456789",
+        vatRateBps: 2000,
+        vatPricesInclusive: false,
+        vatNetMinor: 50000,
+        vatAmountMinor: 10000,
+        amountMinor: 60000,
+        paidMinor: 0,
+        outstandingMinor: 60000,
+        status: "issued",
+        lines: [
+          {
+            description: "Year 3 Tuition — Amina Rasool",
+            pupilName: "Amina Rasool",
+            amountMinor: 50000,
+            kind: "tuition",
+            netMinor: 50000,
+            vatMinor: 10000,
+            grossMinor: 60000,
+            vatRateBps: 2000,
+          },
+        ],
+      }),
+    );
+    expect(text).toContain("VAT invoice");
+    expect(text).toContain("GB123456789");
+    expect(text).toContain("20%");
+    expect(text).toContain("NET");
+    expect(text).toContain("GROSS");
+    expect(text).not.toContain("This is not a VAT invoice.");
   });
 
   it("shows quantity and rate for activity lines and paginates long invoices", () => {
@@ -366,7 +404,10 @@ describe("finance PDF documents", () => {
     };
     const card = extractPdfText(renderFinancePdf(receipt));
     expect(card).toContain("RECEIPT");
-    expect(card).toContain("Stripe / Card");
+    expect(card).toContain("RECEIVED FROM");
+    expect(card).toContain("Card payment (Stripe)");
+    expect(card).not.toContain("INVOICE TO");
+    expect(card).not.toContain("Example Bank");
     expect(card).toContain("RIV-INV-2026-000001");
     expect(card).toContain("RIV-INV-2026-000002");
     expect(card).toContain("Family payment");
@@ -376,6 +417,7 @@ describe("finance PDF documents", () => {
     const transfer = extractPdfText(renderFinancePdf({ ...receipt, paymentMethod: "bank_transfer", remainingMinor: 0 }));
     expect(transfer).toContain("Bank transfer");
     expect(transfer).toContain("PAID");
+    expect(transfer).toContain("Example Bank");
   });
 
   it("does not print Stripe payment intent ids", () => {
@@ -398,11 +440,11 @@ describe("finance PDF documents", () => {
       }),
     );
     expect(text).not.toContain("pi_secret");
-    expect(text).toContain("Stripe / Card");
+    expect(text).toContain("Card payment (Stripe)");
   });
 
   it("labels payment methods for parents", () => {
-    expect(paymentMethodLabel("card")).toBe("Stripe / Card");
+    expect(paymentMethodLabel("card")).toBe("Card payment (Stripe)");
     expect(paymentMethodLabel("bank_transfer")).toBe("Bank transfer");
     expect(paymentMethodLabel("cash")).toBe("Cash");
     expect(paymentMethodLabel("cheque")).toBe("Cheque");
@@ -440,6 +482,66 @@ describe("finance PDF documents", () => {
     expect(text).toContain("Child A");
     expect(text).toContain("RIV-INV-1");
     expect(text).toContain("Opening balance");
+  });
+
+  it("renders a VAT invoice with net, rate, VAT and gross", () => {
+    const text = extractPdfText(
+      renderFinancePdf({
+        ...outstandingInvoice,
+        vatInvoice: true,
+        vatRegistrationNumber: "GB123456789",
+        vatRateBps: 2000,
+        vatPricesInclusive: false,
+        vatNetMinor: 200000,
+        vatAmountMinor: 40000,
+        amountMinor: 240000,
+        paidMinor: 0,
+        outstandingMinor: 240000,
+        status: "issued",
+        lines: [
+          {
+            description: "Year 3 Tuition — Amina Rasool",
+            pupilName: "Amina Rasool",
+            amountMinor: 200000,
+            kind: "tuition",
+            netMinor: 200000,
+            vatMinor: 40000,
+            grossMinor: 240000,
+            vatRateBps: 2000,
+          },
+        ],
+      }),
+    );
+    expect(text).toContain("VAT invoice");
+    expect(text).not.toContain("This is not a VAT invoice.");
+    expect(text).toContain("GB123456789");
+    expect(text).toContain("20%");
+    expect(text).toContain("NET");
+    expect(text).toContain("GROSS");
+  });
+
+  it("paginates long names and many lines", () => {
+    const bytes = renderFinancePdf({
+      ...outstandingInvoice,
+      schoolName: "The Very Long Riverside Independent School and Sixth Form College for the Arts",
+      billToName: "Alexander Bartholomew Featherstonehaugh-Rasool",
+      lines: Array.from({ length: 40 }, (_, index) => ({
+        description: `Extended outdoor education residential for sibling ${index + 1} with additional equipment`,
+        pupilName: "Alexander Bartholomew Featherstonehaugh-Rasool",
+        amountMinor: 1200,
+        kind: "trip",
+        quantity: 1,
+        rateMinor: 1200,
+      })),
+      amountMinor: 48000,
+      outstandingMinor: 48000,
+      paidMinor: 0,
+      status: "issued",
+    });
+    const text = extractPdfText(bytes);
+    expect(text).toContain("Page 1 of");
+    expect(text).toMatch(/Page 2 of \d+/);
+    expect(text).toContain("Featherstonehaugh");
   });
 
   it("builds a ZIP of stored documents without mutating records", () => {
@@ -500,7 +602,68 @@ describe("finance PDF documents", () => {
         memo: "September fees",
       }),
     );
+    writeSample(
+      "vat-exclusive-invoice.pdf",
+      renderFinancePdf({
+        ...outstandingInvoice,
+        logo,
+        vatInvoice: true,
+        vatRegistrationNumber: "GB123456789",
+        vatRateBps: 2000,
+        vatPricesInclusive: false,
+        subtotalMinor: 50000,
+        vatNetMinor: 50000,
+        vatAmountMinor: 10000,
+        amountMinor: 60000,
+        paidMinor: 0,
+        outstandingMinor: 60000,
+        status: "issued",
+        lines: [
+          {
+            description: "Year 3 Tuition — Amina Rasool",
+            pupilName: "Amina Rasool",
+            amountMinor: 50000,
+            kind: "tuition",
+            netMinor: 50000,
+            vatMinor: 10000,
+            grossMinor: 60000,
+            vatRateBps: 2000,
+          },
+        ],
+      }),
+    );
+    writeSample(
+      "vat-inclusive-invoice.pdf",
+      renderFinancePdf({
+        ...outstandingInvoice,
+        logo,
+        vatInvoice: true,
+        vatRegistrationNumber: "GB123456789",
+        vatRateBps: 2000,
+        vatPricesInclusive: true,
+        subtotalMinor: 60000,
+        vatNetMinor: 50000,
+        vatAmountMinor: 10000,
+        amountMinor: 60000,
+        paidMinor: 0,
+        outstandingMinor: 60000,
+        status: "issued",
+        lines: [
+          {
+            description: "Year 3 Tuition — Amina Rasool",
+            pupilName: "Amina Rasool",
+            amountMinor: 60000,
+            kind: "tuition",
+            netMinor: 50000,
+            vatMinor: 10000,
+            grossMinor: 60000,
+            vatRateBps: 2000,
+          },
+        ],
+      }),
+    );
     expect(fs.existsSync(path.join(sampleDir, "partially-paid-invoice.pdf"))).toBe(true);
+    expect(fs.existsSync(path.join(sampleDir, "vat-exclusive-invoice.pdf"))).toBe(true);
     expect(extractText).toBe(extractPdfText);
   });
 });

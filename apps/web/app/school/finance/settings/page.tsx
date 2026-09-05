@@ -30,6 +30,10 @@ type Settings = {
   bankAccountName: string | null;
   bankAccountNumber: string | null;
   bankSortCode: string | null;
+  vatEnabled: boolean;
+  vatRegistrationNumber: string | null;
+  vatRatePercent: number;
+  vatPricesInclusive: boolean;
 };
 
 export default function FinanceSettingsPage() {
@@ -39,7 +43,15 @@ export default function FinanceSettingsPage() {
 
   useEffect(() => {
     api<{ settings: Settings }>("/api/v1/finance/settings")
-      .then((body) => setSettings(body.settings))
+      .then((body) =>
+        setSettings({
+          ...body.settings,
+          vatEnabled: Boolean(body.settings.vatEnabled),
+          vatRegistrationNumber: body.settings.vatRegistrationNumber ?? null,
+          vatRatePercent: Number(body.settings.vatRatePercent ?? 0),
+          vatPricesInclusive: body.settings.vatPricesInclusive !== false,
+        }),
+      )
       .catch((err: Error) => setError(userFacingError(err, "Could not load finance settings.")));
   }, []);
 
@@ -255,8 +267,103 @@ export default function FinanceSettingsPage() {
           <Button type="submit">Save invoice details</Button>
         </form>
       </SectionCard>
+      <SectionCard title="VAT / Tax">
+        <p className="muted">
+          VAT is optional and school-specific. Do not enable it unless this school should issue VAT invoices. Changing
+          these settings does not rewrite invoices that have already been issued.
+        </p>
+        <form className="stack" onSubmit={save}>
+          <FormField label="Use VAT on invoices?">
+            <select
+              value={settings.vatEnabled ? "yes" : "no"}
+              onChange={(event) => setSettings({ ...settings, vatEnabled: event.target.value === "yes" })}
+            >
+              <option value="no">No</option>
+              <option value="yes">Yes</option>
+            </select>
+          </FormField>
+          {settings.vatEnabled ? (
+            <>
+              <FormField
+                label="VAT registration number"
+                hint="Shown on VAT invoices. Format is not restricted to a UK number."
+              >
+                <Input
+                  value={settings.vatRegistrationNumber ?? ""}
+                  maxLength={40}
+                  onChange={(event) => setSettings({ ...settings, vatRegistrationNumber: event.target.value || null })}
+                />
+              </FormField>
+              <FormField label="Default VAT rate (%)" hint="Enter the percentage this school uses. It is not fixed at 20%.">
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  value={Number.isFinite(settings.vatRatePercent) ? settings.vatRatePercent : 0}
+                  onChange={(event) => setSettings({ ...settings, vatRatePercent: Number(event.target.value) })}
+                />
+              </FormField>
+              <FormField label="Are the fee amounts you enter inclusive of VAT?">
+                <label>
+                  <input
+                    type="radio"
+                    name="vatPricesInclusive"
+                    checked={settings.vatPricesInclusive}
+                    onChange={() => setSettings({ ...settings, vatPricesInclusive: true })}
+                  />{" "}
+                  Yes — the amount entered already includes VAT
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="vatPricesInclusive"
+                    checked={!settings.vatPricesInclusive}
+                    onChange={() => setSettings({ ...settings, vatPricesInclusive: false })}
+                  />{" "}
+                  No — VAT is added to the amount entered
+                </label>
+              </FormField>
+              <VatExamples ratePercent={settings.vatRatePercent} inclusive={settings.vatPricesInclusive} />
+            </>
+          ) : (
+            <p className="muted">Invoices will continue to say “This is not a VAT invoice.” Fee amounts are unchanged.</p>
+          )}
+          <Button type="submit">Save VAT settings</Button>
+        </form>
+      </SectionCard>
       <PaymentProviderSettings />
     </>
+  );
+}
+
+function formatPounds(minor: number): string {
+  return `£${(minor / 100).toFixed(2)}`;
+}
+
+function VatExamples({ ratePercent, inclusive }: { ratePercent: number; inclusive: boolean }) {
+  const enteredInclusive = 60000;
+  const enteredExclusive = 50000;
+  const rate = Number.isFinite(ratePercent) ? ratePercent : 0;
+  const rateBps = Math.round(rate * 100);
+  const exclusiveVat = rateBps <= 0 ? 0 : Math.round((enteredExclusive * rateBps) / 10000);
+  const inclusiveVat = rateBps <= 0 ? 0 : Math.round((enteredInclusive * rateBps) / (10000 + rateBps));
+  return (
+    <div className="muted">
+      <p>Example at {rate.toFixed(2)}%:</p>
+      <p>
+        VAT inclusive — entered {formatPounds(enteredInclusive)}, net {formatPounds(enteredInclusive - inclusiveVat)}, VAT{" "}
+        {formatPounds(inclusiveVat)}, parent pays {formatPounds(enteredInclusive)}.
+      </p>
+      <p>
+        VAT exclusive — entered {formatPounds(enteredExclusive)}, net {formatPounds(enteredExclusive)}, VAT{" "}
+        {formatPounds(exclusiveVat)}, parent pays {formatPounds(enteredExclusive + exclusiveVat)}.
+      </p>
+      <p>No VAT — entered {formatPounds(enteredInclusive)}, parent pays {formatPounds(enteredInclusive)}.</p>
+      <p>
+        Current setting: {inclusive ? "amounts you enter already include VAT." : "VAT is added to the amounts you enter."}
+      </p>
+    </div>
   );
 }
 

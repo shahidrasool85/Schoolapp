@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { AppError } from "./errors.js";
 import {
   chargeBalance,
   chargeIsPayable,
@@ -9,7 +10,15 @@ import {
   shouldCancelActivityCharge,
   shouldGenerateActivityCharge,
 } from "./payments.js";
-import { FakePaymentProvider, StripePaymentProvider, verifyStripeSignature, mapStripeEvent } from "./payment-provider.js";
+import {
+  FakePaymentProvider,
+  StripePaymentProvider,
+  buildStripeCheckoutFailureLog,
+  originSchemeAndHost,
+  verifyStripeSignature,
+  mapStripeEvent,
+  type StripeCheckoutFailureLog,
+} from "./payment-provider.js";
 
 describe("charge status and activity policy", () => {
   it("derives issued, partial, paid, waived and refunded", () => {
@@ -84,6 +93,10 @@ describe("fake provider signatures", () => {
 });
 
 describe("stripe webhook helper", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("verifies timestamped HMAC signatures and rejects stale ones", () => {
     const secret = "whsec_test";
     const body = JSON.stringify({ id: "evt_1", type: "checkout.session.completed", data: { object: { id: "cs_1" } } });
@@ -168,5 +181,206 @@ describe("stripe webhook helper", () => {
     expect(posted).toContain("metadata%5Bschoolapp_pupil_id%5D=pupil-1");
     expect(posted).toContain("metadata%5Bschoolapp_charge_category%5D=tuition");
     expect(posted).not.toContain("schoolapp_charge_id");
+    expect(posted).not.toContain("payment_method_types");
+    expect(posted).toContain("managed_payments%5Benabled%5D=false");
+    expect(posted).not.toContain("automatic_tax");
+    expect(posted).not.toContain("tax_code");
+  });
+
+  it("creates a £500 GBP Checkout Session without tax or payment_method_types and keeps tenant HTTPS return URLs", async () => {
+    let posted = "";
+    let requestedUrl = "";
+    const provider = new StripePaymentProvider({
+      providerKey: "stripe",
+      fakeWebhookSecret: "unused",
+      stripeSecretKey: "sk_test_placeholder",
+      stripeWebhookSecret: "whsec_test",
+      fetchImpl: (async (url, init) => {
+        requestedUrl = String(url);
+        posted = String(init?.body ?? "");
+        return {
+          ok: true,
+          json: async () => ({ id: "cs_ksw_500", url: "https://checkout.stripe.com/c/pay/cs_ksw_500" }),
+        } as Response;
+      }) as typeof fetch,
+    });
+    const created = await provider.createSession({
+      organisationId: "org-kingswood",
+      chargeId: "",
+      invoiceId: "inv-ksw-500",
+      billingAccountId: "fam-1",
+      studentProfileId: "pupil-1",
+      chargeCategory: "tuition",
+      sessionId: "sess-1",
+      transactionId: "tx-1",
+      reference: "KSW-INV-2026-000001",
+      amountMinor: 50000,
+      currency: "GBP",
+      title: "Invoice KSW-INV-2026-000001",
+      successUrl: "https://kingswood.luvlearn.co.uk/parent/finance/checkout/success?invoiceId=inv-ksw-500",
+      cancelUrl: "https://kingswood.luvlearn.co.uk/parent/finance/checkout/cancel?invoiceId=inv-ksw-500",
+    });
+    expect(requestedUrl).toContain("/v1/checkout/sessions");
+    expect(created.checkoutUrl).toBe("https://checkout.stripe.com/c/pay/cs_ksw_500");
+    const params = new URLSearchParams(posted);
+    expect(params.has("payment_method_types[0]")).toBe(false);
+    expect(posted).not.toMatch(/payment_method_types/);
+    expect(params.get("managed_payments[enabled]")).toBe("false");
+    expect(params.has("automatic_tax[enabled]")).toBe(false);
+    expect(posted).not.toMatch(/automatic_tax/);
+    expect(params.has("line_items[0][price_data][product_data][tax_code]")).toBe(false);
+    expect(params.has("line_items[0][price_data][tax_behavior]")).toBe(false);
+    expect(params.has("tax_id_collection[enabled]")).toBe(false);
+    expect(posted).not.toMatch(/tax_code|tax_behavior|tax_id_collection/);
+    expect(params.get("line_items[0][price_data][unit_amount]")).toBe("50000");
+    expect(params.get("line_items[0][price_data][currency]")).toBe("gbp");
+    expect(params.get("mode")).toBe("payment");
+    expect(params.get("success_url")).toBe(
+      "https://kingswood.luvlearn.co.uk/parent/finance/checkout/success?invoiceId=inv-ksw-500",
+    );
+    expect(params.get("cancel_url")).toBe(
+      "https://kingswood.luvlearn.co.uk/parent/finance/checkout/cancel?invoiceId=inv-ksw-500",
+    );
+  });
+
+  it("logs sanitised Stripe 400 diagnostics without secrets or the raw response body", async () => {
+    const secretKey = "sk_live_super_secret_key_value";
+    const webhookSecret = "whsec_never_log_this_secret";
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const stripeBody = {
+      error: {
+        type: "invalid_request_error",
+        code: "url_invalid",
+        param: "success_url",
+        message:
+          "Not a valid URL: https://kingswood.luvlearn.co.uk/parent/finance/checkout/success?invoiceId=inv-1&token=tok_abc (sk_live_super_secret_key_value)",
+        charge: "ch_should_not_appear",
+        decline_code: "do_not_log_nested",
+      },
+      extra: { card: "4242424242424242", authorization: `Bearer ${secretKey}` },
+    };
+    const provider = new StripePaymentProvider({
+      providerKey: "stripe",
+      fakeWebhookSecret: "unused",
+      stripeSecretKey: secretKey,
+      stripeWebhookSecret: webhookSecret,
+      stripeApiBase: "https://api.stripe.com",
+      fetchImpl: (async () =>
+        ({
+          ok: false,
+          status: 400,
+          headers: new Headers({ "Request-Id": "req_checkout_400" }),
+          json: async () => stripeBody,
+        }) as Response) as typeof fetch,
+    });
+    const thrown = await provider
+      .createSession({
+        organisationId: "org-kingswood",
+        chargeId: "",
+        invoiceId: "inv-1",
+        billingAccountId: "fam-should-not-log",
+        studentProfileId: "pupil-should-not-log",
+        chargeCategory: "tuition",
+        sessionId: "sess-1",
+        transactionId: "tx-1",
+        reference: "PAY-2026-000001",
+        amountMinor: 50000,
+        currency: "GBP",
+        title: "Invoice for Pat Parent",
+        successUrl: "https://kingswood.luvlearn.co.uk/parent/finance/checkout/success?invoiceId=inv-1",
+        cancelUrl: "http://kingswood.luvlearn.co.uk/parent/finance/checkout/cancel?invoiceId=inv-1",
+      })
+      .catch((error) => error);
+    expect(thrown).toBeInstanceOf(AppError);
+    expect(thrown).toMatchObject({
+      status: 503,
+      code: "provider_unavailable",
+      message: "The payment provider is temporarily unavailable",
+    });
+    const logged = info.mock.calls.find((call) => call[0] === "stripe_checkout_failed");
+    expect(logged).toBeTruthy();
+    const payload = logged![1] as StripeCheckoutFailureLog;
+    expect(payload).toEqual({
+      event: "stripe_checkout_failed",
+      stripeHttpStatus: 400,
+      stripeErrorType: "invalid_request_error",
+      stripeErrorCode: "url_invalid",
+      stripeErrorParam: "success_url",
+      stripeRequestId: "req_checkout_400",
+      stripeErrorMessage: null,
+      organisationId: "org-kingswood",
+      invoiceId: "inv-1",
+      mode: "live",
+      currency: "GBP",
+      amountMinor: 50000,
+      successOrigin: "https://kingswood.luvlearn.co.uk",
+      cancelOrigin: "http://kingswood.luvlearn.co.uk",
+      stripeApiHost: "api.stripe.com",
+    });
+    const serialised = JSON.stringify(info.mock.calls);
+    expect(serialised).not.toContain(secretKey);
+    expect(serialised).not.toContain(webhookSecret);
+    expect(serialised).not.toContain("Bearer ");
+    expect(serialised).not.toContain("whsec_");
+    expect(serialised).not.toContain("4242424242424242");
+    expect(serialised).not.toContain("fam-should-not-log");
+    expect(serialised).not.toContain("pupil-should-not-log");
+    expect(serialised).not.toContain("Pat Parent");
+    expect(serialised).not.toContain("/parent/finance");
+    expect(serialised).not.toContain("invoiceId=inv-1");
+    expect(serialised).not.toContain("ch_should_not_appear");
+    expect(serialised).not.toContain("do_not_log_nested");
+    expect(serialised).not.toContain("Authorization");
+    expect(Object.keys(payload).sort()).toEqual(
+      [
+        "amountMinor",
+        "cancelOrigin",
+        "currency",
+        "event",
+        "invoiceId",
+        "mode",
+        "organisationId",
+        "stripeApiHost",
+        "stripeErrorCode",
+        "stripeErrorMessage",
+        "stripeErrorParam",
+        "stripeErrorType",
+        "stripeHttpStatus",
+        "stripeRequestId",
+        "successOrigin",
+      ].sort(),
+    );
+  });
+
+  it("keeps a safe Stripe error message and reduces URLs to scheme and host", () => {
+    const log = buildStripeCheckoutFailureLog({
+      httpStatus: 400,
+      headers: { "request-id": "req_safe" },
+      responseJson: {
+        error: {
+          type: "invalid_request_error",
+          code: "url_invalid",
+          param: "success_url",
+          message:
+            "Not a valid URL: https://kingswood.luvlearn.co.uk/parent/finance/checkout/success?invoiceId=inv-1",
+        },
+      },
+      diagnostics: {
+        organisationId: "org-1",
+        invoiceId: "inv-1",
+        currency: "gbp",
+        amountMinor: 50000,
+        successUrl: "https://kingswood.luvlearn.co.uk/parent/finance/checkout/success?invoiceId=inv-1",
+        cancelUrl: "https://kingswood.luvlearn.co.uk/parent/finance/checkout/cancel?invoiceId=inv-1",
+      },
+      apiBase: "https://api.stripe.com",
+      mode: "live",
+    });
+    expect(log.stripeErrorMessage).toBe("Not a valid URL: https://kingswood.luvlearn.co.uk");
+    expect(log.stripeErrorMessage).not.toContain("/parent/finance");
+    expect(log.successOrigin).toBe("https://kingswood.luvlearn.co.uk");
+    expect(originSchemeAndHost("https://kingswood.luvlearn.co.uk/parent/finance/checkout/success?invoiceId=inv-1")).toBe(
+      "https://kingswood.luvlearn.co.uk",
+    );
   });
 });

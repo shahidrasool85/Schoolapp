@@ -1,5 +1,5 @@
 import { createHmac, randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { closePools, withTenantContext } from "@schoolapp/db";
 import { payloadContainsSecret } from "@schoolapp/core";
 import {
@@ -196,6 +196,11 @@ function checkoutEvent(input: { eventId: string; sessionId: string; paymentId: s
 
 describe("per-school Stripe configuration", () => {
   const pools = testPools();
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   const calls: StripeCall[] = [];
   const app = testApp(pools, {
     stripeFetchImpl: (async (url, init) => {
@@ -336,8 +341,25 @@ describe("per-school Stripe configuration", () => {
       body: JSON.stringify({ idempotencyKey: `pay-b-${id}` }),
     });
     expect(payB.status).toBe(200);
-    expect(calls.some((call) => call.auth === "Bearer sk_test_school_a_aaaaaaaa" && call.url.includes("/v1/checkout/sessions"))).toBe(true);
-    expect(calls.some((call) => call.auth === "Bearer sk_test_school_b_bbbbbbbb" && call.url.includes("/v1/checkout/sessions"))).toBe(true);
+    const checkoutA = (await payA.json()) as { checkoutUrl: string; sessionId: string };
+    const checkoutB = (await payB.json()) as { checkoutUrl: string; sessionId: string };
+    expect(checkoutA.checkoutUrl).toContain("https://checkout.stripe.test/");
+    expect(checkoutB.checkoutUrl).toContain("https://checkout.stripe.test/");
+    expect(checkoutA.sessionId).toBeTruthy();
+    expect(checkoutB.sessionId).toBeTruthy();
+    const checkoutCalls = calls.filter((call) => call.url.includes("/v1/checkout/sessions"));
+    expect(checkoutCalls.some((call) => call.auth === "Bearer sk_test_school_a_aaaaaaaa")).toBe(true);
+    expect(checkoutCalls.some((call) => call.auth === "Bearer sk_test_school_b_bbbbbbbb")).toBe(true);
+    expect(checkoutCalls.every((call) => !call.body.includes("payment_method_types"))).toBe(true);
+    expect(
+      checkoutCalls.every((call) => new URLSearchParams(call.body).get("line_items[0][price_data][currency]") === "gbp"),
+    ).toBe(true);
+    expect(
+      checkoutCalls.every((call) => new URLSearchParams(call.body).get("managed_payments[enabled]") === "false"),
+    ).toBe(true);
+    expect(checkoutCalls.every((call) => !call.body.includes("automatic_tax"))).toBe(true);
+    expect(checkoutCalls.every((call) => !call.body.includes("tax_code"))).toBe(true);
+    expect(checkoutCalls.every((call) => !call.body.includes("tax_behavior"))).toBe(true);
 
     const sessionA = await pools.owner.query<{ provider_session_id: string; amount_minor: string }>(
       `select provider_session_id, amount_minor::text from school_payment_sessions
@@ -564,5 +586,113 @@ describe("per-school Stripe configuration", () => {
     expect(body.paymentProvider.displayName).toBe("School A");
     expect(calls.some((call) => call.url.includes("/v1/account"))).toBe(true);
     expect(calls.some((call) => call.url.includes("/v1/charges") || call.url.includes("/v1/checkout"))).toBe(false);
+  });
+
+  it("keeps parent checkout 503 generic when Stripe Checkout Sessions returns 400", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const secretKey = "sk_test_school_c_cccccccc";
+    const webhookSecret = "whsec_school_c_never_log";
+    const failingApp = testApp(pools, {
+      stripeFetchImpl: (async (url) => {
+        if (String(url).includes("/v1/account")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ id: "acct_c", business_profile: { name: "School C" } }),
+          } as Response;
+        }
+        return {
+          ok: false,
+          status: 400,
+          headers: new Headers({ "Request-Id": "req_parent_400" }),
+          json: async () => ({
+            error: {
+              type: "invalid_request_error",
+              code: "url_invalid",
+              param: "success_url",
+              message: `Invalid success_url using ${secretKey} and ${webhookSecret}`,
+            },
+          }),
+        } as Response;
+      }) as typeof fetch,
+    });
+    const id = suffix();
+    const school = await createSchool(pools.owner, `f-${id}`);
+    const token = await login(failingApp, school.adminEmail, "password-12x");
+    const hdrs = headers(token, school.orgId);
+    const year = await seedYear(failingApp, hdrs);
+    const pupil = await createStudent(failingApp, hdrs, {
+      legalName: "Logged Child",
+      academicYearId: year.yearId,
+      yearGroupId: year.yearGroupId,
+    });
+    await inviteParent(failingApp, hdrs, pupil.student.id, `parent-f-${id}@example.com`);
+    const invoice = await issueInvoice(failingApp, hdrs, { yearId: year.yearId });
+    await saveStripe(failingApp, hdrs, {
+      secretKey,
+      webhookSecret,
+      enabled: true,
+    });
+    const parentToken = await login(failingApp, `parent-f-${id}@example.com`, "parent-pass-1");
+    const checkout = await failingApp.request(`/api/v1/parent/finance/invoices/${invoice.id}/checkout`, {
+      method: "POST",
+      headers: {
+        ...headers(parentToken, school.orgId),
+        Host: `${school.slug}.localhost`,
+      },
+      body: "{}",
+    });
+    expect(checkout.status).toBe(503);
+    const body = (await checkout.json()) as { error: { code: string; message: string } };
+    expect(body).toEqual({
+      error: {
+        code: "provider_unavailable",
+        message: "The payment provider is temporarily unavailable",
+      },
+    });
+    expect(JSON.stringify(body)).not.toContain("invalid_request_error");
+    expect(JSON.stringify(body)).not.toContain("url_invalid");
+    expect(JSON.stringify(body)).not.toContain("success_url");
+    expect(JSON.stringify(body)).not.toContain(secretKey);
+    expect(JSON.stringify(body)).not.toContain(webhookSecret);
+    const logged = info.mock.calls.find((call) => call[0] === "stripe_checkout_failed");
+    expect(logged).toBeTruthy();
+    const payload = logged![1] as {
+      stripeHttpStatus: number;
+      stripeErrorType: string;
+      stripeErrorCode: string;
+      stripeErrorParam: string;
+      stripeRequestId: string;
+      organisationId: string;
+      invoiceId: string;
+      mode: string;
+      amountMinor: number;
+      currency: string;
+      stripeApiHost: string;
+      stripeErrorMessage: string | null;
+      successOrigin: string | null;
+      cancelOrigin: string | null;
+    };
+    expect(payload.stripeHttpStatus).toBe(400);
+    expect(payload.stripeErrorType).toBe("invalid_request_error");
+    expect(payload.stripeErrorCode).toBe("url_invalid");
+    expect(payload.stripeErrorParam).toBe("success_url");
+    expect(payload.stripeRequestId).toBe("req_parent_400");
+    expect(payload.organisationId).toBe(school.orgId);
+    expect(payload.invoiceId).toBe(invoice.id);
+    expect(payload.mode).toBe("test");
+    expect(payload.currency).toBe("GBP");
+    expect(payload.amountMinor).toBeGreaterThan(0);
+    expect(payload.stripeApiHost).toBe("api.stripe.com");
+    expect(payload.stripeErrorMessage).toBeNull();
+    expect(payload.successOrigin).toBe(`http://${school.slug}.localhost`);
+    expect(payload.cancelOrigin).toBe(`http://${school.slug}.localhost`);
+    const serialised = JSON.stringify(info.mock.calls.filter((call) => call[0] === "stripe_checkout_failed"));
+    expect(serialised).not.toContain(secretKey);
+    expect(serialised).not.toContain(webhookSecret);
+    expect(serialised).not.toContain("Bearer ");
+    expect(serialised).not.toContain("Invalid success_url");
+    expect(serialised).not.toContain("parent-f-");
+    expect(serialised).not.toContain("Logged Child");
   });
 });

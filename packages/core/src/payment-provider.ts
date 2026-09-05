@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { detectStripeSecretMode, looksLikeSecret } from "./encrypted-secrets.js";
 import { AppError } from "./errors.js";
 import { redactProviderReference } from "./money.js";
 
@@ -70,6 +71,152 @@ export type PaymentRuntimeConfig = {
   stripeApiBase?: string;
   fetchImpl?: typeof fetch;
 };
+
+const STRIPE_CHECKOUT_LOG_EVENT = "stripe_checkout_failed" as const;
+const SANITISED_MESSAGE_MAX = 180;
+const TOKEN_MAX = 80;
+
+export type StripeCheckoutFailureDiagnostics = {
+  organisationId: string;
+  invoiceId?: string | null;
+  currency: string;
+  amountMinor: number;
+  successUrl: string;
+  cancelUrl: string;
+};
+
+export type StripeCheckoutFailureLog = {
+  event: typeof STRIPE_CHECKOUT_LOG_EVENT;
+  stripeHttpStatus: number | null;
+  stripeErrorType: string | null;
+  stripeErrorCode: string | null;
+  stripeErrorParam: string | null;
+  stripeRequestId: string | null;
+  stripeErrorMessage: string | null;
+  organisationId: string | null;
+  invoiceId: string | null;
+  mode: "test" | "live" | null;
+  currency: string | null;
+  amountMinor: number | null;
+  successOrigin: string | null;
+  cancelOrigin: string | null;
+  stripeApiHost: string | null;
+};
+
+function containsSecretMaterial(value: string): boolean {
+  if (looksLikeSecret(value.trim())) return true;
+  return /sk_(?:test|live)_|rk_(?:test|live)_|whsec_|Bearer\s|v1:/.test(value);
+}
+
+export function originSchemeAndHost(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    if (containsSecretMaterial(url.host)) return null;
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return null;
+  }
+}
+
+function hostOnly(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (!url.host || containsSecretMaterial(url.host)) return null;
+    return url.host;
+  } catch {
+    return null;
+  }
+}
+
+function safeToken(value: unknown, max = TOKEN_MAX): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || containsSecretMaterial(trimmed)) return null;
+  return trimmed.length > max ? trimmed.slice(0, max) : trimmed;
+}
+
+function sanitiseStripeErrorMessage(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  let text = value.replace(/\s+/g, " ").trim();
+  if (!text || containsSecretMaterial(text)) return null;
+  text = text.replace(/\bhttps?:\/\/[^\s]+/gi, (match) => originSchemeAndHost(match) ?? "[url]");
+  if (containsSecretMaterial(text)) return null;
+  if (text.length > SANITISED_MESSAGE_MAX) text = text.slice(0, SANITISED_MESSAGE_MAX);
+  return text;
+}
+
+function stripeErrorObject(json: unknown): Record<string, unknown> | null {
+  if (!json || typeof json !== "object") return null;
+  const error = (json as { error?: unknown }).error;
+  if (!error || typeof error !== "object") return null;
+  return error as Record<string, unknown>;
+}
+
+function readHeader(headers: unknown, name: string): string | null {
+  if (!headers) return null;
+  const getter = (headers as { get?: unknown }).get;
+  if (typeof getter === "function") {
+    const value = (getter as (headerName: string) => string | null).call(headers, name);
+    return typeof value === "string" && value.trim() ? value.trim() : null;
+  }
+  if (typeof headers === "object") {
+    for (const [key, value] of Object.entries(headers as Record<string, unknown>)) {
+      if (key.toLowerCase() === name.toLowerCase() && typeof value === "string" && value.trim()) {
+        return value.trim();
+      }
+    }
+  }
+  return null;
+}
+
+export function buildStripeCheckoutFailureLog(input: {
+  httpStatus: number | null;
+  headers?: unknown;
+  responseJson?: unknown;
+  diagnostics: StripeCheckoutFailureDiagnostics;
+  apiBase: string;
+  mode: "test" | "live" | null;
+}): StripeCheckoutFailureLog {
+  const error = stripeErrorObject(input.responseJson);
+  const requestId = readHeader(input.headers, "request-id") ?? readHeader(input.headers, "Request-Id");
+  const currency =
+    typeof input.diagnostics.currency === "string" && /^[A-Za-z]{3}$/.test(input.diagnostics.currency.trim())
+      ? input.diagnostics.currency.trim().toUpperCase()
+      : null;
+  const amountMinor =
+    Number.isInteger(input.diagnostics.amountMinor) && Number.isFinite(input.diagnostics.amountMinor)
+      ? input.diagnostics.amountMinor
+      : null;
+  return {
+    event: STRIPE_CHECKOUT_LOG_EVENT,
+    stripeHttpStatus:
+      typeof input.httpStatus === "number" && Number.isFinite(input.httpStatus) ? input.httpStatus : null,
+    stripeErrorType: error ? safeToken(error.type) : null,
+    stripeErrorCode: error ? safeToken(error.code) : null,
+    stripeErrorParam: error ? safeToken(error.param, 120) : null,
+    stripeRequestId: requestId && !containsSecretMaterial(requestId) ? safeToken(requestId) : null,
+    stripeErrorMessage: error ? sanitiseStripeErrorMessage(error.message) : null,
+    organisationId: safeToken(input.diagnostics.organisationId),
+    invoiceId: input.diagnostics.invoiceId ? safeToken(input.diagnostics.invoiceId) : null,
+    mode: input.mode === "test" || input.mode === "live" ? input.mode : null,
+    currency,
+    amountMinor,
+    successOrigin: originSchemeAndHost(input.diagnostics.successUrl),
+    cancelOrigin: originSchemeAndHost(input.diagnostics.cancelUrl),
+    stripeApiHost: hostOnly(input.apiBase),
+  };
+}
+
+function logStripeCheckoutFailure(log: StripeCheckoutFailureLog): void {
+  try {
+    console.info(STRIPE_CHECKOUT_LOG_EVENT, log);
+  } catch {
+    // Logging must never change the parent-facing failure.
+  }
+}
 
 /**
  * Platform/runtime defaults. Per-school Stripe secret key and webhook secret
@@ -179,7 +326,13 @@ export class StripePaymentProvider implements PaymentProvider {
     body.set("success_url", input.successUrl);
     body.set("cancel_url", input.cancelUrl);
     body.set("client_reference_id", input.reference);
-    body.set("payment_method_types[0]", "card");
+    // Some Stripe accounts default Managed Payments on Checkout Sessions even
+    // when Dashboard onboarding still shows Get started. That path forbids
+    // automatic_tax[enabled]=false and requires a product tax_code. School
+    // tuition Checkout keeps the school as merchant of record: opt out per
+    // session and omit automatic_tax so the invoice outstanding is charged
+    // unchanged. Do not send payment_method_types (dynamic methods / MP).
+    body.set("managed_payments[enabled]", "false");
     body.set("line_items[0][quantity]", "1");
     body.set("line_items[0][price_data][currency]", input.currency.toLowerCase());
     // Amount is the LuvLearn outstanding gross (VAT already included when enabled).
@@ -201,7 +354,14 @@ export class StripePaymentProvider implements PaymentProvider {
     body.set("payment_intent_data[metadata][schoolapp_session_id]", input.sessionId);
     if (input.idempotencyKey) body.set("metadata[schoolapp_idempotency_key]", input.idempotencyKey);
 
-    const response = await this.request("POST", "/v1/checkout/sessions", body, input.idempotencyKey);
+    const response = await this.request("POST", "/v1/checkout/sessions", body, input.idempotencyKey, {
+      organisationId: input.organisationId,
+      invoiceId: input.invoiceId ?? null,
+      currency: input.currency,
+      amountMinor: input.amountMinor,
+      successUrl: input.successUrl,
+      cancelUrl: input.cancelUrl,
+    });
     return {
       providerKey: "stripe",
       providerSessionId: String(response.id),
@@ -243,6 +403,7 @@ export class StripePaymentProvider implements PaymentProvider {
     path: string,
     body?: URLSearchParams,
     idempotencyKey?: string | null,
+    checkoutDiagnostics?: StripeCheckoutFailureDiagnostics,
   ): Promise<Record<string, unknown>> {
     try {
       const headers: Record<string, string> = {
@@ -255,8 +416,28 @@ export class StripePaymentProvider implements PaymentProvider {
         headers,
         body: body?.toString(),
       });
-      const json = (await response.json()) as Record<string, unknown>;
+      let json: Record<string, unknown> | null = null;
+      try {
+        json = (await response.json()) as Record<string, unknown>;
+      } catch {
+        json = null;
+      }
       if (!response.ok) {
+        if (checkoutDiagnostics) {
+          logStripeCheckoutFailure(
+            buildStripeCheckoutFailureLog({
+              httpStatus: response.status,
+              headers: response.headers,
+              responseJson: json,
+              diagnostics: checkoutDiagnostics,
+              apiBase: this.apiBase,
+              mode: detectStripeSecretMode(this.secretKey),
+            }),
+          );
+        }
+        throw new AppError(503, "provider_unavailable", "The payment provider is temporarily unavailable");
+      }
+      if (!json) {
         throw new AppError(503, "provider_unavailable", "The payment provider is temporarily unavailable");
       }
       return json;

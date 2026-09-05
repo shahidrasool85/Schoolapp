@@ -105,6 +105,26 @@ describe("RLS catalog", () => {
     }
   });
 
+  it("adds optional invoice document bank and finance email settings", async () => {
+    const result = await pools.owner.query<{ column_name: string }>(
+      `select column_name
+         from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'school_finance_settings'
+          and column_name in (
+            'finance_email', 'bank_name', 'bank_account_name', 'bank_account_number', 'bank_sort_code'
+          )
+        order by column_name`,
+    );
+    expect(result.rows.map((row) => row.column_name)).toEqual([
+      "bank_account_name",
+      "bank_account_number",
+      "bank_name",
+      "bank_sort_code",
+      "finance_email",
+    ]);
+  });
+
   it("grants the app role DML on finance tables", async () => {
     const result = await pools.owner.query<{ table_name: string; can_select: boolean }>(
       `select t.table_name, has_table_privilege('schoolapp_app', t.table_name, 'SELECT') as can_select

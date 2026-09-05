@@ -37,17 +37,17 @@ import {
   renderInvoicePdfBytes,
   renderReceiptPdfBytes,
   renderFamilyStatementZip,
+  renderStatementPdfBytes,
   listFinanceReceipts,
   loadFamilyStatementDocument,
   loadPupilYearGroupId,
-  renderFinancePdf,
-  financePdfFilename,
 } from "@schoolapp/core";
 import { listPupilTimetable } from "./timetable";
 import { mapTimetableOccurrence } from "../serialize";
 import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
 import { withSchoolActor, uuidRouteParam } from "../school-context";
+import { storageOf } from "../file-service";
 import { listPupilAssignments, loadPupilAssignment } from "../learning-pupil";
 import {
   listPupilFormalResults,
@@ -539,7 +539,9 @@ export function registerParentRoutes(app: SchoolappApi) {
   app.get("/parent/finance/invoices/:invoiceId/pdf", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       await loadParentInvoice(client, orgId, actor, uuidRouteParam(c, "invoiceId"));
-      const pdf = await renderInvoicePdfBytes(client, orgId, uuidRouteParam(c, "invoiceId"));
+      const pdf = await renderInvoicePdfBytes(client, orgId, uuidRouteParam(c, "invoiceId"), {
+        objectStore: storageOf(c),
+      });
       return new Response(Buffer.from(pdf.bytes), {
         headers: {
           "Content-Type": "application/pdf",
@@ -598,7 +600,7 @@ export function registerParentRoutes(app: SchoolappApi) {
         [receiptId, orgId, accountIds],
       );
       if (!allowed.rows[0]) throw new AppError(404, "not_found", "Not found");
-      const pdf = await renderReceiptPdfBytes(client, orgId, receiptId);
+      const pdf = await renderReceiptPdfBytes(client, orgId, receiptId, { objectStore: storageOf(c) });
       return new Response(Buffer.from(pdf.bytes), {
         headers: {
           "Content-Type": "application/pdf",
@@ -628,7 +630,7 @@ export function registerParentRoutes(app: SchoolappApi) {
             today: new Date().toISOString().slice(0, 10),
             customFrom: c.req.query("from") ?? null,
             customTo: c.req.query("to") ?? null,
-          });
+          }, { objectStore: storageOf(c) });
           return new Response(Buffer.from(zip.bytes), {
             headers: {
               "Content-Type": "application/zip",
@@ -638,11 +640,11 @@ export function registerParentRoutes(app: SchoolappApi) {
           });
         }
         if (c.req.query("format") === "pdf") {
-          const bytes = renderFinancePdf(loaded.document);
-          return new Response(Buffer.from(bytes), {
+          const pdf = await renderStatementPdfBytes(client, orgId, loaded.document, { objectStore: storageOf(c) });
+          return new Response(Buffer.from(pdf.bytes), {
             headers: {
               "Content-Type": "application/pdf",
-              "Content-Disposition": `attachment; filename="${financePdfFilename(loaded.document)}"`,
+              "Content-Disposition": `attachment; filename="${pdf.filename}"`,
               "Cache-Control": "no-store",
             },
           });

@@ -25,6 +25,11 @@ type Settings = {
   midPeriodJoinPolicy: string;
   midPeriodLeavePolicy: string;
   monthlyInstalmentCount: number;
+  financeEmail: string | null;
+  bankName: string | null;
+  bankAccountName: string | null;
+  bankAccountNumber: string | null;
+  bankSortCode: string | null;
 };
 
 export default function FinanceSettingsPage() {
@@ -170,17 +175,6 @@ export default function FinanceSettingsPage() {
             </select>
           </label>
           <label>
-            Payment instructions
-            <textarea
-              value={settings.paymentInstructions ?? ""}
-              onChange={(event) => setSettings({ ...settings, paymentInstructions: event.target.value })}
-            />
-          </label>
-          <label>
-            Invoice footer
-            <textarea value={settings.invoiceFooter ?? ""} onChange={(event) => setSettings({ ...settings, invoiceFooter: event.target.value })} />
-          </label>
-          <label>
             <input
               type="checkbox"
               checked={settings.parentsCanViewInvoices}
@@ -205,6 +199,60 @@ export default function FinanceSettingsPage() {
             Students can view their own fee invoices (off by default; family payment detail stays in the parent portal)
           </label>
           <button type="submit">Save settings</button>
+        </form>
+      </SectionCard>
+      <SectionCard title="Invoice & Receipt details">
+        <p className="muted">
+          School name, address, phone, website and logo come from School Settings. Bank details are optional payment
+          instructions for this school’s invoices and receipts. They are not Stripe or card credentials.
+        </p>
+        <form className="stack" onSubmit={save}>
+          <FormField label="Finance / bursar email" hint="Shown on invoices and receipts. Leave blank to use the school contact email.">
+            <Input
+              type="email"
+              value={settings.financeEmail ?? ""}
+              onChange={(event) => setSettings({ ...settings, financeEmail: event.target.value || null })}
+            />
+          </FormField>
+          <FormField label="Bank name">
+            <Input
+              value={settings.bankName ?? ""}
+              onChange={(event) => setSettings({ ...settings, bankName: event.target.value || null })}
+            />
+          </FormField>
+          <FormField label="Account name">
+            <Input
+              value={settings.bankAccountName ?? ""}
+              onChange={(event) => setSettings({ ...settings, bankAccountName: event.target.value || null })}
+            />
+          </FormField>
+          <FormField label="Account number">
+            <Input
+              value={settings.bankAccountNumber ?? ""}
+              autoComplete="off"
+              onChange={(event) => setSettings({ ...settings, bankAccountNumber: event.target.value || null })}
+            />
+          </FormField>
+          <FormField label="Sort code">
+            <Input
+              value={settings.bankSortCode ?? ""}
+              autoComplete="off"
+              onChange={(event) => setSettings({ ...settings, bankSortCode: event.target.value || null })}
+            />
+          </FormField>
+          <FormField label="Payment instructions" hint="Shown on outstanding invoices. Leave blank to omit.">
+            <textarea
+              value={settings.paymentInstructions ?? ""}
+              onChange={(event) => setSettings({ ...settings, paymentInstructions: event.target.value || null })}
+            />
+          </FormField>
+          <FormField label="Invoice footer note" hint="Optional legal or payment note printed under the totals.">
+            <textarea
+              value={settings.invoiceFooter ?? ""}
+              onChange={(event) => setSettings({ ...settings, invoiceFooter: event.target.value || null })}
+            />
+          </FormField>
+          <Button type="submit">Save invoice details</Button>
         </form>
       </SectionCard>
       <PaymentProviderSettings />

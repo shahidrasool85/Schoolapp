@@ -645,6 +645,7 @@ export const MAIL_PURPOSES = [
   "password_reset",
   "account_activation",
   "student_activation",
+  "admissions_enquiry_received",
   "admissions_application_received",
   "admissions_status_update",
   "finance_invoice_issued",
@@ -657,6 +658,7 @@ export type MailPurpose = (typeof MAIL_PURPOSES)[number];
 export const EMAIL_TEMPLATE_KEYS = [
   "account_invitation",
   "password_reset",
+  "admissions_enquiry_received",
   "admissions_application_received",
   "admissions_status_update",
   "finance_invoice_issued",

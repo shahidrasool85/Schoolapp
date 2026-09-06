@@ -3,6 +3,7 @@ import { purposeToTemplateKey } from "./email-provider.js";
 import {
   renderAccountInvitation,
   renderAdmissionsApplicationReceived,
+  renderAdmissionsEnquiryReceived,
   renderAdmissionsStatusUpdate,
   renderFinanceNotice,
   renderPasswordReset,
@@ -238,6 +239,41 @@ export function studentActivationMail(input: {
       expiresLabel: "7 days",
     },
     metadata: { hasActionLink: true },
+  };
+}
+
+export function admissionsEnquiryReceivedMail(input: {
+  organisationId: string;
+  organisationName: string;
+  toEmail: string;
+  toName?: string | null;
+  enquiryId: string;
+  enquiryReference?: string | null;
+  branding?: TransactionalBranding;
+  replyTo?: string | null;
+}): MailMessage {
+  const rendered = renderAdmissionsEnquiryReceived({
+    branding: brandingOf(input.organisationName, input.branding),
+    recipientName: input.toName,
+  });
+  return {
+    organisationId: input.organisationId,
+    purpose: "admissions_enquiry_received",
+    templateKey: "admissions_enquiry_received",
+    toEmail: input.toEmail,
+    toName: input.toName ?? null,
+    subject: rendered.subject,
+    textBody: rendered.text,
+    htmlBody: rendered.html,
+    replyTo: input.replyTo ?? null,
+    idempotencyKey: `admissions.enquiry_received:${input.enquiryId}`,
+    templateData: {
+      recipientName: input.toName ?? null,
+    },
+    metadata: {
+      enquiryId: input.enquiryId,
+      enquiryReference: input.enquiryReference ?? null,
+    },
   };
 }
 

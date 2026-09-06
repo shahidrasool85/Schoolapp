@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  admissionsEnquiryReceivedMail,
   assertNoPasswordInMail,
   NoopMailProvider,
   passwordResetMail,
@@ -59,5 +60,25 @@ describe("mail provider", () => {
         note: "ok",
       }),
     ).toEqual({ hasActionLink: true, note: "ok" });
+  });
+
+  it("builds an enquiry acknowledgement with enquiry-id idempotency and no notes", () => {
+    const message = admissionsEnquiryReceivedMail({
+      organisationId: "org",
+      organisationName: "Kingswood School",
+      toEmail: "jordan@example.com",
+      toName: "Jordan Rivera",
+      enquiryId: "enq-1",
+      enquiryReference: "ENQ-1001",
+    });
+    expect(message.purpose).toBe("admissions_enquiry_received");
+    expect(message.idempotencyKey).toBe("admissions.enquiry_received:enq-1");
+    expect(message.toEmail).toBe("jordan@example.com");
+    expect(message.subject).toContain("Kingswood School");
+    expect(message.textBody).toContain("Dear Jordan Rivera,");
+    expect(JSON.stringify(message.metadata)).toEqual(
+      JSON.stringify({ enquiryId: "enq-1", enquiryReference: "ENQ-1001" }),
+    );
+    expect(JSON.stringify(message)).not.toMatch(/allerg|medical|safeguard|date of birth/i);
   });
 });

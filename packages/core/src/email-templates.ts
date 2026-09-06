@@ -46,6 +46,13 @@ export function fixturePreviewData(template: EmailTemplateKey): Record<string, s
       expiresLabel: "1 hour",
     };
   }
+  if (template === "admissions_enquiry_received") {
+    return {
+      recipientName: "Jordan Example",
+      schoolName: "Kingswood School",
+      enquiryReference: "ENQ-1001",
+    };
+  }
   if (template === "admissions_application_received") {
     return {
       recipientName: "Sarah Example",
@@ -134,6 +141,26 @@ export function renderPasswordReset(input: {
     ],
     button: { label: "Reset password", url: input.actionUrl },
     footerNote: "If you didn't request this, you can ignore this email.",
+  });
+}
+
+export function renderAdmissionsEnquiryReceived(input: {
+  branding: TransactionalBranding;
+  recipientName?: string | null;
+}): RenderedEmail {
+  const school = safeEmailText(input.branding.schoolName, 160) || "School";
+  const name = safeEmailText(input.recipientName, 120) || "Parent/Guardian";
+  return renderShell({
+    branding: input.branding,
+    subject: `Thank you for your enquiry – ${school}`,
+    heading: "Enquiry received",
+    preheader: `We have received your enquiry to ${school}`,
+    greeting: `Dear ${name},`,
+    paragraphs: [
+      `Thank you for contacting ${school}.`,
+      "We have received your enquiry and a member of our team will get back to you shortly.",
+    ],
+    signoff: `Kind regards,\n${school}`,
   });
 }
 
@@ -229,6 +256,12 @@ export function renderEmailTemplate(
       recipientName: data.recipientName,
       actionUrl: data.actionUrl || "#",
       expiresLabel: data.expiresLabel || "1 hour",
+    });
+  }
+  if (template === "admissions_enquiry_received") {
+    return renderAdmissionsEnquiryReceived({
+      branding,
+      recipientName: data.recipientName,
     });
   }
   if (template === "admissions_application_received") {

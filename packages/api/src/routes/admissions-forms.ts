@@ -42,7 +42,7 @@ import { requireUser } from "../auth-middleware";
 import { uuidRouteParam, withSchoolActor } from "../school-context";
 import { mapAdmissionsCampaign, mapAdmissionsForm, mapFormSubmission } from "../serialize";
 import { assertPublicFormFileAnswers } from "../file-service";
-import { queueAdmissionsApplicationAck } from "../admissions-mail";
+import { queueAdmissionsFormAck } from "../admissions-mail";
 
 const formSchema = z.object({
   formType: z.enum(ADMISSIONS_FORM_TYPES),
@@ -755,7 +755,7 @@ export function registerAdmissionsFormRoutes(app: SchoolappApi) {
           "select id, name from year_groups where organisation_id = $1 order by sort_order",
           [orgId],
         );
-        await queueAdmissionsApplicationAck(c, {
+        await queueAdmissionsFormAck(c, {
           organisationId: orgId,
           organisationName: host.kind === "school" ? host.name : "School",
           result,

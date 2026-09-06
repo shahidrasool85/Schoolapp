@@ -19,13 +19,16 @@ function mailOutboxCanRetry(status: string, purpose: string): boolean {
   if (status === "queued") return true;
   return (
     status === "failed" &&
-    (purpose === "admissions_application_received" || purpose === "admissions_status_update")
+    (purpose === "admissions_enquiry_received" ||
+      purpose === "admissions_application_received" ||
+      purpose === "admissions_status_update")
   );
 }
 
 const TEMPLATES = [
   { key: "account_invitation", label: "Account invitation" },
   { key: "password_reset", label: "Password reset" },
+  { key: "admissions_enquiry_received", label: "Enquiry received" },
   { key: "admissions_application_received", label: "Application received" },
   { key: "admissions_status_update", label: "Application update" },
 ] as const;

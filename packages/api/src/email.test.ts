@@ -32,6 +32,7 @@ async function createSchool(owner: ReturnType<typeof testPools>["owner"], id: st
     adminId,
     orgId: org.rows[0]!.id,
     slug: org.rows[0]!.slug,
+    name: `Email ${id}`,
     adminEmail: `admin-${id}@example.com`,
   };
 }
@@ -42,6 +43,30 @@ function headers(token: string, orgId: string) {
     "Content-Type": "application/json",
     "X-Organisation-Id": orgId,
   };
+}
+
+async function listOutbox(
+  owner: ReturnType<typeof testPools>["owner"],
+  orgId: string,
+  purpose: string,
+) {
+  return owner.query<{
+    id: string;
+    status: string;
+    to_email: string;
+    to_name: string | null;
+    subject: string;
+    body_text: string;
+    metadata: Record<string, unknown> | null;
+    idempotency_key: string | null;
+    last_error_code: string | null;
+  }>(
+    `select id, status, to_email, to_name, subject, body_text, metadata, idempotency_key, last_error_code
+       from mail_outbox
+      where organisation_id = $1 and purpose = $2
+      order by created_at desc`,
+    [orgId, purpose],
+  );
 }
 
 describe("transactional email foundation", () => {
@@ -199,6 +224,19 @@ describe("transactional email foundation", () => {
       body: JSON.stringify(payload),
     });
     expect(second.status).toBe(201);
+    expect(email.sent.filter((row) => row.subject.includes("Application received"))).toHaveLength(0);
+    const queuedAcks = await listOutbox(pools.owner, school.orgId, "admissions_application_received");
+    expect(queuedAcks.rows).toHaveLength(1);
+    expect(queuedAcks.rows[0]?.status).toBe("queued");
+    expect(queuedAcks.rows[0]?.last_error_code).toBeNull();
+    expect(queuedAcks.rows[0]?.to_email.toLowerCase()).toBe("sarah.cole@example.com");
+    expect(queuedAcks.rows[0]?.body_text).toContain(firstBody.submission.applicationReference);
+    expect(queuedAcks.rows[0]?.body_text.toLowerCase()).not.toContain("allerg");
+    expect(queuedAcks.rows[0]?.idempotency_key).toMatch(/^admissions\.application_received:/);
+    const delivered = await deliverQueuedMail(testApiConfig(pools, { emailDeliveryProvider: email }), {
+      id: queuedAcks.rows[0]!.id,
+    });
+    expect(delivered.sent).toBe(1);
     const acks = email.sent.filter((row) => row.subject.includes("Application received"));
     expect(acks).toHaveLength(1);
     expect(acks[0]?.text).toContain(firstBody.submission.applicationReference);
@@ -219,23 +257,26 @@ describe("transactional email foundation", () => {
       }),
     });
     expect(failing.status).toBe(201);
-    const queued = await pools.owner.query<{
-      id: string;
-      status: string;
-      last_error_code: string | null;
-      action_url: string | null;
-    }>(
-      `select id, status, last_error_code, action_url
-       from mail_outbox
-       where organisation_id = $1 and purpose = 'admissions_application_received'
-       order by created_at desc`,
-      [school.orgId],
+    const afterFailSubmit = await listOutbox(pools.owner, school.orgId, "admissions_application_received");
+    const timeoutTarget = afterFailSubmit.rows.find((row) => row.to_email.toLowerCase() === "helen.hart@example.com");
+    expect(timeoutTarget?.status).toBe("queued");
+    expect(timeoutTarget?.last_error_code).toBeNull();
+    expect(email.sent.filter((row) => row.to.address.toLowerCase() === "helen.hart@example.com")).toHaveLength(0);
+
+    email.failNext = new EmailDeliveryError("retryable", "provider_timeout", "timeout");
+    const retryableAttempt = await deliverQueuedMail(testApiConfig(pools, { emailDeliveryProvider: email }), {
+      id: timeoutTarget!.id,
+    });
+    expect(retryableAttempt.sent).toBe(0);
+    expect(retryableAttempt.failed).toBe(1);
+    const retryable = (await listOutbox(pools.owner, school.orgId, "admissions_application_received")).rows.find(
+      (row) => row.id === timeoutTarget!.id,
     );
-    const retryable = queued.rows.find((row) => row.status === "queued" && row.last_error_code === "provider_timeout");
-    expect(retryable).toBeTruthy();
+    expect(retryable?.status).toBe("queued");
+    expect(retryable?.last_error_code).toBe("provider_timeout");
 
     const retried = await deliverQueuedMail(testApiConfig(pools, { emailDeliveryProvider: email }), {
-      id: retryable!.id,
+      id: timeoutTarget!.id,
     });
     expect(retried.sent).toBe(1);
     email.failNext = new EmailDeliveryError("permanent", "invalid_recipient", "user unknown");
@@ -252,12 +293,16 @@ describe("transactional email foundation", () => {
       }),
     });
     expect(permanentSubmit.status).toBe(201);
-    const failed = await pools.owner.query<{ status: string; last_error_code: string | null }>(
-      `select status, last_error_code from mail_outbox
-       where organisation_id = $1 and purpose = 'admissions_application_received'
-       order by created_at desc`,
-      [school.orgId],
+    const permanentQueued = (await listOutbox(pools.owner, school.orgId, "admissions_application_received")).rows.find(
+      (row) => row.to_email.toLowerCase() === "tom.west@example.com",
     );
+    expect(permanentQueued?.status).toBe("queued");
+    expect(permanentQueued?.last_error_code).toBeNull();
+    email.failNext = new EmailDeliveryError("permanent", "invalid_recipient", "user unknown");
+    await deliverQueuedMail(testApiConfig(pools, { emailDeliveryProvider: email }), {
+      id: permanentQueued!.id,
+    });
+    const failed = await listOutbox(pools.owner, school.orgId, "admissions_application_received");
     expect(failed.rows.some((row) => row.status === "failed" && row.last_error_code === "invalid_recipient")).toBe(
       true,
     );
@@ -645,6 +690,7 @@ describe("transactional email foundation", () => {
     });
     expect(draft.status).toBe(200);
     expect(email.sent).toHaveLength(0);
+    expect((await listOutbox(pools.owner, school.orgId, "admissions_application_received")).rows).toHaveLength(0);
 
     const failed = await app.request("/api/v1/public/admissions/forms/application/apply-ack/submissions", {
       method: "POST",
@@ -653,6 +699,7 @@ describe("transactional email foundation", () => {
     });
     expect(failed.status).toBeGreaterThanOrEqual(400);
     expect(email.sent).toHaveLength(0);
+    expect((await listOutbox(pools.owner, school.orgId, "admissions_application_received")).rows).toHaveLength(0);
 
     const payload = { idempotencyKey: `ack-${suffix()}`, answers };
     const first = await app.request("/api/v1/public/admissions/forms/application/apply-ack/submissions", {
@@ -667,7 +714,218 @@ describe("transactional email foundation", () => {
       body: JSON.stringify(payload),
     });
     expect(second.status).toBe(201);
+    expect(email.sent.filter((row) => row.subject.includes("Application received"))).toHaveLength(0);
+    const queued = await listOutbox(pools.owner, school.orgId, "admissions_application_received");
+    expect(queued.rows).toHaveLength(1);
+    expect(queued.rows[0]?.status).toBe("queued");
+    const delivered = await deliverQueuedMail(testApiConfig(pools, { emailDeliveryProvider: email }), {
+      id: queued.rows[0]!.id,
+    });
+    expect(delivered.sent).toBe(1);
     expect(email.sent.filter((row) => row.subject.includes("Application received"))).toHaveLength(1);
+  });
+
+  it("enqueues exactly one enquiry acknowledgement without waiting on SMTP", async () => {
+    const email = new FakeEmailProvider();
+    const app = testApp(pools, { emailDeliveryProvider: email });
+    const school = await createSchool(pools.owner, suffix());
+    const other = await createSchool(pools.owner, `${suffix()}x`);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const otherToken = await login(app, other.adminEmail, "password-12x");
+    const hdrs = headers(token, school.orgId);
+    const otherHdrs = headers(otherToken, other.orgId);
+    const year = (await (
+      await app.request("/api/v1/academic-years", {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({
+          name: "2026/27",
+          startsOn: "2026-09-01",
+          endsOn: "2027-07-31",
+          isCurrent: true,
+        }),
+      })
+    ).json()) as { academicYear: { id: string } };
+    await app.request("/api/v1/year-groups/seed", { method: "POST", headers: hdrs, body: "{}" });
+    const groups = (await (await app.request("/api/v1/year-groups", { headers: hdrs })).json()) as {
+      yearGroups: Array<{ id: string; code: string }>;
+    };
+    const year3 = groups.yearGroups.find((row) => row.code === "3")!.id;
+    const created = await app.request("/api/v1/admissions/forms", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ formType: "enquiry", name: "Enquire", slug: "enquire-mail" }),
+    });
+    const form = (await created.json()) as { form: { id: string } };
+    await app.request(`/api/v1/admissions/forms/${form.form.id}/publish`, { method: "POST", headers: hdrs });
+
+    const otherYear = (await (
+      await app.request("/api/v1/academic-years", {
+        method: "POST",
+        headers: otherHdrs,
+        body: JSON.stringify({
+          name: "2026/27",
+          startsOn: "2026-09-01",
+          endsOn: "2027-07-31",
+          isCurrent: true,
+        }),
+      })
+    ).json()) as { academicYear: { id: string } };
+    await app.request("/api/v1/year-groups/seed", { method: "POST", headers: otherHdrs, body: "{}" });
+    const otherGroups = (await (await app.request("/api/v1/year-groups", { headers: otherHdrs })).json()) as {
+      yearGroups: Array<{ id: string; code: string }>;
+    };
+    const otherYear3 = otherGroups.yearGroups.find((row) => row.code === "3")!.id;
+    const otherForm = await app.request("/api/v1/admissions/forms", {
+      method: "POST",
+      headers: otherHdrs,
+      body: JSON.stringify({ formType: "enquiry", name: "Enquire", slug: "enquire-mail" }),
+    });
+    const otherFormBody = (await otherForm.json()) as { form: { id: string } };
+    await app.request(`/api/v1/admissions/forms/${otherFormBody.form.id}/publish`, {
+      method: "POST",
+      headers: otherHdrs,
+    });
+
+    const notes = "Please send dates and mention peanut allergy";
+    const answers = {
+      "child.legal_name": "Maya Cole",
+      "child.preferred_name": "Maya",
+      "child.date_of_birth": "2018-04-12",
+      "child.intended_academic_year_id": year.academicYear.id,
+      "child.intended_year_group_id": year3,
+      "guardian.full_name": "Priya Cole",
+      "guardian.relationship": "mother",
+      "guardian.email": "priya.cole@example.com",
+      "guardian.phone": "01234567890",
+      "enquiry.notes": notes,
+    };
+    const missingEmail = await app.request("/api/v1/public/admissions/forms/enquiry/enquire-mail/submissions", {
+      method: "POST",
+      headers: { Host: `${school.slug}.localhost`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        answers: { ...answers, "guardian.email": "" },
+      }),
+    });
+    expect(missingEmail.status).toBeGreaterThanOrEqual(400);
+    expect((await listOutbox(pools.owner, school.orgId, "admissions_enquiry_received")).rows).toHaveLength(0);
+    const missingEnquiry = await pools.owner.query(
+      `select id from admissions_enquiries where organisation_id = $1 and guardian_email = 'priya.cole@example.com'`,
+      [school.orgId],
+    );
+    expect(missingEnquiry.rows).toHaveLength(0);
+
+    const staffCreate = await app.request("/api/v1/admissions/enquiries", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        pupilLegalName: "Staff Child",
+        guardianFullName: "Staff Parent",
+        guardianEmail: "staff.parent@example.com",
+        notes: "Internal staff note",
+      }),
+    });
+    expect(staffCreate.status).toBe(201);
+    expect((await listOutbox(pools.owner, school.orgId, "admissions_enquiry_received")).rows).toHaveLength(0);
+
+    const logs: string[] = [];
+    const originalError = console.error;
+    const originalInfo = console.info;
+    console.error = (...args: unknown[]) => {
+      logs.push(JSON.stringify(args));
+    };
+    console.info = (...args: unknown[]) => {
+      logs.push(JSON.stringify(args));
+    };
+    const payload = { idempotencyKey: `enq-${suffix()}`, answers };
+    let first: Response;
+    let second: Response;
+    try {
+      email.failNext = new EmailDeliveryError("retryable", "provider_timeout", "smtp down");
+      first = await app.request("/api/v1/public/admissions/forms/enquiry/enquire-mail/submissions", {
+        method: "POST",
+        headers: { Host: `${school.slug}.localhost`, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      second = await app.request("/api/v1/public/admissions/forms/enquiry/enquire-mail/submissions", {
+        method: "POST",
+        headers: { Host: `${school.slug}.localhost`, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } finally {
+      console.error = originalError;
+      console.info = originalInfo;
+    }
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    const firstBody = (await first.json()) as { submission: { enquiryReference: string } };
+    expect(firstBody.submission.enquiryReference).toMatch(/^ENQ-/);
+    const enquiryRows = await pools.owner.query<{ id: string }>(
+      `select id from admissions_enquiries
+        where organisation_id = $1 and guardian_email = 'priya.cole@example.com'`,
+      [school.orgId],
+    );
+    expect(enquiryRows.rows).toHaveLength(1);
+    expect(email.sent).toHaveLength(0);
+    const queued = await listOutbox(pools.owner, school.orgId, "admissions_enquiry_received");
+    expect(queued.rows).toHaveLength(1);
+    expect(queued.rows[0]?.status).toBe("queued");
+    expect(queued.rows[0]?.last_error_code).toBeNull();
+    expect(queued.rows[0]?.to_email.toLowerCase()).toBe("priya.cole@example.com");
+    expect(queued.rows[0]?.to_name).toContain("Priya Cole");
+    expect(queued.rows[0]?.subject).toContain(school.name);
+    expect(queued.rows[0]?.subject).toContain("Thank you for your enquiry");
+    expect(queued.rows[0]?.body_text).toContain("Dear Priya Cole,");
+    expect(queued.rows[0]?.body_text).toContain(`Thank you for contacting ${school.name}.`);
+    expect(queued.rows[0]?.idempotency_key).toBe(`admissions.enquiry_received:${enquiryRows.rows[0]!.id}`);
+    expect(JSON.stringify(queued.rows[0]?.metadata)).toContain(enquiryRows.rows[0]!.id);
+    expect(JSON.stringify(queued.rows[0]?.metadata)).toContain(firstBody.submission.enquiryReference);
+    expect(JSON.stringify(queued.rows[0])).not.toContain(notes);
+    expect(queued.rows[0]?.body_text.toLowerCase()).not.toContain("allerg");
+    expect(queued.rows[0]?.body_text.toLowerCase()).not.toContain("2018-04-12");
+    expect(queued.rows[0]?.body_text.toLowerCase()).not.toContain("please send dates");
+    const joinedLogs = logs.join("\n");
+    expect(joinedLogs).not.toContain(notes);
+    expect(joinedLogs).not.toContain("2018-04-12");
+    expect(joinedLogs).not.toContain("peanut");
+
+    const otherSubmit = await app.request("/api/v1/public/admissions/forms/enquiry/enquire-mail/submissions", {
+      method: "POST",
+      headers: { Host: `${other.slug}.localhost`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        idempotencyKey: `enq-other-${suffix()}`,
+        answers: {
+          ...answers,
+          "child.intended_academic_year_id": otherYear.academicYear.id,
+          "child.intended_year_group_id": otherYear3,
+          "guardian.email": "other.parent@example.com",
+          "guardian.full_name": "Other Parent",
+        },
+      }),
+    });
+    expect(otherSubmit.status).toBe(201);
+    await withTenantContext(pools.app, school.adminId, school.orgId, async (client) => {
+      const leaked = await client.query("select id from mail_outbox where organisation_id = $1", [other.orgId]);
+      expect(leaked.rows).toEqual([]);
+    });
+    const otherQueued = await listOutbox(pools.owner, other.orgId, "admissions_enquiry_received");
+    expect(otherQueued.rows).toHaveLength(1);
+    expect(otherQueued.rows[0]?.to_email.toLowerCase()).toBe("other.parent@example.com");
+    expect(otherQueued.rows[0]?.subject).toContain(other.name);
+    expect(otherQueued.rows[0]?.subject).not.toContain(school.name);
+
+    email.failNext = null;
+    const sent = await deliverQueuedMail(testApiConfig(pools, { emailDeliveryProvider: email }), {
+      id: queued.rows[0]!.id,
+    });
+    expect(sent.sent).toBe(1);
+    expect(email.sent).toHaveLength(1);
+    expect(email.sent[0]?.to.address.toLowerCase()).toBe("priya.cole@example.com");
+    expect(email.sent[0]?.html).toContain(school.name);
+    expect(email.sent[0]?.html).toContain("Priya Cole");
+    expect(email.sent[0]?.html).not.toContain(other.name);
+    expect(email.sent[0]?.text.toLowerCase()).not.toContain("allerg");
+    expect(email.sent[0]?.html).not.toContain(notes);
   });
 
   it("log-delivers without EMAIL_FROM_ADDRESS instead of burning action_url", async () => {

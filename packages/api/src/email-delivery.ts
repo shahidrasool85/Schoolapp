@@ -1,4 +1,5 @@
 import {
+  EmailAttachmentError,
   EmailDeliveryError,
   createEmailDeliveryProvider,
   liveEmailSendingEnabled,
@@ -16,6 +17,11 @@ import {
 import { isCustomizableEmailTemplateKey } from "@schoolapp/domain";
 import type { ApiConfig } from "./types";
 import { loadOrganisationEmailTemplateOverride } from "./email-template-overrides";
+import {
+  emailAttachmentErrorToDeliveryError,
+  loadSendAttachments,
+  loadShowSchoolLogo,
+} from "./email-template-attachments";
 
 type ClaimedMail = {
   id: string;
@@ -89,7 +95,9 @@ export async function deliverQueuedMail(
       const classified =
         error instanceof EmailDeliveryError
           ? error
-          : new EmailDeliveryError("retryable", "provider_error", String(error));
+          : error instanceof EmailAttachmentError
+            ? emailAttachmentErrorToDeliveryError(error)
+            : new EmailDeliveryError("retryable", "provider_error", String(error));
       // Log/none first-deploy must not permanently burn invite/reset action_url.
       const retryable =
         classified.retryable ||
@@ -159,16 +167,25 @@ async function buildSendInput(
     row.organisation_id,
     templateKey,
   );
+  const showSchoolLogo = isCustomizableEmailTemplateKey(templateKey)
+    ? await loadShowSchoolLogo(config.pools.app, row.organisation_id, templateKey)
+    : true;
   const rendered = renderTransactionalEmail(
     templateKey,
     templateData,
     {
       schoolName: branding.schoolName,
-      logoUrl: branding.logoUrl,
+      logoUrl: showSchoolLogo ? branding.logoUrl : null,
       primaryColor: branding.primaryColor,
     },
     override,
   );
+  const attachments = await loadSendAttachments({
+    pool: config.pools.app,
+    storage: config.storage,
+    organisationId: row.organisation_id,
+    templateKey,
+  });
   const from = platformFromAddress(email, branding.schoolName);
   const subject = isCustomizableEmailTemplateKey(templateKey)
     ? rendered.subject
@@ -184,5 +201,6 @@ async function buildSendInput(
       "X-LuvLearn-Template": templateKey,
       "X-LuvLearn-Purpose": row.purpose,
     },
+    attachments,
   });
 }

@@ -70,6 +70,23 @@ describe("organisation email template overrides", () => {
     expect(rendered.html).toContain("Kingswood School");
   });
 
+  it("keeps custom wording when the logo is omitted", () => {
+    const rendered = renderCustomEmailTemplate(
+      enquiryOverride,
+      {
+        recipientName: "Jordan Rivera",
+        enquiryReference: "ENQ-1001",
+        schoolContactEmail: "admissions@kingswood.example.test",
+      },
+      { schoolName: "Kingswood School" },
+    );
+    expect(rendered.subject).toBe("Thanks Kingswood School");
+    expect(rendered.html).not.toContain("<img");
+    expect(rendered.html).toContain("We have your enquiry");
+    expect(rendered.html).toContain("Kingswood School");
+    expect(rendered.html).toContain("Powered by LuvLearn");
+  });
+
   it("falls back to the built-in template when the override is disabled or corrupt", () => {
     const disabled = renderTransactionalEmail(
       "admissions_enquiry_received",

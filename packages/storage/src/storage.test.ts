@@ -99,6 +99,58 @@ describe("content validation", () => {
     );
   });
 
+  it("accepts PDF/DOCX/JPEG/PNG for automatic email attachments and rejects HTML/ZIP", () => {
+    const profile = fileProfile("transactional_email");
+    expect(
+      validateUpload({
+        filename: "Prospectus 2026.pdf",
+        declaredMime: "application/pdf",
+        bytes: PDF,
+        profile,
+      }).kind,
+    ).toBe("pdf");
+    expect(
+      validateUpload({
+        filename: "guide.docx",
+        declaredMime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        bytes: DOCX,
+        profile,
+      }).kind,
+    ).toBe("docx");
+    expect(
+      validateUpload({ filename: "photo.jpg", declaredMime: "image/jpeg", bytes: JPEG_TINY, profile }).kind,
+    ).toBe("jpeg");
+    expect(
+      validateUpload({ filename: "photo.png", declaredMime: "image/png", bytes: PNG_1X1, profile }).kind,
+    ).toBe("png");
+    expect(() =>
+      validateUpload({
+        filename: "note.html",
+        declaredMime: "text/html",
+        bytes: Buffer.from("<html><script>alert(1)</script>"),
+        profile,
+      }),
+    ).toThrow(StorageError);
+    expect(() =>
+      validateUpload({
+        filename: "pack.zip",
+        declaredMime: "application/zip",
+        bytes: Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00]),
+        profile,
+      }),
+    ).toThrow(StorageError);
+    const huge = new Uint8Array(5 * 1024 * 1024 + 32);
+    huge.set(PDF, 0);
+    expect(() =>
+      validateUpload({
+        filename: "huge.pdf",
+        declaredMime: "application/pdf",
+        bytes: huge,
+        profile,
+      }),
+    ).toThrow(/too large/i);
+  });
+
   it("rejects oversized files, executables, HTML, SVG, and MIME spoofing", () => {
     const tiny = fileProfile("admissions", { ...fileLimitsStub(), admissions: 8 });
     expect(() =>
@@ -446,5 +498,6 @@ function fileLimitsStub() {
     message: 10 * 1024 * 1024,
     branding: 5 * 1024 * 1024,
     profile_photo: 2 * 1024 * 1024,
+    transactional_email: 5 * 1024 * 1024,
   };
 }

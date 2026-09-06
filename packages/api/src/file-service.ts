@@ -136,6 +136,8 @@ export function profileForDomain(domain: StoredObjectDomain) {
               ? "branding"
             : domain === "profile_photo"
               ? "profile_photo"
+            : domain === "transactional_email"
+              ? "transactional_email"
             : "safeguarding";
   return fileProfile(name, limits);
 }
@@ -526,6 +528,9 @@ export async function authorizeStoredObjectDownload(
       if (!allowed) notFound();
       return;
     }
+    case "transactional_email":
+      notFound();
+      return;
     default:
       notFound();
   }

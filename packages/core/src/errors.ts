@@ -312,6 +312,23 @@ export function pgErrorToAppError(error: unknown): AppError | null {
     return new AppError(409, "conflict", "Resource already exists");
   }
   if (code === "23514" || code === "23503") {
+    if (message.includes("attachment_limit_cap_exceeded")) {
+      return new AppError(
+        400,
+        "attachment_limit_cap_exceeded",
+        "That attachment limit is above the maximum the email provider can send",
+      );
+    }
+    if (message.includes("attachment_limit_total_below_per_file")) {
+      return new AppError(
+        400,
+        "validation_failed",
+        "Maximum total attachment size must be at least the per-file maximum",
+      );
+    }
+    if (message.includes("attachment_limit_invalid")) {
+      return new AppError(400, "validation_failed", "Attachment limits must be whole numbers greater than zero");
+    }
     if (message.includes("attachment_limit_exceeded")) {
       return new AppError(400, "attachment_limit_exceeded", "This automatic email already has the maximum number of attachments");
     }

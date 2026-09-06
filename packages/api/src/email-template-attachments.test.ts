@@ -93,7 +93,13 @@ type TemplateBody = {
       byteSize: number;
       kindLabel: string;
       sizeLabel: string;
+      overLimit?: boolean;
     }>;
+    attachmentLimits?: {
+      maxBytesPerFile: number;
+      maxTotalBytes: number;
+      maxCount: number;
+    };
     subject: string;
     customised: boolean;
   };
@@ -212,6 +218,9 @@ describe("automatic email attachments and logo visibility", () => {
     const initial = await getTemplate(app, hdrs);
     expect(initial.template.showSchoolLogo).toBe(true);
     expect(initial.template.attachments).toEqual([]);
+    expect(initial.template.attachmentLimits?.maxBytesPerFile).toBe(7 * 1024 * 1024);
+    expect(initial.template.attachmentLimits?.maxTotalBytes).toBe(7 * 1024 * 1024);
+    expect(initial.template.attachmentLimits?.maxCount).toBe(5);
 
     const logo = await app.request("/api/v1/onboarding/branding/logo", {
       method: "POST",
@@ -369,19 +378,19 @@ describe("automatic email attachments and logo visibility", () => {
     const school = await createSchool(pools.owner, suffix());
     const token = await login(app, school.adminEmail, "password-12x");
     const hdrs = authHeaders(token, school.orgId);
-    const huge = new Uint8Array(5 * 1024 * 1024 + 64);
+    const huge = new Uint8Array(7 * 1024 * 1024 + 64);
     huge.set(PDF, 0);
     const oversized = await attachFile(app, hdrs, "admissions_enquiry_received", huge, "huge.pdf", "application/pdf");
     expect(oversized.status).toBe(400);
 
-    const chunk = new Uint8Array(4.2 * 1024 * 1024);
+    const chunk = new Uint8Array(4 * 1024 * 1024);
     chunk.set(PDF, 0);
     expect((await attachFile(app, hdrs, "admissions_enquiry_received", chunk, "a.pdf", "application/pdf")).status).toBe(
       201,
     );
     const second = await attachFile(app, hdrs, "admissions_enquiry_received", chunk, "b.pdf", "application/pdf");
     expect(second.status).toBe(400);
-    expect(JSON.stringify(await second.json())).toMatch(/too large in total/i);
+    expect(JSON.stringify(await second.json())).toMatch(/maximum total attachment size|too large in total/i);
 
     const school2 = await createSchool(pools.owner, suffix());
     const token2 = await login(app, school2.adminEmail, "password-12x");

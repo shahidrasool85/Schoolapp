@@ -1857,4 +1857,31 @@ describe("RLS catalog", () => {
       expect(leakedAttachments.rows).toEqual([]);
     });
   });
+
+  it("keeps platform_settings as a FORCE RLS singleton readable by the app role", async () => {
+    const forced = await pools.owner.query<{ relforcerowsecurity: boolean }>(
+      `select c.relforcerowsecurity
+         from pg_class c
+         join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'public' and c.relname = 'platform_settings'`,
+    );
+    expect(forced.rows[0]?.relforcerowsecurity).toBe(true);
+    const grants = await pools.owner.query<{ can_select: boolean; can_update: boolean }>(
+      `select
+         has_table_privilege('schoolapp_app', 'platform_settings', 'SELECT') as can_select,
+         has_table_privilege('schoolapp_app', 'platform_settings', 'UPDATE') as can_update`,
+    );
+    expect(grants.rows[0]?.can_select).toBe(true);
+    expect(grants.rows[0]?.can_update).toBe(false);
+    const limits = await pools.app.query<{ max_bytes_per_file: string; max_count: number }>(
+      "select * from get_platform_transactional_email_attachment_limits()",
+    );
+    expect(Number(limits.rows[0]?.max_bytes_per_file)).toBe(7 * 1024 * 1024);
+    expect(Number(limits.rows[0]?.max_count)).toBe(5);
+    await expect(
+      pools.app.query(
+        "update platform_settings set transactional_email_attachments_max_count = 9 where id = 1",
+      ),
+    ).rejects.toThrow();
+  });
 });

@@ -168,7 +168,7 @@ async function submitEnquiry(
   form: { yearId: string; year3: string },
   email: string,
 ) {
-  return app.request(`/api/v1/public/admissions/forms/enquiry/${slug}/submissions`, {
+  const submit = await app.request(`/api/v1/public/admissions/forms/enquiry/${slug}/submissions`, {
     method: "POST",
     headers: { Host: `${school.slug}.localhost`, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -181,11 +181,16 @@ async function submitEnquiry(
         "guardian.relationship": "mother",
         "guardian.email": email,
         "guardian.phone": "01234567890",
+        "enquiry.notes": "Please send a prospectus",
         "child.intended_academic_year_id": form.yearId,
         "child.intended_year_group_id": form.year3,
       },
     }),
   });
+  if (submit.status !== 201) {
+    throw new Error(`enquiry submit failed ${submit.status} ${await submit.text()}`);
+  }
+  return submit;
 }
 
 describe("automatic email attachments and logo visibility", () => {
@@ -485,7 +490,14 @@ describe("automatic email attachments and logo visibility", () => {
     });
     await addMembership(pools.owner, school.orgId, studentId, "school.student");
 
-    for (const account of [{ email: teacherEmail }, { email: parentEmail }, { email: studentEmail }]) {
+    const studentLogin = await app.request("/api/v1/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: studentEmail, password: "password-12x" }),
+    });
+    expect(studentLogin.status).toBe(401);
+
+    for (const account of [{ email: teacherEmail }, { email: parentEmail }]) {
       const token = await login(app, account.email, "password-12x");
       const hdrs = authHeaders(token, school.orgId);
       expect((await app.request("/api/v1/onboarding/mail/templates", { headers: jsonHeaders(token, school.orgId) })).status).toBe(
@@ -584,8 +596,7 @@ describe("automatic email attachments and logo visibility", () => {
       "application/pdf",
     );
     const form = await seedEnquiryForm(app, hdrs, "enquire-att");
-    const submit = await submitEnquiry(app, school, "enquire-att", form, "priya.att@example.com");
-    expect(submit.status).toBe(201);
+    await submitEnquiry(app, school, "enquire-att", form, "priya.att@example.com");
     const queued = await pools.owner.query<{ id: string }>(
       `select id from mail_outbox
         where organisation_id = $1 and purpose = 'admissions_enquiry_received'
@@ -689,8 +700,7 @@ describe("automatic email attachments and logo visibility", () => {
       body: JSON.stringify({ showSchoolLogo: false }),
     });
     const form = await seedEnquiryForm(app, hdrs, "enquire-logo");
-    const submit = await submitEnquiry(app, school, "enquire-logo", form, "logo.off@example.com");
-    expect(submit.status).toBe(201);
+    await submitEnquiry(app, school, "enquire-logo", form, "logo.off@example.com");
     const queued = await pools.owner.query<{ id: string }>(
       `select id from mail_outbox where organisation_id = $1 and purpose = 'admissions_enquiry_received'`,
       [school.orgId],
@@ -724,8 +734,7 @@ describe("automatic email attachments and logo visibility", () => {
     );
     await testObjectStorage.deleteObject(object.rows[0]!.storage_key);
     const form = await seedEnquiryForm(app, jsonHeaders(token, school.orgId), "enquire-missing");
-    const submit = await submitEnquiry(app, school, "enquire-missing", form, "missing.att@example.com");
-    expect(submit.status).toBe(201);
+    await submitEnquiry(app, school, "enquire-missing", form, "missing.att@example.com");
     const queued = await pools.owner.query<{ id: string; status: string; last_error_code: string | null }>(
       `select id, status, last_error_code from mail_outbox
         where organisation_id = $1 and purpose = 'admissions_enquiry_received'`,

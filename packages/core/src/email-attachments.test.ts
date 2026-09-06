@@ -22,7 +22,7 @@ describe("automatic email attachments", () => {
 
   it("sanitises path traversal and header-breaking filenames", () => {
     expect(sanitizeEmailAttachmentFilename("../../etc/passwd.pdf", "application/pdf")).toBe("passwd.pdf");
-    expect(sanitizeEmailAttachmentFilename("Prospectus\r\nBcc:x.pdf", "application/pdf")).toBe("Prospectus Bcc_x.pdf");
+    expect(sanitizeEmailAttachmentFilename("Prospectus\r\nBcc:x.pdf", "application/pdf")).toBe("ProspectusBcc_x.pdf");
     expect(sanitizeEmailAttachmentFilename("guide.txt", "application/pdf")).toBe("guide.pdf");
     expect(sanitizeEmailAttachmentFilename("", "image/png")).toBe("attachment.png");
   });

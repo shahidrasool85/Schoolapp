@@ -90,6 +90,8 @@ That endpoint is disabled (404) when the secret is unset. It requires `Authoriza
 
 School admins inspect status at **School settings → Email delivery** and retry eligible rows for their organisation only: any `queued` row, plus `failed` admissions acknowledgements. Permanent invite/reset failures wipe `action_url` and do not show Retry. That page shows delivery status, recipient, subject, purpose, fixture template previews, and redacted last-error codes. It does **not** show SMTP credentials, worker secrets, action URLs, or live tokens. SMTP is platform/server env, not tenant configuration. Ordinary teachers cannot open the page or the API.
 
+**Automatic emails** (`School settings → Email delivery → Automatic emails`) lets School Admin customise enquiry and application acknowledgement wording (subject, heading, greeting, body, sign-off) using approved `{{placeholders}}` only. The branded HTML/plain-text shell, logo, school name, and Powered by LuvLearn footer stay system-controlled. Schools with no override keep the built-in template. Corrupt or disabled overrides fail open to the built-in template and still send. Preview uses sample data and never writes `mail_outbox`. Attachments are not part of this phase.
+
 ## Connected product events
 
 | Event | Template |
@@ -98,6 +100,7 @@ School admins inspect status at **School settings → Email delivery** and retry
 | Staff invitation / reissue | `account_invitation` |
 | Parent invitation / reissue | `account_invitation` |
 | Forgot password | `password_reset` |
+| Admissions enquiry submitted | `admissions_enquiry_received` |
 | Admissions application submitted | `admissions_application_received` |
 
 Student activation mail is composed in core but **not** wired yet (separate `account_tokens` flow). Finance, attendance, homework, notices, and messaging are out of scope.
@@ -106,9 +109,16 @@ Admissions **staff** notification is not sent. There is no canonical admissions 
 
 ## Templates
 
-Reusable HTML + plain-text templates live in `packages/core/src/email-templates.ts`. Tenant strings are escaped; arbitrary HTML from school settings is never interpolated. Preview uses fixture data (`GET /api/v1/onboarding/mail/preview`) and never live tokens.
+Reusable HTML + plain-text templates live in `packages/core/src/email-templates.ts`. Tenant strings are escaped; arbitrary HTML from school settings is never interpolated. Preview uses fixture data (`GET /api/v1/onboarding/mail/preview` and `POST /api/v1/onboarding/mail/templates/{key}/preview`) and never live tokens or real pupil/parent records.
 
-Admissions acknowledgement includes child preferred/legal name, public application reference, and intended entry only. It never includes medical details, safeguarding notes, date of birth, full address, or organisation UUIDs.
+Organisation wording overrides are stored in `organisation_transactional_email_templates` (unique per organisation + template key). Only `admissions_enquiry_received` and `admissions_application_received` are editable. Approved merge fields:
+
+- Enquiry: `{{school_name}}`, `{{recipient_first_name}}`, `{{enquiry_reference}}`, `{{school_contact_email}}`
+- Application: `{{school_name}}`, `{{recipient_first_name}}`, `{{application_reference}}`, `{{pupil_first_name}}`, `{{school_contact_email}}`, `{{intended_entry}}`
+
+Medical, allergy, safeguarding, notes, dates of birth, addresses, passwords, and tokens are not merge fields. The delivery worker loads an override through `get_organisation_transactional_email_template` and otherwise uses the built-in renderer.
+
+Admissions acknowledgement includes child preferred/legal name, public application or enquiry reference, and intended entry only. It never includes medical details, safeguarding notes, date of birth, full address, or organisation UUIDs.
 
 ## Domain authentication (DNS)
 

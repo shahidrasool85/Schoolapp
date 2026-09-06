@@ -1033,6 +1033,7 @@ export {
   renderAdmissionsApplicationReceived,
   renderAdmissionsEnquiryReceived,
   renderAdmissionsStatusUpdate,
+  renderBrandedEmail,
   renderEmailTemplate,
   renderFinanceNotice,
   renderPasswordReset,
@@ -1040,6 +1041,22 @@ export {
   type RenderedEmail,
   type TransactionalBranding,
 } from "./email-templates.js";
+
+export {
+  AUTOMATIC_EMAIL_TEMPLATE_CATALOG,
+  EmailTemplateValidationError,
+  allowedMergeFieldKeys,
+  automaticEmailCatalogItem,
+  firstNameFromDisplayName,
+  mergeFieldValues,
+  renderCustomEmailTemplate,
+  renderTransactionalEmail,
+  sampleMergeData,
+  validateOrganisationEmailTemplate,
+  type EmailMergeField,
+  type EmailTemplateCatalogItem,
+  type OrganisationEmailTemplateOverride,
+} from "./email-template-overrides.js";
 
 export {
   evaluateReadiness,

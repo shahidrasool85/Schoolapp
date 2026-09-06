@@ -5,7 +5,7 @@ import {
   platformFromAddress,
   purposeToTemplateKey,
   redactEmailError,
-  renderEmailTemplate,
+  renderTransactionalEmail,
   sanitizeEmailSendInput,
   schoolPublicOrigin,
   type EmailDeliveryProvider,
@@ -13,7 +13,9 @@ import {
   type MailMessage,
   type TransactionalBranding,
 } from "@schoolapp/core";
+import { isCustomizableEmailTemplateKey } from "@schoolapp/domain";
 import type { ApiConfig } from "./types";
+import { loadOrganisationEmailTemplateOverride } from "./email-template-overrides";
 
 type ClaimedMail = {
   id: string;
@@ -75,7 +77,7 @@ export async function deliverQueuedMail(
         continue;
       }
       const branding = await loadBranding(config, row.organisation_id);
-      const sendInput = buildSendInput(row, email, branding);
+      const sendInput = await buildSendInput(config, row, email, branding);
       const result = await provider.send(sendInput);
       await config.pools.app.query("select complete_mail_outbox_send($1, $2, $3)", [
         row.id,
@@ -133,7 +135,8 @@ async function loadBranding(
   };
 }
 
-function buildSendInput(
+async function buildSendInput(
+  config: ApiConfig,
   row: ClaimedMail,
   email: EmailRuntimeConfig,
   branding: TransactionalBranding & { replyTo?: string | null; slug?: string | null },
@@ -148,17 +151,33 @@ function buildSendInput(
   }
   if (row.to_name) templateData.recipientName = row.to_name;
   if (row.action_url) templateData.actionUrl = row.action_url;
-  const rendered = renderEmailTemplate(templateKey, templateData, {
-    schoolName: branding.schoolName,
-    logoUrl: branding.logoUrl,
-    primaryColor: branding.primaryColor,
-  });
+  if (branding.replyTo && !templateData.schoolContactEmail) {
+    templateData.schoolContactEmail = branding.replyTo;
+  }
+  const override = await loadOrganisationEmailTemplateOverride(
+    config.pools.app,
+    row.organisation_id,
+    templateKey,
+  );
+  const rendered = renderTransactionalEmail(
+    templateKey,
+    templateData,
+    {
+      schoolName: branding.schoolName,
+      logoUrl: branding.logoUrl,
+      primaryColor: branding.primaryColor,
+    },
+    override,
+  );
   const from = platformFromAddress(email, branding.schoolName);
+  const subject = isCustomizableEmailTemplateKey(templateKey)
+    ? rendered.subject
+    : row.subject || rendered.subject;
   return sanitizeEmailSendInput({
     to: { address: row.to_email, name: row.to_name },
     from,
     replyTo: row.reply_to || branding.replyTo || email.replyToFallback,
-    subject: row.subject || rendered.subject,
+    subject,
     html: rendered.html,
     text: rendered.text,
     headers: {

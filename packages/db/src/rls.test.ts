@@ -96,10 +96,11 @@ describe("RLS catalog", () => {
            'learning_activity_answers',
            'organisation_setup_progress', 'organisation_onboarding_preferences',
            'organisation_settings', 'account_tokens', 'mail_outbox',
+           'organisation_transactional_email_templates',
            'data_imports', 'data_import_rows'
          )`,
     );
-    expect(result.rows.length).toBe(193);
+    expect(result.rows.length).toBe(194);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
     }
@@ -1712,5 +1713,60 @@ describe("RLS catalog", () => {
       expect(seen.rows[0]?.organisation_id).toBe(orgA.rows[0]!.id);
       expect(seen.rows.map((row) => row.encrypted_secret_key)).not.toContain("v1:org-b-blob");
     });
+  });
+
+  it("isolates organisation transactional email templates by tenant", async () => {
+    const id = randomUUID().slice(0, 8);
+    const userA = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Admin A', 'staff', 'active') returning id`,
+      [`rls-mail-tpl-a-${id}@example.com`],
+    );
+    const userB = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Admin B', 'staff', 'active') returning id`,
+      [`rls-mail-tpl-b-${id}@example.com`],
+    );
+    const orgA = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-mail-tpl-a-${id}`, "Mail A"],
+    );
+    const orgB = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-mail-tpl-b-${id}`, "Mail B"],
+    );
+    await pools.owner.query(
+      `insert into organisation_memberships (organisation_id, user_id, status)
+       values ($1, $2, 'active'), ($3, $4, 'active')`,
+      [orgA.rows[0]!.id, userA.rows[0]!.id, orgB.rows[0]!.id, userB.rows[0]!.id],
+    );
+    await pools.owner.query(
+      `insert into organisation_transactional_email_templates (
+         organisation_id, template_key, subject, heading, greeting, body_text, signoff
+       ) values
+         ($1, 'admissions_enquiry_received', 'A subject', 'A heading', 'Hello', 'A body', 'Regards'),
+         ($2, 'admissions_enquiry_received', 'B subject', 'B heading', 'Hello', 'B body', 'Regards')`,
+      [orgA.rows[0]!.id, orgB.rows[0]!.id],
+    );
+    await withTenantContext(pools.app, userA.rows[0]!.id, orgA.rows[0]!.id, async (client) => {
+      const seen = await client.query<{ organisation_id: string; subject: string }>(
+        "select organisation_id, subject from organisation_transactional_email_templates",
+      );
+      expect(seen.rows).toHaveLength(1);
+      expect(seen.rows[0]?.organisation_id).toBe(orgA.rows[0]!.id);
+      expect(seen.rows[0]?.subject).toBe("A subject");
+      const leaked = await client.query(
+        "select id from organisation_transactional_email_templates where organisation_id = $1",
+        [orgB.rows[0]!.id],
+      );
+      expect(leaked.rows).toEqual([]);
+    });
+    const grants = await pools.owner.query<{ can_select: boolean; can_insert: boolean }>(
+      `select
+         has_table_privilege('schoolapp_app', 'organisation_transactional_email_templates', 'SELECT') as can_select,
+         has_table_privilege('schoolapp_app', 'organisation_transactional_email_templates', 'INSERT') as can_insert`,
+    );
+    expect(grants.rows[0]?.can_select).toBe(true);
+    expect(grants.rows[0]?.can_insert).toBe(true);
   });
 });

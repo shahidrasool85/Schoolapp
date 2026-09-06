@@ -301,6 +301,20 @@ export {
   type FinanceSettingsTab,
 } from "./finance-settings-tabs.js";
 
+export {
+  CUSTOMIZABLE_EMAIL_TEMPLATE_KEYS,
+  DEFAULT_EMAIL_SETTINGS_TAB,
+  EMAIL_DELIVERY_PATH,
+  EMAIL_SETTINGS_TABS,
+  EMAIL_SETTINGS_TAB_ITEMS,
+  emailSettingsTabHref,
+  emailTemplateEditorHref,
+  isCustomizableEmailTemplateKey,
+  parseEmailSettingsTab,
+  type CustomizableEmailTemplateKey,
+  type EmailSettingsTab,
+} from "./email-settings-tabs.js";
+
 export { captureSubmitTarget, resetFormSafely } from "./forms.js";
 
 export {

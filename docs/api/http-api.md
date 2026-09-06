@@ -717,6 +717,12 @@ PATCH  /api/v1/onboarding/profile
 PATCH  /api/v1/onboarding/branding
 POST   /api/v1/onboarding/branding/{logo|hero}
 GET    /api/v1/onboarding/mail
+GET    /api/v1/onboarding/mail/preview
+GET    /api/v1/onboarding/mail/templates
+GET    /api/v1/onboarding/mail/templates/{key}
+PUT    /api/v1/onboarding/mail/templates/{key}
+POST   /api/v1/onboarding/mail/templates/{key}/preview
+DELETE /api/v1/onboarding/mail/templates/{key}
 
 POST   /api/v1/staff/{id}/invite
 POST   /api/v1/staff/{id}/invite/revoke
@@ -737,7 +743,7 @@ GET    /api/v1/imports/{id}
 POST   /api/v1/imports/{id}/confirm
 ```
 
-Invitation, activation, and password-reset tokens are shown once in the issuing response (or inspectable local mail outbox) and stored hashed. Forgot-password always returns the same copy. `portalAccess` omitted or false never enables Parent Portal. Staff import cannot assign `school.admin`. Public branding endpoints return image bytes only — never storage keys. See [ADR 0030](../adr/0030-phase20-onboarding.md).
+Invitation, activation, and password-reset tokens are shown once in the issuing response (or inspectable local mail outbox) and stored hashed. Forgot-password always returns the same copy. `portalAccess` omitted or false never enables Parent Portal. Staff import cannot assign `school.admin`. Public branding endpoints return image bytes only — never storage keys. School Admin (`org.settings.manage`) can customise enquiry and application acknowledgement wording at **School settings → Email delivery → Automatic emails**. Preview uses sample data and does not enqueue mail. See [email.md](../email.md) and [ADR 0030](../adr/0030-phase20-onboarding.md).
 
 ## Files
 

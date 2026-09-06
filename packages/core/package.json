@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./upn": "./src/upn.ts"
+    "./upn": "./src/upn.ts",
+    "./email-attachments": "./src/email-attachments.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",

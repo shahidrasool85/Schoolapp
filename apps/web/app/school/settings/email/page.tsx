@@ -11,7 +11,7 @@ import {
   parseEmailSettingsTab,
   type CustomizableEmailTemplateKey,
 } from "@schoolapp/domain";
-import { attachmentTooLargeMessage, formatAttachmentByteSize } from "@schoolapp/core";
+import { attachmentTooLargeMessage, formatAttachmentByteSize } from "@schoolapp/core/email-attachments";
 import {
   Alert,
   Button,

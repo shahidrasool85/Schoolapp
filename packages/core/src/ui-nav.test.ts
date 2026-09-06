@@ -65,6 +65,15 @@ describe("isActiveNavHref", () => {
       ),
     ).toBe(true);
   });
+
+  it("keeps Finance Settings active for settings sub-tabs without adding nav items", () => {
+    expect(
+      isActiveNavHref("/school/finance/settings", "tab=documents", "/school/finance/settings", false),
+    ).toBe(true);
+    expect(
+      isActiveNavHref("/school/finance/settings", "tab=vat", "/school/finance/invoices", false),
+    ).toBe(false);
+  });
 });
 
 describe("isNavSectionOpen", () => {

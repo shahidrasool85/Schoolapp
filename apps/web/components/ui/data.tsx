@@ -63,9 +63,9 @@ export function DataTable({
   );
 }
 
-export function Tabs({ children }: { children: ReactNode }) {
+export function Tabs({ children, label = "Sections" }: { children: ReactNode; label?: string }) {
   return (
-    <nav className="tabs" aria-label="Sections">
+    <nav className="tabs" aria-label={label}>
       {children}
     </nav>
   );

@@ -1,7 +1,10 @@
 "use client";
 
-import { Dispatch, FormEvent, SetStateAction, useEffect, useRef, useState } from "react";
-import { Alert, Badge, Button, FormField, Input, LoadingState, PageError, PageHeader, SectionCard } from "../../../../components/ui";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { Dispatch, FormEvent, SetStateAction, Suspense, useEffect, useRef, useState } from "react";
+import { FINANCE_SETTINGS_TAB_ITEMS, financeSettingsTabHref, parseFinanceSettingsTab } from "@schoolapp/domain";
+import { Alert, Badge, Button, FormField, Input, LoadingState, PageError, PageHeader, SectionCard, Tabs } from "../../../../components/ui";
 import { api, downloadAuthenticated, fetchAuthenticatedBlobUrl } from "../../../../lib/api";
 import { userFacingError } from "../../../../lib/errors";
 import { usePermissions } from "../../../../lib/use-permissions";
@@ -51,6 +54,16 @@ type Settings = {
 };
 
 export default function FinanceSettingsPage() {
+  return (
+    <Suspense fallback={<LoadingState label="Loading settings…" />}>
+      <FinanceSettingsBody />
+    </Suspense>
+  );
+}
+
+function FinanceSettingsBody() {
+  const searchParams = useSearchParams();
+  const tab = parseFinanceSettingsTab(searchParams.get("tab"));
   const [settings, setSettings] = useState<Settings | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -112,7 +125,6 @@ export default function FinanceSettingsPage() {
   }
 
   if (error && !settings) return <PageError title="Settings unavailable" description={error} />;
-  if (!settings) return <LoadingState label="Loading settings…" />;
 
   return (
     <>
@@ -121,7 +133,25 @@ export default function FinanceSettingsPage() {
         description="Tuition is optional. State-funded schools can leave it off without affecting trips, clubs or other charges."
       />
       <FinanceNav />
+      <Tabs label="Finance settings">
+        {FINANCE_SETTINGS_TAB_ITEMS.map((item) => {
+          const active = tab === item.key;
+          return (
+            <Link
+              key={item.key}
+              href={financeSettingsTabHref(item.key)}
+              scroll={false}
+              className={active ? "active" : undefined}
+              aria-current={active ? "page" : undefined}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
+      </Tabs>
       {message ? <Alert tone="success">{message}</Alert> : null}
+      {!settings ? <LoadingState label="Loading settings…" /> : null}
+      {settings && tab === "general" ? (
       <SectionCard title="School fees">
         <form className="stack" onSubmit={save}>
           <label>
@@ -253,7 +283,11 @@ export default function FinanceSettingsPage() {
           <button type="submit">Save settings</button>
         </form>
       </SectionCard>
-      <DocumentTemplateSettings settings={settings} setSettings={setSettings} save={save} setError={setError} />
+      ) : null}
+      {settings && tab === "documents" ? (
+        <DocumentTemplateSettings settings={settings} setSettings={setSettings} save={save} setError={setError} />
+      ) : null}
+      {settings && tab === "payment" ? (
       <SectionCard title="Payment details">
         <p className="muted">
           Optional bank details printed on outstanding invoices and bank-transfer receipts. These are not Stripe or card
@@ -302,6 +336,8 @@ export default function FinanceSettingsPage() {
           <Button type="submit">Save payment details</Button>
         </form>
       </SectionCard>
+      ) : null}
+      {settings && tab === "vat" ? (
       <SectionCard title="VAT / Tax">
         <p className="muted">
           VAT is optional and school-specific. Do not enable it unless this school should issue VAT invoices. Changing
@@ -367,7 +403,8 @@ export default function FinanceSettingsPage() {
           <Button type="submit">Save VAT settings</Button>
         </form>
       </SectionCard>
-      <PaymentProviderSettings />
+      ) : null}
+      {tab === "online-payments" ? <PaymentProviderSettings /> : null}
     </>
   );
 }

@@ -7,21 +7,27 @@ import {
   ONBOARDING_STEPS,
   PERMISSIONS,
   SCHOOL_SETTINGS_PROFILE_READ_PERMISSIONS,
+  isCustomizableEmailTemplateKey,
   publicBrandingAssetUrl,
   isOnboardingStep,
 } from "@schoolapp/domain";
 import {
   AppError,
+  AUTOMATIC_EMAIL_TEMPLATE_CATALOG,
+  EmailTemplateValidationError,
   assertAnyPermission,
   assertPermission,
+  automaticEmailCatalogItem,
   evaluateReadiness,
-  isIsoCurrency,
-  presentSchoolOnboarding,
-  pgErrorToAppError,
-  writeAudit,
   fixturePreviewData,
+  isIsoCurrency,
   mailOutboxCanRetry,
-  renderEmailTemplate,
+  pgErrorToAppError,
+  presentSchoolOnboarding,
+  renderTransactionalEmail,
+  sampleMergeData,
+  validateOrganisationEmailTemplate,
+  writeAudit,
 } from "@schoolapp/core";
 import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
@@ -70,6 +76,24 @@ const progressSchema = z.object({
 
 const preferenceSchema = z.object({
   dismissAutomatic: z.literal(true),
+});
+
+const templateWriteSchema = z.object({
+  enabled: z.boolean().optional(),
+  subject: z.string(),
+  heading: z.string(),
+  greeting: z.string(),
+  body: z.string(),
+  signoff: z.string(),
+});
+
+const templatePreviewSchema = z.object({
+  enabled: z.boolean().optional(),
+  subject: z.string().optional(),
+  heading: z.string().optional(),
+  greeting: z.string().optional(),
+  body: z.string().optional(),
+  signoff: z.string().optional(),
 });
 
 function publicBrandingUrls(
@@ -493,20 +517,14 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
       const template = (EMAIL_TEMPLATE_KEYS as readonly string[]).includes(requested)
         ? (requested as (typeof EMAIL_TEMPLATE_KEYS)[number])
         : "account_invitation";
-      const branding = await client.query<{
-        organisation_name: string;
-        primary_colour: string | null;
-        has_logo: boolean;
-        logo_version: string | null;
-      }>("select * from get_public_school_branding($1)", [orgId]);
-      const row = branding.rows[0];
-      const rendered = renderEmailTemplate(template, fixturePreviewData(template), {
-        schoolName: row?.organisation_name ?? "School",
-        primaryColor: row?.primary_colour,
-        logoUrl: row?.has_logo
-          ? publicBrandingAssetUrl("logo", row.logo_version)
-          : null,
-      });
+      const branding = await loadMailBranding(client, orgId);
+      const override = isCustomizableEmailTemplateKey(template)
+        ? await loadStoredTemplate(client, orgId, template)
+        : null;
+      const sample = isCustomizableEmailTemplateKey(template)
+        ? sampleMergeData(template, branding, branding.schoolContactEmail)
+        : fixturePreviewData(template);
+      const rendered = renderTransactionalEmail(template, sample, branding, override);
       return c.json({
         template,
         subject: rendered.subject,
@@ -516,6 +534,305 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
       });
     }),
   );
+
+  app.get("/onboarding/mail/templates", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertPermission(actor, PERMISSIONS.ORG_SETTINGS_MANAGE);
+      const stored = await client.query<{
+        template_key: string;
+        enabled: boolean;
+        updated_at: string;
+      }>(
+        `select template_key, enabled, updated_at
+           from organisation_transactional_email_templates
+          where organisation_id = $1`,
+        [orgId],
+      );
+      const byKey = new Map(stored.rows.map((row) => [row.template_key, row]));
+      return c.json({
+        templates: AUTOMATIC_EMAIL_TEMPLATE_CATALOG.map((item) => {
+          const row = byKey.get(item.key);
+          return {
+            key: item.key,
+            name: item.name,
+            description: item.description,
+            enabled: row ? row.enabled : true,
+            source: row && row.enabled ? "custom" : "system",
+            customised: Boolean(row),
+            updatedAt: row?.updated_at ?? null,
+            availableFields: item.mergeFields,
+          };
+        }),
+      });
+    }),
+  );
+
+  app.get("/onboarding/mail/templates/:key", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertPermission(actor, PERMISSIONS.ORG_SETTINGS_MANAGE);
+      const key = requireCustomizableKey(c.req.param("key") ?? "");
+      const item = automaticEmailCatalogItem(key);
+      const stored = await loadStoredTemplateRow(client, orgId, key);
+      const current = stored ?? item.defaults;
+      return c.json({
+        template: presentStoredTemplate(item, current, stored?.updatedAt ?? null, Boolean(stored)),
+      });
+    }),
+  );
+
+  app.put("/onboarding/mail/templates/:key", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ORG_SETTINGS_MANAGE);
+      const key = requireCustomizableKey(c.req.param("key") ?? "");
+      const parsed = templateWriteSchema.safeParse(await c.req.json().catch(() => ({})));
+      if (!parsed.success) {
+        throw new AppError(400, "validation_failed", "Invalid email template");
+      }
+      let validated;
+      try {
+        validated = validateOrganisationEmailTemplate({ templateKey: key, ...parsed.data });
+      } catch (error) {
+        if (error instanceof EmailTemplateValidationError) {
+          throw new AppError(400, "validation_failed", error.message);
+        }
+        throw error;
+      }
+      const saved = await client.query<{
+        enabled: boolean;
+        subject: string;
+        heading: string;
+        greeting: string;
+        body_text: string;
+        signoff: string;
+        updated_at: string;
+      }>(
+        `insert into organisation_transactional_email_templates (
+           organisation_id, template_key, enabled, subject, heading, greeting, body_text, signoff, updated_by_user_id
+         ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         on conflict (organisation_id, template_key) do update set
+           enabled = excluded.enabled,
+           subject = excluded.subject,
+           heading = excluded.heading,
+           greeting = excluded.greeting,
+           body_text = excluded.body_text,
+           signoff = excluded.signoff,
+           updated_by_user_id = excluded.updated_by_user_id
+         returning enabled, subject, heading, greeting, body_text, signoff, updated_at`,
+        [
+          orgId,
+          key,
+          validated.enabled,
+          validated.subject,
+          validated.heading,
+          validated.greeting,
+          validated.body,
+          validated.signoff,
+          userId,
+        ],
+      );
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "org.email_template.updated",
+        entityType: "organisation_transactional_email_template",
+        entityId: orgId,
+        after: { templateKey: key, enabled: validated.enabled, customised: true },
+      });
+      const item = automaticEmailCatalogItem(key);
+      const row = saved.rows[0]!;
+      return c.json({
+        template: presentStoredTemplate(
+          item,
+          {
+            templateKey: key,
+            enabled: row.enabled,
+            subject: row.subject,
+            heading: row.heading,
+            greeting: row.greeting,
+            body: row.body_text,
+            signoff: row.signoff,
+          },
+          row.updated_at,
+          true,
+        ),
+      });
+    }),
+  );
+
+  app.post("/onboarding/mail/templates/:key/preview", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertPermission(actor, PERMISSIONS.ORG_SETTINGS_MANAGE);
+      const key = requireCustomizableKey(c.req.param("key") ?? "");
+      const parsed = templatePreviewSchema.safeParse(await c.req.json().catch(() => ({})));
+      if (!parsed.success) {
+        throw new AppError(400, "validation_failed", "Invalid email template preview");
+      }
+      const item = automaticEmailCatalogItem(key);
+      const stored = await loadStoredTemplate(client, orgId, key);
+      const draft = {
+        ...item.defaults,
+        ...(stored ?? {}),
+        ...Object.fromEntries(
+          Object.entries(parsed.data).filter(([, value]) => value !== undefined),
+        ),
+        templateKey: key,
+      };
+      let validated;
+      try {
+        validated = validateOrganisationEmailTemplate(draft);
+      } catch (error) {
+        if (error instanceof EmailTemplateValidationError) {
+          throw new AppError(400, "validation_failed", error.message);
+        }
+        throw error;
+      }
+      const branding = await loadMailBranding(client, orgId);
+      const sample = sampleMergeData(key, branding, branding.schoolContactEmail);
+      const rendered = renderTransactionalEmail(key, sample, branding, { ...validated, enabled: true });
+      return c.json({
+        template: key,
+        subject: rendered.subject,
+        html: rendered.html,
+        text: rendered.text,
+        fixture: true,
+        queued: false,
+      });
+    }),
+  );
+
+  app.delete("/onboarding/mail/templates/:key", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ORG_SETTINGS_MANAGE);
+      const key = requireCustomizableKey(c.req.param("key") ?? "");
+      await client.query(
+        `delete from organisation_transactional_email_templates
+          where organisation_id = $1 and template_key = $2`,
+        [orgId, key],
+      );
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "org.email_template.reset",
+        entityType: "organisation_transactional_email_template",
+        entityId: orgId,
+        after: { templateKey: key, resetToDefault: true },
+      });
+      const item = automaticEmailCatalogItem(key);
+      return c.json({
+        template: presentStoredTemplate(item, item.defaults, null, false),
+      });
+    }),
+  );
+}
+
+function requireCustomizableKey(value: string) {
+  if (!isCustomizableEmailTemplateKey(value)) {
+    throw new AppError(404, "not_found", "Not found");
+  }
+  return value;
+}
+
+type SqlClient = {
+  query: <T extends Record<string, unknown> = Record<string, unknown>>(
+    sql: string,
+    params?: unknown[],
+  ) => Promise<{ rows: T[] }>;
+};
+
+async function loadMailBranding(client: SqlClient, orgId: string) {
+  const branding = await client.query<{
+    organisation_name: string;
+    primary_colour: string | null;
+    has_logo: boolean;
+    logo_version: string | null;
+  }>("select * from get_public_school_branding($1)", [orgId]);
+  const contact = await client.query<{ contact_email: string | null }>(
+    "select contact_email from organisation_settings where organisation_id = $1",
+    [orgId],
+  );
+  const row = branding.rows[0];
+  return {
+    schoolName: String(row?.organisation_name ?? "School"),
+    primaryColor: row?.primary_colour ?? null,
+    logoUrl: row?.has_logo ? publicBrandingAssetUrl("logo", row.logo_version) : null,
+    schoolContactEmail: contact.rows[0]?.contact_email ?? null,
+  };
+}
+
+async function loadStoredTemplateRow(client: SqlClient, orgId: string, key: string) {
+  const stored = await client.query<{
+    template_key: string;
+    enabled: boolean;
+    subject: string;
+    heading: string;
+    greeting: string;
+    body_text: string;
+    signoff: string;
+    updated_at: string;
+  }>(
+    `select template_key, enabled, subject, heading, greeting, body_text, signoff, updated_at
+       from organisation_transactional_email_templates
+      where organisation_id = $1 and template_key = $2`,
+    [orgId, key],
+  );
+  const row = stored.rows[0];
+  if (!row || !isCustomizableEmailTemplateKey(row.template_key)) return null;
+  return {
+    templateKey: row.template_key,
+    enabled: row.enabled,
+    subject: row.subject,
+    heading: row.heading,
+    greeting: row.greeting,
+    body: row.body_text,
+    signoff: row.signoff,
+    updatedAt: row.updated_at,
+  };
+}
+
+async function loadStoredTemplate(client: SqlClient, orgId: string, key: string) {
+  const row = await loadStoredTemplateRow(client, orgId, key);
+  if (!row) return null;
+  return {
+    templateKey: row.templateKey,
+    enabled: row.enabled,
+    subject: row.subject,
+    heading: row.heading,
+    greeting: row.greeting,
+    body: row.body,
+    signoff: row.signoff,
+  };
+}
+
+function presentStoredTemplate(
+  item: (typeof AUTOMATIC_EMAIL_TEMPLATE_CATALOG)[number],
+  current: {
+    templateKey: string;
+    enabled: boolean;
+    subject: string;
+    heading: string;
+    greeting: string;
+    body: string;
+    signoff: string;
+  },
+  updatedAt: string | null,
+  customised: boolean,
+) {
+  return {
+    key: item.key,
+    name: item.name,
+    description: item.description,
+    enabled: current.enabled,
+    source: customised && current.enabled ? "custom" : "system",
+    customised,
+    updatedAt,
+    subject: current.subject,
+    heading: current.heading,
+    greeting: current.greeting,
+    body: current.body,
+    signoff: current.signoff,
+    defaults: item.defaults,
+    availableFields: item.mergeFields,
+  };
 }
 
 function brandingVersionFromId(id: unknown): string | null {

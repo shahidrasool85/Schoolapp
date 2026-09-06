@@ -51,6 +51,7 @@ export function fixturePreviewData(template: EmailTemplateKey): Record<string, s
       recipientName: "Jordan Example",
       schoolName: "Kingswood School",
       enquiryReference: "ENQ-1001",
+      schoolContactEmail: "admissions@kingswood.example.test",
     };
   }
   if (template === "admissions_application_received") {
@@ -60,6 +61,7 @@ export function fixturePreviewData(template: EmailTemplateKey): Record<string, s
       childName: "Maya Example",
       applicationReference: "APP-1001",
       intendedEntry: "Year 3 — 2026/27",
+      schoolContactEmail: "admissions@kingswood.example.test",
     };
   }
   if (template === "admissions_status_update") {
@@ -245,6 +247,18 @@ export function renderFinanceNotice(input: {
   });
 }
 
+export function renderBrandedEmail(input: {
+  branding: TransactionalBranding;
+  subject: string;
+  heading: string;
+  preheader: string;
+  greeting: string;
+  paragraphs: string[];
+  signoff?: string;
+}): RenderedEmail {
+  return renderShell(input);
+}
+
 export function renderEmailTemplate(
   template: EmailTemplateKey,
   data: Record<string, string | null | undefined>,
@@ -366,10 +380,10 @@ function renderShell(input: {
   const color = safeHex(input.branding.primaryColor) ?? DEFAULT_PRIMARY;
   const logo = safeHttpUrl(input.branding.logoUrl);
   const textParagraphs = input.paragraphs.map((p) => safeEmailText(p, 800));
-  const greeting = safeEmailText(input.greeting, 80);
+  const greeting = safeEmailText(input.greeting, 200);
   const heading = safeEmailText(input.heading, 120);
   const footerNote = input.footerNote ? safeEmailText(input.footerNote, 240) : "";
-  const signoff = input.signoff ? safeEmailText(input.signoff, 160) : `Regards\n${school}`;
+  const signoff = input.signoff ? safeEmailText(input.signoff, 400) : `Regards\n${school}`;
   const button = input.    button
       ? { label: safeEmailText(input.button.label, 40), url: safeHttpUrl(input.button.url) ?? "#" }
       : null;

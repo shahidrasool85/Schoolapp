@@ -74,6 +74,12 @@ describe("isActiveNavHref", () => {
       isActiveNavHref("/school/finance/settings", "tab=vat", "/school/finance/invoices", false),
     ).toBe(false);
   });
+
+  it("keeps Email delivery active for the Automatic emails tab", () => {
+    expect(
+      isActiveNavHref("/school/settings/email", "tab=automatic", "/school/settings/email", false),
+    ).toBe(true);
+  });
 });
 
 describe("isNavSectionOpen", () => {

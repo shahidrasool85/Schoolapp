@@ -2,13 +2,12 @@ import type { EmailTemplateKey, MailPurpose } from "@schoolapp/domain";
 import { purposeToTemplateKey } from "./email-provider.js";
 import {
   renderAccountInvitation,
-  renderAdmissionsApplicationReceived,
-  renderAdmissionsEnquiryReceived,
   renderAdmissionsStatusUpdate,
   renderFinanceNotice,
   renderPasswordReset,
   type TransactionalBranding,
 } from "./email-templates.js";
+import { renderTransactionalEmail } from "./email-template-overrides.js";
 
 export type MailMessage = {
   organisationId: string | null;
@@ -249,13 +248,22 @@ export function admissionsEnquiryReceivedMail(input: {
   toName?: string | null;
   enquiryId: string;
   enquiryReference?: string | null;
+  schoolContactEmail?: string | null;
   branding?: TransactionalBranding;
   replyTo?: string | null;
+  override?: import("./email-template-overrides.js").OrganisationEmailTemplateOverride | null;
 }): MailMessage {
-  const rendered = renderAdmissionsEnquiryReceived({
-    branding: brandingOf(input.organisationName, input.branding),
-    recipientName: input.toName,
-  });
+  const branding = brandingOf(input.organisationName, input.branding);
+  const rendered = renderTransactionalEmail(
+    "admissions_enquiry_received",
+    {
+      recipientName: input.toName,
+      enquiryReference: input.enquiryReference,
+      schoolContactEmail: input.schoolContactEmail,
+    },
+    branding,
+    input.override,
+  );
   return {
     organisationId: input.organisationId,
     purpose: "admissions_enquiry_received",
@@ -269,6 +277,8 @@ export function admissionsEnquiryReceivedMail(input: {
     idempotencyKey: `admissions.enquiry_received:${input.enquiryId}`,
     templateData: {
       recipientName: input.toName ?? null,
+      enquiryReference: input.enquiryReference ?? null,
+      schoolContactEmail: input.schoolContactEmail ?? null,
     },
     metadata: {
       enquiryId: input.enquiryId,
@@ -286,16 +296,24 @@ export function admissionsApplicationReceivedMail(input: {
   applicationReference: string;
   intendedEntry?: string | null;
   applicationId: string;
+  schoolContactEmail?: string | null;
   branding?: TransactionalBranding;
   replyTo?: string | null;
+  override?: import("./email-template-overrides.js").OrganisationEmailTemplateOverride | null;
 }): MailMessage {
-  const rendered = renderAdmissionsApplicationReceived({
-    branding: brandingOf(input.organisationName, input.branding),
-    recipientName: input.toName,
-    childName: input.childName,
-    applicationReference: input.applicationReference,
-    intendedEntry: input.intendedEntry,
-  });
+  const branding = brandingOf(input.organisationName, input.branding);
+  const rendered = renderTransactionalEmail(
+    "admissions_application_received",
+    {
+      recipientName: input.toName,
+      childName: input.childName,
+      applicationReference: input.applicationReference,
+      intendedEntry: input.intendedEntry,
+      schoolContactEmail: input.schoolContactEmail,
+    },
+    branding,
+    input.override,
+  );
   return {
     organisationId: input.organisationId,
     purpose: "admissions_application_received",
@@ -312,6 +330,7 @@ export function admissionsApplicationReceivedMail(input: {
       childName: input.childName,
       applicationReference: input.applicationReference,
       intendedEntry: input.intendedEntry ?? null,
+      schoolContactEmail: input.schoolContactEmail ?? null,
     },
     metadata: {
       applicationId: input.applicationId,

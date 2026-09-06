@@ -2,10 +2,12 @@ import {
   admissionsApplicationReceivedMail,
   admissionsEnquiryReceivedMail,
   type CanonicalSnapshot,
+  type OrganisationEmailTemplateOverride,
 } from "@schoolapp/core";
 import type { Context } from "hono";
 import type { ApiEnv } from "./types";
 import { enqueueAckMail } from "./mail";
+import { loadOrganisationEmailTemplateOverride } from "./email-template-overrides";
 
 export function applicantContact(canonical: CanonicalSnapshot): { email: string; name: string } | null {
   const guardians = canonical.guardians ?? [];
@@ -69,6 +71,7 @@ export async function queueAdmissionsEnquiryAck(
   if (!enquiryId) return;
   const contact = applicantContact(input.canonical);
   if (!contact) return;
+  const extras = await loadAckRenderContext(c, input.organisationId, "admissions_enquiry_received");
   await enqueueAckMail(
     c,
     admissionsEnquiryReceivedMail({
@@ -78,6 +81,8 @@ export async function queueAdmissionsEnquiryAck(
       toName: contact.name,
       enquiryId,
       enquiryReference: enquiryReference || null,
+      schoolContactEmail: extras.schoolContactEmail,
+      override: extras.override,
     }),
   );
 }
@@ -101,6 +106,7 @@ export async function queueAdmissionsApplicationAck(
   if (!applicationId || !applicationReference) return;
   const contact = applicantContact(input.canonical);
   if (!contact) return;
+  const extras = await loadAckRenderContext(c, input.organisationId, "admissions_application_received");
   await enqueueAckMail(
     c,
     admissionsApplicationReceivedMail({
@@ -112,6 +118,32 @@ export async function queueAdmissionsApplicationAck(
       applicationReference,
       intendedEntry: intendedEntryLabel(input.canonical, input.years ?? [], input.groups ?? []),
       applicationId,
+      schoolContactEmail: extras.schoolContactEmail,
+      override: extras.override,
     }),
   );
+}
+
+async function loadAckRenderContext(
+  c: Context<ApiEnv>,
+  organisationId: string,
+  templateKey: "admissions_enquiry_received" | "admissions_application_received",
+): Promise<{
+  schoolContactEmail: string | null;
+  override: OrganisationEmailTemplateOverride | null;
+}> {
+  try {
+    const pool = c.get("config").pools.app;
+    const context = await pool.query<{ contact_email: string | null }>(
+      "select contact_email from get_transactional_mail_context($1)",
+      [organisationId],
+    );
+    const override = await loadOrganisationEmailTemplateOverride(pool, organisationId, templateKey);
+    return {
+      schoolContactEmail: context.rows[0]?.contact_email ?? null,
+      override,
+    };
+  } catch {
+    return { schoolContactEmail: null, override: null };
+  }
 }

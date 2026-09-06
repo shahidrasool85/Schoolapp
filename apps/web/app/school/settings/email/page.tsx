@@ -1,15 +1,30 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
+import {
+  EMAIL_SETTINGS_TAB_ITEMS,
+  emailSettingsTabHref,
+  emailTemplateEditorHref,
+  isCustomizableEmailTemplateKey,
+  parseEmailSettingsTab,
+  type CustomizableEmailTemplateKey,
+} from "@schoolapp/domain";
 import {
   Alert,
   Button,
+  Checkbox,
   EmptyState,
+  FormField,
+  Input,
   LoadingState,
   PageError,
   PageHeader,
   SectionCard,
   StatusBadge,
+  Tabs,
+  Textarea,
 } from "../../../../components/ui";
 import { RequirePermission } from "../../../../components/require-permission";
 import { api } from "../../../../lib/api";
@@ -51,15 +66,79 @@ type MailRow = {
 
 type Preview = { template: string; subject: string; html: string; text: string; fixture: boolean };
 
+type MergeField = { key: string; label: string; example: string };
+
+type TemplateListItem = {
+  key: CustomizableEmailTemplateKey;
+  name: string;
+  description: string;
+  enabled: boolean;
+  source: "custom" | "system";
+  customised: boolean;
+  updatedAt: string | null;
+  availableFields: MergeField[];
+};
+
+type TemplateDetail = TemplateListItem & {
+  subject: string;
+  heading: string;
+  greeting: string;
+  body: string;
+  signoff: string;
+};
+
 export default function SchoolEmailDeliveryPage() {
   return (
     <RequirePermission anyOf={["org.settings.manage", "onboarding.manage"]}>
-      <SchoolEmailDelivery />
+      <Suspense fallback={<LoadingState label="Loading email delivery…" />}>
+        <SchoolEmailDelivery />
+      </Suspense>
     </RequirePermission>
   );
 }
 
 function SchoolEmailDelivery() {
+  const searchParams = useSearchParams();
+  const tab = parseEmailSettingsTab(searchParams.get("tab"));
+  const templateParam = searchParams.get("template");
+  const editingKey = isCustomizableEmailTemplateKey(templateParam) ? templateParam : null;
+
+  return (
+    <>
+      <PageHeader
+        title="Email delivery"
+        description="Transactional messages queued for this school. Invitation and password-reset links are never stored after send."
+        breadcrumbs={[
+          { href: "/school/settings", label: "School settings" },
+          { label: "Email delivery" },
+        ]}
+      />
+      <Tabs label="Email delivery">
+        {EMAIL_SETTINGS_TAB_ITEMS.map((item) => {
+          const active = tab === item.key;
+          return (
+            <Link
+              key={item.key}
+              href={emailSettingsTabHref(item.key)}
+              scroll={false}
+              className={active ? "active" : undefined}
+              aria-current={active ? "page" : undefined}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
+      </Tabs>
+      {tab === "automatic" ? (
+        editingKey ? <AutomaticEmailEditor templateKey={editingKey} /> : <AutomaticEmailList />
+      ) : (
+        <EmailDeliveryOutbox />
+      )}
+    </>
+  );
+}
+
+function EmailDeliveryOutbox() {
   const [messages, setMessages] = useState<MailRow[]>([]);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [template, setTemplate] = useState<(typeof TEMPLATES)[number]["key"]>("account_invitation");
@@ -107,14 +186,6 @@ function SchoolEmailDelivery() {
 
   return (
     <>
-      <PageHeader
-        title="Email delivery"
-        description="Transactional messages queued for this school. Invitation and password-reset links are never stored after send."
-        breadcrumbs={[
-          { href: "/school/settings", label: "School settings" },
-          { label: "Email delivery" },
-        ]}
-      />
       {notice ? <Alert tone="success">{notice}</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
 
@@ -143,27 +214,15 @@ function SchoolEmailDelivery() {
             </select>
           </label>
         </div>
-        {preview ? (
-          <>
-            <p>
-              <strong>{preview.subject}</strong>
-            </p>
-            <iframe
-              title="Email preview"
-              sandbox=""
-              srcDoc={preview.html}
-              style={{ width: "100%", minHeight: "22rem", border: "1px solid var(--line)", borderRadius: 8, background: "white" }}
-            />
-            <pre className="muted" style={{ whiteSpace: "pre-wrap", marginTop: "1rem" }}>
-              {preview.text}
-            </pre>
-          </>
-        ) : null}
+        {preview ? <EmailPreviewFrame preview={preview} /> : null}
       </SectionCard>
 
       <SectionCard title="Recent delivery">
         {rows.length === 0 ? (
-          <EmptyState title="No transactional email yet" description="Invitations, password resets and admissions acknowledgements appear here after they are queued." />
+          <EmptyState
+            title="No transactional email yet"
+            description="Invitations, password resets and admissions acknowledgements appear here after they are queued."
+          />
         ) : (
           <div className="table-wrap">
             <table>
@@ -208,6 +267,292 @@ function SchoolEmailDelivery() {
           </div>
         )}
       </SectionCard>
+    </>
+  );
+}
+
+function AutomaticEmailList() {
+  const [templates, setTemplates] = useState<TemplateListItem[]>([]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api<{ templates: TemplateListItem[] }>("/api/v1/onboarding/mail/templates")
+      .then((body) => setTemplates(body.templates))
+      .catch((err: Error) => setError(userFacingError(err, "Could not load automatic emails.")))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <LoadingState label="Loading automatic emails…" />;
+  if (error && !templates.length) {
+    return <PageError title="Automatic emails unavailable" description={error} />;
+  }
+
+  return (
+    <>
+      {error ? <Alert tone="danger">{error}</Alert> : null}
+      <SectionCard
+        title="Automatic emails"
+        description="Customise the wording of acknowledgements this school already sends. The school logo, layout and LuvLearn footer stay the same."
+      >
+        {templates.length === 0 ? (
+          <EmptyState title="No automatic emails" description="Enquiry and application acknowledgements will appear here." />
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Email</th>
+                  <th>Status</th>
+                  <th>Last updated</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {templates.map((item) => (
+                  <tr key={item.key}>
+                    <td>
+                      <strong>{item.name}</strong>
+                      <div className="muted">{item.description}</div>
+                    </td>
+                    <td>
+                      <StatusBadge status={item.source === "custom" ? "customised" : "system default"} />
+                      {!item.enabled ? <div className="muted">Using system default</div> : null}
+                    </td>
+                    <td>{item.updatedAt ? new Date(item.updatedAt).toLocaleString() : "Never customised"}</td>
+                    <td>
+                      <span style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                        <Link className="button secondary" href={emailTemplateEditorHref(item.key)}>
+                          Edit
+                        </Link>
+                        <Link
+                          className="button secondary"
+                          href={`${emailTemplateEditorHref(item.key)}&preview=1`}
+                        >
+                          Preview
+                        </Link>
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </SectionCard>
+    </>
+  );
+}
+
+function AutomaticEmailEditor({ templateKey }: { templateKey: CustomizableEmailTemplateKey }) {
+  const searchParams = useSearchParams();
+  const [detail, setDetail] = useState<TemplateDetail | null>(null);
+  const [subject, setSubject] = useState("");
+  const [heading, setHeading] = useState("");
+  const [greeting, setGreeting] = useState("");
+  const [body, setBody] = useState("");
+  const [signoff, setSignoff] = useState("");
+  const [enabled, setEnabled] = useState(true);
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+
+  async function load() {
+    const bodyJson = await api<{ template: TemplateDetail }>(
+      `/api/v1/onboarding/mail/templates/${encodeURIComponent(templateKey)}`,
+    );
+    const item = bodyJson.template;
+    setDetail(item);
+    setSubject(item.subject);
+    setHeading(item.heading);
+    setGreeting(item.greeting);
+    setBody(item.body);
+    setSignoff(item.signoff);
+    setEnabled(item.enabled);
+    return item;
+  }
+
+  useEffect(() => {
+    load()
+      .then((item) => {
+        if (searchParams.get("preview") === "1") {
+          return renderPreview(item);
+        }
+        return undefined;
+      })
+      .catch((err: Error) => setError(userFacingError(err, "Could not load this template.")))
+      .finally(() => setLoading(false));
+  }, [templateKey]);
+
+  async function renderPreview(item?: TemplateDetail) {
+    setPreviewing(true);
+    setError("");
+    try {
+      const result = await api<Preview>(
+        `/api/v1/onboarding/mail/templates/${encodeURIComponent(templateKey)}/preview`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            enabled,
+            subject,
+            heading,
+            greeting,
+            body,
+            signoff,
+            ...(item
+              ? {
+                  enabled: item.enabled,
+                  subject: item.subject,
+                  heading: item.heading,
+                  greeting: item.greeting,
+                  body: item.body,
+                  signoff: item.signoff,
+                }
+              : {}),
+          }),
+        },
+      );
+      setPreview(result);
+    } catch (err) {
+      setError(userFacingError(err as Error, "Could not render the preview."));
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const result = await api<{ template: TemplateDetail }>(
+        `/api/v1/onboarding/mail/templates/${encodeURIComponent(templateKey)}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({ enabled, subject, heading, greeting, body, signoff }),
+        },
+      );
+      setDetail(result.template);
+      setNotice("Template saved. New acknowledgements will use this wording.");
+    } catch (err) {
+      setError(userFacingError(err as Error, "Could not save this template."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function resetToDefault() {
+    setSaving(true);
+    setError("");
+    try {
+      const result = await api<{ template: TemplateDetail }>(
+        `/api/v1/onboarding/mail/templates/${encodeURIComponent(templateKey)}`,
+        { method: "DELETE" },
+      );
+      setDetail(result.template);
+      setSubject(result.template.subject);
+      setHeading(result.template.heading);
+      setGreeting(result.template.greeting);
+      setBody(result.template.body);
+      setSignoff(result.template.signoff);
+      setEnabled(result.template.enabled);
+      setPreview(null);
+      setNotice("Restored the system default wording.");
+    } catch (err) {
+      setError(userFacingError(err as Error, "Could not restore the system default."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) return <LoadingState label="Loading template…" />;
+  if (error && !detail) return <PageError title="Template unavailable" description={error} />;
+  if (!detail) return <EmptyState title="Template not found" />;
+
+  return (
+    <>
+      {notice ? <Alert tone="success">{notice}</Alert> : null}
+      {error ? <Alert tone="danger">{error}</Alert> : null}
+      <SectionCard
+        title={detail.name}
+        description={detail.description}
+      >
+        <p>
+          <Link href={emailSettingsTabHref("automatic")}>Back to automatic emails</Link>
+        </p>
+        <form className="stack" onSubmit={save}>
+          <Checkbox
+            label="Use this customised wording"
+            checked={enabled}
+            onChange={(event) => setEnabled(event.target.checked)}
+          />
+          <FormField label="Subject" hint="Required. Use available fields such as {{school_name}}.">
+            <Input value={subject} onChange={(event) => setSubject(event.target.value)} required maxLength={200} />
+          </FormField>
+          <FormField label="Heading">
+            <Input value={heading} onChange={(event) => setHeading(event.target.value)} required maxLength={120} />
+          </FormField>
+          <FormField label="Greeting">
+            <Input value={greeting} onChange={(event) => setGreeting(event.target.value)} required maxLength={200} />
+          </FormField>
+          <FormField label="Body" hint="Line breaks are kept. HTML is not allowed.">
+            <Textarea value={body} onChange={(event) => setBody(event.target.value)} required rows={8} maxLength={4000} />
+          </FormField>
+          <FormField label="Sign-off">
+            <Textarea value={signoff} onChange={(event) => setSignoff(event.target.value)} required rows={3} maxLength={400} />
+          </FormField>
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+            <Button type="submit" disabled={saving}>
+              {saving ? "Saving…" : "Save"}
+            </Button>
+            <Button type="button" variant="secondary" disabled={previewing} onClick={() => void renderPreview()}>
+              {previewing ? "Rendering…" : "Preview"}
+            </Button>
+            {detail.customised ? (
+              <Button type="button" variant="secondary" disabled={saving} onClick={() => void resetToDefault()}>
+                Use system default
+              </Button>
+            ) : null}
+          </div>
+        </form>
+      </SectionCard>
+      <SectionCard title="Available fields" description="Only these placeholders can be inserted. They are filled with sample data in preview and live values when the email is sent.">
+        <ul>
+          {detail.availableFields.map((field) => (
+            <li key={field.key}>
+              <code>{`{{${field.key}}}`}</code> — {field.label}
+              <span className="muted"> (e.g. {field.example})</span>
+            </li>
+          ))}
+        </ul>
+      </SectionCard>
+      {preview ? (
+        <SectionCard title="Preview" description="Sample data only. This does not send an email or use real parent or pupil details.">
+          <EmailPreviewFrame preview={preview} />
+        </SectionCard>
+      ) : null}
+    </>
+  );
+}
+
+function EmailPreviewFrame({ preview }: { preview: Preview }) {
+  return (
+    <>
+      <p>
+        <strong>{preview.subject}</strong>
+      </p>
+      <iframe
+        title="Email preview"
+        sandbox=""
+        srcDoc={preview.html}
+        style={{ width: "100%", minHeight: "22rem", border: "1px solid var(--line)", borderRadius: 8, background: "white" }}
+      />
+      <pre className="muted" style={{ whiteSpace: "pre-wrap", marginTop: "1rem" }}>
+        {preview.text}
+      </pre>
     </>
   );
 }

@@ -109,6 +109,33 @@ describe("transactional email templates", () => {
     expect(rendered.text.toLowerCase()).not.toContain("safeguard");
   });
 
+  it("includes the school logo when branding supplies a logo URL", () => {
+    const rendered = renderEmailTemplate(
+      "admissions_enquiry_received",
+      fixturePreviewData("admissions_enquiry_received"),
+      branding,
+    );
+    expect(rendered.html).toContain('src="https://kingswood.example.test/logo.png"');
+    expect(rendered.html).toContain('alt="Kingswood School"');
+    expect(rendered.html).toContain("Kingswood School");
+    expect(rendered.text).toContain("Kingswood School");
+    expect(rendered.text).not.toContain("logo.png");
+  });
+
+  it("omits the logo cleanly when branding has no logo URL", () => {
+    const rendered = renderEmailTemplate(
+      "admissions_enquiry_received",
+      fixturePreviewData("admissions_enquiry_received"),
+      { schoolName: "Kingswood School", primaryColor: "#2B78C9" },
+    );
+    expect(rendered.html).not.toContain("<img");
+    expect(rendered.html).not.toContain("src=");
+    expect(rendered.html).toContain("Kingswood School");
+    expect(rendered.html).toContain("Enquiry received");
+    expect(rendered.html).toContain("Powered by LuvLearn");
+    expect(rendered.text).toContain("Kingswood School");
+  });
+
   it("renders the status-update foundation template", () => {
     const rendered = renderEmailTemplate(
       "admissions_status_update",

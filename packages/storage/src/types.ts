@@ -11,7 +11,8 @@ export type StoredObjectDomain =
   | "activity"
   | "message"
   | "branding"
-  | "profile_photo";
+  | "profile_photo"
+  | "transactional_email";
 
 export type FileSensitivity = "standard" | "confidential" | "safeguarding";
 
@@ -130,7 +131,8 @@ export type FileProfileName =
   | "activity"
   | "message"
   | "branding"
-  | "profile_photo";
+  | "profile_photo"
+  | "transactional_email";
 
 export type FileProfile = {
   name: FileProfileName;

@@ -1027,6 +1027,24 @@ export {
 } from "./email-provider.js";
 
 export {
+  EmailAttachmentError,
+  TRANSACTIONAL_EMAIL_ATTACHMENT_MAX_BYTES,
+  TRANSACTIONAL_EMAIL_ATTACHMENTS_MAX_COUNT,
+  TRANSACTIONAL_EMAIL_ATTACHMENTS_MAX_TOTAL_BYTES,
+  TRANSACTIONAL_EMAIL_ATTACHMENT_CONTENT_TYPES,
+  assertTransactionalEmailAttachmentSet,
+  attachmentKindLabel,
+  formatAttachmentByteSize,
+  presentEmailAttachmentMeta,
+  sanitizeEmailAttachmentFilename,
+  sanitizeEmailAttachments,
+  transactionalEmailAttachmentKind,
+  type EmailAttachment,
+  type EmailAttachmentMeta,
+  type TransactionalEmailAttachmentKind,
+} from "./email-attachments.js";
+
+export {
   escapeHtml,
   fixturePreviewData,
   renderAccountInvitation,

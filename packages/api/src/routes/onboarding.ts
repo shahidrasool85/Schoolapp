@@ -14,9 +14,14 @@ import {
 import {
   AppError,
   AUTOMATIC_EMAIL_TEMPLATE_CATALOG,
+  EmailAttachmentError,
   EmailTemplateValidationError,
+  TRANSACTIONAL_EMAIL_ATTACHMENT_MAX_BYTES,
+  TRANSACTIONAL_EMAIL_ATTACHMENTS_MAX_COUNT,
+  TRANSACTIONAL_EMAIL_ATTACHMENTS_MAX_TOTAL_BYTES,
   assertAnyPermission,
   assertPermission,
+  assertTransactionalEmailAttachmentSet,
   automaticEmailCatalogItem,
   evaluateReadiness,
   fixturePreviewData,
@@ -26,6 +31,7 @@ import {
   presentSchoolOnboarding,
   renderTransactionalEmail,
   sampleMergeData,
+  sanitizeEmailAttachmentFilename,
   validateOrganisationEmailTemplate,
   writeAudit,
 } from "@schoolapp/core";
@@ -33,6 +39,10 @@ import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
 import { withSchoolActor } from "../school-context";
 import { deliverQueuedMail } from "../email-delivery";
+import {
+  loadAutomaticEmailAttachmentViews,
+  loadShowSchoolLogo,
+} from "../email-template-attachments";
 import {
   insertPendingObject,
   profileForDomain,
@@ -94,6 +104,11 @@ const templatePreviewSchema = z.object({
   greeting: z.string().optional(),
   body: z.string().optional(),
   signoff: z.string().optional(),
+  showSchoolLogo: z.boolean().optional(),
+});
+
+const templatePresentationSchema = z.object({
+  showSchoolLogo: z.boolean(),
 });
 
 function publicBrandingUrls(
@@ -574,8 +589,15 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
       const item = automaticEmailCatalogItem(key);
       const stored = await loadStoredTemplateRow(client, orgId, key);
       const current = stored ?? item.defaults;
+      const presentation = await loadTemplatePresentation(client, orgId, key);
       return c.json({
-        template: presentStoredTemplate(item, current, stored?.updatedAt ?? null, Boolean(stored)),
+        template: presentStoredTemplate(
+          item,
+          current,
+          stored?.updatedAt ?? null,
+          Boolean(stored),
+          presentation,
+        ),
       });
     }),
   );
@@ -640,6 +662,7 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
       });
       const item = automaticEmailCatalogItem(key);
       const row = saved.rows[0]!;
+      const presentation = await loadTemplatePresentation(client, orgId, key);
       return c.json({
         template: presentStoredTemplate(
           item,
@@ -654,6 +677,7 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
           },
           row.updated_at,
           true,
+          presentation,
         ),
       });
     }),
@@ -687,8 +711,16 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
         throw error;
       }
       const branding = await loadMailBranding(client, orgId);
+      const showSchoolLogo =
+        parsed.data.showSchoolLogo ?? (await loadShowSchoolLogo(client, orgId, key));
       const sample = sampleMergeData(key, branding, branding.schoolContactEmail);
-      const rendered = renderTransactionalEmail(key, sample, branding, { ...validated, enabled: true });
+      const rendered = renderTransactionalEmail(
+        key,
+        sample,
+        { ...branding, logoUrl: showSchoolLogo ? branding.logoUrl : null },
+        { ...validated, enabled: true },
+      );
+      const attachments = await loadAutomaticEmailAttachmentViews(client, orgId, key);
       return c.json({
         template: key,
         subject: rendered.subject,
@@ -696,6 +728,14 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
         text: rendered.text,
         fixture: true,
         queued: false,
+        showSchoolLogo,
+        attachments: attachments.map((item) => ({
+          filename: item.filename,
+          contentType: item.contentType,
+          byteSize: item.byteSize,
+          kindLabel: item.kindLabel,
+          sizeLabel: item.sizeLabel,
+        })),
       });
     }),
   );
@@ -718,8 +758,227 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
         after: { templateKey: key, resetToDefault: true },
       });
       const item = automaticEmailCatalogItem(key);
+      const presentation = await loadTemplatePresentation(client, orgId, key);
       return c.json({
-        template: presentStoredTemplate(item, item.defaults, null, false),
+        template: presentStoredTemplate(item, item.defaults, null, false, presentation),
+      });
+    }),
+  );
+
+  app.put("/onboarding/mail/templates/:key/presentation", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ORG_SETTINGS_MANAGE);
+      const key = requireCustomizableKey(c.req.param("key") ?? "");
+      const parsed = templatePresentationSchema.safeParse(await c.req.json().catch(() => ({})));
+      if (!parsed.success) {
+        throw new AppError(400, "validation_failed", "Invalid email presentation");
+      }
+      await upsertEmailTemplateSettings(client, orgId, key, userId, parsed.data.showSchoolLogo);
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "org.email_template.logo_visibility_changed",
+        entityType: "organisation_transactional_email_settings",
+        entityId: orgId,
+        after: { templateKey: key, showSchoolLogo: parsed.data.showSchoolLogo },
+      });
+      const item = automaticEmailCatalogItem(key);
+      const stored = await loadStoredTemplateRow(client, orgId, key);
+      const presentation = await loadTemplatePresentation(client, orgId, key);
+      return c.json({
+        template: presentStoredTemplate(
+          item,
+          stored ?? item.defaults,
+          stored?.updatedAt ?? null,
+          Boolean(stored),
+          presentation,
+        ),
+      });
+    }),
+  );
+
+  app.post("/onboarding/mail/templates/:key/attachments", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ORG_SETTINGS_MANAGE);
+      const key = requireCustomizableKey(c.req.param("key") ?? "");
+      const uploaded = await readUploadedFile(c);
+      const profile = profileForDomain("transactional_email");
+      let validated;
+      try {
+        validated = validateUpload({
+          filename: uploaded.filename,
+          declaredMime: uploaded.mime,
+          bytes: uploaded.bytes,
+          profile,
+        });
+      } catch (error) {
+        throw storageErrorToAppError(error);
+      }
+      if (validated.byteSize > TRANSACTIONAL_EMAIL_ATTACHMENT_MAX_BYTES) {
+        throw new AppError(400, "file_too_large", "This file is too large");
+      }
+      const settingsId = await upsertEmailTemplateSettings(client, orgId, key, userId);
+      const existing = await loadAutomaticEmailAttachmentViews(client, orgId, key);
+      if (existing.length >= TRANSACTIONAL_EMAIL_ATTACHMENTS_MAX_COUNT) {
+        throw new AppError(
+          400,
+          "attachment_limit_exceeded",
+          "This automatic email already has the maximum number of attachments",
+        );
+      }
+      try {
+        assertTransactionalEmailAttachmentSet([
+          ...existing.map((item) => ({
+            filename: item.filename,
+            contentType: item.contentType,
+            byteSize: item.byteSize,
+          })),
+          {
+            filename: validated.originalFilename,
+            contentType: validated.storedContentType,
+            byteSize: validated.byteSize,
+          },
+        ]);
+      } catch (error) {
+        if (error instanceof EmailAttachmentError) {
+          throw new AppError(400, error.code, error.message);
+        }
+        throw error;
+      }
+      const displayFilename = sanitizeEmailAttachmentFilename(
+        validated.originalFilename,
+        validated.storedContentType,
+      );
+      const sortOrder = existing.length;
+      const stored = await runUpload(storageOf(c), async (track) => {
+        const pending = await insertPendingObject(client, {
+          organisationId: orgId,
+          domain: "transactional_email",
+          ownerRecordId: settingsId,
+          storage: storageOf(c),
+          validated,
+          uploadedBy: userId,
+        });
+        track(pending.storageKey);
+        await putAndActivateObject(client, storageOf(c), scannerOf(c), {
+          organisationId: orgId,
+          objectId: pending.id,
+          storageKey: pending.storageKey,
+          bytes: uploaded.bytes,
+          contentType: validated.storedContentType,
+          filename: displayFilename,
+          actorUserId: userId,
+          domain: "transactional_email",
+        });
+        const attached = await client.query<{ id: string }>(
+          `insert into organisation_transactional_email_template_attachments (
+             organisation_id, template_key, stored_object_id, display_filename, sort_order, created_by_user_id
+           ) values ($1, $2, $3, $4, $5, $6)
+           returning id`,
+          [orgId, key, pending.id, displayFilename, sortOrder, userId],
+        );
+        return { objectId: pending.id, attachmentId: attached.rows[0]!.id };
+      });
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "org.email_template.attachment_added",
+        entityType: "organisation_transactional_email_template_attachment",
+        entityId: stored.attachmentId,
+        after: {
+          templateKey: key,
+          storedObjectId: stored.objectId,
+          filename: displayFilename,
+          contentType: validated.storedContentType,
+          byteSize: validated.byteSize,
+        },
+      });
+      const item = automaticEmailCatalogItem(key);
+      const wording = await loadStoredTemplateRow(client, orgId, key);
+      const presentation = await loadTemplatePresentation(client, orgId, key);
+      return c.json(
+        {
+          template: presentStoredTemplate(
+            item,
+            wording ?? item.defaults,
+            wording?.updatedAt ?? null,
+            Boolean(wording),
+            presentation,
+          ),
+        },
+        201,
+      );
+    }),
+  );
+
+  app.delete("/onboarding/mail/templates/:key/attachments/:attachmentId", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertPermission(actor, PERMISSIONS.ORG_SETTINGS_MANAGE);
+      const key = requireCustomizableKey(c.req.param("key") ?? "");
+      const attachmentId = c.req.param("attachmentId") ?? "";
+      const found = await client.query<{
+        id: string;
+        stored_object_id: string;
+        display_filename: string;
+      }>(
+        `select id, stored_object_id, display_filename
+           from organisation_transactional_email_template_attachments
+          where id = $1 and organisation_id = $2 and template_key = $3`,
+        [attachmentId, orgId, key],
+      );
+      const row = found.rows[0];
+      if (!row) {
+        throw new AppError(404, "not_found", "Not found");
+      }
+      await client.query(
+        `delete from organisation_transactional_email_template_attachments
+          where id = $1 and organisation_id = $2`,
+        [row.id, orgId],
+      );
+      const remaining = await client.query<{ n: string }>(
+        `select count(*)::int as n
+           from organisation_transactional_email_template_attachments
+          where stored_object_id = $1`,
+        [row.stored_object_id],
+      );
+      if (Number(remaining.rows[0]?.n ?? 0) === 0) {
+        const object = await client.query<{ storage_key: string }>(
+          `update stored_objects
+              set status = 'deleted', deleted_at = now()
+            where id = $1
+              and organisation_id = $2
+              and domain = 'transactional_email'
+          returning storage_key`,
+          [row.stored_object_id, orgId],
+        );
+        const storageKey = object.rows[0]?.storage_key;
+        if (storageKey) {
+          await storageOf(c).deleteObject(storageKey).catch(() => undefined);
+        }
+      }
+      await writeAudit(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        action: "org.email_template.attachment_removed",
+        entityType: "organisation_transactional_email_template_attachment",
+        entityId: row.id,
+        after: {
+          templateKey: key,
+          storedObjectId: row.stored_object_id,
+          filename: row.display_filename,
+        },
+      });
+      const item = automaticEmailCatalogItem(key);
+      const wording = await loadStoredTemplateRow(client, orgId, key);
+      const presentation = await loadTemplatePresentation(client, orgId, key);
+      return c.json({
+        template: presentStoredTemplate(
+          item,
+          wording ?? item.defaults,
+          wording?.updatedAt ?? null,
+          Boolean(wording),
+          presentation,
+        ),
       });
     }),
   );
@@ -816,6 +1075,10 @@ function presentStoredTemplate(
   },
   updatedAt: string | null,
   customised: boolean,
+  presentation: {
+    showSchoolLogo: boolean;
+    attachments: Awaited<ReturnType<typeof loadAutomaticEmailAttachmentViews>>;
+  },
 ) {
   return {
     key: item.key,
@@ -832,7 +1095,47 @@ function presentStoredTemplate(
     signoff: current.signoff,
     defaults: item.defaults,
     availableFields: item.mergeFields,
+    showSchoolLogo: presentation.showSchoolLogo,
+    attachments: presentation.attachments.map((attachment) => ({
+      id: attachment.id,
+      filename: attachment.filename,
+      contentType: attachment.contentType,
+      byteSize: attachment.byteSize,
+      kindLabel: attachment.kindLabel,
+      sizeLabel: attachment.sizeLabel,
+    })),
   };
+}
+
+async function loadTemplatePresentation(
+  client: SqlClient,
+  orgId: string,
+  key: Parameters<typeof loadAutomaticEmailAttachmentViews>[2],
+) {
+  return {
+    showSchoolLogo: await loadShowSchoolLogo(client, orgId, key),
+    attachments: await loadAutomaticEmailAttachmentViews(client, orgId, key),
+  };
+}
+
+async function upsertEmailTemplateSettings(
+  client: SqlClient,
+  orgId: string,
+  key: string,
+  userId: string,
+  showSchoolLogo?: boolean,
+): Promise<string> {
+  const saved = await client.query<{ id: string }>(
+    `insert into organisation_transactional_email_settings (
+       organisation_id, template_key, show_school_logo, updated_by_user_id
+     ) values ($1, $2, coalesce($3, true), $4)
+     on conflict (organisation_id, template_key) do update set
+       show_school_logo = coalesce($3, organisation_transactional_email_settings.show_school_logo),
+       updated_by_user_id = excluded.updated_by_user_id
+     returning id`,
+    [orgId, key, showSchoolLogo ?? null, userId],
+  );
+  return saved.rows[0]!.id;
 }
 
 function brandingVersionFromId(id: unknown): string | null {

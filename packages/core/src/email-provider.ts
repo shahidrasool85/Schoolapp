@@ -1,5 +1,9 @@
 import type { EmailTemplateKey } from "@schoolapp/domain";
 import type { MailPurpose } from "@schoolapp/domain";
+import {
+  sanitizeEmailAttachments,
+  type EmailAttachment,
+} from "./email-attachments.js";
 
 export type EmailAddress = {
   address: string;
@@ -14,6 +18,7 @@ export type EmailSendInput = {
   html: string;
   text: string;
   headers?: Record<string, string>;
+  attachments?: EmailAttachment[];
 };
 
 export type EmailSendResult = {
@@ -123,6 +128,7 @@ export function sanitizeEmailSendInput(input: EmailSendInput): EmailSendInput {
     html: input.html,
     text: input.text,
     headers,
+    attachments: sanitizeEmailAttachments(input.attachments),
   };
 }
 
@@ -284,6 +290,11 @@ export class SmtpEmailProvider implements EmailDeliveryProvider {
         text: safe.text,
         html: safe.html,
         headers: safe.headers,
+        attachments: safe.attachments?.map((item) => ({
+          filename: item.filename,
+          content: Buffer.from(item.content),
+          contentType: item.contentType,
+        })),
       });
       return { messageId: info.messageId ?? null };
     } catch (error) {
@@ -384,6 +395,11 @@ export function redactLoggedEmail(input: EmailSendInput): EmailSendInput {
     html: redactActionUrls(input.html),
     text: redactActionUrls(input.text),
     headers: input.headers,
+    attachments: input.attachments?.map((item) => ({
+      filename: item.filename,
+      contentType: item.contentType,
+      content: new Uint8Array(0),
+    })),
   };
 }
 

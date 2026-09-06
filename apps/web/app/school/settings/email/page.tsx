@@ -64,7 +64,16 @@ type MailRow = {
   canRetry?: boolean;
 };
 
-type Preview = { template: string; subject: string; html: string; text: string; fixture: boolean };
+type Preview = {
+  template: string;
+  subject: string;
+  html: string;
+  text: string;
+  fixture: boolean;
+  queued?: boolean;
+  showSchoolLogo?: boolean;
+  attachments?: Array<{ filename: string; sizeLabel: string; kindLabel?: string; byteSize?: number }>;
+};
 
 type MergeField = { key: string; label: string; example: string };
 
@@ -79,12 +88,23 @@ type TemplateListItem = {
   availableFields: MergeField[];
 };
 
+type TemplateAttachment = {
+  id: string;
+  filename: string;
+  contentType: string;
+  byteSize: number;
+  kindLabel: string;
+  sizeLabel: string;
+};
+
 type TemplateDetail = TemplateListItem & {
   subject: string;
   heading: string;
   greeting: string;
   body: string;
   signoff: string;
+  showSchoolLogo: boolean;
+  attachments: TemplateAttachment[];
 };
 
 export default function SchoolEmailDeliveryPage() {
@@ -293,7 +313,7 @@ function AutomaticEmailList() {
       {error ? <Alert tone="danger">{error}</Alert> : null}
       <SectionCard
         title="Automatic emails"
-        description="Customise the wording of acknowledgements this school already sends. The school logo, layout and LuvLearn footer stay the same."
+        description="Customise the wording, logo visibility, and school documents attached to acknowledgements this school already sends. The layout and LuvLearn footer stay the same."
       >
         {templates.length === 0 ? (
           <EmptyState title="No automatic emails" description="Enquiry and application acknowledgements will appear here." />
@@ -353,6 +373,8 @@ function AutomaticEmailEditor({ templateKey }: { templateKey: CustomizableEmailT
   const [body, setBody] = useState("");
   const [signoff, setSignoff] = useState("");
   const [enabled, setEnabled] = useState(true);
+  const [showSchoolLogo, setShowSchoolLogo] = useState(true);
+  const [attachments, setAttachments] = useState<TemplateAttachment[]>([]);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -372,6 +394,8 @@ function AutomaticEmailEditor({ templateKey }: { templateKey: CustomizableEmailT
     setBody(item.body);
     setSignoff(item.signoff);
     setEnabled(item.enabled);
+    setShowSchoolLogo(item.showSchoolLogo !== false);
+    setAttachments(item.attachments ?? []);
     return item;
   }
 
@@ -402,6 +426,7 @@ function AutomaticEmailEditor({ templateKey }: { templateKey: CustomizableEmailT
             greeting,
             body,
             signoff,
+            showSchoolLogo,
             ...(item
               ? {
                   enabled: item.enabled,
@@ -410,6 +435,7 @@ function AutomaticEmailEditor({ templateKey }: { templateKey: CustomizableEmailT
                   greeting: item.greeting,
                   body: item.body,
                   signoff: item.signoff,
+                  showSchoolLogo: item.showSchoolLogo,
                 }
               : {}),
           }),
@@ -436,6 +462,8 @@ function AutomaticEmailEditor({ templateKey }: { templateKey: CustomizableEmailT
         },
       );
       setDetail(result.template);
+      setShowSchoolLogo(result.template.showSchoolLogo !== false);
+      setAttachments(result.template.attachments ?? []);
       setNotice("Template saved. New acknowledgements will use this wording.");
     } catch (err) {
       setError(userFacingError(err as Error, "Could not save this template."));
@@ -459,12 +487,64 @@ function AutomaticEmailEditor({ templateKey }: { templateKey: CustomizableEmailT
       setBody(result.template.body);
       setSignoff(result.template.signoff);
       setEnabled(result.template.enabled);
+      setShowSchoolLogo(result.template.showSchoolLogo !== false);
+      setAttachments(result.template.attachments ?? []);
       setPreview(null);
       setNotice("Restored the system default wording.");
     } catch (err) {
       setError(userFacingError(err as Error, "Could not restore the system default."));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function applyTemplate(item: TemplateDetail, noticeText: string) {
+    setDetail(item);
+    setShowSchoolLogo(item.showSchoolLogo !== false);
+    setAttachments(item.attachments ?? []);
+    setNotice(noticeText);
+  }
+
+  async function toggleLogo(next: boolean) {
+    setShowSchoolLogo(next);
+    setError("");
+    try {
+      const result = await api<{ template: TemplateDetail }>(
+        `/api/v1/onboarding/mail/templates/${encodeURIComponent(templateKey)}/presentation`,
+        { method: "PUT", body: JSON.stringify({ showSchoolLogo: next }) },
+      );
+      await applyTemplate(result.template, next ? "School logo will be shown." : "School logo will be omitted.");
+    } catch (err) {
+      setShowSchoolLogo(!next);
+      setError(userFacingError(err as Error, "Could not update logo visibility."));
+    }
+  }
+
+  async function addAttachment(file: File) {
+    setError("");
+    const body = new FormData();
+    body.append("file", file);
+    try {
+      const result = await api<{ template: TemplateDetail }>(
+        `/api/v1/onboarding/mail/templates/${encodeURIComponent(templateKey)}/attachments`,
+        { method: "POST", body },
+      );
+      await applyTemplate(result.template, `${file.name} will be attached when this email is sent.`);
+    } catch (err) {
+      setError(userFacingError(err as Error, "Could not attach that document."));
+    }
+  }
+
+  async function removeAttachment(attachment: TemplateAttachment) {
+    setError("");
+    try {
+      const result = await api<{ template: TemplateDetail }>(
+        `/api/v1/onboarding/mail/templates/${encodeURIComponent(templateKey)}/attachments/${encodeURIComponent(attachment.id)}`,
+        { method: "DELETE" },
+      );
+      await applyTemplate(result.template, `${attachment.filename} was removed from this email.`);
+    } catch (err) {
+      setError(userFacingError(err as Error, "Could not remove that attachment."));
     }
   }
 
@@ -519,6 +599,63 @@ function AutomaticEmailEditor({ templateKey }: { templateKey: CustomizableEmailT
           </div>
         </form>
       </SectionCard>
+      <SectionCard
+        title="Branding & layout"
+        description="Use this school's existing logo. A separate logo is not uploaded here."
+      >
+        <Checkbox
+          label="Show school logo"
+          checked={showSchoolLogo}
+          onChange={(event) => void toggleLogo(event.target.checked)}
+        />
+      </SectionCard>
+      <SectionCard
+        title="Attachments"
+        description="Attach school documents automatically when this email is sent. Each automatic email has its own attachments. Prospectuses and fee guides are appropriate; applications, medical, or safeguarding files are not."
+      >
+        {attachments.length ? (
+          <ul className="stack" style={{ listStyle: "none", padding: 0, margin: "0 0 1rem" }}>
+            {attachments.map((attachment) => (
+              <li
+                key={attachment.id}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: "1rem",
+                  alignItems: "center",
+                  padding: "0.5rem 0",
+                  borderBottom: "1px solid var(--line)",
+                }}
+              >
+                <div>
+                  <strong>{attachment.filename}</strong>
+                  <div className="muted">
+                    {attachment.kindLabel} • {attachment.sizeLabel}
+                  </div>
+                </div>
+                <Button type="button" variant="secondary" onClick={() => void removeAttachment(attachment)}>
+                  Remove
+                </Button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="muted">No documents are attached to this email yet.</p>
+        )}
+        <label className="button secondary" style={{ display: "inline-block" }}>
+          + Add attachment
+          <input
+            type="file"
+            accept=".pdf,.docx,.jpg,.jpeg,.png,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png"
+            hidden
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (file) void addAttachment(file);
+            }}
+          />
+        </label>
+      </SectionCard>
       <SectionCard title="Available fields" description="Only these placeholders can be inserted. They are filled with sample data in preview and live values when the email is sent.">
         <ul>
           {detail.availableFields.map((field) => (
@@ -544,6 +681,20 @@ function EmailPreviewFrame({ preview }: { preview: Preview }) {
       <p>
         <strong>{preview.subject}</strong>
       </p>
+      {preview.attachments?.length ? (
+        <p>
+          Attachments:
+          <br />
+          {preview.attachments.map((item) => (
+            <span key={item.filename}>
+              • {item.filename} — {item.sizeLabel}
+              <br />
+            </span>
+          ))}
+        </p>
+      ) : (
+        <p className="muted">No attachments configured for this email.</p>
+      )}
       <iframe
         title="Email preview"
         sandbox=""

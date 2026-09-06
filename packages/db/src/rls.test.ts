@@ -97,10 +97,12 @@ describe("RLS catalog", () => {
            'organisation_setup_progress', 'organisation_onboarding_preferences',
            'organisation_settings', 'account_tokens', 'mail_outbox',
            'organisation_transactional_email_templates',
+           'organisation_transactional_email_settings',
+           'organisation_transactional_email_template_attachments',
            'data_imports', 'data_import_rows'
          )`,
     );
-    expect(result.rows.length).toBe(194);
+    expect(result.rows.length).toBe(196);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
     }
@@ -1768,5 +1770,91 @@ describe("RLS catalog", () => {
     );
     expect(grants.rows[0]?.can_select).toBe(true);
     expect(grants.rows[0]?.can_insert).toBe(true);
+  });
+
+  it("keeps FORCE RLS from leaking automatic email settings and attachments", async () => {
+    const id = randomUUID().slice(0, 8);
+    const userA = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Admin A', 'staff', 'active') returning id`,
+      [`rls-mail-set-a-${id}@example.com`],
+    );
+    const userB = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Admin B', 'staff', 'active') returning id`,
+      [`rls-mail-set-b-${id}@example.com`],
+    );
+    const orgA = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-mail-set-a-${id}`, "Mail Set A"],
+    );
+    const orgB = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-mail-set-b-${id}`, "Mail Set B"],
+    );
+    await pools.owner.query(
+      `insert into organisation_memberships (organisation_id, user_id, status)
+       values ($1, $2, 'active'), ($3, $4, 'active')`,
+      [orgA.rows[0]!.id, userA.rows[0]!.id, orgB.rows[0]!.id, userB.rows[0]!.id],
+    );
+    await pools.owner.query(
+      `insert into organisation_transactional_email_settings (
+         organisation_id, template_key, show_school_logo
+       ) values
+         ($1, 'admissions_enquiry_received', false),
+         ($2, 'admissions_enquiry_received', true)`,
+      [orgA.rows[0]!.id, orgB.rows[0]!.id],
+    );
+    const objectA = await pools.owner.query<{ id: string }>(
+      `insert into stored_objects (
+         organisation_id, domain, owner_record_id, storage_backend, storage_key,
+         original_filename, content_type, byte_size, status
+       ) values (
+         $1, 'transactional_email', $1, 'filesystem', $2,
+         'Prospectus.pdf', 'application/pdf', 100, 'active'
+       ) returning id`,
+      [orgA.rows[0]!.id, `org/${orgA.rows[0]!.id}/email/attachments/${orgA.rows[0]!.id}/${randomUUID()}`],
+    );
+    const objectB = await pools.owner.query<{ id: string }>(
+      `insert into stored_objects (
+         organisation_id, domain, owner_record_id, storage_backend, storage_key,
+         original_filename, content_type, byte_size, status
+       ) values (
+         $1, 'transactional_email', $1, 'filesystem', $2,
+         'Guide.pdf', 'application/pdf', 100, 'active'
+       ) returning id`,
+      [orgB.rows[0]!.id, `org/${orgB.rows[0]!.id}/email/attachments/${orgB.rows[0]!.id}/${randomUUID()}`],
+    );
+    await pools.owner.query(
+      `insert into organisation_transactional_email_template_attachments (
+         organisation_id, template_key, stored_object_id, display_filename, sort_order
+       ) values
+         ($1, 'admissions_enquiry_received', $2, 'Prospectus.pdf', 0),
+         ($3, 'admissions_enquiry_received', $4, 'Guide.pdf', 0)`,
+      [orgA.rows[0]!.id, objectA.rows[0]!.id, orgB.rows[0]!.id, objectB.rows[0]!.id],
+    );
+    await withTenantContext(pools.app, userA.rows[0]!.id, orgA.rows[0]!.id, async (client) => {
+      const settings = await client.query<{ organisation_id: string; show_school_logo: boolean }>(
+        "select organisation_id, show_school_logo from organisation_transactional_email_settings",
+      );
+      expect(settings.rows).toHaveLength(1);
+      expect(settings.rows[0]?.organisation_id).toBe(orgA.rows[0]!.id);
+      expect(settings.rows[0]?.show_school_logo).toBe(false);
+      const leakedSettings = await client.query(
+        "select id from organisation_transactional_email_settings where organisation_id = $1",
+        [orgB.rows[0]!.id],
+      );
+      expect(leakedSettings.rows).toEqual([]);
+      const attachments = await client.query<{ display_filename: string }>(
+        "select display_filename from organisation_transactional_email_template_attachments",
+      );
+      expect(attachments.rows).toHaveLength(1);
+      expect(attachments.rows[0]?.display_filename).toBe("Prospectus.pdf");
+      const leakedAttachments = await client.query(
+        "select id from organisation_transactional_email_template_attachments where organisation_id = $1",
+        [orgB.rows[0]!.id],
+      );
+      expect(leakedAttachments.rows).toEqual([]);
+    });
   });
 });

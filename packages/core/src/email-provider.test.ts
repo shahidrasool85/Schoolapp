@@ -83,6 +83,19 @@ describe("email provider abstraction", () => {
       text: "Hi",
     });
     expect(fake.sent).toHaveLength(1);
+    const withAttachment = new FakeEmailProvider();
+    const pdf = Buffer.from("%PDF-1.1\n%%EOF\n");
+    await withAttachment.send({
+      to: { address: "a@example.com" },
+      from: { address: "n@example.com" },
+      subject: "Hello",
+      html: "<p>Hi</p>",
+      text: "Hi",
+      attachments: [{ filename: "Prospectus.pdf", content: pdf, contentType: "application/pdf" }],
+    });
+    expect(withAttachment.sent[0]?.attachments).toEqual([
+      { filename: "Prospectus.pdf", content: pdf, contentType: "application/pdf" },
+    ]);
     fake.failNext = new EmailDeliveryError("retryable", "provider_timeout", "timeout");
     await expect(
       fake.send({

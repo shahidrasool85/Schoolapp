@@ -58,6 +58,7 @@ const DEFAULT_MAX: Record<FileProfileName, number> = {
   message: 10 * 1024 * 1024,
   branding: 5 * 1024 * 1024,
   profile_photo: 2 * 1024 * 1024,
+  transactional_email: 5 * 1024 * 1024,
 };
 
 const PROFILE_KINDS: Record<FileProfileName, readonly DetectedFileKind[]> = {
@@ -71,6 +72,7 @@ const PROFILE_KINDS: Record<FileProfileName, readonly DetectedFileKind[]> = {
   message: ["pdf", "jpeg", "png", "webp", "docx", "txt"],
   branding: ["jpeg", "png", "webp"],
   profile_photo: ["jpeg", "png", "webp"],
+  transactional_email: ["pdf", "docx", "jpeg", "png"],
 };
 
 function startsWith(bytes: Uint8Array, signature: number[]): boolean {
@@ -158,6 +160,10 @@ export function fileLimitsFromEnv(
     message: read("OBJECT_STORAGE_MAX_BYTES_STANDARD", DEFAULT_MAX.message),
     branding: read("OBJECT_STORAGE_MAX_BYTES_BRANDING", DEFAULT_MAX.branding),
     profile_photo: read("OBJECT_STORAGE_MAX_BYTES_PROFILE_PHOTO", DEFAULT_MAX.profile_photo),
+    transactional_email: Math.min(
+      5 * 1024 * 1024,
+      read("OBJECT_STORAGE_MAX_BYTES_TRANSACTIONAL_EMAIL", DEFAULT_MAX.transactional_email),
+    ),
   };
 }
 

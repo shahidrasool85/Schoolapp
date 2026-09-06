@@ -70,6 +70,7 @@ Diagnostic: `GET /api/v1/health/storage` returns `{ configured, driver, writable
 | Safeguarding | 15 MiB |
 | Activity documents | 10 MiB |
 | Profile photos | 2 MiB |
+| Automatic email attachments | 5 MiB per file; 8 MiB total; 5 files |
 
 Override with `OBJECT_STORAGE_MAX_BYTES_*` (profile photos: `OBJECT_STORAGE_MAX_BYTES_PROFILE_PHOTO`). Oversized uploads return a user-facing “file too large” error, not a provider stack.
 
@@ -86,6 +87,7 @@ Validated from extension, declared MIME type, and magic bytes. Executables, HTML
 | Activity documents | PDF, JPEG, PNG, WebP, DOCX, XLSX, text |
 | Message attachments | PDF, JPEG, PNG, WebP, DOCX, text |
 | Profile photos | JPEG, PNG, WebP only; 32×32–4096×4096 pixels |
+| Automatic email attachments | PDF, DOCX, JPEG, PNG only |
 
 Original filenames are sanitised for display. They are never used as filesystem paths or object keys.
 

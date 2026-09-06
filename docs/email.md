@@ -90,7 +90,15 @@ That endpoint is disabled (404) when the secret is unset. It requires `Authoriza
 
 School admins inspect status at **School settings → Email delivery** and retry eligible rows for their organisation only: any `queued` row, plus `failed` admissions acknowledgements. Permanent invite/reset failures wipe `action_url` and do not show Retry. That page shows delivery status, recipient, subject, purpose, fixture template previews, and redacted last-error codes. It does **not** show SMTP credentials, worker secrets, action URLs, or live tokens. SMTP is platform/server env, not tenant configuration. Ordinary teachers cannot open the page or the API.
 
-**Automatic emails** (`School settings → Email delivery → Automatic emails`) lets School Admin customise enquiry and application acknowledgement wording (subject, heading, greeting, body, sign-off) using approved `{{placeholders}}` only. The branded HTML/plain-text shell, logo, school name, and Powered by LuvLearn footer stay system-controlled. Schools with no override keep the built-in template. Corrupt or disabled overrides fail open to the built-in template and still send. Preview uses sample data and never writes `mail_outbox`. Attachments are not part of this phase.
+**Automatic emails** (`School settings → Email delivery → Automatic emails`) lets School Admin customise enquiry and application acknowledgements:
+
+- **Wording** — subject, heading, greeting, body, sign-off with approved `{{placeholders}}` only. “Use system default” deletes the wording override row and does **not** delete logo/attachment settings.
+- **Logo visibility** — per organisation and template. Default is ON (the school's existing logo). OFF omits the `<img>` cleanly; the school name and layout remain. Stored on `organisation_transactional_email_settings`, independent of wording.
+- **Attachments** — school-provided PDF/DOCX/JPEG/PNG documents (prospectus, fees guide, admissions pack). Per organisation and template. Not applications, medical, safeguarding, or pupil records. Bytes stay in private object storage (`stored_objects.domain = transactional_email`) and are attached as MIME parts at send time. Limits: 5 MB per file, 8 MB total, 5 files (under Postmark/SMTP's 10 MB message size).
+
+The branded HTML/plain-text shell, school name, and Powered by LuvLearn footer stay system-controlled. Schools with no override keep the built-in wording, show the logo, and send no attachments. Corrupt or disabled wording overrides fail open to the built-in template and still send (logo/attachments still apply). Preview uses sample data, lists attachment metadata without loading file bytes, and never writes `mail_outbox`.
+
+If a configured attachment cannot be loaded or fails validation at send time, that delivery attempt fails, a redacted error is stored (`attachment_unavailable` / `attachment_invalid` / `attachment_limit_exceeded`), and the existing bounded retry (max 5) applies. The message is not marked sent with a silently dropped attachment. After retries the row is `failed` and School Admin can remove the stale attachment then retry from Email delivery. Invitation, password-reset, and finance emails do not load B3 attachments.
 
 ## Connected product events
 
@@ -111,7 +119,12 @@ Admissions **staff** notification is not sent. There is no canonical admissions 
 
 Reusable HTML + plain-text templates live in `packages/core/src/email-templates.ts`. Tenant strings are escaped; arbitrary HTML from school settings is never interpolated. Preview uses fixture data (`GET /api/v1/onboarding/mail/preview` and `POST /api/v1/onboarding/mail/templates/{key}/preview`) and never live tokens or real pupil/parent records.
 
-Organisation wording overrides are stored in `organisation_transactional_email_templates` (unique per organisation + template key). Only `admissions_enquiry_received` and `admissions_application_received` are editable. Approved merge fields:
+Organisation wording overrides are stored in `organisation_transactional_email_templates` (unique per organisation + template key). Logo visibility and attachments are stored separately so they survive a wording reset:
+
+- `organisation_transactional_email_settings` — `show_school_logo` (default true)
+- `organisation_transactional_email_template_attachments` — ordered links to `stored_objects`
+
+Only `admissions_enquiry_received` and `admissions_application_received` are editable. Approved merge fields:
 
 - Enquiry: `{{school_name}}`, `{{recipient_first_name}}`, `{{enquiry_reference}}`, `{{school_contact_email}}`
 - Application: `{{school_name}}`, `{{recipient_first_name}}`, `{{application_reference}}`, `{{pupil_first_name}}`, `{{school_contact_email}}`, `{{intended_entry}}`

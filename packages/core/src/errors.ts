@@ -312,6 +312,12 @@ export function pgErrorToAppError(error: unknown): AppError | null {
     return new AppError(409, "conflict", "Resource already exists");
   }
   if (code === "23514" || code === "23503") {
+    if (message.includes("attachment_limit_exceeded")) {
+      return new AppError(400, "attachment_limit_exceeded", "This automatic email already has the maximum number of attachments");
+    }
+    if (message.includes("attachment_org_mismatch") || message.includes("attachment_domain_invalid")) {
+      return new AppError(400, "validation_failed", "That document cannot be attached to this email");
+    }
     return new AppError(400, "validation_failed", "The request violates a data constraint");
   }
   return null;

@@ -172,6 +172,8 @@ async function wipeDemoData(client: pg.Client): Promise<void> {
       "data_import_rows",
       "data_imports",
       "mail_outbox",
+      "organisation_transactional_email_template_attachments",
+      "organisation_transactional_email_settings",
       "organisation_transactional_email_templates",
       "account_tokens",
       "organisation_onboarding_preferences",

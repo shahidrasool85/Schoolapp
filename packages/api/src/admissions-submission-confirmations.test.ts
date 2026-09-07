@@ -228,7 +228,7 @@ describe("school admin admissions submission confirmations", () => {
     const audit = await pools.owner.query<{ action: string; after_data: Record<string, unknown> }>(
       `select action, after_data from audit_events
         where organisation_id = $1 and action like 'org.admissions_submission_confirmation.%'
-        order by created_at`,
+        order by occurred_at`,
       [school.orgId],
     );
     expect(audit.rows.map((row) => row.action)).toEqual([

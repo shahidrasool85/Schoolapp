@@ -369,8 +369,8 @@ function normalisePlainField(
 function optionalButtonUrl(value: string | null | undefined): string | null {
   if (value == null || String(value).trim() === "") return null;
   const trimmed = String(value).trim();
-  if (CONTROL_CHARS.test(trimmed) || UNSAFE_MARKUP.test(trimmed)) {
-    throw new SubmissionConfirmationValidationError("Button URL cannot include HTML or scripts.");
+  if (CONTROL_CHARS.test(trimmed)) {
+    throw new SubmissionConfirmationValidationError("Button URL contains invalid characters.");
   }
   if (trimmed.length > BUTTON_URL_MAX) {
     throw new SubmissionConfirmationValidationError(`Button URL must be ${BUTTON_URL_MAX} characters or fewer.`);

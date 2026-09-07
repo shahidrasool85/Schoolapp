@@ -7,6 +7,7 @@ import {
   describeAttachmentSetLimitStatus,
   formatAttachmentByteSize,
   presentEmailAttachmentMeta,
+  resolveAutomaticEmailSendEnabled,
   sanitizeEmailAttachmentFilename,
   transactionalEmailAttachmentKind,
   type EmailAttachment,
@@ -14,7 +15,7 @@ import {
   type EmailProviderCapabilities,
   type TransactionalEmailAttachmentLimits,
 } from "@schoolapp/core";
-import { isCustomizableEmailTemplateKey, type CustomizableEmailTemplateKey } from "@schoolapp/domain";
+import { isAdmissionsStatusEmailTemplateKey, isCustomizableEmailTemplateKey, type CustomizableEmailTemplateKey } from "@schoolapp/domain";
 import type { ObjectStoragePort } from "@schoolapp/storage";
 import { loadPlatformEmailAttachmentLimits } from "./platform-email-attachment-limits";
 
@@ -59,15 +60,43 @@ export async function loadShowSchoolLogo(
   organisationId: string | null | undefined,
   templateKey: string,
 ): Promise<boolean> {
-  if (!organisationId || !isCustomizableEmailTemplateKey(templateKey)) return true;
+  const settings = await loadAutomaticEmailSettings(pool, organisationId, templateKey);
+  return settings.showSchoolLogo;
+}
+
+export async function loadAutomaticEmailSendEnabled(
+  pool: Queryable,
+  organisationId: string | null | undefined,
+  templateKey: string,
+): Promise<boolean> {
+  if (!organisationId || !isCustomizableEmailTemplateKey(templateKey)) return false;
+  const settings = await loadAutomaticEmailSettings(pool, organisationId, templateKey);
+  return resolveAutomaticEmailSendEnabled(templateKey, settings.sendEnabled);
+}
+
+export async function loadAutomaticEmailSettings(
+  pool: Queryable,
+  organisationId: string | null | undefined,
+  templateKey: string,
+): Promise<{ showSchoolLogo: boolean; sendEnabled: boolean }> {
+  if (!organisationId || !isCustomizableEmailTemplateKey(templateKey)) {
+    return { showSchoolLogo: true, sendEnabled: !isAdmissionsStatusEmailTemplateKey(templateKey) };
+  }
   try {
-    const result = await pool.query<{ show_school_logo: boolean }>(
+    const result = await pool.query<{ show_school_logo: boolean; send_enabled: boolean }>(
       "select * from get_organisation_transactional_email_settings($1, $2)",
       [organisationId, templateKey],
     );
-    return result.rows[0]?.show_school_logo !== false;
+    const row = result.rows[0];
+    return {
+      showSchoolLogo: row?.show_school_logo !== false,
+      sendEnabled: row?.send_enabled === true,
+    };
   } catch {
-    return true;
+    return {
+      showSchoolLogo: true,
+      sendEnabled: false,
+    };
   }
 }
 

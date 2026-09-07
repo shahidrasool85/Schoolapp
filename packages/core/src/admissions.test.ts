@@ -3,6 +3,7 @@ import type { Actor } from "@schoolapp/domain";
 import {
   APPLICATION_STATUS_TRANSITIONS,
   APPLICATION_STATUSES,
+  admissionsStatusEmailTemplateKeyForStatus,
   allowedApplicationTransitions,
   applicationTransitionChannel,
   applicationWorkflowActions,
@@ -110,6 +111,23 @@ describe("admissions application state machine", () => {
     expect(() =>
       assertApplicationStatusTransition(actor(["admissions.decide"]), "accepted", "enrolled"),
     ).toThrow(/Enrolment must use the dedicated conversion endpoint/);
+  });
+  it("maps only parent-facing destination statuses to configurable emails", () => {
+    expect(admissionsStatusEmailTemplateKeyForStatus("offer_made")).toBe("admissions_status_offer_made");
+    expect(admissionsStatusEmailTemplateKeyForStatus("waiting_list")).toBe("admissions_status_waiting_list");
+    expect(admissionsStatusEmailTemplateKeyForStatus("assessment_pending")).toBe(
+      "admissions_status_assessment_pending",
+    );
+    expect(admissionsStatusEmailTemplateKeyForStatus("accepted")).toBe("admissions_status_accepted");
+    expect(admissionsStatusEmailTemplateKeyForStatus("enrolled")).toBe("admissions_status_enrolled");
+    expect(admissionsStatusEmailTemplateKeyForStatus("rejected")).toBe("admissions_status_rejected");
+    expect(admissionsStatusEmailTemplateKeyForStatus("withdrawn")).toBe("admissions_status_withdrawn");
+    expect(admissionsStatusEmailTemplateKeyForStatus("under_review")).toBeNull();
+    expect(admissionsStatusEmailTemplateKeyForStatus("submitted")).toBeNull();
+    expect(admissionsStatusEmailTemplateKeyForStatus("information_required")).toBeNull();
+    expect(admissionsStatusEmailTemplateKeyForStatus("offer_pending")).toBeNull();
+    expect(admissionsStatusEmailTemplateKeyForStatus("assessment_completed")).toBeNull();
+    expect(admissionsStatusEmailTemplateKeyForStatus("deferred")).toBeNull();
   });
 });
 

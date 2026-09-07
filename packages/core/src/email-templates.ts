@@ -74,6 +74,41 @@ export function fixturePreviewData(template: EmailTemplateKey): Record<string, s
     };
   }
   if (
+    template === "admissions_status_assessment_pending" ||
+    template === "admissions_status_waiting_list" ||
+    template === "admissions_status_offer_made" ||
+    template === "admissions_status_accepted" ||
+    template === "admissions_status_enrolled" ||
+    template === "admissions_status_rejected" ||
+    template === "admissions_status_withdrawn"
+  ) {
+    const statusLabel =
+      template === "admissions_status_assessment_pending"
+        ? "Assessment pending"
+        : template === "admissions_status_waiting_list"
+          ? "Waiting list"
+          : template === "admissions_status_offer_made"
+            ? "Offer made"
+            : template === "admissions_status_accepted"
+              ? "Accepted"
+              : template === "admissions_status_enrolled"
+                ? "Enrolled"
+                : template === "admissions_status_rejected"
+                  ? "Rejected"
+                  : "Withdrawn";
+    return {
+      recipientName: "Sarah Example",
+      schoolName: "Kingswood School",
+      childName: "Maya Example",
+      applicationReference: "APP-1001",
+      intendedEntry: "Year 3 — 2026/27",
+      schoolContactEmail: "admissions@kingswood.example.test",
+      statusLabel,
+      assessmentDate: "12/05/2026",
+      offerDeadline: "01/06/2026",
+    };
+  }
+  if (
     template === "finance_invoice_issued" ||
     template === "finance_payment_received" ||
     template === "finance_payment_reminder" ||

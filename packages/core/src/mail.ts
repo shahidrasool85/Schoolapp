@@ -383,6 +383,70 @@ export function admissionsStatusUpdateMail(input: {
   };
 }
 
+export function admissionsStatusEmailMail(input: {
+  organisationId: string;
+  organisationName: string;
+  toEmail: string;
+  toName?: string | null;
+  childName: string;
+  applicationReference: string;
+  intendedEntry?: string | null;
+  statusLabel: string;
+  assessmentDate?: string | null;
+  offerDeadline?: string | null;
+  schoolContactEmail?: string | null;
+  applicationId: string;
+  historyId: string;
+  templateKey: import("@schoolapp/domain").AdmissionsStatusEmailTemplateKey;
+  branding?: TransactionalBranding;
+  replyTo?: string | null;
+  override?: import("./email-template-overrides.js").OrganisationEmailTemplateOverride | null;
+}): MailMessage {
+  const branding = brandingOf(input.organisationName, input.branding);
+  const rendered = renderTransactionalEmail(
+    input.templateKey,
+    {
+      recipientName: input.toName,
+      childName: input.childName,
+      applicationReference: input.applicationReference,
+      intendedEntry: input.intendedEntry,
+      statusLabel: input.statusLabel,
+      assessmentDate: input.assessmentDate,
+      offerDeadline: input.offerDeadline,
+      schoolContactEmail: input.schoolContactEmail,
+    },
+    branding,
+    input.override,
+  );
+  return {
+    organisationId: input.organisationId,
+    purpose: "admissions_status_update",
+    templateKey: input.templateKey,
+    toEmail: input.toEmail,
+    toName: input.toName ?? null,
+    subject: rendered.subject,
+    textBody: rendered.text,
+    htmlBody: rendered.html,
+    replyTo: input.replyTo ?? null,
+    idempotencyKey: `admissions.status_update:${input.applicationId}:${input.historyId}`,
+    templateData: {
+      recipientName: input.toName ?? null,
+      childName: input.childName,
+      applicationReference: input.applicationReference,
+      intendedEntry: input.intendedEntry ?? null,
+      statusLabel: input.statusLabel,
+      assessmentDate: input.assessmentDate ?? null,
+      offerDeadline: input.offerDeadline ?? null,
+      schoolContactEmail: input.schoolContactEmail ?? null,
+    },
+    metadata: {
+      applicationId: input.applicationId,
+      applicationReference: input.applicationReference,
+      historyId: input.historyId,
+    },
+  };
+}
+
 export function financeInvoiceIssuedMail(input: {
   organisationId: string;
   organisationName: string;

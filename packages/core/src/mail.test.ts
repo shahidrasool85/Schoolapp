@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   admissionsEnquiryReceivedMail,
+  admissionsStatusEmailMail,
   assertNoPasswordInMail,
   NoopMailProvider,
   passwordResetMail,
@@ -80,5 +81,33 @@ describe("mail provider", () => {
       JSON.stringify({ enquiryId: "enq-1", enquiryReference: "ENQ-1001" }),
     );
     expect(JSON.stringify(message)).not.toMatch(/allerg|medical|safeguard|date of birth/i);
+  });
+
+  it("keys admissions status emails to the status-history row", () => {
+    const message = admissionsStatusEmailMail({
+      organisationId: "org",
+      organisationName: "Kingswood School",
+      toEmail: "sarah@example.com",
+      toName: "Sarah Example",
+      childName: "Maya Example",
+      applicationReference: "APP-1001",
+      intendedEntry: "Year 3 — 2026/27",
+      statusLabel: "Offer made",
+      offerDeadline: "01/06/2026",
+      applicationId: "app-1",
+      historyId: "hist-9",
+      templateKey: "admissions_status_offer_made",
+    });
+    expect(message.purpose).toBe("admissions_status_update");
+    expect(message.templateKey).toBe("admissions_status_offer_made");
+    expect(message.idempotencyKey).toBe("admissions.status_update:app-1:hist-9");
+    expect(message.textBody).toContain("an offer has been made for Maya");
+    expect(JSON.stringify(message.metadata)).toEqual(
+      JSON.stringify({
+        applicationId: "app-1",
+        applicationReference: "APP-1001",
+        historyId: "hist-9",
+      }),
+    );
   });
 });

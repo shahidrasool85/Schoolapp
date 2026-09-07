@@ -7,6 +7,7 @@ import {
   EMAIL_SETTINGS_TAB_ITEMS,
   emailSettingsTabHref,
   emailTemplateEditorHref,
+  isAdmissionsStatusEmailTemplateKey,
   isCustomizableEmailTemplateKey,
   parseEmailSettingsTab,
   type CustomizableEmailTemplateKey,
@@ -82,7 +83,9 @@ type TemplateListItem = {
   key: CustomizableEmailTemplateKey;
   name: string;
   description: string;
+  kind?: "acknowledgement" | "admissions_status";
   enabled: boolean;
+  sendEnabled?: boolean;
   source: "custom" | "system";
   customised: boolean;
   updatedAt: string | null;
@@ -118,6 +121,7 @@ type TemplateDetail = TemplateListItem & {
   body: string;
   signoff: string;
   showSchoolLogo: boolean;
+  sendEnabled?: boolean;
   attachments: TemplateAttachment[];
   attachmentLimits?: AttachmentLimits;
 };
@@ -328,7 +332,7 @@ function AutomaticEmailList() {
       {error ? <Alert tone="danger">{error}</Alert> : null}
       <SectionCard
         title="Automatic emails"
-        description="Customise the wording, logo visibility, and school documents attached to acknowledgements this school already sends. The layout and LuvLearn footer stay the same."
+        description="Customise acknowledgements this school already sends, and optionally enable application status emails. Each status email is off until you turn it on. The layout and LuvLearn footer stay the same."
       >
         {templates.length === 0 ? (
           <EmptyState title="No automatic emails" description="Enquiry and application acknowledgements will appear here." />
@@ -338,7 +342,8 @@ function AutomaticEmailList() {
               <thead>
                 <tr>
                   <th>Email</th>
-                  <th>Status</th>
+                  <th>Sending</th>
+                  <th>Wording</th>
                   <th>Last updated</th>
                   <th></th>
                 </tr>
@@ -351,8 +356,14 @@ function AutomaticEmailList() {
                       <div className="muted">{item.description}</div>
                     </td>
                     <td>
+                      {item.kind === "admissions_status" ? (
+                        <StatusBadge status={item.sendEnabled ? "enabled" : "disabled"} />
+                      ) : (
+                        <StatusBadge status="enabled" />
+                      )}
+                    </td>
+                    <td>
                       <StatusBadge status={item.source === "custom" ? "customised" : "system default"} />
-                      {!item.enabled ? <div className="muted">Using system default</div> : null}
                     </td>
                     <td>{item.updatedAt ? new Date(item.updatedAt).toLocaleString() : "Never customised"}</td>
                     <td>
@@ -388,6 +399,7 @@ function AutomaticEmailEditor({ templateKey }: { templateKey: CustomizableEmailT
   const [body, setBody] = useState("");
   const [signoff, setSignoff] = useState("");
   const [enabled, setEnabled] = useState(true);
+  const [sendEnabled, setSendEnabled] = useState(false);
   const [showSchoolLogo, setShowSchoolLogo] = useState(true);
   const [attachments, setAttachments] = useState<TemplateAttachment[]>([]);
   const [attachmentLimits, setAttachmentLimits] = useState<AttachmentLimits | null>(null);
@@ -410,6 +422,7 @@ function AutomaticEmailEditor({ templateKey }: { templateKey: CustomizableEmailT
     setBody(item.body);
     setSignoff(item.signoff);
     setEnabled(item.enabled);
+    setSendEnabled(item.sendEnabled === true || item.kind !== "admissions_status");
     setShowSchoolLogo(item.showSchoolLogo !== false);
     setAttachments(item.attachments ?? []);
     setAttachmentLimits(item.attachmentLimits ?? null);
@@ -482,7 +495,7 @@ function AutomaticEmailEditor({ templateKey }: { templateKey: CustomizableEmailT
       setShowSchoolLogo(result.template.showSchoolLogo !== false);
       setAttachments(result.template.attachments ?? []);
       setAttachmentLimits(result.template.attachmentLimits ?? attachmentLimits);
-      setNotice("Template saved. New acknowledgements will use this wording.");
+      setNotice("Template saved. New emails of this type will use this wording.");
     } catch (err) {
       setError(userFacingError(err as Error, "Could not save this template."));
     } finally {
@@ -505,6 +518,7 @@ function AutomaticEmailEditor({ templateKey }: { templateKey: CustomizableEmailT
       setBody(result.template.body);
       setSignoff(result.template.signoff);
       setEnabled(result.template.enabled);
+      setSendEnabled(result.template.sendEnabled === true || result.template.kind !== "admissions_status");
       setShowSchoolLogo(result.template.showSchoolLogo !== false);
       setAttachments(result.template.attachments ?? []);
       setAttachmentLimits(result.template.attachmentLimits ?? attachmentLimits);
@@ -520,9 +534,25 @@ function AutomaticEmailEditor({ templateKey }: { templateKey: CustomizableEmailT
   async function applyTemplate(item: TemplateDetail, noticeText: string) {
     setDetail(item);
     setShowSchoolLogo(item.showSchoolLogo !== false);
+    setSendEnabled(item.sendEnabled === true || item.kind !== "admissions_status");
     setAttachments(item.attachments ?? []);
     setAttachmentLimits(item.attachmentLimits ?? attachmentLimits);
     setNotice(noticeText);
+  }
+
+  async function toggleSend(next: boolean) {
+    setSendEnabled(next);
+    setError("");
+    try {
+      const result = await api<{ template: TemplateDetail }>(
+        `/api/v1/onboarding/mail/templates/${encodeURIComponent(templateKey)}/presentation`,
+        { method: "PUT", body: JSON.stringify({ sendEnabled: next }) },
+      );
+      await applyTemplate(result.template, next ? "This email will send automatically." : "This email is disabled.");
+    } catch (err) {
+      setSendEnabled(!next);
+      setError(userFacingError(err as Error, "Could not update sending for this email."));
+    }
   }
 
   async function toggleLogo(next: boolean) {
@@ -608,11 +638,19 @@ function AutomaticEmailEditor({ templateKey }: { templateKey: CustomizableEmailT
           <Link href={emailSettingsTabHref("automatic")}>Back to automatic emails</Link>
         </p>
         <form className="stack" onSubmit={save}>
-          <Checkbox
-            label="Use this customised wording"
-            checked={enabled}
-            onChange={(event) => setEnabled(event.target.checked)}
-          />
+          {isAdmissionsStatusEmailTemplateKey(templateKey) ? (
+            <Checkbox
+              label="Send this email automatically"
+              checked={sendEnabled}
+              onChange={(event) => void toggleSend(event.target.checked)}
+            />
+          ) : (
+            <Checkbox
+              label="Use this customised wording"
+              checked={enabled}
+              onChange={(event) => setEnabled(event.target.checked)}
+            />
+          )}
           <FormField label="Subject" hint="Required. Use available fields such as {{school_name}}.">
             <Input value={subject} onChange={(event) => setSubject(event.target.value)} required maxLength={200} />
           </FormField>

@@ -302,15 +302,21 @@ export {
 } from "./finance-settings-tabs.js";
 
 export {
+  ADMISSIONS_STATUS_EMAIL_BY_STATUS,
+  ADMISSIONS_STATUS_EMAIL_TEMPLATE_KEYS,
   CUSTOMIZABLE_EMAIL_TEMPLATE_KEYS,
   DEFAULT_EMAIL_SETTINGS_TAB,
   EMAIL_DELIVERY_PATH,
   EMAIL_SETTINGS_TABS,
   EMAIL_SETTINGS_TAB_ITEMS,
+  admissionsStatusEmailTemplateKeyForStatus,
   emailSettingsTabHref,
   emailTemplateEditorHref,
+  isAdmissionsStatusEmailTemplateKey,
   isCustomizableEmailTemplateKey,
   parseEmailSettingsTab,
+  type AdmissionsStatusEmailDestination,
+  type AdmissionsStatusEmailTemplateKey,
   type CustomizableEmailTemplateKey,
   type EmailSettingsTab,
 } from "./email-settings-tabs.js";

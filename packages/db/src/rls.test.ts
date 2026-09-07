@@ -1883,5 +1883,25 @@ describe("RLS catalog", () => {
         "update platform_settings set transactional_email_attachments_max_count = 9 where id = 1",
       ),
     ).rejects.toThrow();
+    await pools.owner.query(
+      `update platform_settings
+          set transactional_email_attachment_max_bytes = 25 * 1024 * 1024,
+              transactional_email_attachments_max_total_bytes = 25 * 1024 * 1024
+        where id = 1`,
+    );
+    await expect(
+      pools.owner.query(
+        `update platform_settings
+            set transactional_email_attachment_max_bytes = 26 * 1024 * 1024,
+                transactional_email_attachments_max_total_bytes = 26 * 1024 * 1024
+          where id = 1`,
+      ),
+    ).rejects.toThrow();
+    await pools.owner.query(
+      `update platform_settings
+          set transactional_email_attachment_max_bytes = 7 * 1024 * 1024,
+              transactional_email_attachments_max_total_bytes = 7 * 1024 * 1024
+        where id = 1`,
+    );
   });
 });

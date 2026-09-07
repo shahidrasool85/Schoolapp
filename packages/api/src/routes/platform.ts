@@ -13,7 +13,7 @@ import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
 import { requirePlatformHost } from "../tenant-resolver";
 import { mailOf } from "../mail";
-import { loadPlatformEmailAttachmentLimits } from "../platform-email-attachment-limits";
+import { loadPlatformEmailAttachmentLimits, emailCapabilitiesFromRuntime } from "../platform-email-attachment-limits";
 
 type SchoolAdminStateRow = {
   organisation_id: string;
@@ -307,9 +307,10 @@ export function registerPlatformRoutes(app: SchoolappApi) {
       await c.get("config").pools.app.query("select * from list_platform_organisations($1)", [
         c.get("userId"),
       ]);
-      const limits = await loadPlatformEmailAttachmentLimits(c.get("config").pools.app);
+      const capabilities = emailCapabilitiesFromRuntime(c.get("config").email);
+      const limits = await loadPlatformEmailAttachmentLimits(c.get("config").pools.app, capabilities);
       return c.json({
-        automaticEmailAttachments: presentPlatformEmailAttachmentLimits(limits),
+        automaticEmailAttachments: presentPlatformEmailAttachmentLimits(limits, capabilities),
       });
     } catch (error) {
       throw pgErrorToAppError(error) ?? error;
@@ -329,8 +330,9 @@ export function registerPlatformRoutes(app: SchoolappApi) {
       throw new AppError(400, "validation_failed", "Invalid automatic email attachment limits");
     }
     let limits;
+    const capabilities = emailCapabilitiesFromRuntime(c.get("config").email);
     try {
-      limits = parsePlatformEmailAttachmentLimits(parsed.data);
+      limits = parsePlatformEmailAttachmentLimits(parsed.data, capabilities);
     } catch (error) {
       if (error instanceof EmailAttachmentLimitConfigError) {
         throw new AppError(400, error.code, error.message);
@@ -348,11 +350,14 @@ export function registerPlatformRoutes(app: SchoolappApi) {
       );
       const row = result.rows[0];
       return c.json({
-        automaticEmailAttachments: presentPlatformEmailAttachmentLimits({
-          maxBytesPerFile: Number(row?.max_bytes_per_file ?? limits.maxBytesPerFile),
-          maxTotalBytes: Number(row?.max_total_bytes ?? limits.maxTotalBytes),
-          maxCount: Number(row?.max_count ?? limits.maxCount),
-        }),
+        automaticEmailAttachments: presentPlatformEmailAttachmentLimits(
+          {
+            maxBytesPerFile: Number(row?.max_bytes_per_file ?? limits.maxBytesPerFile),
+            maxTotalBytes: Number(row?.max_total_bytes ?? limits.maxTotalBytes),
+            maxCount: Number(row?.max_count ?? limits.maxCount),
+          },
+          capabilities,
+        ),
       });
     } catch (error) {
       throw pgErrorToAppError(error) ?? error;

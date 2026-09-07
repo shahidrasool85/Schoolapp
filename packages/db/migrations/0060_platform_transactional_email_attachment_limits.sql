@@ -1,9 +1,14 @@
 -- B3.1: platform-wide automatic-email attachment limits.
 -- Additive. Production is through 0059. Existing attachment rows are not rewritten.
 --
--- Postmark/SMTP outbound messages are limited to 10 MB after base64/MIME encoding.
--- 7 MB raw ≈ 9.6–10.0 MB encoded plus HTML/headers, which is the safe ceiling.
--- Requested 15/20 MB defaults would be rejected by Postmark.
+-- Limits are provider-aware in the application:
+--   effective = min(configured platform value, active provider capability, application cap)
+-- Current production is Postmark SMTP (10 MB encoded message => 7 MB raw attachments).
+-- The database stores configured platform values and only enforces an application-wide
+-- safety ceiling (25 MB). It must not hard-code Postmark's 7 MB as an irreversible
+-- maximum; future SES SMTP/v2 (40 MB encoded) can raise the effective cap in app code.
+--
+-- Defaults remain Postmark-safe: 7 MB per file, 7 MB total, 5 attachments.
 
 -- ---------------------------------------------------------------------------
 -- Singleton platform settings (not tenant-scoped)
@@ -15,13 +20,13 @@ create table platform_settings (
     default (7 * 1024 * 1024)
     check (
       transactional_email_attachment_max_bytes > 0
-      and transactional_email_attachment_max_bytes <= 7 * 1024 * 1024
+      and transactional_email_attachment_max_bytes <= 25 * 1024 * 1024
     ),
   transactional_email_attachments_max_total_bytes bigint not null
     default (7 * 1024 * 1024)
     check (
       transactional_email_attachments_max_total_bytes > 0
-      and transactional_email_attachments_max_total_bytes <= 7 * 1024 * 1024
+      and transactional_email_attachments_max_total_bytes <= 25 * 1024 * 1024
     ),
   transactional_email_attachments_max_count integer not null
     default 5
@@ -55,6 +60,7 @@ create policy platform_settings_select on platform_settings
 grant select on platform_settings to schoolapp_app;
 
 -- Writes go through the security-definer updater (platform admin only).
+-- Application-cap checks live here. Active provider capability is enforced in the API.
 
 create or replace function get_platform_transactional_email_attachment_limits()
 returns table (
@@ -113,8 +119,8 @@ begin
   if p_max_count is null or p_max_count <= 0 then
     raise exception 'attachment_limit_invalid' using errcode = '23514';
   end if;
-  if p_max_bytes_per_file > 7 * 1024 * 1024
-     or p_max_total_bytes > 7 * 1024 * 1024
+  if p_max_bytes_per_file > 25 * 1024 * 1024
+     or p_max_total_bytes > 25 * 1024 * 1024
      or p_max_count > 10 then
     raise exception 'attachment_limit_cap_exceeded' using errcode = '23514';
   end if;
@@ -136,8 +142,8 @@ $$;
 revoke all on function update_platform_transactional_email_attachment_limits(uuid, bigint, bigint, integer) from public;
 grant execute on function update_platform_transactional_email_attachment_limits(uuid, bigint, bigint, integer) to schoolapp_app;
 
--- Count trigger reads the live platform setting (capped at 10). Existing extra
--- rows are not deleted when the configured count is lowered.
+-- Count trigger reads the live platform setting (capped at the application count cap).
+-- Existing extra rows are not deleted when the configured count is lowered.
 create or replace function enforce_transactional_email_attachment_count()
 returns trigger
 language plpgsql

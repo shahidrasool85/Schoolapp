@@ -58,7 +58,7 @@ const DEFAULT_MAX: Record<FileProfileName, number> = {
   message: 10 * 1024 * 1024,
   branding: 5 * 1024 * 1024,
   profile_photo: 2 * 1024 * 1024,
-  transactional_email: 7 * 1024 * 1024,
+  transactional_email: 25 * 1024 * 1024,
 };
 
 const PROFILE_KINDS: Record<FileProfileName, readonly DetectedFileKind[]> = {
@@ -161,7 +161,7 @@ export function fileLimitsFromEnv(
     branding: read("OBJECT_STORAGE_MAX_BYTES_BRANDING", DEFAULT_MAX.branding),
     profile_photo: read("OBJECT_STORAGE_MAX_BYTES_PROFILE_PHOTO", DEFAULT_MAX.profile_photo),
     transactional_email: Math.min(
-      7 * 1024 * 1024,
+      25 * 1024 * 1024,
       read("OBJECT_STORAGE_MAX_BYTES_TRANSACTIONAL_EMAIL", DEFAULT_MAX.transactional_email),
     ),
   };

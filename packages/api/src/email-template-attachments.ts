@@ -11,6 +11,7 @@ import {
   transactionalEmailAttachmentKind,
   type EmailAttachment,
   type EmailAttachmentMeta,
+  type EmailProviderCapabilities,
   type TransactionalEmailAttachmentLimits,
 } from "@schoolapp/core";
 import { isCustomizableEmailTemplateKey, type CustomizableEmailTemplateKey } from "@schoolapp/domain";
@@ -75,8 +76,9 @@ export async function loadAutomaticEmailAttachmentViews(
   organisationId: string,
   templateKey: CustomizableEmailTemplateKey,
   limits?: TransactionalEmailAttachmentLimits,
+  capabilities?: EmailProviderCapabilities,
 ): Promise<AutomaticEmailAttachmentView[]> {
-  const effective = limits ?? (await loadPlatformEmailAttachmentLimits(pool));
+  const effective = limits ?? (await loadPlatformEmailAttachmentLimits(pool, capabilities));
   const rows = await pool.query<{
     id: string;
     stored_object_id: string;
@@ -97,7 +99,7 @@ export async function loadAutomaticEmailAttachmentViews(
       order by a.sort_order, a.created_at, a.id`,
     [organisationId, templateKey],
   );
-  return presentAutomaticEmailAttachmentList(rows.rows, effective);
+  return presentAutomaticEmailAttachmentList(rows.rows, effective, capabilities);
 }
 
 export function presentAutomaticEmailAttachment(
@@ -149,10 +151,12 @@ export function presentAutomaticEmailAttachmentList(
     byte_size: string | number;
   }>,
   limits: TransactionalEmailAttachmentLimits,
+  capabilities?: EmailProviderCapabilities,
 ): AutomaticEmailAttachmentView[] {
   const status = describeAttachmentSetLimitStatus(
     rows.map((row) => ({ byteSize: Number(row.byte_size) })),
     limits,
+    capabilities,
   );
   return rows.map((row, index) =>
     presentAutomaticEmailAttachment(row, limits, {
@@ -167,6 +171,7 @@ export async function loadSendAttachments(input: {
   storage: ObjectStoragePort | undefined;
   organisationId: string | null | undefined;
   templateKey: string;
+  capabilities?: EmailProviderCapabilities;
 }): Promise<EmailAttachment[] | undefined> {
   if (!input.organisationId || !isCustomizableEmailTemplateKey(input.templateKey)) {
     return undefined;
@@ -193,7 +198,7 @@ export async function loadSendAttachments(input: {
       "Automatic email attachments could not be loaded",
     );
   }
-  const limits = await loadPlatformEmailAttachmentLimits(input.pool);
+  const limits = await loadPlatformEmailAttachmentLimits(input.pool, input.capabilities);
   const metas = assertTransactionalEmailAttachmentSet(
     rows.map((row) => {
       assertSendAttachmentRow(row, input.organisationId!);
@@ -204,6 +209,7 @@ export async function loadSendAttachments(input: {
       };
     }),
     limits,
+    input.capabilities,
   );
   const attachments: EmailAttachment[] = [];
   for (let i = 0; i < rows.length; i += 1) {

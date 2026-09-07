@@ -96,7 +96,19 @@ School admins inspect status at **School settings → Email delivery** and retry
 - **Logo visibility** — per organisation and template. Default is ON (the school's existing logo). OFF omits the `<img>` cleanly; the school name and layout remain. Stored on `organisation_transactional_email_settings`, independent of wording.
 - **Attachments** — school-provided PDF/DOCX/JPEG/PNG documents (prospectus, fees guide, admissions pack). Per organisation and template. Not applications, medical, safeguarding, or pupil records. Bytes stay in private object storage (`stored_objects.domain = transactional_email`) and are attached as MIME parts at send time.
 
-  **Limits are platform-wide** (Platform Admin → Automatic email attachments). Defaults: **7 MB per file, 7 MB total, 5 files**. Hard caps: **7 MB / 7 MB / 10**. These are derived from Postmark/SES SMTP’s **10 MB encoded message** limit (Base64/MIME grows raw files by ~37%). 15 MB / 20 MB raw files cannot be emailed through the current provider. School Admin can see the effective limits and upload within them, but cannot raise them.
+  **Limits are platform-wide** (Platform Admin → Automatic email attachments). They are **provider-aware**:
+
+  - **Configured platform limit** — what Platform Admin saved
+  - **Provider safety limit** — the active SMTP vendor's encoded-message budget, converted to a conservative raw-file ceiling
+  - **Effective limit** = `min(configured, provider capability, application cap)`
+
+  Current production is **Postmark SMTP**. Postmark's outbound cap is **10 MB total message size after Base64/MIME encoding**. Effective defaults: **7 MB per file, 7 MB total, 5 files**. Hard count cap: **10**. Platform Admin cannot save a value above the *active* provider capability, so 15 MB / 20 MB / an 8 MB brochure cannot be attached while Postmark is the sender.
+
+  Amazon SES is **not** configured. For architecture only: SES v1 API is 10 MB encoded; **SES v2 API and SES SMTP are 40 MB encoded**. The database application cap is **25 MB** so a future SES SMTP path does not need a destructive schema change. Unknown SMTP hosts fail closed to Postmark's 10 MB encoded / 7 MB raw budget.
+
+  School Admin sees only the **effective** limits. If a file is larger than the active provider permits, the UI says: “This file is too large to send as an email attachment with the current email provider. Add a download link to the email instead.”
+
+  **Large documents (follow-up):** school brochures above the provider attachment limit should be delivered as a secure or public school document link, not as a MIME attachment. Postmark recommends a hosted/CDN link for large files. That delivery feature is out of scope here.
 
   If Platform Admin later lowers a limit, existing files are **not deleted**. The School Admin UI marks them as over the current limit. The worker **does not silently omit** them: send fails with `attachment_limit_exceeded` (retryable). School Admin must remove or replace the over-limit file, then retry from Email delivery. Invitation, password-reset, and finance emails do not load B3 attachments.
 

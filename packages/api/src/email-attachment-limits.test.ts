@@ -99,12 +99,18 @@ describe("B3.1 platform automatic email attachment limits", () => {
         maxTotalBytes: number;
         maxCount: number;
         hardCapMegabytesPerFile: number;
+        applicationCapMegabytesPerFile: number;
+        providerLimitSummary: string;
+        provider: { key: string; recommendedMaxRawAttachmentMegabytes: number };
       };
     };
     expect(body.automaticEmailAttachments.maxBytesPerFile).toBe(7 * 1024 * 1024);
     expect(body.automaticEmailAttachments.maxTotalBytes).toBe(7 * 1024 * 1024);
     expect(body.automaticEmailAttachments.maxCount).toBe(5);
     expect(body.automaticEmailAttachments.hardCapMegabytesPerFile).toBe(7);
+    expect(body.automaticEmailAttachments.applicationCapMegabytesPerFile).toBe(25);
+    expect(body.automaticEmailAttachments.provider.key).toBe("postmark");
+    expect(body.automaticEmailAttachments.providerLimitSummary).toMatch(/7 MB total attachments/);
 
     const school = await createSchool(suffix());
     const schoolApp = testApp(pools);
@@ -298,5 +304,54 @@ describe("B3.1 platform automatic email attachment limits", () => {
     expect(after.rows[0]?.status).toBe("queued");
     expect(after.rows[0]?.last_error_code).toBe("attachment_too_large");
     expect(email.sent).toHaveLength(0);
+  });
+
+  it("does not let Platform Admin save SES-sized limits while Postmark capability is active", async () => {
+    const { app, token } = await platformSession();
+    const settings = await app.request("/api/v1/platform/settings", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(((await settings.json()) as { automaticEmailAttachments: { hardCapMegabytesPerFile: number } })
+      .automaticEmailAttachments.hardCapMegabytesPerFile).toBe(7);
+  });
+
+  it("allows a larger configured value only when the SMTP host is SES-capable", async () => {
+    const id = suffix();
+    const email = `platform-ses-${id}@example.com`;
+    await insertUser(pools.owner, {
+      email,
+      password: "platform-pass-1",
+      fullName: "Platform",
+      kind: "platform_admin",
+      platformAdmin: true,
+    });
+    const app = testApp(pools, {
+      email: { smtp: { host: "email-smtp.eu-west-1.amazonaws.com" } },
+    });
+    const token = await login(app, email, "platform-pass-1");
+    const saved = await app.request("/api/v1/platform/settings/email-attachments", {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ maxMegabytesPerFile: 15, maxTotalMegabytes: 20, maxCount: 5 }),
+    });
+    expect(saved.status).toBe(200);
+    const body = (await saved.json()) as {
+      automaticEmailAttachments: {
+        maxMegabytesPerFile: number;
+        maxTotalMegabytes: number;
+        hardCapMegabytesPerFile: number;
+        provider: { key: string };
+      };
+    };
+    expect(body.automaticEmailAttachments.maxMegabytesPerFile).toBe(15);
+    expect(body.automaticEmailAttachments.maxTotalMegabytes).toBe(20);
+    expect(body.automaticEmailAttachments.hardCapMegabytesPerFile).toBe(25);
+    expect(body.automaticEmailAttachments.provider.key).toBe("ses");
+    const overApp = await app.request("/api/v1/platform/settings/email-attachments", {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ maxMegabytesPerFile: 26, maxTotalMegabytes: 26, maxCount: 5 }),
+    });
+    expect(overApp.status).toBe(400);
   });
 });

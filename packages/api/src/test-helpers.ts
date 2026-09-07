@@ -6,7 +6,7 @@ import pg from "pg";
 import { migrate } from "@schoolapp/db";
 import { createPools, type DbPools } from "@schoolapp/db";
 import { FilesystemObjectStorage, NoopFileScanner } from "@schoolapp/storage";
-import { createPaymentProvider, paymentConfigFromEnv, FakeEmailProvider, type EmailDeliveryProvider, type PaymentRuntimeConfig } from "@schoolapp/core";
+import { createPaymentProvider, paymentConfigFromEnv, FakeEmailProvider, type EmailDeliveryProvider, type EmailRuntimeConfig, type PaymentRuntimeConfig } from "@schoolapp/core";
 
 export const TEST_SECRETS_ENCRYPTION_KEY =
   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -47,12 +47,29 @@ export function testApiConfig(
   options: {
     platformDomain?: string;
     trustProxy?: boolean;
+    email?: Partial<Omit<EmailRuntimeConfig, "smtp">> & {
+      smtp?: Partial<EmailRuntimeConfig["smtp"]>;
+    };
     emailDeliveryProvider?: EmailDeliveryProvider;
     emailWorkerSecret?: string | null;
     payments?: Partial<PaymentRuntimeConfig>;
     stripeFetchImpl?: typeof fetch;
   } = {},
 ): ApiConfig {
+  const email: EmailRuntimeConfig = {
+    providerKey: options.email?.providerKey ?? "none",
+    deliveryMode: options.email?.deliveryMode ?? "test",
+    fromAddress: options.email?.fromAddress ?? "notifications@luvlearn.test",
+    fromName: options.email?.fromName ?? "LuvLearn",
+    replyToFallback: options.email?.replyToFallback ?? null,
+    smtp: {
+      host: options.email?.smtp?.host ?? null,
+      port: options.email?.smtp?.port ?? 587,
+      secure: options.email?.smtp?.secure ?? false,
+      username: options.email?.smtp?.username ?? null,
+      password: options.email?.smtp?.password ?? null,
+    },
+  };
   return {
     pools,
     authSecret: TEST_AUTH_SECRET,
@@ -61,14 +78,7 @@ export function testApiConfig(
     trustProxy: options.trustProxy ?? false,
     storage: testObjectStorage,
     fileScanner: testFileScanner,
-    email: {
-      providerKey: "none" as const,
-      deliveryMode: "test" as const,
-      fromAddress: "notifications@luvlearn.test",
-      fromName: "LuvLearn",
-      replyToFallback: null,
-      smtp: { host: null, port: 587, secure: false, username: null, password: null },
-    },
+    email,
     emailDeliveryProvider: options.emailDeliveryProvider ?? new FakeEmailProvider(),
     emailWorkerSecret: options.emailWorkerSecret ?? null,
     payments: {
@@ -96,6 +106,9 @@ export function testApp(
   options: {
     platformDomain?: string;
     trustProxy?: boolean;
+    email?: Partial<Omit<EmailRuntimeConfig, "smtp">> & {
+      smtp?: Partial<EmailRuntimeConfig["smtp"]>;
+    };
     emailDeliveryProvider?: EmailDeliveryProvider;
     emailWorkerSecret?: string | null;
     payments?: Partial<PaymentRuntimeConfig>;

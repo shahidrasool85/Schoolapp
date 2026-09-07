@@ -2,6 +2,7 @@ import {
   EmailAttachmentError,
   EmailDeliveryError,
   createEmailDeliveryProvider,
+  emailProviderCapabilitiesFromHost,
   liveEmailSendingEnabled,
   platformFromAddress,
   purposeToTemplateKey,
@@ -185,22 +186,26 @@ async function buildSendInput(
     storage: config.storage,
     organisationId: row.organisation_id,
     templateKey,
+    capabilities: emailProviderCapabilitiesFromHost(email.smtp.host),
   });
   const from = platformFromAddress(email, branding.schoolName);
   const subject = isCustomizableEmailTemplateKey(templateKey)
     ? rendered.subject
     : row.subject || rendered.subject;
-  return sanitizeEmailSendInput({
-    to: { address: row.to_email, name: row.to_name },
-    from,
-    replyTo: row.reply_to || branding.replyTo || email.replyToFallback,
-    subject,
-    html: rendered.html,
-    text: rendered.text,
-    headers: {
-      "X-LuvLearn-Template": templateKey,
-      "X-LuvLearn-Purpose": row.purpose,
+  return sanitizeEmailSendInput(
+    {
+      to: { address: row.to_email, name: row.to_name },
+      from,
+      replyTo: row.reply_to || branding.replyTo || email.replyToFallback,
+      subject,
+      html: rendered.html,
+      text: rendered.text,
+      headers: {
+        "X-LuvLearn-Template": templateKey,
+        "X-LuvLearn-Purpose": row.purpose,
+      },
+      attachments,
     },
-    attachments,
-  });
+    emailProviderCapabilitiesFromHost(email.smtp.host),
+  );
 }

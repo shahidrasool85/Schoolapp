@@ -45,6 +45,9 @@ export default function PlatformPage() {
   const [attachmentHardCapMb, setAttachmentHardCapMb] = useState(7);
   const [attachmentHardCapTotalMb, setAttachmentHardCapTotalMb] = useState(7);
   const [attachmentHardCapCount, setAttachmentHardCapCount] = useState(10);
+  const [attachmentProviderSummary, setAttachmentProviderSummary] = useState(
+    "Maximum allowed by current email provider: 7 MB total attachments",
+  );
   const [savingLimits, setSavingLimits] = useState(false);
 
   useEffect(() => {
@@ -84,6 +87,7 @@ export default function PlatformPage() {
               hardCapMegabytesPerFile: number;
               hardCapTotalMegabytes: number;
               hardCapCount: number;
+              providerLimitSummary?: string;
             };
           }>("/api/v1/platform/settings", { orgId: null });
           const limits = settings.automaticEmailAttachments;
@@ -93,6 +97,9 @@ export default function PlatformPage() {
           setAttachmentHardCapMb(limits.hardCapMegabytesPerFile);
           setAttachmentHardCapTotalMb(limits.hardCapTotalMegabytes);
           setAttachmentHardCapCount(limits.hardCapCount);
+          if (limits.providerLimitSummary) {
+            setAttachmentProviderSummary(limits.providerLimitSummary);
+          }
         } catch {
           // Settings are optional on first load; school list still works.
         }
@@ -263,8 +270,9 @@ export default function PlatformPage() {
           </SectionCard>
           <SectionCard
             title="Automatic email attachments"
-            description="These limits apply to every school. They cannot exceed the email provider's 10 MB encoded message size (about 7 MB of raw files after Base64/MIME encoding)."
+            description="These limits apply to every school. They cannot exceed the active email provider's message size."
           >
+            {attachmentProviderSummary ? <p className="muted">{attachmentProviderSummary}</p> : null}
             <form className="form-grid" onSubmit={saveAttachmentLimits}>
               <FormField label="Maximum size per attachment" hint={`Whole megabytes, up to ${attachmentHardCapMb} MB.`}>
                 <Input

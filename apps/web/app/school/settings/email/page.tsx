@@ -11,7 +11,7 @@ import {
   parseEmailSettingsTab,
   type CustomizableEmailTemplateKey,
 } from "@schoolapp/domain";
-import { attachmentTooLargeMessage, formatAttachmentByteSize } from "@schoolapp/core/email-attachments";
+import { ATTACHMENT_TOO_LARGE_FOR_PROVIDER_MESSAGE, attachmentTooLargeMessage, formatAttachmentByteSize } from "@schoolapp/core/email-attachments";
 import {
   Alert,
   Button,
@@ -108,6 +108,7 @@ type AttachmentLimits = {
   maxTotalMegabytes: number;
   summary?: string;
   acceptedTypes?: string[];
+  provider?: { recommendedMaxRawAttachmentBytes: number };
 };
 
 type TemplateDetail = TemplateListItem & {
@@ -542,6 +543,13 @@ function AutomaticEmailEditor({ templateKey }: { templateKey: CustomizableEmailT
   async function addAttachment(file: File) {
     setError("");
     if (attachmentLimits) {
+      if (
+        attachmentLimits.provider?.recommendedMaxRawAttachmentBytes &&
+        file.size > attachmentLimits.provider.recommendedMaxRawAttachmentBytes
+      ) {
+        setError(ATTACHMENT_TOO_LARGE_FOR_PROVIDER_MESSAGE);
+        return;
+      }
       if (file.size > attachmentLimits.maxBytesPerFile) {
         setError(attachmentTooLargeMessage(file.name, file.size, attachmentLimits.maxBytesPerFile));
         return;

@@ -1,7 +1,10 @@
 import {
   clampTransactionalEmailAttachmentLimits,
   defaultTransactionalEmailAttachmentLimits,
+  emailProviderCapabilitiesFromHost,
   presentPlatformEmailAttachmentLimits,
+  type EmailProviderCapabilities,
+  type EmailRuntimeConfig,
   type TransactionalEmailAttachmentLimits,
 } from "@schoolapp/core";
 
@@ -18,7 +21,13 @@ type LimitRow = {
   max_count: string | number;
 };
 
-export async function loadPlatformEmailAttachmentLimits(
+export function emailCapabilitiesFromRuntime(
+  email?: EmailRuntimeConfig | null,
+): EmailProviderCapabilities {
+  return emailProviderCapabilitiesFromHost(email?.smtp.host);
+}
+
+export async function loadConfiguredPlatformEmailAttachmentLimits(
   pool: Queryable,
 ): Promise<TransactionalEmailAttachmentLimits> {
   try {
@@ -27,16 +36,27 @@ export async function loadPlatformEmailAttachmentLimits(
     );
     const row = result.rows[0];
     if (!row) return defaultTransactionalEmailAttachmentLimits();
-    return clampTransactionalEmailAttachmentLimits({
+    return {
       maxBytesPerFile: Number(row.max_bytes_per_file),
       maxTotalBytes: Number(row.max_total_bytes),
       maxCount: Number(row.max_count),
-    });
+    };
   } catch {
     return defaultTransactionalEmailAttachmentLimits();
   }
 }
 
-export function jsonPlatformEmailAttachmentLimits(limits: TransactionalEmailAttachmentLimits) {
-  return presentPlatformEmailAttachmentLimits(limits);
+export async function loadPlatformEmailAttachmentLimits(
+  pool: Queryable,
+  capabilities?: EmailProviderCapabilities,
+): Promise<TransactionalEmailAttachmentLimits> {
+  const configured = await loadConfiguredPlatformEmailAttachmentLimits(pool);
+  return clampTransactionalEmailAttachmentLimits(configured, capabilities);
+}
+
+export function jsonPlatformEmailAttachmentLimits(
+  limits: TransactionalEmailAttachmentLimits,
+  capabilities?: EmailProviderCapabilities,
+) {
+  return presentPlatformEmailAttachmentLimits(limits, capabilities);
 }

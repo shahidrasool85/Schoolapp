@@ -493,8 +493,9 @@ describe("B4 configurable admissions status emails", () => {
       headers: hdrs,
       body: JSON.stringify({ formType: "enquiry", name: "Enquire", slug: "enquire-status" }),
     });
+    expect(created.status).toBe(201);
     const form = (await created.json()) as { form: { id: string } };
-    await app.request(`/api/v1/admissions/forms/${form.form.id}/publish`, { method: "POST", headers: hdrs });
+    expect((await app.request(`/api/v1/admissions/forms/${form.form.id}/publish`, { method: "POST", headers: hdrs })).status).toBe(200);
     const submit = await app.request("/api/v1/public/admissions/forms/enquiry/enquire-status/submissions", {
       method: "POST",
       headers: { Host: `${school.slug}.localhost`, "Content-Type": "application/json" },
@@ -508,6 +509,7 @@ describe("B4 configurable admissions status emails", () => {
           "guardian.relationship": "mother",
           "guardian.email": "ack.parent@example.com",
           "guardian.phone": "01234567890",
+          "enquiry.notes": "Please send open morning dates",
           "child.intended_academic_year_id": structure.yearId,
           "child.intended_year_group_id": structure.yearGroupId,
         },

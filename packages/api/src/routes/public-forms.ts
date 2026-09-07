@@ -23,7 +23,8 @@ import {
 } from "@schoolapp/core";
 import type { ApiEnv, SchoolappApi } from "../types";
 import { requestedOrganisationId } from "../auth-middleware";
-import { queueAdmissionsFormAck } from "../admissions-mail";
+import { queueAdmissionsFormAck, childDisplayName } from "../admissions-mail";
+import { presentPublicSubmissionConfirmation } from "../admissions-submission-confirmations";
 import {
   readUploadedFile,
   scannerOf,
@@ -296,6 +297,18 @@ export function registerPublicFormRoutes(app: SchoolappApi) {
           draft: false,
         }).catch(() => undefined);
       }
+      const confirmation = parsed.data.draft
+        ? null
+        : await presentPublicSubmissionConfirmation({
+            pool: c.get("config").pools.app,
+            organisationId: school.organisationId,
+            organisationName: school.name,
+            formType,
+            result,
+            childName: childDisplayName(canonical),
+            formSuccessTitle: formMeta.successTitle ? String(formMeta.successTitle) : null,
+            formSuccessText: formMeta.successText ? String(formMeta.successText) : null,
+          }).catch(() => undefined);
       return c.json(
         {
           submission: {
@@ -305,6 +318,7 @@ export function registerPublicFormRoutes(app: SchoolappApi) {
             enquiryReference: result.enquiryReference ?? null,
             applicationReference: result.applicationReference ?? null,
             continuationToken: issuedToken ?? (parsed.data.draft ? parsed.data.continuationToken : undefined) ?? null,
+            ...(confirmation ? { confirmation } : {}),
           },
         },
         parsed.data.draft ? 200 : 201,

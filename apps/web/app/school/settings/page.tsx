@@ -198,6 +198,9 @@ function SchoolSettingsAdmin() {
               <Link href="/school/settings/email" className="button secondary">
                 Email delivery
               </Link>
+              <Link href="/school/settings/admissions" className="button secondary">
+                Admissions
+              </Link>
             </span>
           ) : undefined
         }

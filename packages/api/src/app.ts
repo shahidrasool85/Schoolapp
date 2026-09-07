@@ -37,6 +37,7 @@ import { registerMessagingRoutes } from "./routes/messaging";
 import { registerStatutoryRoutes } from "./routes/statutory";
 import { registerEngagementRoutes } from "./routes/engagement";
 import { registerOnboardingRoutes } from "./routes/onboarding";
+import { registerAdmissionsSubmissionConfirmationRoutes } from "./routes/admissions-submission-confirmations";
 import { registerImportRoutes } from "./routes/imports";
 import { registerInternalMailRoutes } from "./routes/internal-mail";
 import { registerSearchRoutes } from "./routes/search";
@@ -95,6 +96,7 @@ export function createApiApp(config: ApiConfig) {
   registerPlatformRoutes(app);
   registerOrganisationRoutes(app);
   registerOnboardingRoutes(app);
+  registerAdmissionsSubmissionConfirmationRoutes(app);
   registerImportRoutes(app);
   registerAcademicRoutes(app);
   registerPeopleRoutes(app);

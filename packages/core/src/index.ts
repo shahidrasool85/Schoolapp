@@ -1126,6 +1126,24 @@ export {
 } from "./email-template-overrides.js";
 
 export {
+  SUBMISSION_CONFIRMATION_CATALOG,
+  SubmissionConfirmationValidationError,
+  allowedSubmissionConfirmationFieldKeys,
+  authoritativeReference,
+  renderSubmissionConfirmation,
+  sampleSubmissionConfirmationData,
+  submissionConfirmationCatalogItem,
+  submissionConfirmationMergeValues,
+  systemDefaultConfirmation,
+  templateUsesReferencePlaceholder,
+  validateOrganisationSubmissionConfirmation,
+  type OrganisationSubmissionConfirmation,
+  type RenderedSubmissionConfirmation,
+  type SubmissionConfirmationCatalogItem,
+  type SubmissionConfirmationMergeField,
+} from "./admissions-submission-confirmations.js";
+
+export {
   evaluateReadiness,
   presentSchoolOnboarding,
   PASSWORD_RESET_NEUTRAL_MESSAGE,

@@ -1506,6 +1506,23 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   box-shadow: var(--shadow-sm);
 }
 
+.admissions-success h1 {
+  margin: 0.75rem 0 0.5rem;
+}
+
+.admissions-confirmation-copy {
+  white-space: pre-line;
+  margin: 0 0 0.85rem;
+}
+
+.admissions-confirmation-extra {
+  color: var(--muted);
+}
+
+.admissions-confirmation-cta {
+  margin: 1.25rem 0 1rem;
+}
+
 @media (max-width: 800px) {
   .admissions-steps { display: none; }
   .admissions-stepper-mobile { display: block; }

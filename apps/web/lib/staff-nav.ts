@@ -392,6 +392,12 @@ export const STAFF_NAV_SECTIONS: StaffNavSection[] = [
         label: "School settings",
         icon: "layers",
         permissions: [...SCHOOL_SETTINGS_ADMIN_PERMISSIONS],
+        exact: true,
+        children: [
+          { href: "/school/settings", label: "Identity & branding", exact: true, permissions: [...SCHOOL_SETTINGS_ADMIN_PERMISSIONS] },
+          { href: "/school/settings/email", label: "Email delivery", permissions: ["org.settings.manage", "onboarding.manage"] },
+          { href: "/school/settings/admissions", label: "Admissions", permissions: ["org.settings.manage"] },
+        ],
       },
       {
         href: "/school/imports",

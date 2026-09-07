@@ -11,6 +11,7 @@ import {
   parseEmailSettingsTab,
   type CustomizableEmailTemplateKey,
 } from "@schoolapp/domain";
+import { ATTACHMENT_TOO_LARGE_FOR_PROVIDER_MESSAGE, attachmentTooLargeMessage, formatAttachmentByteSize } from "@schoolapp/core/email-attachments";
 import {
   Alert,
   Button,
@@ -95,6 +96,19 @@ type TemplateAttachment = {
   byteSize: number;
   kindLabel: string;
   sizeLabel: string;
+  overLimit?: boolean;
+  overLimitReason?: string | null;
+};
+
+type AttachmentLimits = {
+  maxBytesPerFile: number;
+  maxTotalBytes: number;
+  maxCount: number;
+  maxMegabytesPerFile: number;
+  maxTotalMegabytes: number;
+  summary?: string;
+  acceptedTypes?: string[];
+  provider?: { recommendedMaxRawAttachmentBytes: number };
 };
 
 type TemplateDetail = TemplateListItem & {
@@ -105,6 +119,7 @@ type TemplateDetail = TemplateListItem & {
   signoff: string;
   showSchoolLogo: boolean;
   attachments: TemplateAttachment[];
+  attachmentLimits?: AttachmentLimits;
 };
 
 export default function SchoolEmailDeliveryPage() {
@@ -375,6 +390,7 @@ function AutomaticEmailEditor({ templateKey }: { templateKey: CustomizableEmailT
   const [enabled, setEnabled] = useState(true);
   const [showSchoolLogo, setShowSchoolLogo] = useState(true);
   const [attachments, setAttachments] = useState<TemplateAttachment[]>([]);
+  const [attachmentLimits, setAttachmentLimits] = useState<AttachmentLimits | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -396,6 +412,7 @@ function AutomaticEmailEditor({ templateKey }: { templateKey: CustomizableEmailT
     setEnabled(item.enabled);
     setShowSchoolLogo(item.showSchoolLogo !== false);
     setAttachments(item.attachments ?? []);
+    setAttachmentLimits(item.attachmentLimits ?? null);
     return item;
   }
 
@@ -464,6 +481,7 @@ function AutomaticEmailEditor({ templateKey }: { templateKey: CustomizableEmailT
       setDetail(result.template);
       setShowSchoolLogo(result.template.showSchoolLogo !== false);
       setAttachments(result.template.attachments ?? []);
+      setAttachmentLimits(result.template.attachmentLimits ?? attachmentLimits);
       setNotice("Template saved. New acknowledgements will use this wording.");
     } catch (err) {
       setError(userFacingError(err as Error, "Could not save this template."));
@@ -489,6 +507,7 @@ function AutomaticEmailEditor({ templateKey }: { templateKey: CustomizableEmailT
       setEnabled(result.template.enabled);
       setShowSchoolLogo(result.template.showSchoolLogo !== false);
       setAttachments(result.template.attachments ?? []);
+      setAttachmentLimits(result.template.attachmentLimits ?? attachmentLimits);
       setPreview(null);
       setNotice("Restored the system default wording.");
     } catch (err) {
@@ -502,6 +521,7 @@ function AutomaticEmailEditor({ templateKey }: { templateKey: CustomizableEmailT
     setDetail(item);
     setShowSchoolLogo(item.showSchoolLogo !== false);
     setAttachments(item.attachments ?? []);
+    setAttachmentLimits(item.attachmentLimits ?? attachmentLimits);
     setNotice(noticeText);
   }
 
@@ -522,6 +542,30 @@ function AutomaticEmailEditor({ templateKey }: { templateKey: CustomizableEmailT
 
   async function addAttachment(file: File) {
     setError("");
+    if (attachmentLimits) {
+      if (
+        attachmentLimits.provider?.recommendedMaxRawAttachmentBytes &&
+        file.size > attachmentLimits.provider.recommendedMaxRawAttachmentBytes
+      ) {
+        setError(ATTACHMENT_TOO_LARGE_FOR_PROVIDER_MESSAGE);
+        return;
+      }
+      if (file.size > attachmentLimits.maxBytesPerFile) {
+        setError(attachmentTooLargeMessage(file.name, file.size, attachmentLimits.maxBytesPerFile));
+        return;
+      }
+      if (attachments.length >= attachmentLimits.maxCount) {
+        setError(`This automatic email already has the maximum number of attachments (${attachmentLimits.maxCount}).`);
+        return;
+      }
+      const nextTotal = attachments.reduce((sum, item) => sum + item.byteSize, 0) + file.size;
+      if (nextTotal > attachmentLimits.maxTotalBytes) {
+        setError(
+          `These attachments would be ${formatAttachmentByteSize(nextTotal)} in total. The maximum total attachment size is ${formatAttachmentByteSize(attachmentLimits.maxTotalBytes)}.`,
+        );
+        return;
+      }
+    }
     const body = new FormData();
     body.append("file", file);
     try {
@@ -613,6 +657,22 @@ function AutomaticEmailEditor({ templateKey }: { templateKey: CustomizableEmailT
         title="Attachments"
         description="Attach school documents automatically when this email is sent. Each automatic email has its own attachments. Prospectuses and fee guides are appropriate; applications, medical, or safeguarding files are not."
       >
+        {attachments.some((item) => item.overLimit) ? (
+          <Alert tone="danger">
+            One or more attachments are over the current platform limit. This email will not send until those files
+            are removed. Existing files are not deleted automatically.
+          </Alert>
+        ) : null}
+        <p className="muted" style={{ whiteSpace: "pre-line" }}>
+          {attachmentLimits
+            ? [
+                "Accepted: PDF, DOCX, JPEG, PNG",
+                `Maximum ${formatAttachmentByteSize(attachmentLimits.maxBytesPerFile)} per file`,
+                `Maximum ${formatAttachmentByteSize(attachmentLimits.maxTotalBytes)} total`,
+                `Up to ${attachmentLimits.maxCount} attachments`,
+              ].join("\n")
+            : "Accepted: PDF, DOCX, JPEG, PNG"}
+        </p>
         {attachments.length ? (
           <ul className="stack" style={{ listStyle: "none", padding: 0, margin: "0 0 1rem" }}>
             {attachments.map((attachment) => (
@@ -631,7 +691,9 @@ function AutomaticEmailEditor({ templateKey }: { templateKey: CustomizableEmailT
                   <strong>{attachment.filename}</strong>
                   <div className="muted">
                     {attachment.kindLabel} • {attachment.sizeLabel}
+                    {attachment.overLimit ? " • Over current limit" : ""}
                   </div>
+                  {attachment.overLimitReason ? <div className="muted">{attachment.overLimitReason}</div> : null}
                 </div>
                 <Button type="button" variant="secondary" onClick={() => void removeAttachment(attachment)}>
                   Remove

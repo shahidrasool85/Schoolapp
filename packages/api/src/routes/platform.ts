@@ -1,10 +1,19 @@
 import { z } from "zod";
 import { PERMISSIONS, validateOrganisationSlug, slugValidationMessage } from "@schoolapp/domain";
-import { AppError, pgErrorToAppError, schoolInviteUrl, staffInviteMail } from "@schoolapp/core";
+import {
+  AppError,
+  EmailAttachmentLimitConfigError,
+  parsePlatformEmailAttachmentLimits,
+  pgErrorToAppError,
+  presentPlatformEmailAttachmentLimits,
+  schoolInviteUrl,
+  staffInviteMail,
+} from "@schoolapp/core";
 import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
 import { requirePlatformHost } from "../tenant-resolver";
 import { mailOf } from "../mail";
+import { loadPlatformEmailAttachmentLimits, emailCapabilitiesFromRuntime } from "../platform-email-attachment-limits";
 
 type SchoolAdminStateRow = {
   organisation_id: string;
@@ -287,6 +296,69 @@ export function registerPlatformRoutes(app: SchoolappApi) {
         c.req.param("hostnameId"),
       ]);
       return c.json({ ok: true });
+    } catch (error) {
+      throw pgErrorToAppError(error) ?? error;
+    }
+  });
+
+  app.get("/platform/settings", requireUser, async (c) => {
+    requirePlatformHost(c);
+    try {
+      await c.get("config").pools.app.query("select * from list_platform_organisations($1)", [
+        c.get("userId"),
+      ]);
+      const capabilities = emailCapabilitiesFromRuntime(c.get("config").email);
+      const limits = await loadPlatformEmailAttachmentLimits(c.get("config").pools.app, capabilities);
+      return c.json({
+        automaticEmailAttachments: presentPlatformEmailAttachmentLimits(limits, capabilities),
+      });
+    } catch (error) {
+      throw pgErrorToAppError(error) ?? error;
+    }
+  });
+
+  app.put("/platform/settings/email-attachments", requireUser, async (c) => {
+    requirePlatformHost(c);
+    const parsed = z
+      .object({
+        maxMegabytesPerFile: z.number(),
+        maxTotalMegabytes: z.number(),
+        maxCount: z.number(),
+      })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      throw new AppError(400, "validation_failed", "Invalid automatic email attachment limits");
+    }
+    let limits;
+    const capabilities = emailCapabilitiesFromRuntime(c.get("config").email);
+    try {
+      limits = parsePlatformEmailAttachmentLimits(parsed.data, capabilities);
+    } catch (error) {
+      if (error instanceof EmailAttachmentLimitConfigError) {
+        throw new AppError(400, error.code, error.message);
+      }
+      throw error;
+    }
+    try {
+      const result = await c.get("config").pools.app.query<{
+        max_bytes_per_file: string | number;
+        max_total_bytes: string | number;
+        max_count: string | number;
+      }>(
+        "select * from update_platform_transactional_email_attachment_limits($1, $2, $3, $4)",
+        [c.get("userId"), limits.maxBytesPerFile, limits.maxTotalBytes, limits.maxCount],
+      );
+      const row = result.rows[0];
+      return c.json({
+        automaticEmailAttachments: presentPlatformEmailAttachmentLimits(
+          {
+            maxBytesPerFile: Number(row?.max_bytes_per_file ?? limits.maxBytesPerFile),
+            maxTotalBytes: Number(row?.max_total_bytes ?? limits.maxTotalBytes),
+            maxCount: Number(row?.max_count ?? limits.maxCount),
+          },
+          capabilities,
+        ),
+      });
     } catch (error) {
       throw pgErrorToAppError(error) ?? error;
     }

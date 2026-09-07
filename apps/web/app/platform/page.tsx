@@ -39,6 +39,16 @@ export default function PlatformPage() {
   const [inviteUrl, setInviteUrl] = useState("");
   const [notice, setNotice] = useState("");
   const [reissuingId, setReissuingId] = useState<string | null>(null);
+  const [attachmentMaxMb, setAttachmentMaxMb] = useState(7);
+  const [attachmentTotalMb, setAttachmentTotalMb] = useState(7);
+  const [attachmentMaxCount, setAttachmentMaxCount] = useState(5);
+  const [attachmentHardCapMb, setAttachmentHardCapMb] = useState(7);
+  const [attachmentHardCapTotalMb, setAttachmentHardCapTotalMb] = useState(7);
+  const [attachmentHardCapCount, setAttachmentHardCapCount] = useState(10);
+  const [attachmentProviderSummary, setAttachmentProviderSummary] = useState(
+    "Maximum allowed by current email provider: 7 MB total attachments",
+  );
+  const [savingLimits, setSavingLimits] = useState(false);
 
   useEffect(() => {
     if (!getToken()) {
@@ -68,6 +78,31 @@ export default function PlatformPage() {
           orgId: null,
         });
         setOrganisations(body.organisations);
+        try {
+          const settings = await api<{
+            automaticEmailAttachments: {
+              maxMegabytesPerFile: number;
+              maxTotalMegabytes: number;
+              maxCount: number;
+              hardCapMegabytesPerFile: number;
+              hardCapTotalMegabytes: number;
+              hardCapCount: number;
+              providerLimitSummary?: string;
+            };
+          }>("/api/v1/platform/settings", { orgId: null });
+          const limits = settings.automaticEmailAttachments;
+          setAttachmentMaxMb(limits.maxMegabytesPerFile);
+          setAttachmentTotalMb(limits.maxTotalMegabytes);
+          setAttachmentMaxCount(limits.maxCount);
+          setAttachmentHardCapMb(limits.hardCapMegabytesPerFile);
+          setAttachmentHardCapTotalMb(limits.hardCapTotalMegabytes);
+          setAttachmentHardCapCount(limits.hardCapCount);
+          if (limits.providerLimitSummary) {
+            setAttachmentProviderSummary(limits.providerLimitSummary);
+          }
+        } catch {
+          // Settings are optional on first load; school list still works.
+        }
         setReady(true);
       })
       .catch((err: Error) => {
@@ -86,6 +121,38 @@ export default function PlatformPage() {
   const schoolHref = (slug: string) => `${schoolOrigin(slug, platformDomain)}/login`;
   const exampleSchoolLogin = schoolHref(organisations[0]?.slug ?? "your-school");
   const localPlatform = platformDomain === "localhost";
+
+  async function saveAttachmentLimits(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setNotice("");
+    setSavingLimits(true);
+    try {
+      const saved = await api<{
+        automaticEmailAttachments: {
+          maxMegabytesPerFile: number;
+          maxTotalMegabytes: number;
+          maxCount: number;
+        };
+      }>("/api/v1/platform/settings/email-attachments", {
+        method: "PUT",
+        orgId: null,
+        body: JSON.stringify({
+          maxMegabytesPerFile: attachmentMaxMb,
+          maxTotalMegabytes: attachmentTotalMb,
+          maxCount: attachmentMaxCount,
+        }),
+      });
+      setAttachmentMaxMb(saved.automaticEmailAttachments.maxMegabytesPerFile);
+      setAttachmentTotalMb(saved.automaticEmailAttachments.maxTotalMegabytes);
+      setAttachmentMaxCount(saved.automaticEmailAttachments.maxCount);
+      setNotice("Automatic email attachment limits saved. They apply to every school.");
+    } catch (err) {
+      setError(userFacingError(err as Error, "Could not save attachment limits."));
+    } finally {
+      setSavingLimits(false);
+    }
+  }
 
   async function createSchool(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -198,6 +265,55 @@ export default function PlatformPage() {
               </FormField>
               <div>
                 <Button type="submit">Create school</Button>
+              </div>
+            </form>
+          </SectionCard>
+          <SectionCard
+            title="Automatic email attachments"
+            description="These limits apply to every school. They cannot exceed the active email provider's message size."
+          >
+            {attachmentProviderSummary ? <p className="muted">{attachmentProviderSummary}</p> : null}
+            <form className="form-grid" onSubmit={saveAttachmentLimits}>
+              <FormField label="Maximum size per attachment" hint={`Whole megabytes, up to ${attachmentHardCapMb} MB.`}>
+                <Input
+                  type="number"
+                  min={1}
+                  max={attachmentHardCapMb}
+                  step={1}
+                  value={attachmentMaxMb}
+                  onChange={(event) => setAttachmentMaxMb(Number(event.target.value))}
+                  required
+                />
+              </FormField>
+              <FormField
+                label="Maximum total attachment size per email"
+                hint={`Must be at least the per-file maximum, up to ${attachmentHardCapTotalMb} MB.`}
+              >
+                <Input
+                  type="number"
+                  min={1}
+                  max={attachmentHardCapTotalMb}
+                  step={1}
+                  value={attachmentTotalMb}
+                  onChange={(event) => setAttachmentTotalMb(Number(event.target.value))}
+                  required
+                />
+              </FormField>
+              <FormField label="Maximum attachments per email" hint={`Up to ${attachmentHardCapCount}.`}>
+                <Input
+                  type="number"
+                  min={1}
+                  max={attachmentHardCapCount}
+                  step={1}
+                  value={attachmentMaxCount}
+                  onChange={(event) => setAttachmentMaxCount(Number(event.target.value))}
+                  required
+                />
+              </FormField>
+              <div>
+                <Button type="submit" disabled={savingLimits}>
+                  {savingLimits ? "Saving…" : "Save attachment limits"}
+                </Button>
               </div>
             </form>
           </SectionCard>

@@ -3,15 +3,20 @@ import {
   EmailDeliveryError,
   assertTransactionalEmailAttachmentSet,
   attachmentKindLabel,
+  defaultTransactionalEmailAttachmentLimits,
+  describeAttachmentSetLimitStatus,
   formatAttachmentByteSize,
   presentEmailAttachmentMeta,
   sanitizeEmailAttachmentFilename,
   transactionalEmailAttachmentKind,
   type EmailAttachment,
   type EmailAttachmentMeta,
+  type EmailProviderCapabilities,
+  type TransactionalEmailAttachmentLimits,
 } from "@schoolapp/core";
 import { isCustomizableEmailTemplateKey, type CustomizableEmailTemplateKey } from "@schoolapp/domain";
 import type { ObjectStoragePort } from "@schoolapp/storage";
+import { loadPlatformEmailAttachmentLimits } from "./platform-email-attachment-limits";
 
 type Queryable = {
   query: <T extends Record<string, unknown>>(
@@ -25,6 +30,7 @@ export type AutomaticEmailAttachmentView = EmailAttachmentMeta & {
   storedObjectId: string;
   kindLabel: string;
   sizeLabel: string;
+  overLimitReason: string | null;
 };
 
 type AttachmentRow = {
@@ -69,7 +75,10 @@ export async function loadAutomaticEmailAttachmentViews(
   pool: Queryable,
   organisationId: string,
   templateKey: CustomizableEmailTemplateKey,
+  limits?: TransactionalEmailAttachmentLimits,
+  capabilities?: EmailProviderCapabilities,
 ): Promise<AutomaticEmailAttachmentView[]> {
+  const effective = limits ?? (await loadPlatformEmailAttachmentLimits(pool, capabilities));
   const rows = await pool.query<{
     id: string;
     stored_object_id: string;
@@ -90,28 +99,71 @@ export async function loadAutomaticEmailAttachmentViews(
       order by a.sort_order, a.created_at, a.id`,
     [organisationId, templateKey],
   );
-  return rows.rows.map((row) => presentAutomaticEmailAttachment(row));
+  return presentAutomaticEmailAttachmentList(rows.rows, effective, capabilities);
 }
 
-export function presentAutomaticEmailAttachment(row: {
-  id: string;
-  stored_object_id: string;
-  display_filename: string;
-  content_type: string;
-  byte_size: string | number;
-}): AutomaticEmailAttachmentView {
-  const meta = presentEmailAttachmentMeta({
-    filename: row.display_filename,
-    contentType: row.content_type,
-    byteSize: Number(row.byte_size),
-  });
+export function presentAutomaticEmailAttachment(
+  row: {
+    id: string;
+    stored_object_id: string;
+    display_filename: string;
+    content_type: string;
+    byte_size: string | number;
+  },
+  limits: TransactionalEmailAttachmentLimits = defaultTransactionalEmailAttachmentLimits(),
+  extras: { countOverLimit?: boolean; totalOverLimit?: boolean } = {},
+): AutomaticEmailAttachmentView {
+  const meta = presentEmailAttachmentMeta(
+    {
+      filename: row.display_filename,
+      contentType: row.content_type,
+      byteSize: Number(row.byte_size),
+    },
+    limits,
+    { enforceSize: false },
+  );
+  const overLimit = meta.overLimit || Boolean(extras.countOverLimit) || Boolean(extras.totalOverLimit);
+  let overLimitReason: string | null = null;
+  if (meta.overLimit) {
+    overLimitReason = `This file is over the current maximum of ${formatAttachmentByteSize(limits.maxBytesPerFile)}. This email will not send until the file is removed.`;
+  } else if (extras.countOverLimit) {
+    overLimitReason = `This automatic email has more than ${limits.maxCount} attachments. This email will not send until extra files are removed.`;
+  } else if (extras.totalOverLimit) {
+    overLimitReason = `These attachments are over the current total maximum of ${formatAttachmentByteSize(limits.maxTotalBytes)}. This email will not send until files are removed.`;
+  }
   return {
     id: row.id,
     storedObjectId: row.stored_object_id,
     ...meta,
+    overLimit,
     kindLabel: attachmentKindLabel(meta.kind),
     sizeLabel: formatAttachmentByteSize(meta.byteSize),
+    overLimitReason,
   };
+}
+
+export function presentAutomaticEmailAttachmentList(
+  rows: Array<{
+    id: string;
+    stored_object_id: string;
+    display_filename: string;
+    content_type: string;
+    byte_size: string | number;
+  }>,
+  limits: TransactionalEmailAttachmentLimits,
+  capabilities?: EmailProviderCapabilities,
+): AutomaticEmailAttachmentView[] {
+  const status = describeAttachmentSetLimitStatus(
+    rows.map((row) => ({ byteSize: Number(row.byte_size) })),
+    limits,
+    capabilities,
+  );
+  return rows.map((row, index) =>
+    presentAutomaticEmailAttachment(row, limits, {
+      countOverLimit: index >= limits.maxCount,
+      totalOverLimit: status.totalOverLimit || status.encodedOverLimit,
+    }),
+  );
 }
 
 export async function loadSendAttachments(input: {
@@ -119,6 +171,7 @@ export async function loadSendAttachments(input: {
   storage: ObjectStoragePort | undefined;
   organisationId: string | null | undefined;
   templateKey: string;
+  capabilities?: EmailProviderCapabilities;
 }): Promise<EmailAttachment[] | undefined> {
   if (!input.organisationId || !isCustomizableEmailTemplateKey(input.templateKey)) {
     return undefined;
@@ -145,6 +198,7 @@ export async function loadSendAttachments(input: {
       "Automatic email attachments could not be loaded",
     );
   }
+  const limits = await loadPlatformEmailAttachmentLimits(input.pool, input.capabilities);
   const metas = assertTransactionalEmailAttachmentSet(
     rows.map((row) => {
       assertSendAttachmentRow(row, input.organisationId!);
@@ -154,6 +208,8 @@ export async function loadSendAttachments(input: {
         byteSize: Number(row.byte_size),
       };
     }),
+    limits,
+    input.capabilities,
   );
   const attachments: EmailAttachment[] = [];
   for (let i = 0; i < rows.length; i += 1) {

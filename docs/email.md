@@ -94,11 +94,27 @@ School admins inspect status at **School settings → Email delivery** and retry
 
 - **Wording** — subject, heading, greeting, body, sign-off with approved `{{placeholders}}` only. “Use system default” deletes the wording override row and does **not** delete logo/attachment settings.
 - **Logo visibility** — per organisation and template. Default is ON (the school's existing logo). OFF omits the `<img>` cleanly; the school name and layout remain. Stored on `organisation_transactional_email_settings`, independent of wording.
-- **Attachments** — school-provided PDF/DOCX/JPEG/PNG documents (prospectus, fees guide, admissions pack). Per organisation and template. Not applications, medical, safeguarding, or pupil records. Bytes stay in private object storage (`stored_objects.domain = transactional_email`) and are attached as MIME parts at send time. Limits: 5 MB per file, 8 MB total, 5 files (under Postmark/SMTP's 10 MB message size).
+- **Attachments** — school-provided PDF/DOCX/JPEG/PNG documents (prospectus, fees guide, admissions pack). Per organisation and template. Not applications, medical, safeguarding, or pupil records. Bytes stay in private object storage (`stored_objects.domain = transactional_email`) and are attached as MIME parts at send time.
+
+  **Limits are platform-wide** (Platform Admin → Automatic email attachments). They are **provider-aware**:
+
+  - **Configured platform limit** — what Platform Admin saved
+  - **Provider safety limit** — the active SMTP vendor's encoded-message budget, converted to a conservative raw-file ceiling
+  - **Effective limit** = `min(configured, provider capability, application cap)`
+
+  Current production is **Postmark SMTP**. Postmark's outbound cap is **10 MB total message size after Base64/MIME encoding**. Effective defaults: **7 MB per file, 7 MB total, 5 files**. Hard count cap: **10**. Platform Admin cannot save a value above the *active* provider capability, so 15 MB / 20 MB / an 8 MB brochure cannot be attached while Postmark is the sender.
+
+  Amazon SES is **not** configured. For architecture only: SES v1 API is 10 MB encoded; **SES v2 API and SES SMTP are 40 MB encoded**. The database application cap is **25 MB** so a future SES SMTP path does not need a destructive schema change. Unknown SMTP hosts fail closed to Postmark's 10 MB encoded / 7 MB raw budget.
+
+  School Admin sees only the **effective** limits. If a file is larger than the active provider permits, the UI says: “This file is too large to send as an email attachment with the current email provider. Add a download link to the email instead.”
+
+  **Large documents (follow-up):** school brochures above the provider attachment limit should be delivered as a secure or public school document link, not as a MIME attachment. Postmark recommends a hosted/CDN link for large files. That delivery feature is out of scope here.
+
+  If Platform Admin later lowers a limit, existing files are **not deleted**. The School Admin UI marks them as over the current limit. The worker **does not silently omit** them: send fails with `attachment_limit_exceeded` (retryable). School Admin must remove or replace the over-limit file, then retry from Email delivery. Invitation, password-reset, and finance emails do not load B3 attachments.
 
 The branded HTML/plain-text shell, school name, and Powered by LuvLearn footer stay system-controlled. Schools with no override keep the built-in wording, show the logo, and send no attachments. Corrupt or disabled wording overrides fail open to the built-in template and still send (logo/attachments still apply). Preview uses sample data, lists attachment metadata without loading file bytes, and never writes `mail_outbox`.
 
-If a configured attachment cannot be loaded or fails validation at send time, that delivery attempt fails, a redacted error is stored (`attachment_unavailable` / `attachment_invalid` / `attachment_limit_exceeded`), and the existing bounded retry (max 5) applies. The message is not marked sent with a silently dropped attachment. After retries the row is `failed` and School Admin can remove the stale attachment then retry from Email delivery. Invitation, password-reset, and finance emails do not load B3 attachments.
+If a configured attachment cannot be loaded or fails validation at send time, that delivery attempt fails, a redacted error is stored (`attachment_unavailable` / `attachment_invalid` / `attachment_limit_exceeded` / `attachment_too_large`), and the existing bounded retry (max 5) applies. The message is not marked sent with a silently dropped attachment. After retries the row is `failed` and School Admin can remove the stale attachment then retry from Email delivery. Invitation, password-reset, and finance emails do not load B3 attachments.
 
 ## Connected product events
 

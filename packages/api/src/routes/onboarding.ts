@@ -16,22 +16,22 @@ import {
   AUTOMATIC_EMAIL_TEMPLATE_CATALOG,
   EmailAttachmentError,
   EmailTemplateValidationError,
-  TRANSACTIONAL_EMAIL_ATTACHMENT_MAX_BYTES,
-  TRANSACTIONAL_EMAIL_ATTACHMENTS_MAX_COUNT,
-  TRANSACTIONAL_EMAIL_ATTACHMENTS_MAX_TOTAL_BYTES,
   assertAnyPermission,
   assertPermission,
   assertTransactionalEmailAttachmentSet,
+  attachmentSizeRejectionMessage,
   automaticEmailCatalogItem,
   evaluateReadiness,
   fixturePreviewData,
   isIsoCurrency,
   mailOutboxCanRetry,
   pgErrorToAppError,
+  presentPlatformEmailAttachmentLimits,
   presentSchoolOnboarding,
   renderTransactionalEmail,
   sampleMergeData,
   sanitizeEmailAttachmentFilename,
+  tooManyAttachmentsMessage,
   validateOrganisationEmailTemplate,
   writeAudit,
 } from "@schoolapp/core";
@@ -43,6 +43,7 @@ import {
   loadAutomaticEmailAttachmentViews,
   loadShowSchoolLogo,
 } from "../email-template-attachments";
+import { loadPlatformEmailAttachmentLimits, emailCapabilitiesFromRuntime } from "../platform-email-attachment-limits";
 import {
   insertPendingObject,
   profileForDomain,
@@ -578,6 +579,10 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
             availableFields: item.mergeFields,
           };
         }),
+        attachmentLimits: presentPlatformEmailAttachmentLimits(
+          await loadPlatformEmailAttachmentLimits(client, emailCapabilitiesFromRuntime(c.get("config").email)),
+          emailCapabilitiesFromRuntime(c.get("config").email),
+        ),
       });
     }),
   );
@@ -589,7 +594,12 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
       const item = automaticEmailCatalogItem(key);
       const stored = await loadStoredTemplateRow(client, orgId, key);
       const current = stored ?? item.defaults;
-      const presentation = await loadTemplatePresentation(client, orgId, key);
+      const presentation = await loadTemplatePresentation(
+        client,
+        orgId,
+        key,
+        emailCapabilitiesFromRuntime(c.get("config").email),
+      );
       return c.json({
         template: presentStoredTemplate(
           item,
@@ -662,7 +672,12 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
       });
       const item = automaticEmailCatalogItem(key);
       const row = saved.rows[0]!;
-      const presentation = await loadTemplatePresentation(client, orgId, key);
+      const presentation = await loadTemplatePresentation(
+        client,
+        orgId,
+        key,
+        emailCapabilitiesFromRuntime(c.get("config").email),
+      );
       return c.json({
         template: presentStoredTemplate(
           item,
@@ -720,7 +735,9 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
         { ...branding, logoUrl: showSchoolLogo ? branding.logoUrl : null },
         { ...validated, enabled: true },
       );
-      const attachments = await loadAutomaticEmailAttachmentViews(client, orgId, key);
+      const capabilities = emailCapabilitiesFromRuntime(c.get("config").email);
+      const limits = await loadPlatformEmailAttachmentLimits(client, capabilities);
+      const attachments = await loadAutomaticEmailAttachmentViews(client, orgId, key, limits, capabilities);
       return c.json({
         template: key,
         subject: rendered.subject,
@@ -729,12 +746,14 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
         fixture: true,
         queued: false,
         showSchoolLogo,
+        attachmentLimits: presentPlatformEmailAttachmentLimits(limits, capabilities),
         attachments: attachments.map((item) => ({
           filename: item.filename,
           contentType: item.contentType,
           byteSize: item.byteSize,
           kindLabel: item.kindLabel,
           sizeLabel: item.sizeLabel,
+          overLimit: item.overLimit,
         })),
       });
     }),
@@ -758,7 +777,12 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
         after: { templateKey: key, resetToDefault: true },
       });
       const item = automaticEmailCatalogItem(key);
-      const presentation = await loadTemplatePresentation(client, orgId, key);
+      const presentation = await loadTemplatePresentation(
+        client,
+        orgId,
+        key,
+        emailCapabilitiesFromRuntime(c.get("config").email),
+      );
       return c.json({
         template: presentStoredTemplate(item, item.defaults, null, false, presentation),
       });
@@ -784,7 +808,12 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
       });
       const item = automaticEmailCatalogItem(key);
       const stored = await loadStoredTemplateRow(client, orgId, key);
-      const presentation = await loadTemplatePresentation(client, orgId, key);
+      const presentation = await loadTemplatePresentation(
+        client,
+        orgId,
+        key,
+        emailCapabilitiesFromRuntime(c.get("config").email),
+      );
       return c.json({
         template: presentStoredTemplate(
           item,
@@ -801,8 +830,25 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       assertPermission(actor, PERMISSIONS.ORG_SETTINGS_MANAGE);
       const key = requireCustomizableKey(c.req.param("key") ?? "");
+      const capabilities = emailCapabilitiesFromRuntime(c.get("config").email);
+      const limits = await loadPlatformEmailAttachmentLimits(client, capabilities);
       const uploaded = await readUploadedFile(c);
-      const profile = profileForDomain("transactional_email");
+      if (uploaded.bytes.byteLength > limits.maxBytesPerFile) {
+        throw new AppError(
+          400,
+          "file_too_large",
+          attachmentSizeRejectionMessage(
+            uploaded.filename,
+            uploaded.bytes.byteLength,
+            limits.maxBytesPerFile,
+            capabilities,
+          ),
+        );
+      }
+      const profile = {
+        ...profileForDomain("transactional_email"),
+        maxBytes: limits.maxBytesPerFile,
+      };
       let validated;
       try {
         validated = validateUpload({
@@ -814,31 +860,40 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
       } catch (error) {
         throw storageErrorToAppError(error);
       }
-      if (validated.byteSize > TRANSACTIONAL_EMAIL_ATTACHMENT_MAX_BYTES) {
-        throw new AppError(400, "file_too_large", "This file is too large");
-      }
-      const settingsId = await upsertEmailTemplateSettings(client, orgId, key, userId);
-      const existing = await loadAutomaticEmailAttachmentViews(client, orgId, key);
-      if (existing.length >= TRANSACTIONAL_EMAIL_ATTACHMENTS_MAX_COUNT) {
+      if (validated.byteSize > limits.maxBytesPerFile) {
         throw new AppError(
           400,
-          "attachment_limit_exceeded",
-          "This automatic email already has the maximum number of attachments",
+          "file_too_large",
+          attachmentSizeRejectionMessage(
+            validated.originalFilename,
+            validated.byteSize,
+            limits.maxBytesPerFile,
+            capabilities,
+          ),
         );
       }
+      const settingsId = await upsertEmailTemplateSettings(client, orgId, key, userId);
+      const existing = await loadAutomaticEmailAttachmentViews(client, orgId, key, limits, capabilities);
+      if (existing.length >= limits.maxCount) {
+        throw new AppError(400, "attachment_limit_exceeded", tooManyAttachmentsMessage(limits.maxCount));
+      }
       try {
-        assertTransactionalEmailAttachmentSet([
-          ...existing.map((item) => ({
-            filename: item.filename,
-            contentType: item.contentType,
-            byteSize: item.byteSize,
-          })),
-          {
-            filename: validated.originalFilename,
-            contentType: validated.storedContentType,
-            byteSize: validated.byteSize,
-          },
-        ]);
+        assertTransactionalEmailAttachmentSet(
+          [
+            ...existing.map((item) => ({
+              filename: item.filename,
+              contentType: item.contentType,
+              byteSize: item.byteSize,
+            })),
+            {
+              filename: validated.originalFilename,
+              contentType: validated.storedContentType,
+              byteSize: validated.byteSize,
+            },
+          ],
+          limits,
+          capabilities,
+        );
       } catch (error) {
         if (error instanceof EmailAttachmentError) {
           throw new AppError(400, error.code, error.message);
@@ -895,7 +950,12 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
       });
       const item = automaticEmailCatalogItem(key);
       const wording = await loadStoredTemplateRow(client, orgId, key);
-      const presentation = await loadTemplatePresentation(client, orgId, key);
+      const presentation = await loadTemplatePresentation(
+        client,
+        orgId,
+        key,
+        emailCapabilitiesFromRuntime(c.get("config").email),
+      );
       return c.json(
         {
           template: presentStoredTemplate(
@@ -970,7 +1030,12 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
       });
       const item = automaticEmailCatalogItem(key);
       const wording = await loadStoredTemplateRow(client, orgId, key);
-      const presentation = await loadTemplatePresentation(client, orgId, key);
+      const presentation = await loadTemplatePresentation(
+        client,
+        orgId,
+        key,
+        emailCapabilitiesFromRuntime(c.get("config").email),
+      );
       return c.json({
         template: presentStoredTemplate(
           item,
@@ -1078,8 +1143,14 @@ function presentStoredTemplate(
   presentation: {
     showSchoolLogo: boolean;
     attachments: Awaited<ReturnType<typeof loadAutomaticEmailAttachmentViews>>;
+    attachmentLimits: Awaited<ReturnType<typeof loadPlatformEmailAttachmentLimits>>;
+    capabilities: ReturnType<typeof emailCapabilitiesFromRuntime>;
   },
 ) {
+  const limits = presentPlatformEmailAttachmentLimits(
+    presentation.attachmentLimits,
+    presentation.capabilities,
+  );
   return {
     key: item.key,
     name: item.name,
@@ -1096,6 +1167,7 @@ function presentStoredTemplate(
     defaults: item.defaults,
     availableFields: item.mergeFields,
     showSchoolLogo: presentation.showSchoolLogo,
+    attachmentLimits: limits,
     attachments: presentation.attachments.map((attachment) => ({
       id: attachment.id,
       filename: attachment.filename,
@@ -1103,6 +1175,8 @@ function presentStoredTemplate(
       byteSize: attachment.byteSize,
       kindLabel: attachment.kindLabel,
       sizeLabel: attachment.sizeLabel,
+      overLimit: attachment.overLimit,
+      overLimitReason: attachment.overLimitReason,
     })),
   };
 }
@@ -1111,10 +1185,14 @@ async function loadTemplatePresentation(
   client: SqlClient,
   orgId: string,
   key: Parameters<typeof loadAutomaticEmailAttachmentViews>[2],
+  capabilities: ReturnType<typeof emailCapabilitiesFromRuntime>,
 ) {
+  const attachmentLimits = await loadPlatformEmailAttachmentLimits(client, capabilities);
   return {
     showSchoolLogo: await loadShowSchoolLogo(client, orgId, key),
-    attachments: await loadAutomaticEmailAttachmentViews(client, orgId, key),
+    attachments: await loadAutomaticEmailAttachmentViews(client, orgId, key, attachmentLimits, capabilities),
+    attachmentLimits,
+    capabilities,
   };
 }
 

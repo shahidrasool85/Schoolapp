@@ -1,8 +1,11 @@
 import type { EmailTemplateKey } from "@schoolapp/domain";
 import type { MailPurpose } from "@schoolapp/domain";
 import {
+  emailProviderCapabilitiesFromHost,
   sanitizeEmailAttachments,
+  TRANSACTIONAL_EMAIL_ATTACHMENTS_APPLICATION_CAP_COUNT,
   type EmailAttachment,
+  type EmailProviderCapabilities,
 } from "./email-attachments.js";
 
 export type EmailAddress = {
@@ -108,7 +111,10 @@ export function requireSafeEmailAddress(
   return parsed;
 }
 
-export function sanitizeEmailSendInput(input: EmailSendInput): EmailSendInput {
+export function sanitizeEmailSendInput(
+  input: EmailSendInput,
+  capabilities: EmailProviderCapabilities = emailProviderCapabilitiesFromHost(null),
+): EmailSendInput {
   const headers: Record<string, string> = {};
   for (const [key, headerValue] of Object.entries(input.headers ?? {})) {
     if (!/^X-LuvLearn-[A-Za-z0-9-]+$/.test(key)) continue;
@@ -128,7 +134,11 @@ export function sanitizeEmailSendInput(input: EmailSendInput): EmailSendInput {
     html: input.html,
     text: input.text,
     headers,
-    attachments: sanitizeEmailAttachments(input.attachments),
+    attachments: sanitizeEmailAttachments(input.attachments, {
+      maxBytesPerFile: capabilities.recommendedMaxRawAttachmentBytes,
+      maxTotalBytes: capabilities.recommendedMaxRawAttachmentBytes,
+      maxCount: TRANSACTIONAL_EMAIL_ATTACHMENTS_APPLICATION_CAP_COUNT,
+    }),
   };
 }
 
@@ -281,7 +291,10 @@ export class SmtpEmailProvider implements EmailDeliveryProvider {
           : undefined,
     });
     try {
-      const safe = sanitizeEmailSendInput(input);
+      const safe = sanitizeEmailSendInput(
+        input,
+        emailProviderCapabilitiesFromHost(this.config.smtp.host),
+      );
       const info = await transport.sendMail({
         from: formatAddress(safe.from),
         to: formatAddress(safe.to),

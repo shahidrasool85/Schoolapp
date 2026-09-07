@@ -139,7 +139,7 @@ describe("content validation", () => {
         profile,
       }),
     ).toThrow(StorageError);
-    const huge = new Uint8Array(5 * 1024 * 1024 + 32);
+    const huge = new Uint8Array(25 * 1024 * 1024 + 32);
     huge.set(PDF, 0);
     expect(() =>
       validateUpload({
@@ -498,6 +498,6 @@ function fileLimitsStub() {
     message: 10 * 1024 * 1024,
     branding: 5 * 1024 * 1024,
     profile_photo: 2 * 1024 * 1024,
-    transactional_email: 5 * 1024 * 1024,
+    transactional_email: 25 * 1024 * 1024,
   };
 }

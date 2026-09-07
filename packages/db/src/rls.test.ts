@@ -99,10 +99,11 @@ describe("RLS catalog", () => {
            'organisation_transactional_email_templates',
            'organisation_transactional_email_settings',
            'organisation_transactional_email_template_attachments',
+           'organisation_admissions_submission_confirmations',
            'data_imports', 'data_import_rows'
          )`,
     );
-    expect(result.rows.length).toBe(196);
+    expect(result.rows.length).toBe(197);
     for (const row of result.rows) {
       expect(row.relforcerowsecurity, row.relname).toBe(true);
     }
@@ -1903,5 +1904,60 @@ describe("RLS catalog", () => {
               transactional_email_attachments_max_total_bytes = 7 * 1024 * 1024
         where id = 1`,
     );
+  });
+
+  it("keeps FORCE RLS from leaking admissions submission confirmations across tenants", async () => {
+    const id = randomUUID().slice(0, 8);
+    const userA = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Admin A', 'staff', 'active') returning id`,
+      [`rls-confirm-a-${id}@example.com`],
+    );
+    const userB = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Admin B', 'staff', 'active') returning id`,
+      [`rls-confirm-b-${id}@example.com`],
+    );
+    const orgA = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-confirm-a-${id}`, "Confirm A"],
+    );
+    const orgB = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`rls-confirm-b-${id}`, "Confirm B"],
+    );
+    await pools.owner.query(
+      `insert into organisation_memberships (organisation_id, user_id, status)
+       values ($1, $2, 'active'), ($3, $4, 'active')`,
+      [orgA.rows[0]!.id, userA.rows[0]!.id, orgB.rows[0]!.id, userB.rows[0]!.id],
+    );
+    await pools.owner.query(
+      `insert into organisation_admissions_submission_confirmations (
+         organisation_id, template_key, heading, message_text
+       ) values
+         ($1, 'admissions_enquiry_submission_confirmation', 'A heading', 'A message'),
+         ($2, 'admissions_enquiry_submission_confirmation', 'B heading', 'B message')`,
+      [orgA.rows[0]!.id, orgB.rows[0]!.id],
+    );
+    await withTenantContext(pools.app, userA.rows[0]!.id, orgA.rows[0]!.id, async (client) => {
+      const seen = await client.query<{ organisation_id: string; heading: string }>(
+        "select organisation_id, heading from organisation_admissions_submission_confirmations",
+      );
+      expect(seen.rows).toHaveLength(1);
+      expect(seen.rows[0]?.organisation_id).toBe(orgA.rows[0]!.id);
+      expect(seen.rows[0]?.heading).toBe("A heading");
+      const leaked = await client.query(
+        "select id from organisation_admissions_submission_confirmations where organisation_id = $1",
+        [orgB.rows[0]!.id],
+      );
+      expect(leaked.rows).toEqual([]);
+    });
+    const grants = await pools.owner.query<{ can_select: boolean; can_insert: boolean }>(
+      `select
+         has_table_privilege('schoolapp_app', 'organisation_admissions_submission_confirmations', 'SELECT') as can_select,
+         has_table_privilege('schoolapp_app', 'organisation_admissions_submission_confirmations', 'INSERT') as can_insert`,
+    );
+    expect(grants.rows[0]?.can_select).toBe(true);
+    expect(grants.rows[0]?.can_insert).toBe(true);
   });
 });

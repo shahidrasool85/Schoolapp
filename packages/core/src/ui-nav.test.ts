@@ -80,6 +80,25 @@ describe("isActiveNavHref", () => {
       isActiveNavHref("/school/settings/email", "tab=automatic", "/school/settings/email", false),
     ).toBe(true);
   });
+
+  it("keeps School settings Admissions active for confirmation editors", () => {
+    expect(
+      isActiveNavHref(
+        "/school/settings/admissions",
+        "template=admissions_enquiry_submission_confirmation",
+        "/school/settings/admissions",
+        false,
+      ),
+    ).toBe(true);
+    expect(
+      isActiveNavHref(
+        "/school/settings/admissions",
+        "template=admissions_enquiry_submission_confirmation",
+        "/school/settings/email",
+        false,
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("isNavSectionOpen", () => {

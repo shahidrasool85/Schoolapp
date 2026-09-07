@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ChangeEvent, type ReactNode } from "react";
 import { api, ApiError } from "./api";
+import { AdmissionsSubmissionConfirmation } from "./admissions-submission-confirmation";
 
 const PUBLIC_FORM_TYPES = [
   "enquiry",
@@ -719,7 +720,15 @@ export function PublicAdmissionsForm({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [done, setDone] = useState<{ title: string; text: string; reference?: string } | null>(null);
+  const [done, setDone] = useState<{
+    heading: string;
+    message: string;
+    additionalMessage?: string | null;
+    button?: { label: string; url: string } | null;
+    reference?: string;
+    referenceLabel: string;
+    showSystemReference: boolean;
+  } | null>(null);
   const [continuation, setContinuation] = useState<string | null>(null);
   const [publicId, setPublicId] = useState<string | null>(null);
   const [draftAnswers, setDraftAnswers] = useState<Record<string, unknown>>({});
@@ -963,6 +972,15 @@ export function PublicAdmissionsForm({
           applicationId?: string;
           applicationReference?: string;
           continuationToken?: string;
+          confirmation?: {
+            heading: string;
+            message: string;
+            additionalMessage?: string | null;
+            button?: { label: string; url: string } | null;
+            referenceLabel: string;
+            reference: string;
+            showSystemReference: boolean;
+          };
         };
       }>(path, {
         method: "POST",
@@ -978,10 +996,21 @@ export function PublicAdmissionsForm({
         enquiryReference: body.submission.enquiryReference,
       });
       if (mode === "staff") return;
+      const reference = body.submission.enquiryReference ?? body.submission.applicationReference;
+      const confirmation = body.submission.confirmation;
       setDone({
-        title: payload.form.successTitle ?? "Thank you",
-        text: payload.form.successText ?? "We have received your submission.",
-        reference: body.submission.enquiryReference ?? body.submission.applicationReference,
+        heading: confirmation?.heading ?? payload.form.successTitle ?? "Thank you",
+        message:
+          confirmation?.message ??
+          payload.form.successText ??
+          (formType === "application" ? "We have received your application." : "We have received your submission."),
+        additionalMessage: confirmation?.additionalMessage ?? null,
+        button: confirmation?.button ?? null,
+        reference: reference ?? confirmation?.reference,
+        referenceLabel:
+          confirmation?.referenceLabel ??
+          (formType === "enquiry" ? "Enquiry reference" : "Application reference"),
+        showSystemReference: confirmation?.showSystemReference ?? true,
       });
     } catch (err) {
       applyServerError(err);
@@ -1038,16 +1067,19 @@ export function PublicAdmissionsForm({
   if (done) {
     return (
       <main className={`admissions-app${embed ? " embed" : ""}`} style={brandStyle}>
-        <div className="admissions-success">
-          <p className="admissions-kicker">{payload.organisation.name}</p>
-          <h1>{done.title}</h1>
-          <p>{done.text}</p>
-          {done.reference ? (
-            <p className="admissions-ref">
-              {formType === "enquiry" ? "Enquiry reference" : "Application reference"}: {done.reference}
-            </p>
-          ) : null}
-        </div>
+        <AdmissionsSubmissionConfirmation
+          view={{
+            schoolName: payload.organisation.name,
+            logoUrl: payload.branding?.logoUrl,
+            heading: done.heading,
+            message: done.message,
+            additionalMessage: done.additionalMessage,
+            button: done.button,
+            referenceLabel: done.referenceLabel,
+            reference: done.reference,
+            showSystemReference: done.showSystemReference,
+          }}
+        />
       </main>
     );
   }

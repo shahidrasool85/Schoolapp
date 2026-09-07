@@ -315,6 +315,16 @@ export {
   type EmailSettingsTab,
 } from "./email-settings-tabs.js";
 
+export {
+  ADMISSIONS_SETTINGS_PATH,
+  SUBMISSION_CONFIRMATION_KEYS,
+  isSubmissionConfirmationKey,
+  submissionConfirmationEditorHref,
+  submissionConfirmationKeyForFormType,
+  submissionConfirmationKind,
+  type SubmissionConfirmationKey,
+} from "./admissions-submission-confirmations.js";
+
 export { captureSubmitTarget, resetFormSafely } from "./forms.js";
 
 export {

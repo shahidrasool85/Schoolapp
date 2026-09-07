@@ -29,6 +29,11 @@ import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
 import { uuidRouteParam, withSchoolActor } from "../school-context";
 import {
+  prepareAdmissionsStatusEmail,
+  queuePreparedAdmissionsStatusEmail,
+  type PendingAdmissionsStatusEmail,
+} from "../admissions-mail";
+import {
   mapApplication,
   mapApplicationContact,
   mapApplicationHistory,
@@ -164,6 +169,21 @@ async function loadApplication(client: pg.PoolClient, orgId: string, id: string)
   const listed = await client.query(`${APPLICATION_SQL} and a.id = $2`, [orgId, id]);
   if (!listed.rows[0]) throw new AppError(404, "not_found", "Not found");
   return listed.rows[0] as Record<string, unknown>;
+}
+
+async function captureStatusEmail(
+  client: pg.PoolClient,
+  orgId: string,
+  applicationId: string,
+  fromStatus: string,
+): Promise<PendingAdmissionsStatusEmail | null> {
+  const application = await loadApplication(client, orgId, applicationId);
+  return prepareAdmissionsStatusEmail(client, {
+    organisationId: orgId,
+    applicationId,
+    fromStatus,
+    application,
+  });
 }
 
 async function applyConvertedApplicationCanonicalFields(
@@ -829,8 +849,9 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
     }),
   );
 
-  app.post("/admissions/applications/:id/status", requireUser, async (c) =>
-    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+  app.post("/admissions/applications/:id/status", requireUser, async (c) => {
+    let pending: PendingAdmissionsStatusEmail | null = null;
+    const response = await withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       const id = uuidRouteParam(c, "id");
       const parsed = z
         .object({
@@ -871,9 +892,12 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
           `Your application is now ${parsed.data.status.replaceAll("_", " ")}.`,
         );
       }
+      pending = await captureStatusEmail(client, orgId, id, from);
       return c.json({ application: mapApplication(await loadApplication(client, orgId, id)) });
-    }),
-  );
+    });
+    await queuePreparedAdmissionsStatusEmail(c, pending);
+    return response;
+  });
 
   app.post("/admissions/applications/:id/contacts", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
@@ -912,11 +936,13 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
     }),
   );
 
-  app.post("/admissions/applications/:id/assessments", requireUser, async (c) =>
-    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+  app.post("/admissions/applications/:id/assessments", requireUser, async (c) => {
+    let pending: PendingAdmissionsStatusEmail | null = null;
+    const response = await withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       if (!canManageApplications(actor)) throw new AppError(403, "forbidden", "Missing permission");
       const applicationId = uuidRouteParam(c, "id");
-      await loadApplication(client, orgId, applicationId);
+      const application = await loadApplication(client, orgId, applicationId);
+      const from = String(application.status);
       const parsed = z
         .object({
           assessmentType: z.enum(ASSESSMENT_TYPES),
@@ -947,7 +973,6 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
           userId,
         ],
       );
-      const application = await loadApplication(client, orgId, applicationId);
       if (application.status === "under_review" || application.status === "submitted") {
         await setTransitionReason(client, "Assessment scheduled");
         await client.query(
@@ -964,13 +989,17 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
         entityId: inserted.rows[0]!.id,
         after: parsed.data,
       });
+      pending = await captureStatusEmail(client, orgId, applicationId, from);
       const listed = await client.query(`${ASSESSMENT_SQL} and s.id = $2`, [orgId, inserted.rows[0]!.id]);
       return c.json({ assessment: mapAssessment(listed.rows[0]!) }, 201);
-    }),
-  );
+    });
+    await queuePreparedAdmissionsStatusEmail(c, pending);
+    return response;
+  });
 
-  app.patch("/admissions/assessments/:id", requireUser, async (c) =>
-    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+  app.patch("/admissions/assessments/:id", requireUser, async (c) => {
+    let pending: PendingAdmissionsStatusEmail | null = null;
+    const response = await withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       if (!canManageApplications(actor)) throw new AppError(403, "forbidden", "Missing permission");
       const id = uuidRouteParam(c, "id");
       const parsed = z
@@ -987,6 +1016,8 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid assessment payload");
       const existing = await client.query(`${ASSESSMENT_SQL} and s.id = $2`, [orgId, id]);
       if (!existing.rows[0]) throw new AppError(404, "not_found", "Not found");
+      const applicationId = String(existing.rows[0].application_id);
+      const from = String((await loadApplication(client, orgId, applicationId)).status);
       const completed =
         parsed.data.status === "completed"
           ? parsed.data.completedAt ?? new Date().toISOString()
@@ -1040,10 +1071,13 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
         entityId: id,
         after: parsed.data,
       });
+      pending = await captureStatusEmail(client, orgId, applicationId, from);
       const listed = await client.query(`${ASSESSMENT_SQL} and s.id = $2`, [orgId, id]);
       return c.json({ assessment: mapAssessment(listed.rows[0]!) });
-    }),
-  );
+    });
+    await queuePreparedAdmissionsStatusEmail(c, pending);
+    return response;
+  });
 
   app.get("/admissions/waiting-list", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
@@ -1063,11 +1097,13 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
     }),
   );
 
-  app.post("/admissions/applications/:id/waiting-list", requireUser, async (c) =>
-    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+  app.post("/admissions/applications/:id/waiting-list", requireUser, async (c) => {
+    let pending: PendingAdmissionsStatusEmail | null = null;
+    const response = await withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       if (!canDecideAdmissions(actor)) throw new AppError(403, "forbidden", "Missing permission");
       const id = uuidRouteParam(c, "id");
       const application = await loadApplication(client, orgId, id);
+      const from = String(application.status);
       const parsed = z
         .object({
           priority: z.number().int().min(1).max(9999).optional(),
@@ -1111,10 +1147,13 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
         entityId: entry.rows[0]!.id,
         after: { applicationId: id },
       });
+      pending = await captureStatusEmail(client, orgId, id, from);
       const listed = await client.query(`${WAITING_SQL} and w.id = $2`, [orgId, entry.rows[0]!.id]);
       return c.json({ entry: mapWaitingListEntry(listed.rows[0]!) }, 201);
-    }),
-  );
+    });
+    await queuePreparedAdmissionsStatusEmail(c, pending);
+    return response;
+  });
 
   app.patch("/admissions/waiting-list/:id", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
@@ -1173,13 +1212,15 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
     }),
   );
 
-  app.post("/admissions/applications/:id/offers", requireUser, async (c) =>
-    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+  app.post("/admissions/applications/:id/offers", requireUser, async (c) => {
+    let pending: PendingAdmissionsStatusEmail | null = null;
+    const response = await withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       if (!canManageOffers(actor) && !canDecideAdmissions(actor)) {
         throw new AppError(403, "forbidden", "Missing permission");
       }
       const id = uuidRouteParam(c, "id");
       const application = await loadApplication(client, orgId, id);
+      const from = String(application.status);
       const parsed = z
         .object({
           offeredAcademicYearId: z.string().uuid().optional(),
@@ -1248,13 +1289,17 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
         `Offer ${application.reference}`,
         "An admissions offer has been recorded for this application.",
       );
+      pending = await captureStatusEmail(client, orgId, id, from);
       const listed = await client.query(`${OFFER_SQL} and o.id = $2`, [orgId, inserted.rows[0]!.id]);
       return c.json({ offer: mapOffer(listed.rows[0]!) }, 201);
-    }),
-  );
+    });
+    await queuePreparedAdmissionsStatusEmail(c, pending);
+    return response;
+  });
 
-  app.patch("/admissions/offers/:id", requireUser, async (c) =>
-    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+  app.patch("/admissions/offers/:id", requireUser, async (c) => {
+    let pending: PendingAdmissionsStatusEmail | null = null;
+    const response = await withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       if (!canManageOffers(actor) && !canDecideAdmissions(actor)) {
         throw new AppError(403, "forbidden", "Missing permission");
       }
@@ -1285,6 +1330,7 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
         }
       }
       const application = await loadApplication(client, orgId, applicationId);
+      const from = String(application.status);
       if (statusChanged && (nextStatus === "expired" || nextStatus === "withdrawn")) {
         if (application.status === "accepted" || application.status === "enrolled") {
           throw new AppError(
@@ -1360,16 +1406,21 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
           nextStatus === "accepted" ? "The admissions offer was accepted." : "The admissions offer was declined.",
         );
       }
+      pending = await captureStatusEmail(client, orgId, applicationId, from);
       const listed = await client.query(`${OFFER_SQL} and o.id = $2`, [orgId, id]);
       return c.json({ offer: mapOffer(listed.rows[0]!) });
-    }),
-  );
+    });
+    await queuePreparedAdmissionsStatusEmail(c, pending);
+    return response;
+  });
 
-  app.post("/admissions/applications/:id/enrol", requireUser, async (c) =>
-    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+  app.post("/admissions/applications/:id/enrol", requireUser, async (c) => {
+    let pending: PendingAdmissionsStatusEmail | null = null;
+    const response = await withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       if (!canConvertAdmissions(actor)) throw new AppError(403, "forbidden", "Missing permission");
       const id = uuidRouteParam(c, "id");
       const application = await loadApplication(client, orgId, id);
+      const from = String(application.status);
       const parsed = z
         .object({
           academicYearId: z.string().uuid().optional(),
@@ -1426,12 +1477,15 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
           `Enrolment ${application.reference}`,
           "The applicant has been enrolled at the school.",
         );
+        pending = await captureStatusEmail(client, orgId, id, from);
       }
       const listed = await client.query(`${APPLICATION_SQL} and a.id = $2`, [orgId, id]);
       return c.json({
         application: mapApplication(listed.rows[0]!),
         studentProfileId: converted.rows[0]!.student_profile_id,
       });
-    }),
-  );
+    });
+    await queuePreparedAdmissionsStatusEmail(c, pending);
+    return response;
+  });
 }

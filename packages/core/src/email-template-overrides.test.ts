@@ -5,6 +5,7 @@ import {
   renderCustomEmailTemplate,
   renderEmailTemplate,
   renderTransactionalEmail,
+  resolveAutomaticEmailSendEnabled,
   validateOrganisationEmailTemplate,
 } from "./index.js";
 
@@ -236,5 +237,84 @@ describe("organisation email template overrides", () => {
       branding,
     );
     expect(viaLayer).toEqual(direct);
+  });
+
+  it("renders admissions status defaults and rejects unsafe fields", () => {
+    const rendered = renderTransactionalEmail(
+      "admissions_status_offer_made",
+      {
+        recipientName: "Sarah Example",
+        childName: "Maya Example",
+        applicationReference: "APP-1001",
+        intendedEntry: "Year 3 — 2026/27",
+        statusLabel: "Offer made",
+        offerDeadline: "01/06/2026",
+        schoolContactEmail: "admissions@kingswood.example.test",
+      },
+      branding,
+    );
+    expect(rendered.subject).toContain("Kingswood School");
+    expect(rendered.text).toContain("an offer has been made for Maya");
+    expect(rendered.text).toContain("APP-1001");
+    expect(rendered.text).toContain("01/06/2026");
+    expect(rendered.html).toContain("Powered by LuvLearn");
+
+    const custom = renderCustomEmailTemplate(
+      {
+        templateKey: "admissions_status_rejected",
+        enabled: true,
+        subject: "Update from {{school_name}}",
+        heading: "Application update",
+        greeting: "Hello {{recipient_first_name}},",
+        body: "The application for {{pupil_first_name}} is {{application_status}}.",
+        signoff: "Regards",
+      },
+      {
+        recipientName: "Sarah Example",
+        childName: "Maya Example",
+        statusLabel: "Rejected",
+      },
+      branding,
+    );
+    expect(custom.text).toContain("The application for Maya is Rejected.");
+
+    expect(() =>
+      validateOrganisationEmailTemplate({
+        templateKey: "admissions_status_enrolled",
+        subject: "Hello",
+        heading: "Hello",
+        greeting: "Hello",
+        body: "Allergy {{medical_notes}}",
+        signoff: "Bye",
+      }),
+    ).toThrow(/unsupported field/i);
+    expect(() =>
+      validateOrganisationEmailTemplate({
+        templateKey: "admissions_status_waiting_list",
+        subject: "Hello",
+        heading: "Hello",
+        greeting: "Hello",
+        body: "DOB {{date_of_birth}}",
+        signoff: "Bye",
+      }),
+    ).toThrow(/unsupported field/i);
+    expect(() =>
+      validateOrganisationEmailTemplate({
+        templateKey: "admissions_status_offer_made",
+        subject: "Hello",
+        heading: "Hello",
+        greeting: "Hello",
+        body: "Click <script>alert(1)</script>",
+        signoff: "Bye",
+      }),
+    ).toThrow(/HTML or scripts/);
+  });
+
+  it("keeps acknowledgements sending and requires an explicit enable for status emails", () => {
+    expect(resolveAutomaticEmailSendEnabled("admissions_enquiry_received", false)).toBe(true);
+    expect(resolveAutomaticEmailSendEnabled("admissions_application_received", undefined)).toBe(true);
+    expect(resolveAutomaticEmailSendEnabled("admissions_status_offer_made", undefined)).toBe(false);
+    expect(resolveAutomaticEmailSendEnabled("admissions_status_offer_made", false)).toBe(false);
+    expect(resolveAutomaticEmailSendEnabled("admissions_status_enrolled", true)).toBe(true);
   });
 });

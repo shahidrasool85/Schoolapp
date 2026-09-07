@@ -7,6 +7,7 @@ import {
   ONBOARDING_STEPS,
   PERMISSIONS,
   SCHOOL_SETTINGS_PROFILE_READ_PERMISSIONS,
+  isAdmissionsStatusEmailTemplateKey,
   isCustomizableEmailTemplateKey,
   publicBrandingAssetUrl,
   isOnboardingStep,
@@ -29,6 +30,7 @@ import {
   presentPlatformEmailAttachmentLimits,
   presentSchoolOnboarding,
   renderTransactionalEmail,
+  resolveAutomaticEmailSendEnabled,
   sampleMergeData,
   sanitizeEmailAttachmentFilename,
   tooManyAttachmentsMessage,
@@ -41,6 +43,7 @@ import { withSchoolActor } from "../school-context";
 import { deliverQueuedMail } from "../email-delivery";
 import {
   loadAutomaticEmailAttachmentViews,
+  loadAutomaticEmailSettings,
   loadShowSchoolLogo,
 } from "../email-template-attachments";
 import { loadPlatformEmailAttachmentLimits, emailCapabilitiesFromRuntime } from "../platform-email-attachment-limits";
@@ -91,6 +94,7 @@ const preferenceSchema = z.object({
 
 const templateWriteSchema = z.object({
   enabled: z.boolean().optional(),
+  sendEnabled: z.boolean().optional(),
   subject: z.string(),
   heading: z.string(),
   greeting: z.string(),
@@ -109,7 +113,10 @@ const templatePreviewSchema = z.object({
 });
 
 const templatePresentationSchema = z.object({
-  showSchoolLogo: z.boolean(),
+  showSchoolLogo: z.boolean().optional(),
+  sendEnabled: z.boolean().optional(),
+}).refine((value) => value.showSchoolLogo !== undefined || value.sendEnabled !== undefined, {
+  message: "Nothing to update",
 });
 
 function publicBrandingUrls(
@@ -564,15 +571,31 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
           where organisation_id = $1`,
         [orgId],
       );
+      const settings = await client.query<{
+        template_key: string;
+        send_enabled: boolean;
+      }>(
+        `select template_key, send_enabled
+           from organisation_transactional_email_settings
+          where organisation_id = $1`,
+        [orgId],
+      );
       const byKey = new Map(stored.rows.map((row) => [row.template_key, row]));
+      const settingsByKey = new Map(settings.rows.map((row) => [row.template_key, row]));
       return c.json({
         templates: AUTOMATIC_EMAIL_TEMPLATE_CATALOG.map((item) => {
           const row = byKey.get(item.key);
+          const sendEnabled = resolveAutomaticEmailSendEnabled(
+            item.key,
+            settingsByKey.get(item.key)?.send_enabled,
+          );
           return {
             key: item.key,
             name: item.name,
             description: item.description,
+            kind: item.kind,
             enabled: row ? row.enabled : true,
+            sendEnabled,
             source: row && row.enabled ? "custom" : "system",
             customised: Boolean(row),
             updatedAt: row?.updated_at ?? null,
@@ -662,13 +685,23 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
           userId,
         ],
       );
+      if (isAdmissionsStatusEmailTemplateKey(key) && parsed.data.sendEnabled !== undefined) {
+        await upsertEmailTemplateSettings(client, orgId, key, userId, undefined, parsed.data.sendEnabled);
+      }
       await writeAudit(client, {
         organisationId: orgId,
         actorUserId: userId,
         action: "org.email_template.updated",
         entityType: "organisation_transactional_email_template",
         entityId: orgId,
-        after: { templateKey: key, enabled: validated.enabled, customised: true },
+        after: {
+          templateKey: key,
+          enabled: validated.enabled,
+          customised: true,
+          ...(isAdmissionsStatusEmailTemplateKey(key) && parsed.data.sendEnabled !== undefined
+            ? { sendEnabled: parsed.data.sendEnabled }
+            : {}),
+        },
       });
       const item = automaticEmailCatalogItem(key);
       const row = saved.rows[0]!;
@@ -797,14 +830,28 @@ export function registerOnboardingRoutes(app: SchoolappApi) {
       if (!parsed.success) {
         throw new AppError(400, "validation_failed", "Invalid email presentation");
       }
-      await upsertEmailTemplateSettings(client, orgId, key, userId, parsed.data.showSchoolLogo);
+      await upsertEmailTemplateSettings(
+        client,
+        orgId,
+        key,
+        userId,
+        parsed.data.showSchoolLogo,
+        isAdmissionsStatusEmailTemplateKey(key) ? parsed.data.sendEnabled : undefined,
+      );
       await writeAudit(client, {
         organisationId: orgId,
         actorUserId: userId,
-        action: "org.email_template.logo_visibility_changed",
+        action:
+          parsed.data.sendEnabled !== undefined && parsed.data.showSchoolLogo === undefined
+            ? "org.email_template.send_enabled_changed"
+            : "org.email_template.logo_visibility_changed",
         entityType: "organisation_transactional_email_settings",
         entityId: orgId,
-        after: { templateKey: key, showSchoolLogo: parsed.data.showSchoolLogo },
+        after: {
+          templateKey: key,
+          ...(parsed.data.showSchoolLogo !== undefined ? { showSchoolLogo: parsed.data.showSchoolLogo } : {}),
+          ...(parsed.data.sendEnabled !== undefined ? { sendEnabled: parsed.data.sendEnabled } : {}),
+        },
       });
       const item = automaticEmailCatalogItem(key);
       const stored = await loadStoredTemplateRow(client, orgId, key);
@@ -1142,6 +1189,7 @@ function presentStoredTemplate(
   customised: boolean,
   presentation: {
     showSchoolLogo: boolean;
+    sendEnabled: boolean;
     attachments: Awaited<ReturnType<typeof loadAutomaticEmailAttachmentViews>>;
     attachmentLimits: Awaited<ReturnType<typeof loadPlatformEmailAttachmentLimits>>;
     capabilities: ReturnType<typeof emailCapabilitiesFromRuntime>;
@@ -1155,7 +1203,9 @@ function presentStoredTemplate(
     key: item.key,
     name: item.name,
     description: item.description,
+    kind: item.kind,
     enabled: current.enabled,
+    sendEnabled: presentation.sendEnabled,
     source: customised && current.enabled ? "custom" : "system",
     customised,
     updatedAt,
@@ -1188,8 +1238,10 @@ async function loadTemplatePresentation(
   capabilities: ReturnType<typeof emailCapabilitiesFromRuntime>,
 ) {
   const attachmentLimits = await loadPlatformEmailAttachmentLimits(client, capabilities);
+  const settings = await loadAutomaticEmailSettings(client, orgId, key);
   return {
-    showSchoolLogo: await loadShowSchoolLogo(client, orgId, key),
+    showSchoolLogo: settings.showSchoolLogo,
+    sendEnabled: resolveAutomaticEmailSendEnabled(key, settings.sendEnabled),
     attachments: await loadAutomaticEmailAttachmentViews(client, orgId, key, attachmentLimits, capabilities),
     attachmentLimits,
     capabilities,
@@ -1202,16 +1254,18 @@ async function upsertEmailTemplateSettings(
   key: string,
   userId: string,
   showSchoolLogo?: boolean,
+  sendEnabled?: boolean,
 ): Promise<string> {
   const saved = await client.query<{ id: string }>(
     `insert into organisation_transactional_email_settings (
-       organisation_id, template_key, show_school_logo, updated_by_user_id
-     ) values ($1, $2, coalesce($3, true), $4)
+       organisation_id, template_key, show_school_logo, send_enabled, updated_by_user_id
+     ) values ($1, $2, coalesce($3, true), coalesce($4, false), $5)
      on conflict (organisation_id, template_key) do update set
        show_school_logo = coalesce($3, organisation_transactional_email_settings.show_school_logo),
+       send_enabled = coalesce($4, organisation_transactional_email_settings.send_enabled),
        updated_by_user_id = excluded.updated_by_user_id
      returning id`,
-    [orgId, key, showSchoolLogo ?? null, userId],
+    [orgId, key, showSchoolLogo ?? null, sendEnabled ?? null, userId],
   );
   return saved.rows[0]!.id;
 }

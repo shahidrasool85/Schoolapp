@@ -27,10 +27,11 @@ describe("email settings tabs", () => {
       "/school/settings/email?tab=automatic&template=admissions_enquiry_received",
     );
     expect(isCustomizableEmailTemplateKey("admissions_application_received")).toBe(true);
+    expect(isCustomizableEmailTemplateKey("admissions_status_offer_made")).toBe(true);
     expect(isCustomizableEmailTemplateKey("account_invitation")).toBe(false);
-    expect([...CUSTOMIZABLE_EMAIL_TEMPLATE_KEYS]).toEqual([
-      "admissions_enquiry_received",
-      "admissions_application_received",
-    ]);
+    expect(CUSTOMIZABLE_EMAIL_TEMPLATE_KEYS[0]).toBe("admissions_enquiry_received");
+    expect(CUSTOMIZABLE_EMAIL_TEMPLATE_KEYS[1]).toBe("admissions_application_received");
+    expect(CUSTOMIZABLE_EMAIL_TEMPLATE_KEYS).toContain("admissions_status_offer_made");
+    expect(CUSTOMIZABLE_EMAIL_TEMPLATE_KEYS).toContain("admissions_status_enrolled");
   });
 });

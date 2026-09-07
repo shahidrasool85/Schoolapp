@@ -1,5 +1,7 @@
 import {
+  isAdmissionsStatusEmailTemplateKey,
   isCustomizableEmailTemplateKey,
+  type AdmissionsStatusEmailTemplateKey,
   type CustomizableEmailTemplateKey,
 } from "@schoolapp/domain";
 import {
@@ -27,10 +29,14 @@ export type EmailMergeField = {
   example: string;
 };
 
+export type EmailTemplateCatalogKind = "acknowledgement" | "admissions_status";
+
 export type EmailTemplateCatalogItem = {
   key: CustomizableEmailTemplateKey;
   name: string;
   description: string;
+  kind: EmailTemplateCatalogKind;
+  defaultSendEnabled: boolean;
   mergeFields: readonly EmailMergeField[];
   defaults: OrganisationEmailTemplateOverride;
 };
@@ -70,6 +76,36 @@ const APPLICATION_FIELDS: readonly EmailMergeField[] = [
   { key: "intended_entry", label: "Intended year group / year", example: "Year 3 — 2026/27" },
 ];
 
+const STATUS_FIELDS: readonly EmailMergeField[] = [
+  ...APPLICATION_FIELDS,
+  { key: "application_status", label: "Application status", example: "Offer made" },
+];
+
+const STATUS_ASSESSMENT_FIELDS: readonly EmailMergeField[] = [
+  ...STATUS_FIELDS,
+  { key: "assessment_date", label: "Assessment date", example: "12/05/2026" },
+];
+
+const STATUS_OFFER_FIELDS: readonly EmailMergeField[] = [
+  ...STATUS_FIELDS,
+  { key: "offer_deadline", label: "Offer response deadline", example: "01/06/2026" },
+];
+
+function statusDefaults(
+  templateKey: AdmissionsStatusEmailTemplateKey,
+  input: { subject: string; heading: string; greeting?: string; body: string; signoff?: string },
+): OrganisationEmailTemplateOverride {
+  return {
+    templateKey,
+    enabled: true,
+    subject: input.subject,
+    heading: input.heading,
+    greeting: input.greeting ?? "Hello {{recipient_first_name}},",
+    body: input.body,
+    signoff: input.signoff ?? "Regards\n{{school_name}} Admissions",
+  };
+}
+
 const ENQUIRY_DEFAULTS: OrganisationEmailTemplateOverride = {
   templateKey: "admissions_enquiry_received",
   enabled: true,
@@ -97,6 +133,8 @@ export const AUTOMATIC_EMAIL_TEMPLATE_CATALOG: readonly EmailTemplateCatalogItem
     key: "admissions_enquiry_received",
     name: "Enquiry received",
     description: "Sent to the primary parent/guardian after a public enquiry form is submitted.",
+    kind: "acknowledgement",
+    defaultSendEnabled: true,
     mergeFields: ENQUIRY_FIELDS,
     defaults: ENQUIRY_DEFAULTS,
   },
@@ -104,8 +142,108 @@ export const AUTOMATIC_EMAIL_TEMPLATE_CATALOG: readonly EmailTemplateCatalogItem
     key: "admissions_application_received",
     name: "Application received",
     description: "Sent to the primary parent/guardian after a public application form is submitted.",
+    kind: "acknowledgement",
+    defaultSendEnabled: true,
     mergeFields: APPLICATION_FIELDS,
     defaults: APPLICATION_DEFAULTS,
+  },
+  {
+    key: "admissions_status_assessment_pending",
+    name: "Assessment pending",
+    description: "Sent when an application moves to Assessment pending.",
+    kind: "admissions_status",
+    defaultSendEnabled: false,
+    mergeFields: STATUS_ASSESSMENT_FIELDS,
+    defaults: statusDefaults("admissions_status_assessment_pending", {
+      subject: "Application update – {{school_name}}",
+      heading: "Assessment pending",
+      body:
+        "We are writing to let you know that the application for {{pupil_first_name}} has moved to assessment pending.\n\nApplication reference: {{application_reference}}\n\nIntended entry: {{intended_entry}}\n\nAssessment date: {{assessment_date}}\n\nThe admissions team will contact you if further information is required.",
+    }),
+  },
+  {
+    key: "admissions_status_waiting_list",
+    name: "Waitlisted",
+    description: "Sent when an application is placed on the waiting list.",
+    kind: "admissions_status",
+    defaultSendEnabled: false,
+    mergeFields: STATUS_FIELDS,
+    defaults: statusDefaults("admissions_status_waiting_list", {
+      subject: "Application update – {{school_name}}",
+      heading: "Application update",
+      body:
+        "Your application for {{pupil_first_name}} has been placed on the waiting list.\n\nApplication reference: {{application_reference}}\n\nWe will contact you if the position changes.",
+    }),
+  },
+  {
+    key: "admissions_status_offer_made",
+    name: "Offer made",
+    description: "Sent when an application moves to Offer made.",
+    kind: "admissions_status",
+    defaultSendEnabled: false,
+    mergeFields: STATUS_OFFER_FIELDS,
+    defaults: statusDefaults("admissions_status_offer_made", {
+      subject: "Application update – {{school_name}}",
+      heading: "Offer of a place",
+      body:
+        "We are pleased to let you know that an offer has been made for {{pupil_first_name}}.\n\nApplication reference: {{application_reference}}\n\nIntended entry: {{intended_entry}}\n\nResponse deadline: {{offer_deadline}}\n\nPlease review the application information and any instructions provided by the school.",
+    }),
+  },
+  {
+    key: "admissions_status_accepted",
+    name: "Offer accepted",
+    description: "Sent when an application moves to Accepted.",
+    kind: "admissions_status",
+    defaultSendEnabled: false,
+    mergeFields: STATUS_FIELDS,
+    defaults: statusDefaults("admissions_status_accepted", {
+      subject: "Application update – {{school_name}}",
+      heading: "Offer accepted",
+      body:
+        "We are writing to confirm that the offer for {{pupil_first_name}} has been recorded as accepted.\n\nApplication reference: {{application_reference}}\n\nThe school will contact you about the next steps.",
+    }),
+  },
+  {
+    key: "admissions_status_enrolled",
+    name: "Enrolled",
+    description: "Sent when an application moves to Enrolled.",
+    kind: "admissions_status",
+    defaultSendEnabled: false,
+    mergeFields: STATUS_FIELDS,
+    defaults: statusDefaults("admissions_status_enrolled", {
+      subject: "Welcome to {{school_name}}",
+      heading: "Welcome to {{school_name}}",
+      body:
+        "We are pleased to confirm that {{pupil_first_name}} has been enrolled.\n\nApplication reference: {{application_reference}}\n\nPlease contact the school if you have any questions about starting.",
+    }),
+  },
+  {
+    key: "admissions_status_rejected",
+    name: "Application unsuccessful",
+    description: "Sent when an application moves to Rejected.",
+    kind: "admissions_status",
+    defaultSendEnabled: false,
+    mergeFields: STATUS_FIELDS,
+    defaults: statusDefaults("admissions_status_rejected", {
+      subject: "Application update – {{school_name}}",
+      heading: "Application update",
+      body:
+        "We are writing to let you know that the application for {{pupil_first_name}} has not been successful.\n\nApplication reference: {{application_reference}}\n\nPlease contact the school if you have any questions.",
+    }),
+  },
+  {
+    key: "admissions_status_withdrawn",
+    name: "Application withdrawn",
+    description: "Sent when an application moves to Withdrawn.",
+    kind: "admissions_status",
+    defaultSendEnabled: false,
+    mergeFields: STATUS_FIELDS,
+    defaults: statusDefaults("admissions_status_withdrawn", {
+      subject: "Application update – {{school_name}}",
+      heading: "Application update",
+      body:
+        "We are writing to let you know that the application for {{pupil_first_name}} has been withdrawn.\n\nApplication reference: {{application_reference}}\n\nPlease contact the school if you have any questions.",
+    }),
   },
 ];
 
@@ -119,6 +257,18 @@ export function automaticEmailCatalogItem(
 
 export function allowedMergeFieldKeys(key: CustomizableEmailTemplateKey): ReadonlySet<string> {
   return new Set(automaticEmailCatalogItem(key).mergeFields.map((field) => field.key));
+}
+
+export function automaticEmailDefaultSendEnabled(key: CustomizableEmailTemplateKey): boolean {
+  return automaticEmailCatalogItem(key).defaultSendEnabled;
+}
+
+export function resolveAutomaticEmailSendEnabled(
+  key: CustomizableEmailTemplateKey,
+  storedSendEnabled: boolean | null | undefined,
+): boolean {
+  if (!isAdmissionsStatusEmailTemplateKey(key)) return true;
+  return storedSendEnabled === true;
 }
 
 export function firstNameFromDisplayName(value: unknown): string {
@@ -159,10 +309,19 @@ export function mergeFieldValues(
   if (template === "admissions_enquiry_received") {
     values.enquiry_reference = safeEmailText(data.enquiryReference, 40);
   }
-  if (template === "admissions_application_received") {
+  if (template === "admissions_application_received" || isAdmissionsStatusEmailTemplateKey(template)) {
     values.application_reference = safeEmailText(data.applicationReference, 40);
     values.pupil_first_name = firstNameFromDisplayName(data.childName) || "your child";
     values.intended_entry = safeEmailText(data.intendedEntry, 80);
+  }
+  if (isAdmissionsStatusEmailTemplateKey(template)) {
+    values.application_status = safeEmailText(data.statusLabel || data.applicationStatus, 80);
+    if (template === "admissions_status_assessment_pending") {
+      values.assessment_date = safeEmailText(data.assessmentDate, 40);
+    }
+    if (template === "admissions_status_offer_made") {
+      values.offer_deadline = safeEmailText(data.offerDeadline, 40);
+    }
   }
   return values;
 }
@@ -242,8 +401,14 @@ export function renderTransactionalEmail(
     try {
       return renderCustomEmailTemplate(override, data, branding);
     } catch {
+      if (isAdmissionsStatusEmailTemplateKey(template)) {
+        return renderCustomEmailTemplate(automaticEmailCatalogItem(template).defaults, data, branding);
+      }
       return renderEmailTemplate(template, data, branding);
     }
+  }
+  if (isAdmissionsStatusEmailTemplateKey(template)) {
+    return renderCustomEmailTemplate(automaticEmailCatalogItem(template).defaults, data, branding);
   }
   return renderEmailTemplate(template, data, branding);
 }

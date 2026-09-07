@@ -127,13 +127,21 @@ describe("school admin automatic email templates", () => {
     const listed = await app.request("/api/v1/onboarding/mail/templates", { headers: hdrs });
     expect(listed.status).toBe(200);
     const listBody = (await listed.json()) as {
-      templates: Array<{ key: string; source: string; customised: boolean }>;
+      templates: Array<{ key: string; source: string; customised: boolean; sendEnabled?: boolean; kind?: string }>;
     };
     expect(listBody.templates.map((row) => row.key)).toEqual([
       "admissions_enquiry_received",
       "admissions_application_received",
+      "admissions_status_assessment_pending",
+      "admissions_status_waiting_list",
+      "admissions_status_offer_made",
+      "admissions_status_accepted",
+      "admissions_status_enrolled",
+      "admissions_status_rejected",
+      "admissions_status_withdrawn",
     ]);
-    expect(listBody.templates.every((row) => row.source === "system" && row.customised === false)).toBe(true);
+    expect(listBody.templates.filter((row) => row.kind !== "admissions_status").every((row) => row.source === "system" && row.customised === false)).toBe(true);
+    expect(listBody.templates.filter((row) => row.kind === "admissions_status").every((row) => row.sendEnabled === false)).toBe(true);
 
     const saved = await app.request("/api/v1/onboarding/mail/templates/admissions_enquiry_received", {
       method: "PUT",

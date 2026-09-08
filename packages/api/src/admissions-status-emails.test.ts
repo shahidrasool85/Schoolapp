@@ -677,8 +677,10 @@ describe("B4 configurable admissions status emails", () => {
     ]);
     expect(new Set(queuedBoth.rows.map((row) => row.idempotency_key)).size).toBe(2);
 
-    const delivered = await deliverQueuedMail(testApiConfig(pools, { emailDeliveryProvider: email }), { limit: 10 });
-    expect(delivered.sent).toBe(2);
+    const workerConfig = testApiConfig(pools, { emailDeliveryProvider: email });
+    const firstDelivery = await deliverQueuedMail(workerConfig, { id: queuedBoth.rows[0]!.id });
+    const secondDelivery = await deliverQueuedMail(workerConfig, { id: queuedBoth.rows[1]!.id });
+    expect(firstDelivery.sent + secondDelivery.sent).toBe(2);
     expect(email.sent).toHaveLength(2);
     expect(email.sent[0]?.headers?.["X-LuvLearn-Template"]).toBe("admissions_status_offer_made");
     expect(email.sent[1]?.headers?.["X-LuvLearn-Template"]).toBe("admissions_status_accepted");
@@ -692,5 +694,8 @@ describe("B4 configurable admissions status emails", () => {
     expect(email.sent[1]?.text).toContain(application.reference);
     expect(email.sent[1]?.text).not.toMatch(/offer has been made/i);
     expect(email.sent[1]?.text).not.toContain("01/06/2026");
+    const after = await listStatusOutbox(pools.owner, school.orgId);
+    expect(after.rows).toHaveLength(2);
+    expect(after.rows.every((row) => row.status === "sent")).toBe(true);
   });
 });

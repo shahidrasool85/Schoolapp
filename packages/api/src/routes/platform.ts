@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { PERMISSIONS, validateOrganisationSlug, slugValidationMessage } from "@schoolapp/domain";
+import {
+  PERMISSIONS,
+  validateOrganisationSlug,
+  slugValidationMessage,
+  OPERATIONAL_RESET_MODE,
+} from "@schoolapp/domain";
 import {
   AppError,
   EmailAttachmentLimitConfigError,
@@ -8,6 +13,8 @@ import {
   presentPlatformEmailAttachmentLimits,
   schoolInviteUrl,
   staffInviteMail,
+  previewOperationalReset,
+  executeOperationalReset,
 } from "@schoolapp/core";
 import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
@@ -296,6 +303,64 @@ export function registerPlatformRoutes(app: SchoolappApi) {
         c.req.param("hostnameId"),
       ]);
       return c.json({ ok: true });
+    } catch (error) {
+      throw pgErrorToAppError(error) ?? error;
+    }
+  });
+
+  app.get("/platform/organisations/:organisationId/operational-reset", requireUser, async (c) => {
+    requirePlatformHost(c);
+    const organisationId = z.string().uuid().safeParse(c.req.param("organisationId"));
+    if (!organisationId.success) {
+      throw new AppError(404, "not_found", "Not found");
+    }
+    try {
+      await c.get("config").pools.app.query("select * from list_platform_organisations($1)", [
+        c.get("userId"),
+      ]);
+      const preview = await previewOperationalReset({
+        owner: c.get("config").pools.owner,
+        organisationId: organisationId.data,
+        actorUserId: c.get("userId"),
+      });
+      return c.json(preview);
+    } catch (error) {
+      throw pgErrorToAppError(error) ?? error;
+    }
+  });
+
+  app.post("/platform/organisations/:organisationId/operational-reset", requireUser, async (c) => {
+    requirePlatformHost(c);
+    const organisationId = z.string().uuid().safeParse(c.req.param("organisationId"));
+    if (!organisationId.success) {
+      throw new AppError(404, "not_found", "Not found");
+    }
+    const parsed = z
+      .object({
+        confirmationText: z.string(),
+        backupConfirmed: z.boolean(),
+        understandPermanent: z.boolean(),
+        resetMode: z.literal(OPERATIONAL_RESET_MODE),
+      })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      throw new AppError(400, "validation_failed", "Invalid operational reset payload");
+    }
+    try {
+      await c.get("config").pools.app.query("select * from list_platform_organisations($1)", [
+        c.get("userId"),
+      ]);
+      const result = await executeOperationalReset({
+        owner: c.get("config").pools.owner,
+        storage: c.get("config").storage,
+        actorUserId: c.get("userId"),
+        organisationId: organisationId.data,
+        confirmationText: parsed.data.confirmationText,
+        backupConfirmed: parsed.data.backupConfirmed,
+        understandPermanent: parsed.data.understandPermanent,
+        resetMode: parsed.data.resetMode,
+      });
+      return c.json(result);
     } catch (error) {
       throw pgErrorToAppError(error) ?? error;
     }

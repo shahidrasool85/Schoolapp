@@ -1728,3 +1728,17 @@ export {
   type PersonTitle,
   type ProfileFieldKey,
 } from "./profiles.js";
+
+export {
+  OPERATIONAL_RESET_MODE,
+  OPERATIONAL_RESET_PRESERVED_TABLES,
+  OPERATIONAL_RESET_TABLES,
+  OPERATIONAL_RESET_CATALOGUE_TABLES,
+  OPERATIONAL_RESET_GLOBAL_TABLES,
+  OPERATIONAL_RESET_PRESERVED_CATEGORIES,
+  OPERATIONAL_RESET_COUNT_CATEGORIES,
+  confirmationMatchesOrganisation,
+  type OperationalResetMode,
+  type OperationalResetCountKey,
+  type OperationalResetSchoolAdmin,
+} from "./operational-reset.js";

@@ -331,6 +331,11 @@ async function seedOperational(
      on conflict (organisation_id, template_key) do nothing`,
     [school.orgId],
   );
+  await owner.query(
+    `insert into invitations (organisation_id, email, intended_role_keys, token_hash, expires_at)
+     values ($1, $2, '{school.teacher}', $3, now() + interval '7 days')`,
+    [school.orgId, `invite-${suffix()}@example.com`, `invite-${school.orgId}-${suffix()}`],
+  );
   return { yearId, pupilId, brandingId: branding.rows[0]!.id };
 }
 
@@ -805,5 +810,93 @@ describe("Platform Admin operational data reset", () => {
       headers: platform,
     });
     expect(badId.status).toBe(404);
+  });
+
+  it("does not revoke another school's sessions and treats leftover invitations as not clean", { timeout: 60_000 }, async () => {
+    const id = suffix();
+    const schoolA = await createSchool(pools.owner, id);
+    const schoolB = await createSchool(pools.owner, `${id}b`);
+    const leftoverOnly = await createSchool(pools.owner, `${id}c`);
+    await pools.owner.query(
+      `insert into invitations (organisation_id, email, intended_role_keys, token_hash, expires_at)
+       values ($1, $2, '{school.teacher}', $3, now() + interval '7 days')`,
+      [leftoverOnly.orgId, `left-${id}@example.com`, `left-${id}`],
+    );
+    await pools.owner.query(
+      `insert into data_imports (organisation_id, kind, original_filename, created_by)
+       values ($1, 'pupils', 'uat.csv', $2)`,
+      [leftoverOnly.orgId, leftoverOnly.adminId],
+    );
+
+    const teacherA = await insertUser(pools.owner, {
+      email: `teacher-only-a-${id}@example.com`,
+      password: "password-12x",
+      fullName: "Teacher A",
+      kind: "staff",
+    });
+    await addMembership(pools.owner, schoolA.orgId, teacherA, "school.teacher");
+    const teacherASession = await pools.owner.query<{ id: string }>(
+      `insert into auth_sessions (user_id, refresh_token_hash, expires_at)
+       values ($1, $2, now() + interval '1 day') returning id`,
+      [teacherA, `a-session-${id}`],
+    );
+
+    const suspendedB = await insertUser(pools.owner, {
+      email: `suspended-b-${id}@example.com`,
+      password: "password-12x",
+      fullName: "Suspended B",
+      kind: "staff",
+    });
+    await addMembership(pools.owner, schoolB.orgId, suspendedB, "school.teacher");
+    await pools.owner.query(
+      `update organisation_memberships set status = 'suspended' where organisation_id = $1 and user_id = $2`,
+      [schoolB.orgId, suspendedB],
+    );
+    const suspendedBSession = await pools.owner.query<{ id: string }>(
+      `insert into auth_sessions (user_id, refresh_token_hash, expires_at)
+       values ($1, $2, now() + interval '1 day') returning id`,
+      [suspendedB, `b-session-${id}`],
+    );
+
+    const platform = await platformHeaders(`${id}s`);
+    const leftoverPreview = await app.request(`/api/v1/platform/organisations/${leftoverOnly.orgId}/operational-reset`, {
+      headers: platform,
+    });
+    expect(leftoverPreview.status).toBe(200);
+    const leftoverBody = (await leftoverPreview.json()) as {
+      alreadyClean: boolean;
+      remainingOperationalRows: number;
+      counts: { invitations: number; dataImports: number; pupils: number };
+    };
+    expect(leftoverBody.counts.pupils).toBe(0);
+    expect(leftoverBody.counts.invitations).toBe(1);
+    expect(leftoverBody.counts.dataImports).toBe(1);
+    expect(leftoverBody.remainingOperationalRows).toBeGreaterThan(0);
+    expect(leftoverBody.alreadyClean).toBe(false);
+
+    const resetA = await app.request(`/api/v1/platform/organisations/${schoolA.orgId}/operational-reset`, {
+      method: "POST",
+      headers: platform,
+      body: JSON.stringify({
+        confirmationText: schoolA.slug,
+        backupConfirmed: true,
+        understandPermanent: true,
+        resetMode: "operational_reset_v1",
+      }),
+    });
+    expect(resetA.status).toBe(200);
+
+    const teacherAAfter = await pools.owner.query<{ revoked_at: Date | null }>(
+      `select revoked_at from auth_sessions where id = $1`,
+      [teacherASession.rows[0]!.id],
+    );
+    expect(teacherAAfter.rows[0]?.revoked_at).not.toBeNull();
+    const suspendedBAfter = await pools.owner.query<{ revoked_at: Date | null }>(
+      `select revoked_at from auth_sessions where id = $1`,
+      [suspendedBSession.rows[0]!.id],
+    );
+    expect(suspendedBAfter.rows[0]?.revoked_at).toBeNull();
+    expect(await count(pools.owner, "invitations", leftoverOnly.orgId)).toBe(1);
+    expect(await count(pools.owner, "data_imports", leftoverOnly.orgId)).toBe(1);
   });
 });

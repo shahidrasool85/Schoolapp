@@ -1411,6 +1411,7 @@ export {
   verifyOperationalReset,
   listActiveSchoolAdmins,
   loadOperationalResetCounts,
+  countRemainingOperationalRows,
   assertOperationalResetPlanCoversSchema,
   type OperationalResetPreview,
   type OperationalResetResult,

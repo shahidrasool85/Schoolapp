@@ -1,7 +1,6 @@
 import type pg from "pg";
 import {
   OPERATIONAL_RESET_CATALOGUE_TABLES,
-  OPERATIONAL_RESET_COUNT_CATEGORIES,
   OPERATIONAL_RESET_GLOBAL_TABLES,
   OPERATIONAL_RESET_MODE,
   OPERATIONAL_RESET_PRESERVED_CATEGORIES,
@@ -54,6 +53,7 @@ export type OperationalResetPreview = {
   counts: OperationalResetCounts;
   preserved: Array<{ key: string; label: string }>;
   liveFinancialResetBlocked: boolean;
+  remainingOperationalRows: number;
   alreadyClean: boolean;
 };
 
@@ -268,17 +268,73 @@ export async function loadOperationalResetCounts(
   const messages = await countOrZero(client, "select count(*)::text as n from messages where organisation_id = $1", [
     organisationId,
   ]);
+  const membershipsToRemove = await countOrZero(
+    client,
+    `select count(*)::text as n
+       from organisation_memberships
+      where organisation_id = $1 and user_id <> all($2::uuid[])`,
+    [organisationId, preserved],
+  );
+  const pastoralConcerns = await countOrZero(
+    client,
+    "select count(*)::text as n from pastoral_concerns where organisation_id = $1",
+    [organisationId],
+  );
+  const behaviourIncidents = await countOrZero(
+    client,
+    "select count(*)::text as n from behaviour_incidents where organisation_id = $1",
+    [organisationId],
+  );
+  const medications = await countOrZero(
+    client,
+    "select count(*)::text as n from student_medications where organisation_id = $1",
+    [organisationId],
+  );
+  const notifications = await countOrZero(
+    client,
+    "select count(*)::text as n from notifications where organisation_id = $1",
+    [organisationId],
+  );
+  const activities = await countOrZero(
+    client,
+    "select count(*)::text as n from school_activities where organisation_id = $1",
+    [organisationId],
+  );
+  const rewards = await countOrZero(
+    client,
+    "select count(*)::text as n from pupil_rewards where organisation_id = $1",
+    [organisationId],
+  );
+  const invitations = await countOrZero(
+    client,
+    "select count(*)::text as n from invitations where organisation_id = $1",
+    [organisationId],
+  );
+  const dataImports = await countOrZero(
+    client,
+    "select count(*)::text as n from data_imports where organisation_id = $1",
+    [organisationId],
+  );
+  const censusRuns = await countOrZero(
+    client,
+    "select count(*)::text as n from census_runs where organisation_id = $1",
+    [organisationId],
+  );
 
   return {
     pupils,
     guardianships,
     staffToRemove,
+    membershipsToRemove,
     admissionsEnquiries,
     admissionsApplications,
     attendanceMarks,
     timetableLessons,
     assignments,
     safeguardingRecords,
+    pastoralConcerns,
+    behaviourIncidents,
+    medications,
     invoices,
     payments,
     receipts,
@@ -288,11 +344,49 @@ export async function loadOperationalResetCounts(
     classes,
     notices,
     messages,
+    notifications,
+    activities,
+    rewards,
+    invitations,
+    dataImports,
+    censusRuns,
   };
 }
 
-function alreadyClean(counts: OperationalResetCounts): boolean {
-  return OPERATIONAL_RESET_COUNT_CATEGORIES.every((category) => counts[category.key] === 0);
+export async function countRemainingOperationalRows(
+  client: pg.PoolClient | pg.Pool,
+  organisationId: string,
+  preservedUserIds: string[],
+): Promise<number> {
+  const preserved = preservedUserIds.length > 0 ? preservedUserIds : ["00000000-0000-0000-0000-000000000000"];
+  const existing = await client.query<{ table_name: string }>(
+    `select table_name from information_schema.tables
+      where table_schema = 'public' and table_name = any($1::text[])`,
+    [[...OPERATIONAL_RESET_TABLES]],
+  );
+  const parts = existing.rows.map(
+    (row) => `(select count(*) from ${quoteIdent(row.table_name)} where organisation_id = $1)`,
+  );
+  parts.push("(select count(*) from mail_outbox where organisation_id = $1)");
+  parts.push(
+    `(select count(*) from stored_objects
+       where organisation_id = $1 and domain not in ('branding', 'transactional_email'))`,
+  );
+  parts.push(
+    "(select count(*) from organisation_memberships where organisation_id = $1 and user_id <> all($2::uuid[]))",
+  );
+  parts.push("(select count(*) from staff_profiles where organisation_id = $1 and user_id <> all($2::uuid[]))");
+  parts.push("(select count(*) from user_login_aliases where organisation_id = $1 and user_id <> all($2::uuid[]))");
+  parts.push(
+    "(select count(*) from notification_preferences where organisation_id = $1 and user_id <> all($2::uuid[]))",
+  );
+  parts.push(
+    `(select count(*) from organisation_onboarding_preferences
+       where organisation_id = $1 and user_id <> all($2::uuid[]))`,
+  );
+  parts.push("(select count(*) from account_tokens where organisation_id = $1 and user_id <> all($2::uuid[]))");
+  parts.push("(select count(*) from roles where organisation_id = $1)");
+  return countOrZero(client, `select (${parts.join(" + ")})::text as n`, [organisationId, preserved]);
 }
 
 export async function assertOperationalResetPlanCoversSchema(
@@ -591,6 +685,12 @@ async function removeNonAdminPeople(
   preservedUserIds: string[],
 ): Promise<void> {
   const preserved = preservedUserIds.length > 0 ? preservedUserIds : ["00000000-0000-0000-0000-000000000000"];
+  const removed = await client.query<{ user_id: string }>(
+    `select user_id from organisation_memberships
+      where organisation_id = $1 and user_id <> all($2::uuid[])`,
+    [organisationId, preserved],
+  );
+  const removedUserIds = removed.rows.map((row) => row.user_id);
   await client.query(
     `update organisation_memberships
         set profile_photo_stored_object_id = null
@@ -650,19 +750,21 @@ async function removeNonAdminPeople(
     [organisationId],
   );
   await client.query(`delete from roles where organisation_id = $1`, [organisationId]);
+  if (removedUserIds.length === 0) return;
   await client.query(
     `update auth_sessions s
         set revoked_at = coalesce(s.revoked_at, now())
       where s.revoked_at is null
+        and s.user_id = any($1::uuid[])
         and s.user_id not in (select user_id from platform_admins)
-        and s.user_id <> all($1::uuid[])
+        and s.user_id <> all($2::uuid[])
         and not exists (
           select 1 from organisation_memberships m
            where m.user_id = s.user_id
              and m.status = 'active'
              and m.ended_at is null
         )`,
-    [preserved],
+    [removedUserIds, preserved],
   );
 }
 
@@ -812,11 +914,9 @@ async function buildPreviewFromClient(
     );
   }
   const schoolAdminsPreserved = await listActiveSchoolAdmins(client, organisationId);
-  const counts = await loadOperationalResetCounts(
-    client,
-    organisationId,
-    schoolAdminsPreserved.map((admin) => admin.userId),
-  );
+  const preservedUserIds = schoolAdminsPreserved.map((admin) => admin.userId);
+  const counts = await loadOperationalResetCounts(client, organisationId, preservedUserIds);
+  const remainingOperationalRows = await countRemainingOperationalRows(client, organisationId, preservedUserIds);
   return {
     mode: OPERATIONAL_RESET_MODE,
     organisation: org,
@@ -824,7 +924,8 @@ async function buildPreviewFromClient(
     counts,
     preserved: OPERATIONAL_RESET_PRESERVED_CATEGORIES.map((item) => ({ key: item.key, label: item.label })),
     liveFinancialResetBlocked: await liveFinancialResetBlocked(client, organisationId),
-    alreadyClean: alreadyClean(counts),
+    remainingOperationalRows,
+    alreadyClean: remainingOperationalRows === 0,
   };
 }
 

@@ -58,6 +58,7 @@ export type OperationalResetPreview = {
 };
 
 export type OperationalResetResult = OperationalResetPreview & {
+  deletedCounts: OperationalResetCounts;
   verification: Record<string, boolean>;
   blobsScheduled: number;
   blobsDeleted: number;
@@ -438,12 +439,57 @@ async function nullifyPreservedFksToResetTables(
   }
 }
 
+async function orderTablesForDelete(client: pg.PoolClient, tables: string[]): Promise<string[]> {
+  const remaining = new Set(tables);
+  const fks = await client.query<{ child: string; parent: string }>(
+    `select kcu.table_name as child, ccu.table_name as parent
+       from information_schema.table_constraints tc
+       join information_schema.key_column_usage kcu
+         on tc.constraint_name = kcu.constraint_name
+        and tc.table_schema = kcu.table_schema
+       join information_schema.constraint_column_usage ccu
+         on ccu.constraint_name = tc.constraint_name
+        and ccu.table_schema = tc.table_schema
+      where tc.constraint_type = 'FOREIGN KEY'
+        and tc.table_schema = 'public'
+        and kcu.table_name = any($1::text[])
+        and ccu.table_name = any($1::text[])
+        and kcu.table_name <> ccu.table_name`,
+    [tables],
+  );
+  const inbound = new Map<string, number>();
+  const children = new Map<string, string[]>();
+  for (const table of tables) inbound.set(table, 0);
+  for (const fk of fks.rows) {
+    if (!remaining.has(fk.child) || !remaining.has(fk.parent)) continue;
+    inbound.set(fk.parent, (inbound.get(fk.parent) ?? 0) + 1);
+    const list = children.get(fk.child) ?? [];
+    list.push(fk.parent);
+    children.set(fk.child, list);
+  }
+  const ready = tables.filter((table) => (inbound.get(table) ?? 0) === 0);
+  const ordered: string[] = [];
+  while (ready.length > 0) {
+    const table = ready.shift()!;
+    ordered.push(table);
+    for (const parent of children.get(table) ?? []) {
+      const next = (inbound.get(parent) ?? 0) - 1;
+      inbound.set(parent, next);
+      if (next === 0) ready.push(parent);
+    }
+  }
+  for (const table of tables) {
+    if (!ordered.includes(table)) ordered.push(table);
+  }
+  return ordered;
+}
+
 async function deleteResetTables(
   client: pg.PoolClient,
   tables: string[],
   organisationId: string,
 ): Promise<void> {
-  const remaining = new Set(tables);
+  const remaining = new Set(await orderTablesForDelete(client, tables));
   let lastError: unknown = null;
   for (let pass = 0; pass < 24 && remaining.size > 0; pass += 1) {
     const failed = new Set<string>();
@@ -597,6 +643,11 @@ async function removeNonAdminPeople(
     `delete from organisation_memberships
       where organisation_id = $1 and user_id <> all($2::uuid[])`,
     [organisationId, preserved],
+  );
+  await client.query(
+    `delete from membership_roles
+      where role_id in (select id from roles where organisation_id = $1)`,
+    [organisationId],
   );
   await client.query(`delete from roles where organisation_id = $1`, [organisationId]);
   await client.query(
@@ -843,6 +894,7 @@ export async function executeOperationalReset(input: {
       );
     }
 
+    const beforePreview = await buildPreviewFromClient(client, org.id);
     await cancelAndDeleteMail(client, org.id);
 
     const resetTables = await loadResetTables(client);
@@ -885,10 +937,10 @@ export async function executeOperationalReset(input: {
         JSON.stringify({
           mode: OPERATIONAL_RESET_MODE,
           slug: org.slug,
-          deletedCounts: preview.counts,
+          deletedCounts: beforePreview.counts,
           preservedCategories: OPERATIONAL_RESET_PRESERVED_CATEGORIES.map((item) => item.key),
           preservedSchoolAdminCount: schoolAdmins.length,
-          alreadyClean: preview.alreadyClean,
+          alreadyClean: beforePreview.alreadyClean,
         }),
       ],
     );
@@ -912,6 +964,7 @@ export async function executeOperationalReset(input: {
 
     return {
       ...preview,
+      deletedCounts: beforePreview.counts,
       verification,
       blobsScheduled: blobKeys.length,
       blobsDeleted,

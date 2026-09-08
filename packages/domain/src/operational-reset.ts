@@ -35,10 +35,6 @@ export const OPERATIONAL_RESET_PRESERVED_TABLES = [
   "organisation_setup_progress",
 ] as const;
 
-/**
- * School-level catalogues/config that should survive so the school remains
- * configurable after reset. Operational rows that use them are still deleted.
- */
 /** Organisation-scoped operational tables wiped by operational_reset_v1. */
 export const OPERATIONAL_RESET_TABLES = [
   "academic_assessment_classes",
@@ -211,6 +207,10 @@ export const OPERATIONAL_RESET_TABLES = [
   "year_groups",
 ] as const;
 
+/**
+ * School-level catalogues/config that survive so the school remains
+ * configurable after reset. Operational rows that use them are still deleted.
+ */
 export const OPERATIONAL_RESET_CATALOGUE_TABLES = [
   "school_event_types",
   "school_charge_categories",

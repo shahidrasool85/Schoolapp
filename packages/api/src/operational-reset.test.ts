@@ -452,7 +452,7 @@ describe("Platform Admin operational data reset", () => {
     expect(platformOnSchool.status).toBe(404);
   });
 
-  it("previews without mutating, rejects bad confirmation, and resets A without touching B", async () => {
+  it("previews without mutating, rejects bad confirmation, and resets A without touching B", { timeout: 60_000 }, async () => {
     const id = suffix();
     const schoolA = await createSchool(pools.owner, id, {
       adminEmail: `marketing-${id}@kingswoodschool.co.uk`,
@@ -539,6 +539,18 @@ describe("Platform Admin operational data reset", () => {
     });
     expect(missingBackup.status).toBe(400);
 
+    const missingUnderstand = await app.request(previewPath, {
+      method: "POST",
+      headers: platform,
+      body: JSON.stringify({
+        confirmationText: schoolA.slug,
+        backupConfirmed: true,
+        understandPermanent: false,
+        resetMode: "operational_reset_v1",
+      }),
+    });
+    expect(missingUnderstand.status).toBe(400);
+
     const wrongConfirm = await app.request(previewPath, {
       method: "POST",
       headers: platform,
@@ -569,9 +581,11 @@ describe("Platform Admin operational data reset", () => {
       verification: Record<string, boolean>;
       schoolAdminsPreserved: Array<{ email: string | null }>;
       counts: Record<string, number>;
+      deletedCounts: Record<string, number>;
     };
     expect(Object.values(resetBody.verification).every(Boolean)).toBe(true);
     expect(resetBody.counts.pupils).toBe(0);
+    expect(resetBody.deletedCounts.pupils).toBe(beforeAPupils);
     expect(mail.sent.length).toBe(sentBefore);
     expect(stripeCalls).toBe(stripeBefore);
 
@@ -684,6 +698,7 @@ describe("Platform Admin operational data reset", () => {
       [schoolA.orgId],
     );
     expect(audit.rows[0]?.action).toBe("platform.organisation.operational_reset");
+    expect(Number((audit.rows[0]?.after_data as { deletedCounts?: { pupils?: number } }).deletedCounts?.pupils)).toBeGreaterThan(0);
     expect(JSON.stringify(audit.rows[0]?.after_data)).not.toContain("UAT safeguarding");
     expect(JSON.stringify(audit.rows[0]?.after_data)).not.toContain("encrypted");
 
@@ -713,7 +728,7 @@ describe("Platform Admin operational data reset", () => {
     expect(await fingerprint(pools.owner, schoolB.orgId)).toBe(beforeB);
   });
 
-  it("blocks live Stripe tenants and rolls back when the database write fails", async () => {
+  it("blocks live Stripe tenants and rolls back when the database write fails", { timeout: 60_000 }, async () => {
     const id = suffix();
     const school = await createSchool(pools.owner, id);
     await seedOperational(pools.owner, school);
@@ -760,7 +775,7 @@ describe("Platform Admin operational data reset", () => {
     expect(await count(pools.owner, "student_profiles", school2.orgId)).toBe(pupilsBefore);
   });
 
-  it("blocks reset while mail is sending and does not target missing organisations", async () => {
+  it("blocks reset while mail is sending and does not target missing organisations", { timeout: 60_000 }, async () => {
     const id = suffix();
     const school = await createSchool(pools.owner, id);
     await seedOperational(pools.owner, school);

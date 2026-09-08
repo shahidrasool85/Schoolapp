@@ -107,6 +107,7 @@ export default function PlatformSchoolPage() {
 
   const canSubmit = useMemo(() => {
     if (!preview || preview.liveFinancialResetBlocked || resetting) return false;
+    if (preview.schoolAdminsPreserved.length < 1) return false;
     return backupConfirmed && understandPermanent && confirmationText.trim().length > 0;
   }, [backupConfirmed, confirmationText, preview, resetting, understandPermanent]);
 

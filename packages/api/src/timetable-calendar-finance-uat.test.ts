@@ -356,9 +356,13 @@ describe("Timetable calendar finance UAT hotfix", () => {
     expect(past.occurrences).toHaveLength(1);
     expect(past.occurrences[0]?.covered).toBe(true);
 
+    let futureMonday = addIsoDaysUtc(today, 1);
+    while (new Date(`${futureMonday}T00:00:00Z`).getUTCDay() !== 1) {
+      futureMonday = addIsoDaysUtc(futureMonday, 1);
+    }
     const future = await json<{ occurrences: unknown[] }>(
       await app.request(
-        `/api/v1/timetable/occurrences?from=2026-09-07&to=2026-09-07&classId=${structure.classAId}`,
+        `/api/v1/timetable/occurrences?from=${futureMonday}&to=${futureMonday}&classId=${structure.classAId}`,
         { headers: hdrs },
       ),
     );

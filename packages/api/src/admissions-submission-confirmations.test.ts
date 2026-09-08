@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { FakeEmailProvider } from "@schoolapp/core";
+import { FakeEmailProvider, createPublicSubmissionConfirmationToken } from "@schoolapp/core";
 import { closePools, withTenantContext } from "@schoolapp/db";
 import { presentPublicSubmissionConfirmation } from "./admissions-submission-confirmations";
 import {
@@ -8,6 +8,7 @@ import {
   ensureMigrated,
   insertUser,
   login,
+  TEST_AUTH_SECRET,
   testApp,
   testPools,
 } from "./test-helpers";
@@ -582,5 +583,241 @@ describe("school admin admissions submission confirmations", () => {
       [school.orgId],
     );
     expect(attachments.rows).toHaveLength(0);
+  });
+
+  it("returns the real enquiry/application reference on submit and idempotent replay", async () => {
+    const email = new FakeEmailProvider();
+    const app = testApp(pools, { emailDeliveryProvider: email });
+    const school = await createSchool(pools.owner, suffix());
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(token, school.orgId);
+    await pools.owner.query(
+      `insert into admissions_counters (organisation_id, kind, year, last_value)
+       values ($1, 'enquiry', extract(year from current_date)::int, 41),
+              ($1, 'application', extract(year from current_date)::int, 41)
+       on conflict (organisation_id, kind, year) do update set last_value = 41`,
+      [school.orgId],
+    );
+    const enquiryForm = await seedAdmissionsForm(app, hdrs, "enquiry", "enquire-replay-ref");
+    const applyForm = await seedAdmissionsForm(app, hdrs, "application", "apply-replay-ref");
+    const enquiryPayload = {
+      idempotencyKey: `enq-ref-${suffix()}`,
+      answers: enquiryAnswers(enquiryForm.yearId, enquiryForm.year3),
+    };
+    const first = await app.request("/api/v1/public/admissions/forms/enquiry/enquire-replay-ref/submissions", {
+      method: "POST",
+      headers: { Host: `${school.slug}.localhost`, "Content-Type": "application/json" },
+      body: JSON.stringify(enquiryPayload),
+    });
+    const replay = await app.request("/api/v1/public/admissions/forms/enquiry/enquire-replay-ref/submissions", {
+      method: "POST",
+      headers: { Host: `${school.slug}.localhost`, "Content-Type": "application/json" },
+      body: JSON.stringify(enquiryPayload),
+    });
+    expect(first.status).toBe(201);
+    expect(replay.status).toBe(201);
+    const firstBody = (await first.json()) as {
+      submission: { enquiryReference: string; confirmation: Confirmation; confirmationToken: string; replayed: boolean };
+    };
+    const replayBody = (await replay.json()) as {
+      submission: { enquiryReference: string; confirmation: Confirmation; confirmationToken: string; replayed: boolean };
+    };
+    expect(firstBody.submission.replayed).toBe(false);
+    expect(replayBody.submission.replayed).toBe(true);
+    expect(firstBody.submission.enquiryReference).toMatch(/^ENQ-\d{4}-0042$/);
+    expect(replayBody.submission.enquiryReference).toBe(firstBody.submission.enquiryReference);
+    expect(replayBody.submission.confirmation.reference).toBe(firstBody.submission.enquiryReference);
+    expect(replayBody.submission.confirmation.reference).not.toBe("ENQ-2026-0001");
+    expect(firstBody.submission.confirmationToken).toBeTruthy();
+    expect(replayBody.submission.confirmationToken).toBeTruthy();
+
+    const applyPayload = {
+      idempotencyKey: `app-ref-${suffix()}`,
+      answers: applicationAnswers(applyForm.yearId, applyForm.year3),
+    };
+    const applyFirst = await app.request("/api/v1/public/admissions/forms/application/apply-replay-ref/submissions", {
+      method: "POST",
+      headers: { Host: `${school.slug}.localhost`, "Content-Type": "application/json" },
+      body: JSON.stringify(applyPayload),
+    });
+    const applyReplay = await app.request("/api/v1/public/admissions/forms/application/apply-replay-ref/submissions", {
+      method: "POST",
+      headers: { Host: `${school.slug}.localhost`, "Content-Type": "application/json" },
+      body: JSON.stringify(applyPayload),
+    });
+    expect(applyFirst.status).toBe(201);
+    expect(applyReplay.status).toBe(201);
+    const applyFirstBody = (await applyFirst.json()) as {
+      submission: { applicationReference: string; confirmation: Confirmation; confirmationToken: string };
+    };
+    const applyReplayBody = (await applyReplay.json()) as {
+      submission: { applicationReference: string; confirmation: Confirmation };
+    };
+    expect(applyFirstBody.submission.applicationReference).toMatch(/^APP-\d{4}-0042$/);
+    expect(applyReplayBody.submission.applicationReference).toBe(applyFirstBody.submission.applicationReference);
+    expect(applyReplayBody.submission.confirmation.reference).toBe(applyFirstBody.submission.applicationReference);
+    expect(applyReplayBody.submission.confirmation.reference).not.toBe("APP-2026-0001");
+    const applyConfirm = await app.request(
+      `/api/v1/public/admissions/forms/application/apply-replay-ref/confirmation/${applyFirstBody.submission.confirmationToken}`,
+      { headers: { Host: `${school.slug}.localhost` } },
+    );
+    expect(applyConfirm.status).toBe(200);
+    const applyConfirmBody = (await applyConfirm.json()) as { confirmation: Confirmation };
+    expect(applyConfirmBody.confirmation.reference).toBe(applyFirstBody.submission.applicationReference);
+    expect(applyConfirmBody.confirmation.heading).toBe("Thank you");
+
+    const enquiryCount = await pools.owner.query<{ n: string }>(
+      "select count(*)::text as n from admissions_enquiries where organisation_id = $1",
+      [school.orgId],
+    );
+    const applicationCount = await pools.owner.query<{ n: string }>(
+      "select count(*)::text as n from admissions_applications where organisation_id = $1",
+      [school.orgId],
+    );
+    expect(enquiryCount.rows[0]?.n).toBe("1");
+    expect(applicationCount.rows[0]?.n).toBe("1");
+    expect(
+      (
+        await pools.owner.query(
+          `select id from mail_outbox where organisation_id = $1 and purpose = 'admissions_enquiry_received'`,
+          [school.orgId],
+        )
+      ).rows,
+    ).toHaveLength(1);
+    expect(
+      (
+        await pools.owner.query(
+          `select id from mail_outbox where organisation_id = $1 and purpose = 'admissions_application_received'`,
+          [school.orgId],
+        )
+      ).rows,
+    ).toHaveLength(1);
+  });
+
+  it("serves a refresh-safe confirmation URL without mutating or emailing", async () => {
+    const email = new FakeEmailProvider();
+    const app = testApp(pools, { emailDeliveryProvider: email });
+    const school = await createSchool(pools.owner, suffix());
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(token, school.orgId);
+    await app.request(
+      "/api/v1/onboarding/admissions/submission-confirmations/admissions_enquiry_submission_confirmation",
+      {
+        method: "PUT",
+        headers: hdrs,
+        body: JSON.stringify({
+          heading: "Thank you for your enquiry",
+          message: "Hello from {{school_name}}.",
+          additionalMessage: "We will be in touch.",
+          buttonLabel: "Visit school website",
+          buttonUrl: "https://kingswoodschool.co.uk/",
+        }),
+      },
+    );
+    const form = await seedAdmissionsForm(app, hdrs, "enquiry", "enquire-confirm-url");
+    const submit = await app.request("/api/v1/public/admissions/forms/enquiry/enquire-confirm-url/submissions", {
+      method: "POST",
+      headers: { Host: `${school.slug}.localhost`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        idempotencyKey: `enq-url-${suffix()}`,
+        answers: enquiryAnswers(form.yearId, form.year3, "confirm.url@example.com"),
+      }),
+    });
+    expect(submit.status).toBe(201);
+    const submitted = (await submit.json()) as {
+      submission: { enquiryReference: string; confirmationToken: string; confirmation: Confirmation };
+    };
+    const path = `/api/v1/public/admissions/forms/enquiry/enquire-confirm-url/confirmation/${submitted.submission.confirmationToken}`;
+    const firstGet = await app.request(path, { headers: { Host: `${school.slug}.localhost` } });
+    const secondGet = await app.request(path, { headers: { Host: `${school.slug}.localhost` } });
+    expect(firstGet.status).toBe(200);
+    expect(secondGet.status).toBe(200);
+    const firstBody = (await firstGet.json()) as {
+      confirmation: Confirmation;
+      organisation: { name: string; id?: string };
+      branding?: Record<string, unknown>;
+    };
+    const secondBody = (await secondGet.json()) as { confirmation: Confirmation };
+    expect(firstBody.confirmation.reference).toBe(submitted.submission.enquiryReference);
+    expect(secondBody.confirmation.reference).toBe(submitted.submission.enquiryReference);
+    expect(firstBody.confirmation.heading).toBe("Thank you for your enquiry");
+    expect(firstBody.confirmation.message).toBe(`Hello from ${school.name}.`);
+    expect(firstBody.confirmation.button?.url).toBe("https://kingswoodschool.co.uk/");
+    expect(firstBody.organisation.id).toBeUndefined();
+    const serialised = JSON.stringify(firstBody);
+    expect(serialised).not.toMatch(/2018-04-12/);
+    expect(serialised).not.toMatch(/confirm\.url@example\.com/i);
+    expect(serialised).not.toMatch(/Please send open morning dates/);
+    expect(serialised).not.toMatch(/enquiryId|applicationId|dateOfBirth|address/i);
+    expect(
+      (
+        await pools.owner.query("select count(*)::text as n from admissions_enquiries where organisation_id = $1", [
+          school.orgId,
+        ])
+      ).rows[0]?.n,
+    ).toBe("1");
+    expect(
+      (
+        await pools.owner.query(
+          `select id from mail_outbox where organisation_id = $1 and purpose = 'admissions_enquiry_received'`,
+          [school.orgId],
+        )
+      ).rows,
+    ).toHaveLength(1);
+  });
+
+  it("rejects tampered, expired, and cross-organisation confirmation tokens", async () => {
+    const app = testApp(pools);
+    const school = await createSchool(pools.owner, suffix());
+    const other = await createSchool(pools.owner, suffix());
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(token, school.orgId);
+    const form = await seedAdmissionsForm(app, hdrs, "enquiry", "enquire-confirm-sec");
+    const submit = await app.request("/api/v1/public/admissions/forms/enquiry/enquire-confirm-sec/submissions", {
+      method: "POST",
+      headers: { Host: `${school.slug}.localhost`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        idempotencyKey: `enq-sec-${suffix()}`,
+        answers: enquiryAnswers(form.yearId, form.year3),
+      }),
+    });
+    expect(submit.status).toBe(201);
+    const submitted = (await submit.json()) as {
+      submission: { publicId: string; confirmationToken: string };
+    };
+    const tampered = `${submitted.submission.confirmationToken.slice(0, -1)}${
+      submitted.submission.confirmationToken.endsWith("a") ? "b" : "a"
+    }`;
+    expect(
+      (
+        await app.request(
+          `/api/v1/public/admissions/forms/enquiry/enquire-confirm-sec/confirmation/${tampered}`,
+          { headers: { Host: `${school.slug}.localhost` } },
+        )
+      ).status,
+    ).toBe(404);
+    const expired = createPublicSubmissionConfirmationToken(TEST_AUTH_SECRET, {
+      organisationId: school.orgId,
+      publicId: submitted.submission.publicId,
+      formType: "enquiry",
+      slug: "enquire-confirm-sec",
+      expiresAt: Math.floor(Date.now() / 1000) - 60,
+    });
+    expect(
+      (
+        await app.request(
+          `/api/v1/public/admissions/forms/enquiry/enquire-confirm-sec/confirmation/${expired}`,
+          { headers: { Host: `${school.slug}.localhost` } },
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await app.request(
+          `/api/v1/public/admissions/forms/enquiry/enquire-confirm-sec/confirmation/${submitted.submission.confirmationToken}`,
+          { headers: { Host: `${other.slug}.localhost` } },
+        )
+      ).status,
+    ).toBe(404);
   });
 });

@@ -981,6 +981,7 @@ export function PublicAdmissionsForm({
             reference: string;
             showSystemReference: boolean;
           };
+          confirmationToken?: string | null;
         };
       }>(path, {
         method: "POST",
@@ -996,6 +997,13 @@ export function PublicAdmissionsForm({
         enquiryReference: body.submission.enquiryReference,
       });
       if (mode === "staff") return;
+      const confirmationToken = body.submission.confirmationToken;
+      if (confirmationToken) {
+        const kind = formType === "application" ? "apply" : formType;
+        const base = embed ? `/admissions/embed/${kind}/${slug}` : `/admissions/${kind}/${slug}`;
+        window.location.replace(`${base}/confirmation/${encodeURIComponent(confirmationToken)}`);
+        return;
+      }
       const reference = body.submission.enquiryReference ?? body.submission.applicationReference;
       const confirmation = body.submission.confirmation;
       setDone({

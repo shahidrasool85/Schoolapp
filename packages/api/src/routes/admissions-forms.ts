@@ -745,7 +745,8 @@ export function registerAdmissionsFormRoutes(app: SchoolappApi) {
         ],
       );
       const result = submitted.rows[0]!.submit_public_admissions_form;
-      if (!parsed.data.draft) {
+      const replayed = result.replayed === true || result.replayed === "true";
+      if (!parsed.data.draft && !replayed) {
         const host = c.get("tenantHost");
         const years = await client.query<{ id: string; name: string }>(
           "select id, name from academic_years where organisation_id = $1 order by starts_on desc",

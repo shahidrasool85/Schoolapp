@@ -1112,6 +1112,26 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
         .safeParse(await c.req.json().catch(() => ({})));
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid waiting-list payload");
       assertApplicationStatusTransition(actor, application.status as ApplicationStatus, "waiting_list");
+      const openOffers = await client.query<{ id: string }>(
+        `update admissions_offers
+            set status = 'withdrawn',
+                declined_at = coalesce(declined_at, now())
+          where application_id = $1
+            and organisation_id = $2
+            and status = 'made'
+          returning id`,
+        [id, orgId],
+      );
+      for (const offer of openOffers.rows) {
+        await writeAudit(client, {
+          organisationId: orgId,
+          actorUserId: userId,
+          action: "admissions.offer.withdrawn",
+          entityType: "admissions_offer",
+          entityId: offer.id,
+          after: { reason: "waiting_list" },
+        });
+      }
       await setTransitionReason(client, "Placed on waiting list");
       if (application.status !== "waiting_list") {
         await client.query(

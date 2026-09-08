@@ -8,6 +8,7 @@ import {
   formTypeFromPublicKind,
   hashContinuationToken,
   publicFormPath,
+  publicFormConfirmationPath,
   mapAnswersToCanonical,
   normalizeCustomFieldKey,
   normalizeFormSlug,
@@ -199,6 +200,12 @@ describe("admissions forms", () => {
     });
     expect(url).toContain("greenwood.localhost/admissions/enquiry/year-3-enquiry");
     expect(publicFormPath("open_day", "summer")).toBe("/admissions/open_day/summer");
+    expect(publicFormConfirmationPath("enquiry", "year-3-enquiry", "tok.en")).toBe(
+      "/admissions/enquiry/year-3-enquiry/confirmation/tok.en",
+    );
+    expect(publicFormConfirmationPath("application", "year-3-application", "a.b.c", true)).toBe(
+      "/admissions/embed/apply/year-3-application/confirmation/a.b.c",
+    );
     expect(formTypeFromPublicKind("apply")).toBe("application");
     expect(formTypeFromPublicKind("open_day")).toBe("open_day");
     expect(url).toContain("source=facebook");

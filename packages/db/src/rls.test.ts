@@ -1960,4 +1960,31 @@ describe("RLS catalog", () => {
     expect(grants.rows[0]?.can_select).toBe(true);
     expect(grants.rows[0]?.can_insert).toBe(true);
   });
+
+  it("keeps public confirmation lookup tenant-bound and revoke PUBLIC execute", async () => {
+    const grants = await pools.owner.query<{ app_exec: boolean; public_exec: boolean; prosecdef: boolean; search_path: string | null }>(
+      `select
+         has_function_privilege('schoolapp_app', 'get_public_admissions_submission_confirmation(uuid, text, text, uuid)', 'EXECUTE') as app_exec,
+         exists (
+           select 1
+           from pg_proc p
+           join pg_namespace n on n.oid = p.pronamespace
+           join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) acl on true
+           where n.nspname = 'public'
+             and p.proname = 'get_public_admissions_submission_confirmation'
+             and acl.privilege_type = 'EXECUTE'
+             and acl.grantee = 0
+         ) as public_exec,
+         p.prosecdef,
+         array_to_string(p.proconfig, ',') as search_path
+       from pg_proc p
+       join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public'
+         and p.proname = 'get_public_admissions_submission_confirmation'`,
+    );
+    expect(grants.rows[0]?.app_exec).toBe(true);
+    expect(grants.rows[0]?.public_exec).toBe(false);
+    expect(grants.rows[0]?.prosecdef).toBe(true);
+    expect(grants.rows[0]?.search_path).toMatch(/search_path=pg_catalog,\s*public/);
+  });
 });

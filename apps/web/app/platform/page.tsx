@@ -372,6 +372,7 @@ export default function PlatformPage() {
                                 : "Reissue School Admin invitation"}
                             </Button>
                           ) : null}
+                          <a href={`/platform/schools/${org.id}`}>Open school</a>
                           <a href={schoolHref(org.slug)}>Open school login</a>
                         </div>
                       </td>

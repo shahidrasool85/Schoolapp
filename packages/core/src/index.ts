@@ -1404,3 +1404,17 @@ export {
   type FinanceDocumentTemplate,
   type FinanceDocumentLogoMode,
 } from "./finance-document-template.js";
+
+export {
+  previewOperationalReset,
+  executeOperationalReset,
+  verifyOperationalReset,
+  listActiveSchoolAdmins,
+  loadOperationalResetCounts,
+  countRemainingOperationalRows,
+  assertOperationalResetPlanCoversSchema,
+  type OperationalResetPreview,
+  type OperationalResetResult,
+  type OperationalResetCounts,
+  type OperationalResetStorage,
+} from "./operational-reset.js";

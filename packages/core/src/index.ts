@@ -279,6 +279,8 @@ export {
   formTypeFromPublicKind,
   publicFormPath,
   publicFormEmbedPath,
+  publicFormConfirmationPath,
+  PUBLIC_SUBMISSION_CONFIRMATION_TTL_MS,
   buildPublicFormUrl,
   buildEmbedCode,
   hashContinuationToken,
@@ -312,6 +314,14 @@ export {
   type GuardianValue,
   type AddressValue,
 } from "./admissions-forms.js";
+
+export {
+  createPublicSubmissionConfirmationToken,
+  verifyPublicSubmissionConfirmationToken,
+  publicSubmissionConfirmationExpiry,
+  type PublicSubmissionConfirmationClaims,
+  type VerifyPublicSubmissionConfirmationResult,
+} from "./admissions-confirmation-tokens.js";
 
 export {
   MemoryRateLimiter,

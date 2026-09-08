@@ -7,10 +7,12 @@ import {
   computeCompleteness,
   createCaptchaFromEnv,
   createContinuationToken,
+  createPublicSubmissionConfirmationToken,
   declarationSnapshot,
   defaultPublicFormRateLimiter,
   hashClientIp,
   hashContinuationToken,
+  PUBLIC_SUBMISSION_CONFIRMATION_TTL_MS,
   trustedClientIp,
   isAdmissionsFormType,
   mapAnswersToCanonical,
@@ -18,13 +20,14 @@ import {
   publicFormRateLimitKey,
   sanitizePlainText,
   validatePublicAnswers,
+  verifyPublicSubmissionConfirmationToken,
   type CanonicalSnapshot,
   type FormFieldDefinition,
 } from "@schoolapp/core";
 import type { ApiEnv, SchoolappApi } from "../types";
 import { requestedOrganisationId } from "../auth-middleware";
 import { queueAdmissionsFormAck, childDisplayName } from "../admissions-mail";
-import { presentPublicSubmissionConfirmation } from "../admissions-submission-confirmations";
+import { presentPublicSubmissionConfirmation, loadPublicSubmissionConfirmationRecord } from "../admissions-submission-confirmations";
 import {
   readUploadedFile,
   scannerOf,
@@ -136,6 +139,30 @@ function publicFormPayload(raw: unknown): unknown {
   return { ...payload, organisation: safeOrg };
 }
 
+function isReplayedSubmission(result: Record<string, unknown>): boolean {
+  return result.replayed === true || result.replayed === "true";
+}
+
+function issueConfirmationToken(
+  secret: string,
+  organisationId: string,
+  formType: string,
+  slug: string,
+  result: Record<string, unknown>,
+): string | null {
+  const publicId = typeof result.publicId === "string" ? result.publicId : "";
+  if (!secret || !publicId) return null;
+  const submittedAtMs = result.submittedAt ? Date.parse(String(result.submittedAt)) : Date.now();
+  const issuedAt = Number.isFinite(submittedAtMs) ? submittedAtMs : Date.now();
+  return createPublicSubmissionConfirmationToken(secret, {
+    organisationId,
+    publicId,
+    formType,
+    slug,
+    expiresAt: Math.floor((issuedAt + PUBLIC_SUBMISSION_CONFIRMATION_TTL_MS) / 1000),
+  });
+}
+
 export function registerPublicFormRoutes(app: SchoolappApi) {
   app.get("/public/admissions/forms/:formType/:slug", async (c) => {
     const school = requireSchoolHostOrg(c);
@@ -180,6 +207,68 @@ export function registerPublicFormRoutes(app: SchoolappApi) {
       if (error instanceof AppError) throw error;
       throw pgErrorToAppError(error) ?? error;
     }
+  });
+
+  app.get("/public/admissions/forms/:formType/:slug/confirmation/:token", async (c) => {
+    const school = requireSchoolHostOrg(c);
+    const formType = c.req.param("formType") ?? "";
+    const slug = c.req.param("slug") ?? "";
+    const token = c.req.param("token") ?? "";
+    if (!isAdmissionsFormType(formType) || !token) {
+      throw new AppError(404, "not_found", "This confirmation is no longer available");
+    }
+    const ipHash = hashClientIp(clientIp(c));
+    assertNotRateLimited(
+      defaultPublicFormRateLimiter.consume(
+        publicFormRateLimitKey({ organisationId: school.organisationId, formId: `${formType}:${slug}`, ipHash, action: "read" }),
+        60,
+        60_000,
+      ),
+    );
+    const verified = verifyPublicSubmissionConfirmationToken(c.get("config").authSecret, token);
+    if (!verified.ok) {
+      throw new AppError(404, "not_found", "This confirmation is no longer available");
+    }
+    if (
+      verified.claims.organisationId !== school.organisationId ||
+      verified.claims.formType !== formType ||
+      verified.claims.slug !== slug
+    ) {
+      throw new AppError(404, "not_found", "This confirmation is no longer available");
+    }
+    const record = await loadPublicSubmissionConfirmationRecord(
+      c.get("config").pools.app,
+      school.organisationId,
+      formType,
+      slug,
+      verified.claims.publicId,
+    );
+    if (!record) {
+      throw new AppError(404, "not_found", "This confirmation is no longer available");
+    }
+    const confirmation = await presentPublicSubmissionConfirmation({
+      pool: c.get("config").pools.app,
+      organisationId: school.organisationId,
+      organisationName: school.name,
+      formType,
+      result: {
+        enquiryReference: record.enquiryReference,
+        applicationReference: record.applicationReference,
+      },
+      childName: record.childFirstName,
+      formSuccessTitle: record.formSuccessTitle,
+      formSuccessText: record.formSuccessText,
+    });
+    return c.json({
+      confirmation,
+      organisation: { name: record.organisation.name },
+      branding: {
+        primaryColor: record.branding.primaryColor ?? undefined,
+        tagline: record.branding.tagline ?? undefined,
+        hasLogo: record.branding.hasLogo,
+        logoUrl: record.branding.logoUrl,
+      },
+    });
   });
 
   app.post("/public/admissions/forms/:formType/:slug/submissions", async (c) => {
@@ -280,7 +369,20 @@ export function registerPublicFormRoutes(app: SchoolappApi) {
         ],
       );
       const result = submitted.rows[0]!.submit_public_admissions_form;
-      if (!parsed.data.draft) {
+      const replayed = isReplayedSubmission(result);
+      if (!parsed.data.draft && replayed && result.publicId) {
+        const replayedRow = await loadPublicSubmissionConfirmationRecord(
+          c.get("config").pools.app,
+          school.organisationId,
+          formType,
+          slug,
+          String(result.publicId),
+        );
+        if (replayedRow?.enquiryReference) result.enquiryReference = replayedRow.enquiryReference;
+        if (replayedRow?.applicationReference) result.applicationReference = replayedRow.applicationReference;
+        if (replayedRow?.submittedAt) result.submittedAt = replayedRow.submittedAt;
+      }
+      if (!parsed.data.draft && !replayed) {
         const years = Array.isArray(definition.academicYears)
           ? (definition.academicYears as Array<{ id: string; name: string }>)
           : [];
@@ -309,6 +411,10 @@ export function registerPublicFormRoutes(app: SchoolappApi) {
             formSuccessTitle: formMeta.successTitle ? String(formMeta.successTitle) : null,
             formSuccessText: formMeta.successText ? String(formMeta.successText) : null,
           }).catch(() => undefined);
+      const confirmationToken =
+        parsed.data.draft || !result.publicId
+          ? null
+          : issueConfirmationToken(c.get("config").authSecret, school.organisationId, formType, slug, result);
       return c.json(
         {
           submission: {
@@ -318,6 +424,8 @@ export function registerPublicFormRoutes(app: SchoolappApi) {
             enquiryReference: result.enquiryReference ?? null,
             applicationReference: result.applicationReference ?? null,
             continuationToken: issuedToken ?? (parsed.data.draft ? parsed.data.continuationToken : undefined) ?? null,
+            confirmationToken,
+            replayed,
             ...(confirmation ? { confirmation } : {}),
           },
         },

@@ -203,9 +203,12 @@ export function renderSubmissionConfirmation(input: {
   data?: Record<string, string | null | undefined>;
   formSuccessTitle?: string | null;
   formSuccessText?: string | null;
+  allowSampleFallback?: boolean;
 }): RenderedSubmissionConfirmation {
   const item = submissionConfirmationCatalogItem(input.templateKey);
-  const reference = authoritativeReference(input.templateKey, input.data);
+  const reference = authoritativeReference(input.templateKey, input.data, {
+    allowSampleFallback: input.allowSampleFallback,
+  });
   try {
     if (input.override && input.override.templateKey === input.templateKey) {
       return renderOverride(input.override, input.schoolName, input.data ?? {}, reference, "custom");
@@ -298,12 +301,16 @@ export function templateUsesReferencePlaceholder(override: OrganisationSubmissio
 export function authoritativeReference(
   templateKey: SubmissionConfirmationKey,
   data?: Record<string, string | null | undefined>,
+  options: { allowSampleFallback?: boolean } = {},
 ): string {
   const item = submissionConfirmationCatalogItem(templateKey);
-  if (templateKey === "admissions_enquiry_submission_confirmation") {
-    return safeEmailText(data?.enquiryReference, 40) || item.sampleReference;
-  }
-  return safeEmailText(data?.applicationReference, 40) || item.sampleReference;
+  const live =
+    templateKey === "admissions_enquiry_submission_confirmation"
+      ? safeEmailText(data?.enquiryReference, 40)
+      : safeEmailText(data?.applicationReference, 40);
+  if (live) return live;
+  if (options.allowSampleFallback === false) return "";
+  return item.sampleReference;
 }
 
 function firstNameFromDisplay(value: unknown): string {

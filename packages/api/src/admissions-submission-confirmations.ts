@@ -6,6 +6,7 @@ import {
 import {
   renderSubmissionConfirmation,
   systemDefaultConfirmation,
+  authoritativeReference,
   type OrganisationSubmissionConfirmation,
   type RenderedSubmissionConfirmation,
 } from "@schoolapp/core";
@@ -77,12 +78,10 @@ export async function presentPublicSubmissionConfirmation(input: {
       : null,
     childName: input.childName ?? null,
   };
+  const referenceKey = key ?? "admissions_enquiry_submission_confirmation";
+  const liveReference = authoritativeReference(referenceKey, data, { allowSampleFallback: false });
   if (!key) {
-    return systemDefaultConfirmation(
-      "admissions_enquiry_submission_confirmation",
-      input.organisationName,
-      data,
-    );
+    return systemDefaultConfirmation(referenceKey, input.organisationName, data, liveReference);
   }
   try {
     const stored = await input.pool.query<ConfirmationRow>(
@@ -97,8 +96,65 @@ export async function presentPublicSubmissionConfirmation(input: {
       data,
       formSuccessTitle: input.formSuccessTitle,
       formSuccessText: input.formSuccessText,
+      allowSampleFallback: false,
     });
   } catch {
-    return systemDefaultConfirmation(key, input.organisationName, data);
+    return systemDefaultConfirmation(key, input.organisationName, data, liveReference);
+  }
+}
+
+export type PublicSubmissionConfirmationRecord = {
+  formType: string;
+  slug: string;
+  enquiryReference: string | null;
+  applicationReference: string | null;
+  childFirstName: string | null;
+  formSuccessTitle: string | null;
+  formSuccessText: string | null;
+  submittedAt: string | null;
+  organisation: { name: string; slug?: string };
+  branding: {
+    primaryColor?: string | null;
+    tagline?: string | null;
+    hasLogo?: boolean;
+    logoUrl?: string | null;
+  };
+};
+
+export async function loadPublicSubmissionConfirmationRecord(
+  pool: Queryable,
+  organisationId: string,
+  formType: string,
+  slug: string,
+  publicId: string,
+): Promise<PublicSubmissionConfirmationRecord | null> {
+  try {
+    const result = await pool.query<{ get_public_admissions_submission_confirmation: Record<string, unknown> }>(
+      "select get_public_admissions_submission_confirmation($1, $2, $3, $4)",
+      [organisationId, formType, slug, publicId],
+    );
+    const payload = result.rows[0]?.get_public_admissions_submission_confirmation;
+    if (!payload || typeof payload !== "object") return null;
+    const organisation = (payload.organisation ?? {}) as Record<string, unknown>;
+    const branding = (payload.branding ?? {}) as Record<string, unknown>;
+    return {
+      formType: String(payload.formType ?? formType),
+      slug: String(payload.slug ?? slug),
+      enquiryReference: payload.enquiryReference ? String(payload.enquiryReference) : null,
+      applicationReference: payload.applicationReference ? String(payload.applicationReference) : null,
+      childFirstName: payload.childFirstName ? String(payload.childFirstName) : null,
+      formSuccessTitle: payload.formSuccessTitle ? String(payload.formSuccessTitle) : null,
+      formSuccessText: payload.formSuccessText ? String(payload.formSuccessText) : null,
+      submittedAt: payload.submittedAt ? String(payload.submittedAt) : null,
+      organisation: { name: String(organisation.name ?? ""), slug: organisation.slug ? String(organisation.slug) : undefined },
+      branding: {
+        primaryColor: branding.primaryColor ? String(branding.primaryColor) : null,
+        tagline: branding.tagline ? String(branding.tagline) : null,
+        hasLogo: Boolean(branding.hasLogo),
+        logoUrl: branding.logoUrl ? String(branding.logoUrl) : null,
+      },
+    };
+  } catch {
+    return null;
   }
 }

@@ -211,4 +211,15 @@ describe("admissions submission confirmations", () => {
       enquiryReference: "ENQ-1",
     }).heading).toBe("Thank you");
   });
+
+  it("does not use sample catalogue references for live confirmation rendering", () => {
+    const rendered = renderSubmissionConfirmation({
+      templateKey: "admissions_enquiry_submission_confirmation",
+      schoolName: "Kingswood School",
+      data: {},
+      allowSampleFallback: false,
+    });
+    expect(rendered.reference).toBe("");
+    expect(rendered.reference).not.toBe("ENQ-2026-0001");
+  });
 });

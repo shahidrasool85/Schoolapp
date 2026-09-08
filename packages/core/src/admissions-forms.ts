@@ -22,6 +22,7 @@ import { originForHostname, schoolPublicHostname } from "./hostname.js";
 export const PUBLIC_FORM_MAX_BODY_BYTES = 64 * 1024;
 export const PUBLIC_FORM_DRAFT_TTL_DAYS = 7;
 export const PUBLIC_FORM_MAX_GUARDIANS = 6;
+export const PUBLIC_SUBMISSION_CONFIRMATION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 const HTML_TAG = /<\/?[^>]+>/g;
@@ -297,6 +298,16 @@ export function publicFormPath(formType: AdmissionsFormType, slug: string): stri
 
 export function publicFormEmbedPath(formType: AdmissionsFormType, slug: string): string {
   return `/admissions/embed/${publicFormKind(formType)}/${slug}`;
+}
+
+export function publicFormConfirmationPath(
+  formType: AdmissionsFormType,
+  slug: string,
+  token: string,
+  embed = false,
+): string {
+  const base = embed ? publicFormEmbedPath(formType, slug) : publicFormPath(formType, slug);
+  return `${base}/confirmation/${encodeURIComponent(token)}`;
 }
 
 export function buildPublicFormUrl(input: {

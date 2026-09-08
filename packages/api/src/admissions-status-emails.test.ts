@@ -639,4 +639,58 @@ describe("B4 configurable admissions status emails", () => {
     expect(withdrawnRows).toHaveLength(2);
     expect(withdrawnRows[0]?.idempotency_key).not.toBe(withdrawnRows[1]?.idempotency_key);
   });
+
+  it("delivers queued offer-made and accepted emails through the worker with the matching templates", async () => {
+    const email = new FakeEmailProvider();
+    const app = testApp(pools, { emailDeliveryProvider: email });
+    const school = await createSchool(pools.owner, suffix());
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(token, school.orgId);
+    const structure = await seedYear(app, hdrs);
+    await enableStatusEmail(app, hdrs, "admissions_status_offer_made");
+    await enableStatusEmail(app, hdrs, "admissions_status_accepted");
+
+    const application = await createApplication(app, hdrs, structure, { pupil: "Jordan Cole" });
+    expect((await moveTo(app, hdrs, application.id, "under_review")).status).toBe(200);
+    const offer = await app.request(`/api/v1/admissions/applications/${application.id}/offers`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ responseDeadline: "2026-06-01" }),
+    });
+    expect(offer.status).toBe(201);
+    const offerBody = (await offer.json()) as { offer: { id: string } };
+    const queuedOffer = await listStatusOutbox(pools.owner, school.orgId);
+    expect(queuedOffer.rows).toHaveLength(1);
+    expect(queuedOffer.rows[0]?.template_key).toBe("admissions_status_offer_made");
+    expect(queuedOffer.rows[0]?.status).toBe("queued");
+
+    const accepted = await app.request(`/api/v1/admissions/offers/${offerBody.offer.id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ status: "accepted" }),
+    });
+    expect(accepted.status).toBe(200);
+    const queuedBoth = await listStatusOutbox(pools.owner, school.orgId);
+    expect(queuedBoth.rows.map((row) => row.template_key)).toEqual([
+      "admissions_status_offer_made",
+      "admissions_status_accepted",
+    ]);
+    expect(new Set(queuedBoth.rows.map((row) => row.idempotency_key)).size).toBe(2);
+
+    const delivered = await deliverQueuedMail(testApiConfig(pools, { emailDeliveryProvider: email }), { limit: 10 });
+    expect(delivered.sent).toBe(2);
+    expect(email.sent).toHaveLength(2);
+    expect(email.sent[0]?.headers?.["X-LuvLearn-Template"]).toBe("admissions_status_offer_made");
+    expect(email.sent[1]?.headers?.["X-LuvLearn-Template"]).toBe("admissions_status_accepted");
+    expect(email.sent[0]?.subject).toMatch(/Application update/i);
+    expect(email.sent[1]?.subject).toMatch(/Application update/i);
+    expect(email.sent[0]?.text).toMatch(/offer has been made/i);
+    expect(email.sent[0]?.text).toContain(application.reference);
+    expect(email.sent[0]?.text).toContain("01/06/2026");
+    expect(email.sent[0]?.text).not.toMatch(/recorded as accepted/i);
+    expect(email.sent[1]?.text).toMatch(/recorded as accepted/i);
+    expect(email.sent[1]?.text).toContain(application.reference);
+    expect(email.sent[1]?.text).not.toMatch(/offer has been made/i);
+    expect(email.sent[1]?.text).not.toContain("01/06/2026");
+  });
 });

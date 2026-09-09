@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { createPaymentProvider, paymentConfigFromEnv, platformFakePaymentProviderAllowed } from "./payment-provider.js";
+import {
+  createPaymentProvider,
+  paymentConfigFromEnv,
+  platformFakePaymentProviderAllowed,
+} from "./payment-provider.js";
+import {
+  derivePaymentProviderConnectionStatus,
+  emptyOrganisationPaymentProvider,
+  paymentProviderAuditPayload,
+  stripeWebhookPath,
+  testStripeSecretKey,
+} from "./org-payment-provider.js";
 
 describe("organisation payment provider helpers", () => {
   it("starts a new school as not configured", () => {

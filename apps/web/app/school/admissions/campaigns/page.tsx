@@ -53,6 +53,7 @@ export default function AdmissionsCampaignsPage() {
         </label>
         <button type="submit">Add source</button>
       </form>
+      <div className="table-wrap">
       <table>
         <thead>
           <tr>
@@ -75,6 +76,7 @@ export default function AdmissionsCampaignsPage() {
           ))}
         </tbody>
       </table>
+      </div>
       <h2>Submission counts</h2>
       <ul>
         {sources.map((source) => (

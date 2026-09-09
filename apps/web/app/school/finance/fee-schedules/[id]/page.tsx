@@ -21,7 +21,7 @@ import {
   SectionCard,
   StatusBadge,
 } from "../../../../../components/ui";
-import { api } from "../../../../../lib/api";
+import { api, ApiError } from "../../../../../lib/api";
 import { userFacingError } from "../../../../../lib/errors";
 import { formatMinor } from "../../../../../lib/money";
 import { usePermissions } from "../../../../../lib/use-permissions";
@@ -86,16 +86,24 @@ export default function FeeScheduleDetailPage() {
   const [instalments, setInstalments] = useState("");
 
   async function load() {
-    const body = await api<{ schedule: Schedule; lifecycle: Lifecycle }>(
-      `/api/v1/finance/fee-schedules/${params.id}`,
-    );
-    setSchedule(body.schedule);
-    setLifecycle(body.lifecycle);
-    const annual =
-      body.schedule.annualAmountMinor ??
-      (body.schedule.instalmentCount ? body.schedule.amountMinor * body.schedule.instalmentCount : body.schedule.amountMinor);
-    setAnnualPounds((annual / 100).toFixed(2));
-    setInstalments(body.schedule.instalmentCount ? String(body.schedule.instalmentCount) : "1");
+    try {
+      const body = await api<{ schedule: Schedule; lifecycle: Lifecycle }>(
+        `/api/v1/finance/fee-schedules/${params.id}`,
+      );
+      setSchedule(body.schedule);
+      setLifecycle(body.lifecycle);
+      const annual =
+        body.schedule.annualAmountMinor ??
+        (body.schedule.instalmentCount ? body.schedule.amountMinor * body.schedule.instalmentCount : body.schedule.amountMinor);
+      setAnnualPounds((annual / 100).toFixed(2));
+      setInstalments(body.schedule.instalmentCount ? String(body.schedule.instalmentCount) : "1");
+    } catch (err) {
+      if (err instanceof ApiError && (err.status === 404 || err.code === "not_found")) {
+        router.replace(feeScheduleDeletedRedirect());
+        return;
+      }
+      throw err;
+    }
   }
 
   useEffect(() => {
@@ -163,6 +171,7 @@ export default function FeeScheduleDetailPage() {
           periodStart: form.get("periodStart"),
           periodEnd: form.get("periodEnd"),
           dueOn: form.get("dueOn") || null,
+          feeScheduleId: schedule.id,
         }),
       });
       router.push(`/school/finance/billing-runs/${body.run.id}`);
@@ -205,7 +214,7 @@ export default function FeeScheduleDetailPage() {
     setError("");
     try {
       await api(`/api/v1/finance/fee-schedules/${schedule.id}`, { method: "DELETE" });
-      router.push(feeScheduleDeletedRedirect());
+      router.replace(feeScheduleDeletedRedirect());
     } catch (err) {
       setError(userFacingError(err as Error, "Could not delete this schedule."));
       setConfirmDelete(false);

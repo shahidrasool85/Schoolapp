@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ATTENDANCE_SUMMARY_COLUMNS,
+  ADMISSIONS_ENROLMENT_COLUMNS,
   CENSUS_SNAPSHOT_COLUMNS,
   PUPIL_ROLL_COLUMNS,
   censusXmlPreview,
@@ -30,6 +31,8 @@ describe("CSV export safety", () => {
     expect(csv.split("\r\n")[0]?.replace("\uFEFF", "")).toBe(PUPIL_ROLL_COLUMNS.join(","));
     expect(ATTENDANCE_SUMMARY_COLUMNS[0]).toBe("admissionNumber");
     expect(CENSUS_SNAPSHOT_COLUMNS[1]).toBe("upn");
+    expect(ADMISSIONS_ENROLMENT_COLUMNS).toContain("admittedInPeriod");
+    expect(ADMISSIONS_ENROLMENT_COLUMNS).toContain("leftInPeriod");
   });
 
   it("labels XML as a census-ready preview, not a DfE submission", () => {

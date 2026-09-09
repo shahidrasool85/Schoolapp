@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "../../../../lib/api";
+import { formatDateTime } from "../../../../lib/dates";
 
 type FormRow = {
   id: string;
@@ -16,8 +17,9 @@ type FormRow = {
 };
 
 export default function AdmissionsFormsPage() {
-  const [forms, setForms] = useState<FormRow[]>([]);
+  const [forms, setForms] = useState<FormRow[] | null>(null);
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
   async function load() {
     const body = await api<{ forms: FormRow[] }>("/api/v1/admissions/forms");
@@ -30,16 +32,24 @@ export default function AdmissionsFormsPage() {
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (busy) return;
     const form = new FormData(event.currentTarget);
-    const created = await api<{ form: { id: string } }>("/api/v1/admissions/forms", {
-      method: "POST",
-      body: JSON.stringify({
-        formType: form.get("formType"),
-        name: form.get("name"),
-        slug: form.get("slug") || undefined,
-      }),
-    });
-    window.location.href = `/school/admissions/forms/${created.form.id}`;
+    setError("");
+    setBusy(true);
+    try {
+      const created = await api<{ form: { id: string } }>("/api/v1/admissions/forms", {
+        method: "POST",
+        body: JSON.stringify({
+          formType: form.get("formType"),
+          name: form.get("name"),
+          slug: form.get("slug") || undefined,
+        }),
+      });
+      window.location.href = `/school/admissions/forms/${created.form.id}`;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create this form.");
+      setBusy(false);
+    }
   }
 
   return (
@@ -69,8 +79,14 @@ export default function AdmissionsFormsPage() {
           Slug
           <input name="slug" placeholder="year-3-enquiry" />
         </label>
-        <button type="submit">Create form</button>
+        <button type="submit" disabled={busy}>
+          {busy ? "Creating…" : "Create form"}
+        </button>
       </form>
+      {forms === null ? (
+        <p className="muted">Loading forms…</p>
+      ) : (
+      <div className="table-wrap">
       <table>
         <thead>
           <tr>
@@ -90,13 +106,15 @@ export default function AdmissionsFormsPage() {
               <td>{form.formType}</td>
               <td>{form.status}</td>
               <td>
-                {form.opensAt ?? "—"} / {form.closesAt ?? "—"}
+                {form.opensAt ? formatDateTime(form.opensAt) : "—"} / {form.closesAt ? formatDateTime(form.closesAt) : "—"}
               </td>
               <td>{form.submissionsCount}</td>
             </tr>
           ))}
         </tbody>
       </table>
+      </div>
+      )}
     </>
   );
 }

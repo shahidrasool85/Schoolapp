@@ -7,7 +7,7 @@ import {
   canManageBillingRuns,
   canManageDiscounts,
   canManageFeeSchedules,
-  canManageFinanceSettings,
+  assertFinanceSettingsManage,
   canManageInvoices,
   canRecordOffline,
   loadOrganisationPaymentProviderPublic,
@@ -70,14 +70,14 @@ const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export function registerTuitionRoutes(app: SchoolappApi) {
   app.get("/finance/settings", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
-      assertTuitionRead(actor);
+      assertFinanceSettingsManage(actor);
       return c.json({ settings: await loadFinanceSettings(client, orgId) });
     }),
   );
 
   app.patch("/finance/settings", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
-      if (!canManageFinanceSettings(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      assertFinanceSettingsManage(actor);
       const parsed = z
         .object({
           tuitionEnabled: z.boolean().optional(),
@@ -129,7 +129,7 @@ export function registerTuitionRoutes(app: SchoolappApi) {
 
   app.get("/finance/settings/logo", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
-      if (!canManageFinanceSettings(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      assertFinanceSettingsManage(actor);
       const settings = await loadFinanceSettings(client, orgId);
       if (!settings.financeLogoObjectId) throw new AppError(404, "not_found", "No finance logo");
       const row = await client.query<{ storage_key: string; content_type: string; original_filename: string }>(
@@ -151,7 +151,7 @@ export function registerTuitionRoutes(app: SchoolappApi) {
 
   app.post("/finance/settings/logo", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
-      if (!canManageFinanceSettings(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      assertFinanceSettingsManage(actor);
       const uploaded = await readUploadedFile(c);
       const profile = profileForDomain("branding");
       let validated;
@@ -199,7 +199,7 @@ export function registerTuitionRoutes(app: SchoolappApi) {
 
   app.delete("/finance/settings/logo", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
-      if (!canManageFinanceSettings(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      assertFinanceSettingsManage(actor);
       return c.json({
         settings: await setFinanceDocumentLogo(client, { organisationId: orgId, actorUserId: userId, objectId: null }),
       });
@@ -208,7 +208,7 @@ export function registerTuitionRoutes(app: SchoolappApi) {
 
   app.get("/finance/documents/preview/:kind", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
-      if (!canManageFinanceSettings(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      assertFinanceSettingsManage(actor);
       const kind = c.req.param("kind");
       if (kind !== "invoice" && kind !== "receipt") throw new AppError(404, "not_found", "Not found");
       const pdf = await renderFinanceDocumentPreviewPdf(client, orgId, kind, { objectStore: storageOf(c) });
@@ -224,7 +224,7 @@ export function registerTuitionRoutes(app: SchoolappApi) {
 
   app.get("/finance/payment-provider", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
-      assertTuitionRead(actor);
+      assertFinanceSettingsManage(actor);
       return c.json({
         paymentProvider: await loadOrganisationPaymentProviderPublic(client, orgId, publicOriginFromRequest(c)),
       });
@@ -233,7 +233,7 @@ export function registerTuitionRoutes(app: SchoolappApi) {
 
   app.put("/finance/payment-provider", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
-      if (!canManageFinanceSettings(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      assertFinanceSettingsManage(actor);
       const parsed = z
         .object({
           mode: z.enum(["test", "live"]).optional(),
@@ -257,7 +257,7 @@ export function registerTuitionRoutes(app: SchoolappApi) {
 
   app.post("/finance/payment-provider/test", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
-      if (!canManageFinanceSettings(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      assertFinanceSettingsManage(actor);
       const tested = await testOrganisationStripeConnection(client, {
         organisationId: orgId,
         actorUserId: userId,
@@ -273,7 +273,7 @@ export function registerTuitionRoutes(app: SchoolappApi) {
 
   app.post("/finance/payment-provider/enable", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
-      if (!canManageFinanceSettings(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      assertFinanceSettingsManage(actor);
       return c.json({
         paymentProvider: await setOrganisationStripeEnabled(client, {
           organisationId: orgId,
@@ -287,7 +287,7 @@ export function registerTuitionRoutes(app: SchoolappApi) {
 
   app.post("/finance/payment-provider/disable", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
-      if (!canManageFinanceSettings(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      assertFinanceSettingsManage(actor);
       return c.json({
         paymentProvider: await setOrganisationStripeEnabled(client, {
           organisationId: orgId,
@@ -897,6 +897,7 @@ export function registerTuitionRoutes(app: SchoolappApi) {
           periodEnd: dateSchema,
           dueOn: dateSchema.nullable().optional(),
           instalmentNumber: z.number().int().min(1).nullable().optional(),
+          feeScheduleId: z.string().uuid().optional(),
         })
         .safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid billing run");

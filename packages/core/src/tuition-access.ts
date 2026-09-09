@@ -8,7 +8,12 @@ import {
   feeScheduleInstalmentPlan,
   overlappingActiveFeeScheduleMessage,
   statementPeriodRange,
+  DEFAULT_SCHOOL_TIMEZONE,
+  addIsoCalendarDays,
+  endOfIsoMonth,
   formatUkNumericDateRange,
+  startOfIsoMonth,
+  todayInTimeZone,
   type Actor,
   type SchoolBillingFrequency,
   type SchoolDiscountStackingMode,
@@ -130,6 +135,12 @@ export function canManageFinanceSettings(actor: Actor): boolean {
 
 export function assertTuitionRead(actor: Actor): void {
   if (!canReadTuition(actor)) {
+    throw new AppError(403, "forbidden", "Missing permission");
+  }
+}
+
+export function assertFinanceSettingsManage(actor: Actor): void {
+  if (!canManageFinanceSettings(actor)) {
     throw new AppError(403, "forbidden", "Missing permission");
   }
 }
@@ -811,9 +822,9 @@ export async function updateFeeSchedule(
             billing_frequency = coalesce($6, billing_frequency),
             instalment_count = coalesce($7, instalment_count),
             effective_from = coalesce($8, effective_from),
-            effective_until = coalesce($9, effective_until),
-            is_active = coalesce($10, is_active),
-            description = coalesce($11, description)
+            effective_until = case when $9::boolean then $10::date else effective_until end,
+            is_active = coalesce($11, is_active),
+            description = case when $12::boolean then $13 else description end
       where id = $1 and organisation_id = $2
       returning *`,
     [
@@ -825,9 +836,11 @@ export async function updateFeeSchedule(
       input.billingFrequency ?? null,
       input.instalmentCount === undefined ? null : input.instalmentCount,
       input.effectiveFrom ?? null,
-      input.effectiveUntil === undefined ? null : input.effectiveUntil,
+      input.effectiveUntil !== undefined,
+      input.effectiveUntil ?? null,
       input.isActive ?? null,
-      input.description === undefined ? null : input.description,
+      input.description !== undefined,
+      input.description ?? null,
     ],
   );
   await writeAudit(client, {
@@ -3877,12 +3890,16 @@ function sampleFinanceDocuments(
   const entered = !policy.enabled || policy.pricesInclusive ? 60_000 : 50_000;
   const vat = applyVatToEnteredAmount(entered, policy);
   const branding = brandingFromSchool(school);
+  const today = todayInTimeZone(DEFAULT_SCHOOL_TIMEZONE);
+  const dueDate = addIsoCalendarDays(today, Math.max(1, school.paymentDueDays || 14));
+  const periodStart = startOfIsoMonth(today);
+  const periodEnd = endOfIsoMonth(today);
   const invoice: FinanceInvoiceDocument = {
     kind: "invoice",
     ...branding,
     invoiceNumber: "SAMPLE-INV",
-    invoiceDate: "2026-09-01",
-    dueDate: "2026-09-15",
+    invoiceDate: today,
+    dueDate,
     terms: invoiceTerms(school.paymentDueDays),
     familyName: "Example Parent",
     billToName: "Example Parent",
@@ -3890,7 +3907,7 @@ function sampleFinanceDocuments(
     pupilNames: ["Example Pupil"],
     classOrYear: "Year 3",
     description: "Tuition fees – Year 3",
-    billingPeriod: "01/09/2026–30/09/2026",
+    billingPeriod: formatUkNumericDateRange(periodStart, periodEnd),
     currency: settings.currency || "GBP",
     subtotalMinor: vat.netMinor,
     discountTotalMinor: 0,
@@ -3912,7 +3929,7 @@ function sampleFinanceDocuments(
         pupilName: "Example Pupil",
         amountMinor: entered,
         kind: "tuition",
-        date: "2026-09-01",
+        date: today,
         vatRateBps: vat.rateBps,
         netMinor: vat.netMinor,
         vatMinor: vat.vatMinor,
@@ -3925,13 +3942,13 @@ function sampleFinanceDocuments(
     kind: "receipt",
     ...branding,
     receiptNumber: "SAMPLE-RCT",
-    paymentDate: "2026-09-05",
+    paymentDate: today,
     familyName: "Example Parent",
     billToName: "Example Parent",
     billToAddressLines: ["1 Sample Street", "Solihull", "B91 1AA"],
     pupilNames: ["Example Pupil"],
     invoiceReferences: ["SAMPLE-INV"],
-    allocations: [{ invoiceNumber: "SAMPLE-INV", invoiceDate: "2026-09-01", amountMinor: vat.grossMinor }],
+    allocations: [{ invoiceNumber: "SAMPLE-INV", invoiceDate: today, amountMinor: vat.grossMinor }],
     description: "Payment for SAMPLE-INV",
     currency: settings.currency || "GBP",
     amountMinor: vat.grossMinor,
@@ -4611,9 +4628,8 @@ export async function createInvoiceCheckoutSession(
     input.organisationId,
   ]);
   if (!invoiceRow.rows[0]) notFound();
-  const invoice = invoiceRow.rows[0] as Record<string, unknown>;
-  if (!accountIds.includes(String(invoice.billing_account_id))) notFound();
-  await refreshInvoiceStatus(client, input.organisationId, input.invoiceId);
+  if (!accountIds.includes(String(invoiceRow.rows[0].billing_account_id))) notFound();
+  const invoice = await refreshInvoiceStatus(client, input.organisationId, input.invoiceId);
   const outstanding = Number(invoice.outstanding_minor);
   // Collect the outstanding gross invoice total calculated by LuvLearn. Do not
   // ask Stripe Tax to recalculate VAT.
@@ -4647,10 +4663,10 @@ export async function createInvoiceCheckoutSession(
     `select s.*, t.status as transaction_status
        from school_payment_sessions s
        join school_payment_transactions t on t.id = s.transaction_id
-      where s.organisation_id = $1 and s.invoice_id = $2 and s.created_by = $3 and s.status = 'open'
+      where s.organisation_id = $1 and s.invoice_id = $2 and s.status = 'open'
       order by s.created_at desc
       limit 1`,
-    [input.organisationId, input.invoiceId, input.actor.userId],
+    [input.organisationId, input.invoiceId],
   );
   if (existingOpen.rows[0]) {
     const reusable = reusableInvoiceCheckoutSession(existingOpen.rows[0] as Record<string, unknown>, amount);

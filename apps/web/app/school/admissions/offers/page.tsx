@@ -66,6 +66,7 @@ export default function OffersPage() {
         </select>
       </div>
       {error ? <p className="error">{error}</p> : null}
+      <div className="table-wrap">
       <table>
         <thead>
           <tr>
@@ -110,6 +111,7 @@ export default function OffersPage() {
           ))}
         </tbody>
       </table>
+      </div>
     </>
   );
 }

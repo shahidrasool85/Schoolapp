@@ -309,6 +309,62 @@ export function overlappingActiveFeeScheduleMessage(input: {
   return "An active fee schedule already exists for this target and period.";
 }
 
+export function addIsoCalendarDays(isoDate: string, days: number): string {
+  if (!isIsoDate(isoDate)) return isoDate;
+  const date = new Date(`${isoDate}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+export function startOfIsoMonth(isoDate: string): string {
+  if (!isIsoDate(isoDate)) return isoDate;
+  return `${isoDate.slice(0, 7)}-01`;
+}
+
+export function endOfIsoMonth(isoDate: string): string {
+  if (!isIsoDate(isoDate)) return isoDate;
+  const year = Number(isoDate.slice(0, 4));
+  const month = Number(isoDate.slice(5, 7));
+  return new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+}
+
+export function defaultBillingPreviewPeriod(today: string): { periodStart: string; periodEnd: string } {
+  return { periodStart: startOfIsoMonth(today), periodEnd: endOfIsoMonth(today) };
+}
+
+export function defaultCoverListRange(today: string): { from: string; to: string } {
+  return { from: addIsoCalendarDays(today, -14), to: addIsoCalendarDays(today, 90) };
+}
+
+export function defaultAttendanceReportRange(input: {
+  today: string;
+  academicYearStartsOn?: string | null;
+  academicYearEndsOn?: string | null;
+}): { from: string; to: string } {
+  const from =
+    input.academicYearStartsOn && isIsoDate(input.academicYearStartsOn)
+      ? input.academicYearStartsOn
+      : addIsoCalendarDays(input.today, -30);
+  const yearEnd =
+    input.academicYearEndsOn && isIsoDate(input.academicYearEndsOn) ? input.academicYearEndsOn : input.today;
+  const to = yearEnd < input.today ? yearEnd : input.today;
+  return { from, to: to < from ? from : to };
+}
+
+export function defaultAdmissionsReportRange(input: {
+  today: string;
+  academicYearStartsOn?: string | null;
+  academicYearEndsOn?: string | null;
+}): { from: string; to: string } {
+  const from =
+    input.academicYearStartsOn && isIsoDate(input.academicYearStartsOn)
+      ? input.academicYearStartsOn
+      : `${input.today.slice(0, 4)}-01-01`;
+  const to =
+    input.academicYearEndsOn && isIsoDate(input.academicYearEndsOn) ? input.academicYearEndsOn : input.today;
+  return { from, to: to < from ? from : to };
+}
+
 export const FEE_SCHEDULES_PATH = "/school/finance/fee-schedules";
 export const FEE_SCHEDULE_DELETED_NOTICE = "Fee schedule deleted successfully.";
 

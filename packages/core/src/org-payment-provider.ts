@@ -15,6 +15,7 @@ import { financeUserError } from "./payments.js";
 import {
   FakePaymentProvider,
   StripePaymentProvider,
+  platformFakePaymentProviderAllowed,
   type PaymentProvider,
   type PaymentRuntimeConfig,
 } from "./payment-provider.js";
@@ -502,7 +503,7 @@ export async function resolveOrganisationPaymentProvider(
       runtime,
     );
   }
-  if (runtime.providerKey === "fake") {
+  if (platformFakePaymentProviderAllowed(runtime)) {
     return new FakePaymentProvider(runtime.fakeWebhookSecret);
   }
   throwFinance("payment_provider_not_configured");

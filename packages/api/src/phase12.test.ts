@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { isoDate } from "@schoolapp/core";
 import { closePools, withTenantContext } from "@schoolapp/db";
 import {
   addMembership,
@@ -10,6 +11,18 @@ import {
   testApp,
   testPools,
 } from "./test-helpers";
+
+/** Wednesday lesson dates in the 2026 fixture year that are not "today". */
+function wednesdayCoverFixture() {
+  const today = isoDate();
+  const coverDate = today === "2026-09-09" ? "2026-09-16" : "2026-09-09";
+  return {
+    coverDate,
+    weekFrom: coverDate === "2026-09-16" ? "2026-09-14" : "2026-09-07",
+    weekTo: coverDate === "2026-09-16" ? "2026-09-18" : "2026-09-11",
+    spoofDate: coverDate === "2026-09-16" ? "2026-09-23" : "2026-09-16",
+  };
+}
 
 const suffix = () => randomUUID().slice(0, 8);
 
@@ -677,32 +690,33 @@ describe("Phase 12 timetable", () => {
     const disabled = await app.request("/api/v1/student/timetable?from=2026-09-07&to=2026-09-11", { headers: studentH });
     expect(disabled.status).toBe(403);
 
+    const { coverDate, weekFrom, weekTo, spoofDate } = wednesdayCoverFixture();
     const cover = await app.request("/api/v1/timetable/covers", {
       method: "POST",
       headers: gwH,
       body: JSON.stringify({
         timetableEntryId: gwEntry.entry.id,
-        date: "2026-09-09",
+        date: coverDate,
         coveringStaffProfileId: otherTeacher.staffProfileId,
       }),
     });
     expect(cover.status).toBe(201);
     const coverTok = await login(app, otherTeacher.email, "teacher-pass-1");
     const coverH = headers(coverTok, gw.orgId);
-    const coverDay = await app.request(`/api/v1/timetable/occurrences?from=2026-09-09&to=2026-09-09&mine=true`, {
+    const coverDay = await app.request(`/api/v1/timetable/occurrences?from=${coverDate}&to=${coverDate}&mine=true`, {
       headers: coverH,
     });
     expect(((await coverDay.json()) as { occurrences: unknown[] }).occurrences.length).toBeGreaterThan(0);
     const later = await app.request(`/api/v1/timetable/entries?classId=${gwS.classAId}`, { headers: coverH });
     expect(later.status).toBe(404);
     const coverWeek = await app.request(
-      `/api/v1/timetable/occurrences?from=2026-09-07&to=2026-09-11&classId=${gwS.classAId}`,
+      `/api/v1/timetable/occurrences?from=${weekFrom}&to=${weekTo}&classId=${gwS.classAId}`,
       { headers: coverH },
     );
     expect(coverWeek.status).toBe(200);
     const coverWeekBody = (await coverWeek.json()) as { occurrences: Array<{ date: string }> };
     expect(coverWeekBody.occurrences.length).toBeGreaterThan(0);
-    expect(coverWeekBody.occurrences.every((item) => item.date === "2026-09-09")).toBe(true);
+    expect(coverWeekBody.occurrences.every((item) => item.date === coverDate)).toBe(true);
     const teacherCovers = await app.request("/api/v1/timetable/covers", { headers: teacherH });
     expect(teacherCovers.status).toBe(200);
     const teacherCoverBody = (await teacherCovers.json()) as {
@@ -713,14 +727,14 @@ describe("Phase 12 timetable", () => {
     const register = await app.request("/api/v1/timetable/occurrences/attendance-register", {
       method: "POST",
       headers: teacherH,
-      body: JSON.stringify({ entryId: gwEntry.entry.id, date: "2026-09-09" }),
+      body: JSON.stringify({ entryId: gwEntry.entry.id, date: coverDate }),
     });
     expect(register.status).toBe(200);
     const first = (await register.json()) as { sessionTypeId: string; classId: string };
     const again = await app.request("/api/v1/timetable/occurrences/attendance-register", {
       method: "POST",
       headers: teacherH,
-      body: JSON.stringify({ entryId: gwEntry.entry.id, date: "2026-09-09" }),
+      body: JSON.stringify({ entryId: gwEntry.entry.id, date: coverDate }),
     });
     const second = (await again.json()) as { sessionTypeId: string };
     expect(second.sessionTypeId).toBe(first.sessionTypeId);
@@ -735,15 +749,15 @@ describe("Phase 12 timetable", () => {
       headers: gwH,
       body: JSON.stringify({
         timetableEntryId: gwEntry.entry.id,
-        date: "2026-09-16",
+        date: spoofDate,
         coveringStaffProfileId: otherTeacher.staffProfileId,
         assignedBy: oak.adminId,
       }),
     });
     expect(spoof.status).toBe(201);
     const stored = await pools.owner.query<{ assigned_by: string }>(
-      "select assigned_by from timetable_covers where timetable_entry_id = $1 and cover_date = '2026-09-16'",
-      [gwEntry.entry.id],
+      "select assigned_by from timetable_covers where timetable_entry_id = $1 and cover_date = $2",
+      [gwEntry.entry.id, spoofDate],
     );
     expect(stored.rows[0]?.assigned_by).toBe(gw.adminId);
   });

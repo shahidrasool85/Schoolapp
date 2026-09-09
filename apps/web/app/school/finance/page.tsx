@@ -6,6 +6,7 @@ import { EmptyState, LoadingState, PageError, PageHeader, SectionCard, StatCard,
 import { api } from "../../../lib/api";
 import { userFacingError } from "../../../lib/errors";
 import { formatMinor } from "../../../lib/money";
+import { usePermissions } from "../../../lib/use-permissions";
 import { FinanceNav } from "./finance-nav";
 
 type Overview = {
@@ -54,6 +55,8 @@ type Overview = {
 export default function FinanceOverviewPage() {
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState("");
+  const permissions = usePermissions();
+  const canManageSettings = permissions.has("finance.settings.manage") || permissions.has("finance.manage");
 
   useEffect(() => {
     api<Overview>("/api/v1/finance/overview")
@@ -99,7 +102,11 @@ export default function FinanceOverviewPage() {
             clubs and examinations continue as before.
           </p>
           <p>
-            <Link href="/school/finance/settings">Enable tuition in Finance settings</Link>
+            {canManageSettings ? (
+              <Link href="/school/finance/settings">Enable tuition in Finance settings</Link>
+            ) : (
+              "Ask a school finance administrator to enable tuition billing if this school charges fees."
+            )}
           </p>
         </SectionCard>
       )}

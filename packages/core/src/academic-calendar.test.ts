@@ -20,6 +20,13 @@ import {
   validateTermDates,
   validateClosureRange,
   statementPeriodRange,
+  addIsoCalendarDays,
+  defaultAdmissionsReportRange,
+  defaultAttendanceReportRange,
+  defaultBillingPreviewPeriod,
+  defaultCoverListRange,
+  endOfIsoMonth,
+  startOfIsoMonth,
 } from "@schoolapp/domain";
 
 describe("recurrence effective-from defaults", () => {
@@ -66,6 +73,36 @@ describe("recurrence effective-from defaults", () => {
     const eveningUtc = new Date("2026-09-01T00:30:00Z");
     expect(todayInTimeZone("Europe/London", eveningUtc)).toBe("2026-09-01");
     expect(todayInTimeZone("America/New_York", eveningUtc)).toBe("2026-08-31");
+  });
+});
+
+describe("production date defaults", () => {
+  it("derives billing, cover, and report windows from today and the current academic year", () => {
+    expect(startOfIsoMonth("2027-03-09")).toBe("2027-03-01");
+    expect(endOfIsoMonth("2027-03-09")).toBe("2027-03-31");
+    expect(endOfIsoMonth("2028-02-10")).toBe("2028-02-29");
+    expect(addIsoCalendarDays("2027-03-09", 14)).toBe("2027-03-23");
+    expect(defaultBillingPreviewPeriod("2027-03-09")).toEqual({
+      periodStart: "2027-03-01",
+      periodEnd: "2027-03-31",
+    });
+    expect(defaultCoverListRange("2027-03-09")).toEqual({ from: "2027-02-23", to: "2027-06-07" });
+    expect(
+      defaultAttendanceReportRange({
+        today: "2027-03-09",
+        academicYearStartsOn: "2026-09-01",
+        academicYearEndsOn: "2027-07-31",
+      }),
+    ).toEqual({ from: "2026-09-01", to: "2027-03-09" });
+    expect(
+      defaultAdmissionsReportRange({
+        today: "2027-03-09",
+        academicYearStartsOn: "2026-09-01",
+        academicYearEndsOn: "2027-07-31",
+      }),
+    ).toEqual({ from: "2026-09-01", to: "2027-07-31" });
+    expect(defaultAttendanceReportRange({ today: "2027-03-09" }).from).not.toBe("2026-09-01");
+    expect(defaultAdmissionsReportRange({ today: "2027-03-09" }).to).not.toBe("2027-07-31");
   });
 });
 

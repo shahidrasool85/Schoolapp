@@ -69,3 +69,12 @@ export function isoWeekRange(isoDate: string): { from: string; to: string } {
   const from = startOfIsoWeek(isoDate);
   return { from, to: addIsoDays(from, 6) };
 }
+
+/** Omit blank dates so CSV/filter requests do not override academic-year defaults. */
+export function reportRangeQuery(from: string, to: string, extra?: Record<string, string>): string {
+  const params = new URLSearchParams(extra);
+  if (from.trim()) params.set("from", from.trim());
+  if (to.trim()) params.set("to", to.trim());
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}

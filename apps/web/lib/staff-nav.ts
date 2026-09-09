@@ -444,7 +444,7 @@ export const STAFF_NAV_SECTIONS: StaffNavSection[] = [
           { href: "/school/finance/discounts", label: "Discounts", permissions: ["finance.invoices.read", "finance.discounts.manage"] },
           { href: "/school/finance/arrears", label: "Arrears", permissions: ["finance.invoices.read", "finance.reports.read"] },
           { href: "/school/finance/charges", label: "Other payments", permissions: ["finance.charges.read", "finance.charges.manage"] },
-          { href: "/school/finance/settings", label: "Settings", permissions: ["finance.settings.manage", "finance.invoices.read"] },
+          { href: "/school/finance/settings", label: "Settings", permissions: ["finance.settings.manage", "finance.manage"] },
         ],
       },
       {

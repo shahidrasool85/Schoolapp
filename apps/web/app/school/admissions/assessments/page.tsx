@@ -74,6 +74,7 @@ export default function AssessmentsPage() {
         </select>
       </div>
       {error ? <Alert tone="danger">{error}</Alert> : null}
+      <div className="table-wrap">
       <table>
         <thead>
           <tr>
@@ -115,6 +116,7 @@ export default function AssessmentsPage() {
           ))}
         </tbody>
       </table>
+      </div>
     </>
   );
 }

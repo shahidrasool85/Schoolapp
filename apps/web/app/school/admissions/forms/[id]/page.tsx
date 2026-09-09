@@ -45,23 +45,33 @@ export default function AdmissionsFormDetailPage() {
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    await api(`/api/v1/admissions/forms/${params.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        name: form.get("name"),
-        slug: form.get("slug"),
-        successText: form.get("successText"),
-        privacyNoticeText: form.get("privacyNoticeText"),
-      }),
-    });
-    setMessage("Form saved.");
-    await load();
+    setError("");
+    try {
+      await api(`/api/v1/admissions/forms/${params.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: form.get("name"),
+          slug: form.get("slug"),
+          successText: form.get("successText"),
+          privacyNoticeText: form.get("privacyNoticeText"),
+        }),
+      });
+      setMessage("Form saved.");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save this form.");
+    }
   }
 
   async function publish(path: "publish" | "unpublish") {
-    await api(`/api/v1/admissions/forms/${params.id}/${path}`, { method: "POST", body: "{}" });
-    setMessage(path === "publish" ? "Published." : "Unpublished.");
-    await load();
+    setError("");
+    try {
+      await api(`/api/v1/admissions/forms/${params.id}/${path}`, { method: "POST", body: "{}" });
+      setMessage(path === "publish" ? "Published." : "Unpublished.");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update publication.");
+    }
   }
 
   if (error && !data) return <p className="error">{error}</p>;
@@ -73,6 +83,7 @@ export default function AdmissionsFormDetailPage() {
       <p className="muted">
         {data.form.formType} · {data.form.status}
       </p>
+      {error ? <p className="error">{error}</p> : null}
       {message ? <p>{message}</p> : null}
       <form className="card stack" onSubmit={save}>
         <label>
@@ -99,9 +110,13 @@ export default function AdmissionsFormDetailPage() {
         <button
           type="button"
           className="secondary"
-          onClick={() => void api(`/api/v1/admissions/forms/${params.id}/duplicate`, { method: "POST", body: "{}" }).then((body) => {
-            window.location.href = `/school/admissions/forms/${(body as { form: { id: string } }).form.id}`;
-          })}
+          onClick={() =>
+            void api(`/api/v1/admissions/forms/${params.id}/duplicate`, { method: "POST", body: "{}" })
+              .then((body) => {
+                window.location.href = `/school/admissions/forms/${(body as { form: { id: string } }).form.id}`;
+              })
+              .catch((err: Error) => setError(err.message))
+          }
         >
           Duplicate
         </button>

@@ -22,7 +22,7 @@ type Student = {
 type Option = { id: string; name: string; code?: string };
 
 export default function StudentsPage() {
-  const [students, setStudents] = useState<Student[]>([]);
+  const [students, setStudents] = useState<Student[] | null>(null);
   const [years, setYears] = useState<Option[]>([]);
   const [groups, setGroups] = useState<Option[]>([]);
   const [classes, setClasses] = useState<Option[]>([]);
@@ -131,7 +131,9 @@ export default function StudentsPage() {
       </form>
       {message ? <Alert tone="success">{message}</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
-      {students.length === 0 ? (
+      {students === null ? (
+        <p className="muted">Loading pupils…</p>
+      ) : students.length === 0 ? (
         <EmptyState title="No pupils yet" description="Add a pupil above, or wait for an admitted application to enrol." />
       ) : (
         <DataTable

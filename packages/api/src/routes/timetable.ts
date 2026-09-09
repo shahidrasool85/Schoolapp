@@ -28,7 +28,6 @@ import {
   canReadRooms,
   canReadSchoolTimetable,
   firstTimetableOccurrence,
-  isoDate,
   isoWeekdayFromDate,
   isoWeekRange,
   listResolvedRecurrenceDates,
@@ -758,9 +757,10 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       const roomId = c.req.query("roomId");
       const academicYearId = c.req.query("academicYearId");
       if (classId) await requireOrgRow(client, "classes", classId, orgId);
+      const today = await schoolToday(client, orgId);
       const definitionScope = canReadSchoolTimetable(actor)
         ? null
-        : await timetableDefinitionScope(client, actor, isoDate());
+        : await timetableDefinitionScope(client, actor, today);
       if (classId && definitionScope && !definitionScope.classIds.has(classId)) {
         const coveredInClass =
           definitionScope.entryIds.size === 0
@@ -816,7 +816,6 @@ export function registerTimetableRoutes(app: SchoolappApi) {
           staffProfileId ?? null,
         ],
       );
-      const today = await schoolToday(client, orgId);
       const mapped = [];
       for (const row of rows.rows) {
         mapped.push(
@@ -841,13 +840,13 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       ]);
       const id = uuidRouteParam(c, "id");
       const entry = await loadEntryRow(client, orgId, id);
+      const today = await schoolToday(client, orgId);
       if (!canReadSchoolTimetable(actor)) {
-        const definitionScope = await timetableDefinitionScope(client, actor, isoDate());
+        const definitionScope = await timetableDefinitionScope(client, actor, today);
         if (!definitionScope.classIds.has(String(entry.class_id)) && !definitionScope.entryIds.has(id)) {
           throw new AppError(404, "not_found", "Not found");
         }
       }
-      const today = await schoolToday(client, orgId);
       return c.json({
         entry: await mapManagedEntry(client, orgId, entry, today, { includeLifecycle: true }),
         today,
@@ -1404,9 +1403,10 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       }
       const from = c.req.query("from");
       const to = c.req.query("to");
+      const today = await schoolToday(client, orgId);
       const scope = canReadSchoolTimetable(actor)
         ? null
-        : await timetableDefinitionScope(client, actor, isoDate());
+        : await timetableDefinitionScope(client, actor, today);
       const includeInternal = canManageCover(actor);
       const rows = await client.query(
         `select
@@ -1494,9 +1494,10 @@ export function registerTimetableRoutes(app: SchoolappApi) {
       if (!canReadCover(actor)) throw new AppError(403, "forbidden", "Missing permission");
       const from = c.req.query("from");
       const to = c.req.query("to");
+      const today = await schoolToday(client, orgId);
       const scope = canReadSchoolTimetable(actor)
         ? null
-        : await timetableDefinitionScope(client, actor, isoDate());
+        : await timetableDefinitionScope(client, actor, today);
       const includeInternal = canManageCover(actor);
       const rows = await client.query(
         `select

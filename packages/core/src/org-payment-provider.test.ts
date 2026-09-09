@@ -1,12 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createPaymentProvider } from "./payment-provider.js";
-import {
-  derivePaymentProviderConnectionStatus,
-  emptyOrganisationPaymentProvider,
-  paymentProviderAuditPayload,
-  stripeWebhookPath,
-  testStripeSecretKey,
-} from "./org-payment-provider.js";
+import { createPaymentProvider, paymentConfigFromEnv, platformFakePaymentProviderAllowed } from "./payment-provider.js";
 
 describe("organisation payment provider helpers", () => {
   it("starts a new school as not configured", () => {
@@ -74,5 +67,33 @@ describe("organisation payment provider helpers", () => {
       stripeWebhookSecret: null,
     });
     expect(provider.key).toBe("fake");
+  });
+
+  it("never falls back to the platform fake provider in production", () => {
+    expect(
+      platformFakePaymentProviderAllowed({
+        providerKey: "fake",
+        fakeWebhookSecret: "test",
+        stripeSecretKey: null,
+        stripeWebhookSecret: null,
+        allowPlatformFakeProvider: false,
+      }),
+    ).toBe(false);
+    expect(
+      platformFakePaymentProviderAllowed({
+        providerKey: "fake",
+        fakeWebhookSecret: "test",
+        stripeSecretKey: null,
+        stripeWebhookSecret: null,
+      }),
+    ).toBe(true);
+    expect(
+      paymentConfigFromEnv({ NODE_ENV: "production", PAYMENT_PROVIDER: "fake", AUTH_SECRET: "x".repeat(32) })
+        .allowPlatformFakeProvider,
+    ).toBe(false);
+    expect(
+      paymentConfigFromEnv({ NODE_ENV: "test", PAYMENT_PROVIDER: "fake", AUTH_SECRET: "x".repeat(32) })
+        .allowPlatformFakeProvider,
+    ).toBe(true);
   });
 });

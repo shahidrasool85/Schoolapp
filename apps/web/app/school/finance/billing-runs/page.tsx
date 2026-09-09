@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { billingRunDisplayStatus, billingRunStatusLabel } from "@schoolapp/domain";
+import { billingRunDisplayStatus, billingRunStatusLabel, DEFAULT_SCHOOL_TIMEZONE, defaultBillingPreviewPeriod, todayInTimeZone } from "@schoolapp/domain";
 import { Alert, DataTable, EmptyState, LoadingState, PageError, PageHeader, SectionCard, StatusBadge } from "../../../../components/ui";
 import { api } from "../../../../lib/api";
 import { userFacingError } from "../../../../lib/errors";
@@ -30,6 +30,8 @@ export default function BillingRunsPage() {
   const [years, setYears] = useState<Array<{ id: string; name: string }>>([]);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const previewPeriod = defaultBillingPreviewPeriod(todayInTimeZone(DEFAULT_SCHOOL_TIMEZONE));
 
   useEffect(() => {
     Promise.all([
@@ -47,6 +49,7 @@ export default function BillingRunsPage() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     setMessage("");
+    setBusy(true);
     try {
       const body = await api<{ run: { id: string } }>("/api/v1/finance/billing-runs/preview", {
         method: "POST",
@@ -63,6 +66,7 @@ export default function BillingRunsPage() {
       router.push(`/school/finance/billing-runs/${body.run.id}`);
     } catch (err) {
       setError(userFacingError(err as Error, "Could not preview the billing run."));
+      setBusy(false);
     }
   }
 
@@ -100,11 +104,11 @@ export default function BillingRunsPage() {
           </label>
           <label>
             Period start
-            <input name="periodStart" type="date" required defaultValue="2026-09-01" />
+            <input name="periodStart" type="date" required defaultValue={previewPeriod.periodStart} />
           </label>
           <label>
             Period end
-            <input name="periodEnd" type="date" required defaultValue="2026-09-30" />
+            <input name="periodEnd" type="date" required defaultValue={previewPeriod.periodEnd} />
           </label>
           <label>
             Due on
@@ -114,7 +118,9 @@ export default function BillingRunsPage() {
             Instalment number
             <input name="instalmentNumber" type="number" min={1} placeholder="1" />
           </label>
-          <button type="submit">Preview only</button>
+          <button type="submit" disabled={busy}>
+            {busy ? "Preparing preview…" : "Preview only"}
+          </button>
         </form>
       </SectionCard>
       {runs.length === 0 ? (

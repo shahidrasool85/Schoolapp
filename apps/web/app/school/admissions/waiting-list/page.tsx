@@ -58,6 +58,7 @@ export default function WaitingListPage() {
         Priority is optional and staff-managed. The system does not rank by first-come-first-served.
       </p>
       {error ? <p className="error">{error}</p> : null}
+      <div className="table-wrap">
       <table>
         <thead>
           <tr>
@@ -86,6 +87,7 @@ export default function WaitingListPage() {
           ))}
         </tbody>
       </table>
+      </div>
     </>
   );
 }

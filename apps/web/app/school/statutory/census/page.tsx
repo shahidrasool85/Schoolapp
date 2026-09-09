@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
+import { DEFAULT_SCHOOL_TIMEZONE, todayInTimeZone } from "@schoolapp/domain";
 import {
   Alert,
   DataTable,
@@ -114,7 +115,7 @@ export default function CensusListPage() {
           </label>
           <label>
             Census date
-            <input name="censusDate" type="date" required defaultValue="2026-10-01" />
+            <input name="censusDate" type="date" required defaultValue={todayInTimeZone(DEFAULT_SCHOOL_TIMEZONE)} />
           </label>
           <button className="button" type="submit">
             Create draft

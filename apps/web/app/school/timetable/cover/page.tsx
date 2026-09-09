@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { DEFAULT_SCHOOL_TIMEZONE, defaultCoverListRange, todayInTimeZone } from "@schoolapp/domain";
 import { api, ApiError } from "../../../../lib/api";
 
 type Entry = { id: string; className: string | null; weekday: number; startsAt: string; subjectName: string | null };
@@ -23,13 +24,15 @@ export default function CoverPage() {
   const [exceptions, setExceptions] = useState<Exception[]>([]);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const today = todayInTimeZone(DEFAULT_SCHOOL_TIMEZONE);
+  const coverWindow = defaultCoverListRange(today);
 
   async function load() {
     const [entryBody, staffBody, coverBody, exceptionBody] = await Promise.all([
       api<{ entries: Entry[] }>("/api/v1/timetable/entries"),
       api<{ staff: Staff[] }>("/api/v1/staff"),
-      api<{ covers: Cover[] }>("/api/v1/timetable/covers?from=2026-09-01&to=2026-12-18"),
-      api<{ exceptions: Exception[] }>("/api/v1/timetable/exceptions?from=2026-09-01&to=2026-12-18"),
+      api<{ covers: Cover[] }>(`/api/v1/timetable/covers?from=${coverWindow.from}&to=${coverWindow.to}`),
+      api<{ exceptions: Exception[] }>(`/api/v1/timetable/exceptions?from=${coverWindow.from}&to=${coverWindow.to}`),
     ]);
     setEntries(entryBody.entries);
     setStaff(staffBody.staff);
@@ -106,7 +109,7 @@ export default function CoverPage() {
         </label>
         <label>
           Date
-          <input name="date" type="date" required defaultValue="2026-09-07" />
+          <input name="date" type="date" required defaultValue={today} />
         </label>
         <label>
           Covering teacher
@@ -142,7 +145,7 @@ export default function CoverPage() {
         </label>
         <label>
           Date
-          <input name="date" type="date" required defaultValue="2026-09-11" />
+          <input name="date" type="date" required defaultValue={today} />
         </label>
         <label>
           Type

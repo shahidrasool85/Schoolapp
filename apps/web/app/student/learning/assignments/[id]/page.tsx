@@ -60,16 +60,21 @@ export default function StudentAssignmentPage() {
   async function onSubmit(event: FormEvent<HTMLFormElement>, submit: boolean) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    await api(`/api/v1/student/assignments/${params.id}/submissions`, {
-      method: "POST",
-      body: JSON.stringify({
-        textResponse: form.get("textResponse") || null,
-        comment: form.get("comment") || null,
-        submit,
-      }),
-    });
-    setSaved(submit ? "Submitted" : "Saved");
-    await load();
+    setError("");
+    try {
+      await api(`/api/v1/student/assignments/${params.id}/submissions`, {
+        method: "POST",
+        body: JSON.stringify({
+          textResponse: form.get("textResponse") || null,
+          comment: form.get("comment") || null,
+          submit,
+        }),
+      });
+      setSaved(submit ? "Submitted" : "Saved");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save this work.");
+    }
   }
 
   if (error && !data) return <p className="error">{error}</p>;
@@ -201,6 +206,7 @@ export default function StudentAssignmentPage() {
           <div><button type="submit">Upload attachment</button></div>
         </form>
       ) : null}
+      {error ? <p className="error">{error}</p> : null}
       {saved ? <p>{saved}</p> : null}
     </>
   );

@@ -1,5 +1,13 @@
 import { z } from "zod";
-import { PERMISSIONS, statutoryIssueFix, lookedAfterPersistValue } from "@schoolapp/domain";
+import {
+  PERMISSIONS,
+  statutoryIssueFix,
+  lookedAfterPersistValue,
+  DEFAULT_SCHOOL_TIMEZONE,
+  defaultAdmissionsReportRange,
+  defaultAttendanceReportRange,
+  todayInTimeZone,
+} from "@schoolapp/domain";
 import {
   AppError,
   ADMISSIONS_ENROLMENT_COLUMNS,
@@ -30,6 +38,7 @@ import {
   censusMayFinalise,
   censusMayRegenerate,
   censusXmlPreview,
+  currentAcademicYear,
   countIssues,
   fsmEligibleOnDate,
   groupAttendanceSummaries,
@@ -1168,8 +1177,15 @@ export function registerStatutoryRoutes(app: SchoolappApi) {
   app.get("/reports/attendance", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       if (!canReadAttendanceReport(actor)) throw new AppError(403, "forbidden", "Missing permission");
-      const from = c.req.query("from") ?? "2026-09-01";
-      const to = c.req.query("to") ?? new Date().toISOString().slice(0, 10);
+      const year = await currentAcademicYear(client, orgId);
+      const today = todayInTimeZone(DEFAULT_SCHOOL_TIMEZONE);
+      const defaults = defaultAttendanceReportRange({
+        today,
+        academicYearStartsOn: year?.starts_on ?? null,
+        academicYearEndsOn: year?.ends_on ?? null,
+      });
+      const from = c.req.query("from") ?? defaults.from;
+      const to = c.req.query("to") ?? defaults.to;
       const yearGroupId = c.req.query("yearGroupId");
       const classId = c.req.query("classId");
       const pupils = await loadLiveStatutoryPupils(client, orgId);
@@ -1293,8 +1309,15 @@ export function registerStatutoryRoutes(app: SchoolappApi) {
   app.get("/reports/admissions", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       if (!canReadAdmissionsReport(actor)) throw new AppError(403, "forbidden", "Missing permission");
-      const from = c.req.query("from") ?? "2026-09-01";
-      const to = c.req.query("to") ?? "2027-07-31";
+      const year = await currentAcademicYear(client, orgId);
+      const today = todayInTimeZone(DEFAULT_SCHOOL_TIMEZONE);
+      const defaults = defaultAdmissionsReportRange({
+        today,
+        academicYearStartsOn: year?.starts_on ?? null,
+        academicYearEndsOn: year?.ends_on ?? null,
+      });
+      const from = c.req.query("from") ?? defaults.from;
+      const to = c.req.query("to") ?? defaults.to;
       const pupils = await loadLiveStatutoryPupils(client, orgId);
       const rows = pupils.map((pupil) => ({
         studentProfileId: pupil.studentProfileId,
@@ -1350,6 +1373,8 @@ export function registerStatutoryRoutes(app: SchoolappApi) {
               row.dateOfLeaving,
               row.leavingReason,
               row.previousSchool,
+              row.admittedInPeriod,
+              row.leftInPeriod,
             ]),
           ),
         );

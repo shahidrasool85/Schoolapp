@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { FINANCE_SETTINGS_ADMIN_PERMISSIONS, hasAnyPermission } from "@schoolapp/domain";
 import { Tabs } from "../../../components/ui";
+import { usePermissions } from "../../../lib/use-permissions";
 
-const LINKS = [
+const LINKS: Array<{ href: string; label: string; exact?: boolean; settingsOnly?: boolean }> = [
   { href: "/school/finance", label: "Overview", exact: true },
   { href: "/school/finance/fee-schedules", label: "Fee schedules" },
   { href: "/school/finance/invoices", label: "Invoices / Charges" },
@@ -16,14 +18,16 @@ const LINKS = [
   { href: "/school/finance/discounts", label: "Discounts" },
   { href: "/school/finance/arrears", label: "Arrears" },
   { href: "/school/finance/charges", label: "Other payments" },
-  { href: "/school/finance/settings", label: "Settings" },
+  { href: "/school/finance/settings", label: "Settings", settingsOnly: true },
 ];
 
 export function FinanceNav() {
   const pathname = usePathname();
+  const permissions = usePermissions();
+  const canOpenSettings = hasAnyPermission(permissions.permissions ?? [], FINANCE_SETTINGS_ADMIN_PERMISSIONS);
   return (
     <Tabs>
-      {LINKS.map((link) => {
+      {LINKS.filter((link) => !link.settingsOnly || canOpenSettings).map((link) => {
         const active = link.exact ? pathname === link.href : pathname.startsWith(link.href);
         return (
           <Link key={link.href} href={link.href} className={active ? "active" : undefined} aria-current={active ? "page" : undefined}>

@@ -13,6 +13,7 @@ export default function NewChargePage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -28,7 +29,9 @@ export default function NewChargePage() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (busy) return;
     const form = new FormData(event.currentTarget);
+    setBusy(true);
     try {
       const body = await api<{ charge: { id: string } }>("/api/v1/finance/charges", {
         method: "POST",
@@ -46,6 +49,7 @@ export default function NewChargePage() {
       router.push(`/school/finance/charges/${body.charge.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create charge");
+      setBusy(false);
     }
   }
 
@@ -94,7 +98,9 @@ export default function NewChargePage() {
         <label>
           <input name="issue" type="checkbox" defaultChecked /> Issue immediately
         </label>
-        <button type="submit">Create charge</button>
+        <button type="submit" disabled={busy}>
+          {busy ? "Creating…" : "Create charge"}
+        </button>
       </form>
     </>
   );

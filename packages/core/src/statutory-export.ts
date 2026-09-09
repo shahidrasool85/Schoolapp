@@ -72,6 +72,8 @@ export const ADMISSIONS_ENROLMENT_COLUMNS = [
   "dateOfLeaving",
   "leavingReason",
   "previousSchool",
+  "admittedInPeriod",
+  "leftInPeriod",
 ] as const;
 
 export const SEND_EXPORT_COLUMNS = [

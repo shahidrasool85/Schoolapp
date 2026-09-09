@@ -131,6 +131,7 @@ export default function EnquiriesPage() {
       </div>
       {message ? <p>{message}</p> : null}
       {error ? <p className="error">{error}</p> : null}
+      <div className="table-wrap">
       <table>
         <thead>
           <tr>
@@ -155,6 +156,7 @@ export default function EnquiriesPage() {
           ))}
         </tbody>
       </table>
+      </div>
     </>
   );
 }

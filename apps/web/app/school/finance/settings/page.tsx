@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Dispatch, FormEvent, SetStateAction, Suspense, useEffect, useRef, useState } from "react";
 import { FINANCE_SETTINGS_TAB_ITEMS, financeSettingsTabHref, parseFinanceSettingsTab } from "@schoolapp/domain";
+import { RequirePermission } from "../../../../components/require-permission";
 import { Alert, Badge, Button, FormField, Input, LoadingState, PageError, PageHeader, SectionCard, Tabs } from "../../../../components/ui";
 import { api, downloadAuthenticated, fetchAuthenticatedBlobUrl } from "../../../../lib/api";
 import { userFacingError } from "../../../../lib/errors";
@@ -55,9 +56,11 @@ type Settings = {
 
 export default function FinanceSettingsPage() {
   return (
-    <Suspense fallback={<LoadingState label="Loading settings…" />}>
-      <FinanceSettingsBody />
-    </Suspense>
+    <RequirePermission anyOf={["finance.settings.manage", "finance.manage"]}>
+      <Suspense fallback={<LoadingState label="Loading settings…" />}>
+        <FinanceSettingsBody />
+      </Suspense>
+    </RequirePermission>
   );
 }
 

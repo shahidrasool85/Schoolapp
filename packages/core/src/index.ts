@@ -710,6 +710,7 @@ export {
 export {
   paymentConfigFromEnv,
   createPaymentProvider,
+  platformFakePaymentProviderAllowed,
   FakePaymentProvider,
   StripePaymentProvider,
   signFakePaymentEvent,
@@ -864,6 +865,7 @@ export {
   TUITION_READ_PERMISSIONS,
   applyOptionalPupilImportFinance,
   assertTuitionRead,
+  assertFinanceSettingsManage,
   canManageBillingRuns,
   canManageDiscounts,
   canManageFeeSchedules,

@@ -362,6 +362,13 @@ export {
   uniqueTermKey,
   validateTermDates,
   validateClosureRange,
+  addIsoCalendarDays,
+  startOfIsoMonth,
+  endOfIsoMonth,
+  defaultBillingPreviewPeriod,
+  defaultCoverListRange,
+  defaultAttendanceReportRange,
+  defaultAdmissionsReportRange,
   formatUkShortDate,
   formatUkDateRange,
   statementPeriodRange,
@@ -476,6 +483,11 @@ export {
   canAccessSchoolSettingsAdmin,
   canReadSchoolSettingsProfile,
 } from "./school-settings-access.js";
+
+export {
+  FINANCE_SETTINGS_ADMIN_PERMISSIONS,
+  canAccessFinanceSettingsAdmin,
+} from "./finance-settings-access.js";
 
 export {
   STUDENT_PORTAL_POLICY_MANAGE_PERMISSIONS,

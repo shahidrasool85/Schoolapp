@@ -44,6 +44,7 @@ export default function ParentChargePage() {
   const [data, setData] = useState<Bundle | null>(null);
   const [error, setError] = useState("");
   const pendingReturn = search.get("status") === "pending";
+  const [paying, setPaying] = useState(false);
 
   async function load() {
     setData(await api<Bundle>(`/api/v1/parent/payments/${params.chargeId}`));
@@ -54,7 +55,9 @@ export default function ParentChargePage() {
   }, [params.chargeId]);
 
   async function pay() {
+    if (paying) return;
     setError("");
+    setPaying(true);
     try {
       const body = await api<{ checkoutUrl: string }>(`/api/v1/parent/payments/${params.chargeId}/checkout`, {
         method: "POST",
@@ -63,6 +66,7 @@ export default function ParentChargePage() {
       window.location.href = body.checkoutUrl;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Payment unavailable");
+      setPaying(false);
     }
   }
 
@@ -89,8 +93,8 @@ export default function ParentChargePage() {
       </p>
       {data.charge.parentNote ? <p>{data.charge.parentNote}</p> : null}
       {data.charge.payable ? (
-        <button type="button" onClick={pay}>
-          Pay
+        <button type="button" onClick={pay} disabled={paying}>
+          {paying ? "Opening payment…" : "Pay"}
         </button>
       ) : null}
       <h2>History</h2>

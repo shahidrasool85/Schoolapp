@@ -27,15 +27,21 @@ type Row = {
 
 export default function AttendanceReportPage() {
   const [rows, setRows] = useState<Row[] | null>(null);
-  const [from, setFrom] = useState("2026-09-01");
-  const [to, setTo] = useState("2026-09-12");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [error, setError] = useState("");
 
-  async function load(range = { from, to }) {
-    const result = await api<{ pupils: Row[] }>(
-      `/api/v1/reports/attendance?from=${range.from}&to=${range.to}`,
+  async function load(range?: { from: string; to: string }) {
+    const query =
+      range?.from && range.to
+        ? `from=${range.from}&to=${range.to}`
+        : "";
+    const result = await api<{ pupils: Row[]; from: string; to: string }>(
+      `/api/v1/reports/attendance${query ? `?${query}` : ""}`,
     );
     setRows(result.pupils);
+    setFrom(result.from);
+    setTo(result.to);
   }
 
   useEffect(() => {
@@ -44,7 +50,7 @@ export default function AttendanceReportPage() {
 
   function onFilter(event: FormEvent) {
     event.preventDefault();
-    load().catch((err: Error) => setError(userFacingError(err, "Could not load attendance report.")));
+    load({ from, to }).catch((err: Error) => setError(userFacingError(err, "Could not load attendance report.")));
   }
 
   if (error && !rows) return <PageError title="Attendance report unavailable" description={error} />;

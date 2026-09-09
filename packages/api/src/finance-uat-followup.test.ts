@@ -742,4 +742,114 @@ describe("Finance UAT follow-up", () => {
       expect(rows.rows).toEqual([]);
     });
   });
+
+  it("clears nullable fee-schedule fields instead of coalescing the previous value", async () => {
+    const school = await createSchool(pools.owner, suffix());
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(token, school.orgId);
+    const seeded = await seedYear(app, hdrs);
+    await enableTuition(app, hdrs);
+    const created = await json<{ schedule: { id: string; effectiveUntil: string | null; description: string | null } }>(
+      await app.request("/api/v1/finance/fee-schedules", {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({
+          name: "Open-ended after edit",
+          academicYearId: seeded.yearId,
+          yearGroupId: seeded.year3Id,
+          annualAmountMinor: 2000000,
+          instalmentCount: 10,
+          billingFrequency: "monthly",
+          effectiveFrom: "2026-09-01",
+          effectiveUntil: "2026-12-31",
+          description: "Ends in December",
+        }),
+      }),
+    );
+    expect(created.schedule.effectiveUntil).toBe("2026-12-31");
+    const updated = await json<{ schedule: { effectiveUntil: string | null; description: string | null } }>(
+      await app.request(`/api/v1/finance/fee-schedules/${created.schedule.id}`, {
+        method: "PATCH",
+        headers: hdrs,
+        body: JSON.stringify({ effectiveUntil: null, description: null }),
+      }),
+    );
+    expect(updated.schedule.effectiveUntil).toBeNull();
+    expect(updated.schedule.description).toBeNull();
+  });
+
+  it("scopes a schedule-page billing preview to that fee schedule", async () => {
+    const school = await createSchool(pools.owner, suffix());
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(token, school.orgId);
+    const seeded = await seedYear(app, hdrs);
+    await enableTuition(app, hdrs);
+    const year3Pupil = await json<{ student: { id: string } }>(
+      await app.request("/api/v1/students", {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({
+          legalName: "Year Three",
+          academicYearId: seeded.yearId,
+          yearGroupId: seeded.year3Id,
+        }),
+      }),
+    );
+    const year5Pupil = await json<{ student: { id: string } }>(
+      await app.request("/api/v1/students", {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({
+          legalName: "Year Five",
+          academicYearId: seeded.yearId,
+          yearGroupId: seeded.year5Id,
+        }),
+      }),
+    );
+    const year3 = await json<{ schedule: { id: string } }>(
+      await app.request("/api/v1/finance/fee-schedules", {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({
+          name: "Y3 only",
+          academicYearId: seeded.yearId,
+          yearGroupId: seeded.year3Id,
+          annualAmountMinor: 2000000,
+          instalmentCount: 10,
+          billingFrequency: "monthly",
+          effectiveFrom: "2026-09-01",
+        }),
+      }),
+    );
+    await app.request("/api/v1/finance/fee-schedules", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        name: "Y5 only",
+        academicYearId: seeded.yearId,
+        yearGroupId: seeded.year5Id,
+        annualAmountMinor: 1800000,
+        instalmentCount: 10,
+        billingFrequency: "monthly",
+        effectiveFrom: "2026-09-01",
+      }),
+    });
+    const preview = await json<{ items: Array<{ studentProfileId: string; feeScheduleId: string | null }> }>(
+      await app.request("/api/v1/finance/billing-runs/preview", {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({
+          academicYearId: seeded.yearId,
+          frequency: "monthly",
+          periodStart: "2026-09-01",
+          periodEnd: "2026-09-30",
+          feeScheduleId: year3.schedule.id,
+        }),
+      }),
+    );
+    const billed = preview.items.filter((item) => item.feeScheduleId);
+    expect(billed.every((item) => item.feeScheduleId === year3.schedule.id)).toBe(true);
+    expect(billed.some((item) => item.studentProfileId === year3Pupil.student.id)).toBe(true);
+    expect(billed.some((item) => item.studentProfileId === year5Pupil.student.id)).toBe(false);
+  });
 });

@@ -32,10 +32,11 @@ type Staff = {
 };
 
 export default function StaffPage() {
-  const [staff, setStaff] = useState<Staff[]>([]);
+  const [staff, setStaff] = useState<Staff[] | null>(null);
   const [inviteToken, setInviteToken] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
 
   async function load() {
     const body = await api<{ staff: Staff[] }>("/api/v1/staff");
@@ -52,6 +53,7 @@ export default function StaffPage() {
     const form = new FormData(formEl);
     setError("");
     setNotice("");
+    setBusy(true);
     try {
       const created = await api<{ invitationToken: string }>("/api/v1/staff", {
         method: "POST",
@@ -68,6 +70,8 @@ export default function StaffPage() {
       await load();
     } catch (err) {
       setError(userFacingError(err, "Could not create staff."));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -98,13 +102,17 @@ export default function StaffPage() {
           </Select>
         </FormField>
         <div>
-          <Button type="submit">Create and invite</Button>
+          <Button type="submit" disabled={busy}>
+            {busy ? "Creating…" : "Create and invite"}
+          </Button>
         </div>
       </form>
       {inviteToken ? <InviteTokenAlert token={inviteToken} /> : null}
       {notice ? <Alert tone="success">{notice}</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
-      {staff.length === 0 ? (
+      {staff === null ? (
+        <p className="muted">Loading staff…</p>
+      ) : staff.length === 0 ? (
         <EmptyState
           title="No staff yet"
           description="Add the first staff member above, or import a CSV from Bulk import."

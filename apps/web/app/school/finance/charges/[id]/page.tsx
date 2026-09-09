@@ -38,6 +38,7 @@ export default function StaffChargeDetailPage() {
   const [data, setData] = useState<Bundle | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
 
   async function load() {
     setData(await api<Bundle>(`/api/v1/finance/charges/${params.id}`));
@@ -48,13 +49,17 @@ export default function StaffChargeDetailPage() {
   }, [params.id]);
 
   async function post(path: string, body: unknown, ok: string) {
+    if (busy) return;
     setError("");
+    setBusy(true);
     try {
       await api(path, { method: "POST", body: JSON.stringify(body) });
       setMessage(ok);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Request failed");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -131,12 +136,12 @@ export default function StaffChargeDetailPage() {
       {data.charge.parentNote ? <p>{data.charge.parentNote}</p> : null}
       <div className="toolbar">
         {data.charge.status === "draft" ? (
-          <button type="button" onClick={issue}>
-            Issue
+          <button type="button" onClick={issue} disabled={busy}>
+            {busy ? "Working…" : "Issue"}
           </button>
         ) : null}
         {data.charge.status === "issued" || data.charge.status === "draft" ? (
-          <button type="button" className="secondary" onClick={cancel}>
+          <button type="button" className="secondary" onClick={cancel} disabled={busy}>
             Cancel
           </button>
         ) : null}
@@ -152,7 +157,7 @@ export default function StaffChargeDetailPage() {
           <option value="other">Other</option>
         </select>
         <input name="reference" placeholder="Reference" />
-        <button type="submit">Record</button>
+        <button type="submit" disabled={busy}>Record</button>
       </form>
       <h2>Adjust / waive</h2>
       <form className="toolbar" onSubmit={adjust}>
@@ -164,13 +169,13 @@ export default function StaffChargeDetailPage() {
         </select>
         <input name="amountPounds" inputMode="decimal" placeholder="Amount £" required />
         <input name="reason" required placeholder="Reason" />
-        <button type="submit">Apply</button>
+        <button type="submit" disabled={busy}>Apply</button>
       </form>
       <h2>Refund</h2>
       <form className="toolbar" onSubmit={refund}>
         <input name="amountPounds" inputMode="decimal" placeholder="Amount £" required />
         <input name="reason" required placeholder="Reason" />
-        <button type="submit">Refund</button>
+        <button type="submit" disabled={busy}>Refund</button>
       </form>
       <h2>Transactions</h2>
       {data.transactions.length === 0 ? <p>No transactions.</p> : null}

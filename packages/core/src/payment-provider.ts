@@ -70,6 +70,12 @@ export type PaymentRuntimeConfig = {
   stripeWebhookSecret: string | null;
   stripeApiBase?: string;
   fetchImpl?: typeof fetch;
+  /**
+   * When true, schools without per-org Stripe config may use the platform fake
+   * provider (local/CI). Production must leave this false so parents cannot
+   * reach "Simulate success" checkout.
+   */
+  allowPlatformFakeProvider?: boolean;
 };
 
 const STRIPE_CHECKOUT_LOG_EVENT = "stripe_checkout_failed" as const;
@@ -245,7 +251,14 @@ export function paymentConfigFromEnv(
     stripeSecretKey: env.STRIPE_SECRET_KEY?.trim() || null,
     stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET?.trim() || null,
     stripeApiBase: env.STRIPE_API_BASE?.trim() || "https://api.stripe.com",
+    allowPlatformFakeProvider: (env.NODE_ENV ?? "development") !== "production",
   };
+}
+
+/** Local/CI may fall back to the fake provider. Production never does. */
+export function platformFakePaymentProviderAllowed(runtime: PaymentRuntimeConfig): boolean {
+  if (runtime.allowPlatformFakeProvider === false) return false;
+  return runtime.providerKey === "fake";
 }
 
 export function createPaymentProvider(config: PaymentRuntimeConfig): PaymentProvider {

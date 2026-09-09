@@ -1,9 +1,11 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { parseGbpPoundsToMinor } from "@schoolapp/domain";
 import { Alert, DataTable, EmptyState, LoadingState, PageError, PageHeader, SectionCard, StatusBadge } from "../../../../components/ui";
 import { api } from "../../../../lib/api";
 import { userFacingError } from "../../../../lib/errors";
+import { formatMinor } from "../../../../lib/money";
 import { FinanceNav } from "../finance-nav";
 
 type Rule = {
@@ -23,6 +25,7 @@ export default function DiscountsPage() {
   const [rules, setRules] = useState<Rule[] | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
 
   async function reload() {
     const body = await api<{ rules: Rule[] }>("/api/v1/finance/discount-rules");
@@ -39,6 +42,16 @@ export default function DiscountsPage() {
     const kind = String(form.get("kind"));
     const amountType = String(form.get("amountType"));
     const percent = String(form.get("percent") || "");
+    let amountMinor: number | null = null;
+    if (amountType === "fixed") {
+      const parsed = parseGbpPoundsToMinor(String(form.get("fixed") || ""));
+      if (!parsed.ok) {
+        setError(parsed.error);
+        return;
+      }
+      amountMinor = parsed.amount;
+    }
+    setBusy(true);
     try {
       await api("/api/v1/finance/discount-rules", {
         method: "POST",
@@ -47,7 +60,7 @@ export default function DiscountsPage() {
           name: form.get("name"),
           amountType,
           percentBps: amountType === "percent" && percent ? Math.round(Number(percent) * 100) : kind === "sibling" ? 0 : null,
-          amountMinor: amountType === "fixed" ? Math.round(Number(form.get("fixed") || 0) * 100) : null,
+          amountMinor,
           stackingPriority: Number(form.get("priority") || 100),
           exclusiveGroup: form.get("exclusiveGroup") || null,
           staffScope: kind === "staff_child" ? form.get("staffScope") : null,
@@ -66,6 +79,8 @@ export default function DiscountsPage() {
       await reload();
     } catch (err) {
       setError(userFacingError(err as Error, "Could not save the rule."));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -127,7 +142,9 @@ export default function DiscountsPage() {
               <option value="teachers">Teachers only</option>
             </select>
           </label>
-          <button type="submit">Save rule</button>
+          <button type="submit" disabled={busy}>
+            {busy ? "Saving…" : "Save rule"}
+          </button>
         </form>
       </SectionCard>
       {rules.length === 0 ? (
@@ -153,7 +170,7 @@ export default function DiscountsPage() {
                   ? rule.tiers.map((tier) => `child ${tier.siblingPosition}: ${(tier.percentBps ?? 0) / 100}%`).join(", ")
                   : rule.amountType === "percent"
                     ? `${(rule.percentBps ?? 0) / 100}%`
-                    : `£${((rule.amountMinor ?? 0) / 100).toFixed(2)}`}
+                    : formatMinor(rule.amountMinor ?? 0)}
               </td>
               <td>{rule.stackingPriority}</td>
               <td>

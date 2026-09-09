@@ -10,6 +10,7 @@ import {
   PageHeader,
 } from "../../../../components/ui";
 import { api, downloadAuthenticated } from "../../../../lib/api";
+import { reportRangeQuery } from "../../../../lib/dates";
 import { userFacingError } from "../../../../lib/errors";
 
 type Row = {
@@ -68,7 +69,7 @@ export default function AttendanceReportPage() {
             type="button"
             onClick={() =>
               downloadAuthenticated(
-                `/api/v1/reports/attendance?from=${from}&to=${to}&format=csv`,
+                `/api/v1/reports/attendance${reportRangeQuery(from, to, { format: "csv" })}`,
                 "attendance-summary.csv",
               ).catch((err: Error) => setError(userFacingError(err, "Could not download CSV.")))
             }

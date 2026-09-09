@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { Alert, DataTable, FilterBar, LoadingState, PageError, PageHeader, StatusBadge } from "../../../../components/ui";
 import { api, downloadAuthenticated } from "../../../../lib/api";
 import { userFacingError } from "../../../../lib/errors";
-import { formatDate } from "../../../../lib/dates";
+import { formatDate, reportRangeQuery } from "../../../../lib/dates";
 
 type Row = {
   studentProfileId: string;
@@ -59,7 +59,7 @@ export default function AdmissionsReportPage() {
             type="button"
             onClick={() =>
               downloadAuthenticated(
-                `/api/v1/reports/admissions?from=${from}&to=${to}&format=csv`,
+                `/api/v1/reports/admissions${reportRangeQuery(from, to, { format: "csv" })}`,
                 "admissions-enrolment.csv",
               ).catch((err: Error) => setError(userFacingError(err, "Could not download CSV.")))
             }

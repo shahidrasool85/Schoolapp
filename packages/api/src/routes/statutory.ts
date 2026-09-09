@@ -76,6 +76,11 @@ const censusCreateSchema = z.object({
   censusDate: z.string().date(),
 });
 
+function reportQueryDate(raw: string | undefined, fallback: string): string {
+  const value = raw?.trim() ?? "";
+  return value || fallback;
+}
+
 const schoolProfileSchema = z.object({
   statutoryName: z.string().max(200).nullable().optional(),
   establishmentNumber: z.string().max(4).nullable().optional(),
@@ -1184,8 +1189,8 @@ export function registerStatutoryRoutes(app: SchoolappApi) {
         academicYearStartsOn: year?.starts_on ?? null,
         academicYearEndsOn: year?.ends_on ?? null,
       });
-      const from = c.req.query("from") ?? defaults.from;
-      const to = c.req.query("to") ?? defaults.to;
+      const from = reportQueryDate(c.req.query("from"), defaults.from);
+      const to = reportQueryDate(c.req.query("to"), defaults.to);
       const yearGroupId = c.req.query("yearGroupId");
       const classId = c.req.query("classId");
       const pupils = await loadLiveStatutoryPupils(client, orgId);
@@ -1316,8 +1321,8 @@ export function registerStatutoryRoutes(app: SchoolappApi) {
         academicYearStartsOn: year?.starts_on ?? null,
         academicYearEndsOn: year?.ends_on ?? null,
       });
-      const from = c.req.query("from") ?? defaults.from;
-      const to = c.req.query("to") ?? defaults.to;
+      const from = reportQueryDate(c.req.query("from"), defaults.from);
+      const to = reportQueryDate(c.req.query("to"), defaults.to);
       const pupils = await loadLiveStatutoryPupils(client, orgId);
       const rows = pupils.map((pupil) => ({
         studentProfileId: pupil.studentProfileId,

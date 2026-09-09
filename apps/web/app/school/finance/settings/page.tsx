@@ -3,7 +3,12 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Dispatch, FormEvent, SetStateAction, Suspense, useEffect, useRef, useState } from "react";
-import { FINANCE_SETTINGS_TAB_ITEMS, financeSettingsTabHref, parseFinanceSettingsTab } from "@schoolapp/domain";
+import {
+  FINANCE_SETTINGS_TAB_ITEMS,
+  canAccessFinanceSettingsAdmin,
+  financeSettingsTabHref,
+  parseFinanceSettingsTab,
+} from "@schoolapp/domain";
 import { RequirePermission } from "../../../../components/require-permission";
 import { Alert, Badge, Button, FormField, Input, LoadingState, PageError, PageHeader, SectionCard, Tabs } from "../../../../components/ui";
 import { api, downloadAuthenticated, fetchAuthenticatedBlobUrl } from "../../../../lib/api";
@@ -699,7 +704,7 @@ const STATUS_TONE: Record<PaymentProvider["connectionStatus"], "neutral" | "succ
 
 function PaymentProviderSettings() {
   const permissions = usePermissions();
-  const canManage = permissions.has("finance.settings.manage");
+  const canManage = canAccessFinanceSettingsAdmin(permissions.permissions ?? []);
   const [provider, setProvider] = useState<PaymentProvider | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");

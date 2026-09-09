@@ -126,5 +126,17 @@ describe("production readiness handover", () => {
     expect(admissions.to).toBe("2026-07-22");
     expect(admissions.to).not.toBe("2027-07-31");
     expect(Array.isArray(admissions.pupils)).toBe(true);
+
+    const blankAdmissions = (await (
+      await app.request("/api/v1/reports/admissions?from=&to=", { headers: hdrs })
+    ).json()) as { from: string; to: string };
+    expect(blankAdmissions.from).toBe("2025-09-03");
+    expect(blankAdmissions.to).toBe("2026-07-22");
+
+    const blankAttendance = (await (
+      await app.request("/api/v1/reports/attendance?from=&to=", { headers: hdrs })
+    ).json()) as { from: string; to: string };
+    expect(blankAttendance.from).toBe("2025-09-03");
+    expect(blankAttendance.to).toBe("2026-07-22");
   });
 });

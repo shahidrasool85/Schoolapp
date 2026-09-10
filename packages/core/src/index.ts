@@ -806,6 +806,7 @@ export {
 } from "./payments-access.js";
 
 export {
+  annualizeDiscountMinor,
   applyDiscounts,
   applyMidPeriodPolicy,
   arrearsBucket,

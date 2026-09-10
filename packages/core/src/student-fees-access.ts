@@ -11,6 +11,7 @@ import { AppError } from "./errors.js";
 import { applyVatToEnteredAmount, parseVatLineTreatment, schoolVatPolicyFromSettings } from "./vat.js";
 import {
   allocateShareMinor,
+  annualizeDiscountMinor,
   asIsoDate,
   resolveCurrentBillingPeriod,
   studentFeeStatus,
@@ -93,11 +94,6 @@ export type StudentFeesList = {
 function assertMinor(value: number): number {
   if (!Number.isInteger(value)) throw new Error("invalid_amount");
   return value;
-}
-
-function annualizeDiscountMinor(quote: PupilFeeQuote): number {
-  const count = quote.instalmentCount && quote.instalmentCount > 0 ? quote.instalmentCount : 1;
-  return assertMinor(quote.discountTotalMinor * count);
 }
 
 function discountLabelOf(quote: PupilFeeQuote): string | null {
@@ -353,7 +349,14 @@ export async function listStudentFees(
     const annualGross = quote?.feeScheduleId
       ? applyVatToEnteredAmount(annualEntered, vatPolicy, treatment).grossMinor
       : null;
-    const discountAnnualEntered = quote ? annualizeDiscountMinor(quote) : 0;
+    const discountAnnualEntered = quote
+      ? annualizeDiscountMinor({
+          annualAmountMinor: quote.annualAmountMinor,
+          instalmentCount: quote.instalmentCount,
+          discountTotalMinor: quote.discountTotalMinor,
+          appliedDiscounts: quote.appliedDiscounts,
+        })
+      : 0;
     const discountGross = quote?.feeScheduleId
       ? applyVatToEnteredAmount(discountAnnualEntered, vatPolicy, treatment).grossMinor
       : 0;

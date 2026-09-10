@@ -584,6 +584,38 @@ export function applyDiscounts(
   };
 }
 
+export function annualizeDiscountMinor(input: {
+  annualAmountMinor: number | null;
+  instalmentCount: number | null;
+  discountTotalMinor: number;
+  appliedDiscounts: AppliedDiscount[];
+}): number {
+  const count = input.instalmentCount && input.instalmentCount > 0 ? input.instalmentCount : 1;
+  const annual = input.annualAmountMinor;
+  if (annual == null) {
+    if (!Number.isInteger(input.discountTotalMinor) || input.discountTotalMinor < 0) {
+      throw new Error("invalid_amount");
+    }
+    return input.discountTotalMinor * count;
+  }
+  const candidates: DiscountCandidate[] = input.appliedDiscounts.map((discount) => ({
+    key: discount.key,
+    ruleId: discount.ruleId,
+    concessionId: discount.concessionId,
+    kind: discount.kind,
+    name: discount.name,
+    amountType: discount.amountType,
+    percentBps: discount.percentBps,
+    amountMinor:
+      discount.amountType === "fixed"
+        ? (discount.amountMinor != null ? discount.amountMinor : discount.calculatedMinor) * count
+        : discount.amountMinor,
+    stackingPriority: discount.stackingPriority,
+    exclusiveGroup: discount.exclusiveGroup,
+  }));
+  return applyDiscounts(annual, candidates, "stack").discountTotalMinor;
+}
+
 export function deriveInvoiceStatus(input: {
   current: SchoolInvoiceStatus;
   totalMinor: number;

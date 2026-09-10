@@ -172,6 +172,11 @@ export default function StaffChargeDetailPage() {
         <button type="submit" disabled={busy}>Apply</button>
       </form>
       <h2>Refund</h2>
+      <p className="muted">
+        Card refunds are sent to Stripe. Invoice card payments must be refunded in the Stripe Dashboard; LuvLearn
+        records the refund when Stripe confirms it. Do not record a refund here unless money should actually leave the
+        Stripe account.
+      </p>
       <form className="toolbar" onSubmit={refund}>
         <input name="amountPounds" inputMode="decimal" placeholder="Amount £" required />
         <input name="reason" required placeholder="Reason" />

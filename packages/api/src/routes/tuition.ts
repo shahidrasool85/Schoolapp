@@ -11,6 +11,7 @@ import {
   canManageInvoices,
   canRecordOffline,
   loadOrganisationPaymentProviderPublic,
+  assessOrganisationStripeReadiness,
   setOrganisationStripeEnabled,
   testOrganisationStripeConnection,
   upsertOrganisationStripeConfig,
@@ -231,8 +232,10 @@ export function registerTuitionRoutes(app: SchoolappApi) {
   app.get("/finance/payment-provider", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertFinanceSettingsManage(actor);
+      const origin = publicOriginFromRequest(c);
       return c.json({
-        paymentProvider: await loadOrganisationPaymentProviderPublic(client, orgId, publicOriginFromRequest(c)),
+        paymentProvider: await loadOrganisationPaymentProviderPublic(client, orgId, origin),
+        readiness: await assessOrganisationStripeReadiness(client, orgId, paymentRuntime(c)),
       });
     }),
   );
@@ -246,17 +249,20 @@ export function registerTuitionRoutes(app: SchoolappApi) {
           secretKey: z.string().trim().min(10).max(255).optional(),
           webhookSecret: z.string().trim().min(10).max(255).optional(),
           enabled: z.boolean().optional(),
+          confirmLivePayments: z.boolean().optional(),
           providerAccountId: z.string().trim().min(1).max(120).nullable().optional(),
         })
         .safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid payment provider configuration");
+      const paymentProvider = await upsertOrganisationStripeConfig(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        origin: publicOriginFromRequest(c),
+        ...parsed.data,
+      });
       return c.json({
-        paymentProvider: await upsertOrganisationStripeConfig(client, {
-          organisationId: orgId,
-          actorUserId: userId,
-          origin: publicOriginFromRequest(c),
-          ...parsed.data,
-        }),
+        paymentProvider,
+        readiness: await assessOrganisationStripeReadiness(client, orgId, paymentRuntime(c)),
       });
     }),
   );
@@ -273,6 +279,7 @@ export function registerTuitionRoutes(app: SchoolappApi) {
       return c.json({
         result: tested.result,
         paymentProvider: tested.paymentProvider,
+        readiness: await assessOrganisationStripeReadiness(client, orgId, paymentRuntime(c)),
       });
     }),
   );
@@ -280,13 +287,21 @@ export function registerTuitionRoutes(app: SchoolappApi) {
   app.post("/finance/payment-provider/enable", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       assertFinanceSettingsManage(actor);
+      const parsed = z
+        .object({ confirmLivePayments: z.boolean().optional() })
+        .safeParse((await c.req.json().catch(() => ({}))) ?? {});
+      if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid payment provider configuration");
+      const paymentProvider = await setOrganisationStripeEnabled(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        enabled: true,
+        confirmLivePayments: parsed.data.confirmLivePayments,
+        origin: publicOriginFromRequest(c),
+        runtime: paymentRuntime(c),
+      });
       return c.json({
-        paymentProvider: await setOrganisationStripeEnabled(client, {
-          organisationId: orgId,
-          actorUserId: userId,
-          enabled: true,
-          origin: publicOriginFromRequest(c),
-        }),
+        paymentProvider,
+        readiness: await assessOrganisationStripeReadiness(client, orgId, paymentRuntime(c)),
       });
     }),
   );
@@ -294,13 +309,15 @@ export function registerTuitionRoutes(app: SchoolappApi) {
   app.post("/finance/payment-provider/disable", requireUser, async (c) =>
     withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       assertFinanceSettingsManage(actor);
+      const paymentProvider = await setOrganisationStripeEnabled(client, {
+        organisationId: orgId,
+        actorUserId: userId,
+        enabled: false,
+        origin: publicOriginFromRequest(c),
+      });
       return c.json({
-        paymentProvider: await setOrganisationStripeEnabled(client, {
-          organisationId: orgId,
-          actorUserId: userId,
-          enabled: false,
-          origin: publicOriginFromRequest(c),
-        }),
+        paymentProvider,
+        readiness: await assessOrganisationStripeReadiness(client, orgId, paymentRuntime(c)),
       });
     }),
   );

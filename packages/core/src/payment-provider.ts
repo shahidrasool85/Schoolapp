@@ -18,6 +18,7 @@ export type CreatePaymentSessionInput = {
   amountMinor: number;
   currency: string;
   title: string;
+  schoolName?: string | null;
   successUrl: string;
   cancelUrl: string;
   idempotencyKey?: string | null;
@@ -52,8 +53,17 @@ export type ProviderEvent = {
   providerRefundId?: string | null;
   amountMinor?: number | null;
   currency?: string | null;
+  livemode?: boolean | null;
   outcome: "succeeded" | "failed" | "cancelled" | "refunded" | "ignored";
 };
+
+export type PaymentWebhookSettlement = {
+  result: "settled" | "noop" | "ignored" | "manual_review";
+  code?: string;
+  message?: string;
+};
+
+export const STRIPE_CHECKOUT_PRODUCT_DESCRIPTION = "LuvLearn school fees";
 
 export type PaymentProvider = {
   key: PaymentProviderKey;
@@ -224,6 +234,22 @@ function logStripeCheckoutFailure(log: StripeCheckoutFailureLog): void {
   }
 }
 
+export function stripeCheckoutSafeText(value: string, max: number): string {
+  return value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+export function stripeCheckoutProductDescription(schoolName?: string | null): string {
+  const school = schoolName ? stripeCheckoutSafeText(schoolName, 80) : "";
+  if (school) return stripeCheckoutSafeText(`${school} · ${STRIPE_CHECKOUT_PRODUCT_DESCRIPTION}`, 500);
+  return STRIPE_CHECKOUT_PRODUCT_DESCRIPTION;
+}
+
+export function stripeCheckoutSubmitMessage(schoolName?: string | null): string {
+  const school = schoolName ? stripeCheckoutSafeText(schoolName, 80) : "";
+  if (school) return stripeCheckoutSafeText(`Pay ${school} school fees`, 1200);
+  return "Pay LuvLearn school fees";
+}
+
 /**
  * Platform/runtime defaults. Per-school Stripe secret key and webhook secret
  * are stored encrypted on school_payment_provider_configs and are never read
@@ -349,7 +375,16 @@ export class StripePaymentProvider implements PaymentProvider {
     body.set("line_items[0][quantity]", "1");
     body.set("line_items[0][price_data][currency]", input.currency.toLowerCase());
     body.set("line_items[0][price_data][unit_amount]", String(input.amountMinor));
-    body.set("line_items[0][price_data][product_data][name]", input.title);
+    body.set("line_items[0][price_data][product_data][name]", stripeCheckoutSafeText(input.title, 250) || "School fees");
+    const description = stripeCheckoutProductDescription(input.schoolName);
+    if (description) {
+      body.set("line_items[0][price_data][product_data][description]", description);
+      body.set("payment_intent_data[description]", description);
+    }
+    const submitMessage = stripeCheckoutSubmitMessage(input.schoolName);
+    if (submitMessage) {
+      body.set("custom_text[submit][message]", submitMessage);
+    }
     body.set("metadata[schoolapp_organisation_id]", input.organisationId);
     if (input.chargeId) body.set("metadata[schoolapp_charge_id]", input.chargeId);
     if (input.invoiceId) body.set("metadata[schoolapp_invoice_id]", input.invoiceId);
@@ -496,6 +531,7 @@ export function parseFakePaymentEvent(rawBody: string): ProviderEvent {
     providerRefundId: parsed.providerRefundId ? String(parsed.providerRefundId) : null,
     amountMinor: parsed.amountMinor == null ? null : Number(parsed.amountMinor),
     currency: parsed.currency ? String(parsed.currency) : null,
+    livemode: false,
     outcome: outcome as ProviderEvent["outcome"],
   };
 }
@@ -571,8 +607,19 @@ export function mapStripeEvent(event: Record<string, unknown>): ProviderEvent {
     providerRefundId: type.includes("refund") ? String(object.id ?? "") : null,
     amountMinor: object.amount_total != null ? Number(object.amount_total) : object.amount != null ? Number(object.amount) : null,
     currency: object.currency ? String(object.currency).toUpperCase() : null,
+    livemode: typeof event.livemode === "boolean" ? event.livemode : null,
     outcome,
   };
+}
+
+export function assertStripeEventMatchesMode(event: ProviderEvent, mode: "test" | "live"): void {
+  if (typeof event.livemode !== "boolean") {
+    throw new AppError(400, "webhook_mode_mismatch", "The payment event mode does not match this school’s Stripe mode");
+  }
+  const eventMode = event.livemode ? "live" : "test";
+  if (eventMode !== mode) {
+    throw new AppError(400, "webhook_mode_mismatch", "The payment event mode does not match this school’s Stripe mode");
+  }
 }
 
 export function safeProviderMetadata(value: Record<string, unknown> | null | undefined): Record<string, unknown> {

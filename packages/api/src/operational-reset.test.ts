@@ -899,4 +899,58 @@ describe("Platform Admin operational data reset", () => {
     expect(await count(pools.owner, "invitations", leftoverOnly.orgId)).toBe(1);
     expect(await count(pools.owner, "data_imports", leftoverOnly.orgId)).toBe(1);
   });
+
+  it("resets a TEST Stripe school and never calls Stripe, but blocks live payment evidence", { timeout: 60_000 }, async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    await seedOperational(pools.owner, school);
+    await pools.owner.query(
+      `insert into school_payment_provider_configs (organisation_id, provider_key, secret_ref, mode, is_active)
+       values ($1, 'stripe', 'encrypted:v1', 'test', true)
+       on conflict (organisation_id, provider_key) do update set mode = 'test', is_active = true`,
+      [school.orgId],
+    );
+    const platform = await platformHeaders(`${id}t`);
+    const beforeCalls = stripeCalls;
+    const reset = await app.request(`/api/v1/platform/organisations/${school.orgId}/operational-reset`, {
+      method: "POST",
+      headers: platform,
+      body: JSON.stringify({
+        confirmationText: school.slug,
+        backupConfirmed: true,
+        understandPermanent: true,
+        resetMode: "operational_reset_v1",
+      }),
+    });
+    expect(reset.status).toBe(200);
+    expect(stripeCalls).toBe(beforeCalls);
+    expect(await count(pools.owner, "student_profiles", school.orgId)).toBe(0);
+
+    const evidence = await createSchool(pools.owner, `${id}e`);
+    await seedOperational(pools.owner, evidence);
+    await pools.owner.query(
+      `insert into school_payment_provider_configs (organisation_id, provider_key, secret_ref, mode, is_active)
+       values ($1, 'stripe', 'encrypted:v1', 'test', true)`,
+      [evidence.orgId],
+    );
+    await pools.owner.query(
+      `update school_payment_transactions
+          set metadata = jsonb_build_object('livemode', 'true', 'mode', 'live')
+        where organisation_id = $1`,
+      [evidence.orgId],
+    );
+    const blocked = await app.request(`/api/v1/platform/organisations/${evidence.orgId}/operational-reset`, {
+      method: "POST",
+      headers: platform,
+      body: JSON.stringify({
+        confirmationText: evidence.slug,
+        backupConfirmed: true,
+        understandPermanent: true,
+        resetMode: "operational_reset_v1",
+      }),
+    });
+    expect(blocked.status).toBe(409);
+    expect(((await blocked.json()) as { error: { code: string } }).error.code).toBe("live_financial_reset_blocked");
+    expect(stripeCalls).toBe(beforeCalls);
+  });
 });

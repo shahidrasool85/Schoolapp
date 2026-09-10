@@ -208,6 +208,10 @@ export default function InvoiceDetailPage() {
       ) : null}
       {invoice.status !== "void" && invoice.outstandingMinor > 0 ? (
         <SectionCard title="Apply a credit">
+          <p className="muted">
+            Credits adjust the school invoice balance. They do not refund a Stripe card payment. Refund live card
+            payments in the Stripe Dashboard.
+          </p>
           <form className="stack" onSubmit={credit}>
             <label>
               Amount (£)

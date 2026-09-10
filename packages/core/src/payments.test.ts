@@ -13,6 +13,7 @@ import {
 import {
   FakePaymentProvider,
   StripePaymentProvider,
+  assertStripeEventMatchesMode,
   buildStripeCheckoutFailureLog,
   originSchemeAndHost,
   verifyStripeSignature,
@@ -142,6 +143,18 @@ describe("stripe webhook helper", () => {
         data: { object: { id: "re_1", status: "succeeded", amount: 500 } },
       }).outcome,
     ).toBe("refunded");
+    expect(() =>
+      assertStripeEventMatchesMode(
+        { providerKey: "stripe", eventId: "e", eventType: "checkout.session.completed", outcome: "succeeded", livemode: true },
+        "test",
+      ),
+    ).toThrow(/mode/);
+    expect(() =>
+      assertStripeEventMatchesMode(
+        { providerKey: "stripe", eventId: "e", eventType: "checkout.session.completed", outcome: "succeeded", livemode: false },
+        "test",
+      ),
+    ).not.toThrow();
   });
 
   it("attaches organisation, invoice and family metadata to Stripe Checkout Sessions", async () => {
@@ -172,10 +185,19 @@ describe("stripe webhook helper", () => {
       amountMinor: 200000,
       currency: "GBP",
       title: "Invoice KSW-INV-2026-000123",
+      schoolName: "Greenwood Academy",
       successUrl: "https://school.test/success",
       cancelUrl: "https://school.test/cancel",
     });
     expect(created.checkoutUrl).toContain("checkout.stripe.test");
+    const params = new URLSearchParams(posted);
+    expect(params.get("metadata[schoolapp_organisation_id]")).toBe("org-1");
+    expect(params.get("metadata[schoolapp_invoice_id]")).toBe("inv-1");
+    expect(params.get("line_items[0][price_data][product_data][description]")).toBe(
+      "Greenwood Academy · LuvLearn school fees",
+    );
+    expect(params.get("custom_text[submit][message]")).toBe("Pay Greenwood Academy school fees");
+    expect(params.get("payment_intent_data[statement_descriptor]")).toBeNull();
     expect(posted).toContain("metadata%5Bschoolapp_organisation_id%5D=org-1");
     expect(posted).toContain("metadata%5Bschoolapp_invoice_id%5D=inv-1");
     expect(posted).toContain("metadata%5Bschoolapp_billing_account_id%5D=fam-1");
@@ -186,6 +208,14 @@ describe("stripe webhook helper", () => {
     expect(posted).toContain("managed_payments%5Benabled%5D=false");
     expect(posted).not.toContain("automatic_tax");
     expect(posted).not.toContain("tax_code");
+    expect(
+      mapStripeEvent({
+        id: "evt_paid_live",
+        livemode: true,
+        type: "checkout.session.completed",
+        data: { object: { id: "cs_1", payment_status: "paid", amount_total: 1250, currency: "gbp" } },
+      }).livemode,
+    ).toBe(true);
   });
 
   it("creates a £500 GBP Checkout Session without tax or payment_method_types and keeps tenant HTTPS return URLs", async () => {

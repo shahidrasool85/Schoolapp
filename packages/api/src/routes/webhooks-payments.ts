@@ -1,10 +1,13 @@
 import {
   AppError,
+  assertStripeEventMatchesMode,
   loadStripeWebhookEndpoint,
+  platformFakePaymentProviderAllowed,
   recordOrganisationWebhookResult,
   settleInvoiceProviderEvent,
   settleProviderEvent,
   type PaymentProvider,
+  type PaymentWebhookSettlement,
   type ProviderEvent,
 } from "@schoolapp/core";
 import { withTenantContext } from "@schoolapp/db";
@@ -33,6 +36,7 @@ async function processVerifiedPaymentEvent(
     expectedOrganisationId?: string;
     configId?: string;
     enabled?: boolean;
+    mode?: "test" | "live";
   },
 ) {
   const event = input.event;
@@ -83,16 +87,33 @@ async function processVerifiedPaymentEvent(
     throw new AppError(400, "organisation_mismatch", "Payment does not belong to this school");
   }
 
-  if (input.enabled === false && event.outcome === "succeeded") {
-    if (input.configId) {
-      await recordOrganisationWebhookResult(pools.app, {
-        configId: input.configId,
-        eventType: event.eventType,
-        ok: false,
-        errorCode: "payment_provider_disabled",
-      });
+  if (input.mode && event.providerKey === "stripe") {
+    try {
+      assertStripeEventMatchesMode(event, input.mode);
+    } catch (error) {
+      if (input.configId) {
+        await recordOrganisationWebhookResult(pools.app, {
+          configId: input.configId,
+          eventType: event.eventType,
+          ok: false,
+          errorCode: "webhook_mode_mismatch",
+        });
+      }
+      throw error;
     }
-    throw new AppError(503, "payment_provider_disabled", "Online card payments are currently disabled");
+  }
+
+  if (input.enabled === false && event.outcome === "succeeded") {
+    console.info("payment_webhook", {
+      provider: input.provider.key,
+      eventId: event.eventId,
+      eventType: event.eventType,
+      outcome: event.outcome,
+      result: "disabled_reconcile",
+      invoiceId: row.invoice_id,
+      chargeId: row.charge_id,
+      transactionId: row.transaction_id,
+    });
   }
 
   const claimed = await pools.app.query<{
@@ -105,12 +126,15 @@ async function processVerifiedPaymentEvent(
     [input.provider.key, event.eventId, event.eventType, row.organisation_id, row.charge_id, row.transaction_id],
   );
   if (claimed.rows[0]?.already_processed) {
+    if (claimed.rows[0].current_status === "processing") {
+      throw new AppError(409, "webhook_in_progress", "This payment event is already being processed");
+    }
     console.info("payment_webhook", {
       provider: input.provider.key,
       eventId: event.eventId,
       eventType: event.eventType,
       outcome: event.outcome,
-      result: "replayed",
+      result: claimed.rows[0].current_status === "manual_review" ? "manual_review_replayed" : "replayed",
       invoiceId: row.invoice_id,
       chargeId: row.charge_id,
       transactionId: row.transaction_id,
@@ -119,15 +143,19 @@ async function processVerifiedPaymentEvent(
       await recordOrganisationWebhookResult(pools.app, {
         configId: input.configId,
         eventType: event.eventType,
-        ok: true,
+        ok: claimed.rows[0].current_status !== "manual_review",
+        errorCode: claimed.rows[0].current_status === "manual_review" ? "manual_review" : null,
       });
+    }
+    if (claimed.rows[0].current_status === "manual_review") {
+      return c.json({ ok: false, replayed: true, review: true });
     }
     return c.json({ ok: true, replayed: true });
   }
   const eventRowId = claimed.rows[0]!.event_row_id;
 
   try {
-    let rejected: { code: string; message: string } | undefined;
+    let settlement: PaymentWebhookSettlement = { result: "settled" };
     await withTenantContext(pools.app, row.context_user_id, row.organisation_id, async (client) => {
       if (!row.session_id) {
         const session = await client.query<{ id: string }>(
@@ -140,7 +168,7 @@ async function processVerifiedPaymentEvent(
         row.session_id = session.rows[0].id;
       }
       if (row.invoice_id) {
-        const settled = await settleInvoiceProviderEvent(client, {
+        settlement = await settleInvoiceProviderEvent(client, {
           organisationId: row.organisation_id,
           event,
           session: {
@@ -151,9 +179,8 @@ async function processVerifiedPaymentEvent(
             currency: row.currency,
           },
         });
-        rejected = settled.rejected;
       } else if (row.charge_id) {
-        await settleProviderEvent(client, {
+        settlement = await settleProviderEvent(client, {
           organisationId: row.organisation_id,
           event,
           session: {
@@ -168,40 +195,43 @@ async function processVerifiedPaymentEvent(
         throw new AppError(400, "unknown_reference", "Unknown payment reference");
       }
     });
-    await pools.app.query("select finish_payment_provider_event($1, 'processed')", [eventRowId]);
+    const finishStatus =
+      settlement.result === "manual_review"
+        ? "manual_review"
+        : settlement.result === "ignored"
+          ? "ignored"
+          : "processed";
+    await pools.app.query("select finish_payment_provider_event($1, $2, $3)", [
+      eventRowId,
+      finishStatus,
+      settlement.code ?? null,
+    ]);
     if (input.configId) {
       await recordOrganisationWebhookResult(pools.app, {
         configId: input.configId,
         eventType: event.eventType,
-        ok: !rejected,
-        errorCode: rejected?.code ?? null,
+        ok: settlement.result !== "manual_review",
+        errorCode: settlement.code ?? null,
       });
-    }
-    if (rejected) {
-      console.info("payment_webhook", {
-        provider: input.provider.key,
-        eventId: event.eventId,
-        eventType: event.eventType,
-        outcome: event.outcome,
-        result: "rejected",
-        errorCode: rejected.code,
-        invoiceId: row.invoice_id,
-        chargeId: row.charge_id,
-        transactionId: row.transaction_id,
-      });
-      return c.json({ error: rejected }, 400);
     }
     console.info("payment_webhook", {
       provider: input.provider.key,
       eventId: event.eventId,
       eventType: event.eventType,
       outcome: event.outcome,
-      result: "processed",
+      result: settlement.result,
+      errorCode: settlement.code ?? null,
       invoiceId: row.invoice_id,
       chargeId: row.charge_id,
       transactionId: row.transaction_id,
     });
-    return c.json({ ok: true });
+    if (settlement.result === "manual_review") {
+      return c.json(
+        { ok: false, review: true, error: { code: settlement.code, message: settlement.message } },
+        200,
+      );
+    }
+    return c.json({ ok: true, ignored: settlement.result === "ignored" ? true : undefined });
   } catch (error) {
     const code = error instanceof AppError ? error.code : "processing_failed";
     await pools.app.query("select finish_payment_provider_event($1, 'failed', $2)", [eventRowId, code]);
@@ -259,6 +289,7 @@ export function registerPaymentWebhookRoutes(app: SchoolappApi) {
       expectedOrganisationId: loaded.organisationId,
       configId: loaded.configId,
       enabled: loaded.enabled,
+      mode: loaded.mode,
     });
   });
 
@@ -268,6 +299,9 @@ export function registerPaymentWebhookRoutes(app: SchoolappApi) {
       throw new AppError(400, "validation_failed", "Use the school-specific Stripe webhook URL");
     }
     if (providerKey !== "fake") {
+      throw new AppError(404, "not_found", "Not found");
+    }
+    if (!platformFakePaymentProviderAllowed(paymentRuntime(c))) {
       throw new AppError(404, "not_found", "Not found");
     }
     const provider = paymentProviderOf(c);
@@ -287,6 +321,9 @@ export function registerPaymentWebhookRoutes(app: SchoolappApi) {
   });
 
   app.get("/payments/demo/checkout/:sessionId", async (c) => {
+    if (!platformFakePaymentProviderAllowed(paymentRuntime(c))) {
+      throw new AppError(404, "not_found", "Not found");
+    }
     const sessionId = c.req.param("sessionId");
     const provider = paymentProviderOf(c);
     requireFakeCheckoutToken(provider, sessionId, c.req.query("t"));
@@ -316,6 +353,9 @@ export function registerPaymentWebhookRoutes(app: SchoolappApi) {
   });
 
   app.post("/payments/demo/checkout/:sessionId/complete", async (c) => {
+    if (!platformFakePaymentProviderAllowed(paymentRuntime(c))) {
+      throw new AppError(404, "not_found", "Not found");
+    }
     const sessionId = c.req.param("sessionId");
     const parsed = (await c.req.json().catch(() => ({}))) as { outcome?: string; t?: string };
     const outcome = parsed.outcome ?? "succeeded";
@@ -347,6 +387,7 @@ export function registerPaymentWebhookRoutes(app: SchoolappApi) {
       providerRefundId: null,
       amountMinor: Number(row.amount_minor),
       currency: row.currency,
+      livemode: false,
       outcome: outcome as "succeeded" | "failed" | "cancelled",
     };
     const signature = "signEvent" in provider ? (provider as { signEvent: (e: typeof event) => string }).signEvent(event) : "";

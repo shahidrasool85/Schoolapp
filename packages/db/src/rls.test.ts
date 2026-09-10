@@ -180,6 +180,44 @@ describe("RLS catalog", () => {
     expect(result.rows.map((row) => row.indexname)).toEqual(["school_invoices_catchup_pupil_period_uidx"]);
   });
 
+  it("adds Stripe PaymentIntent uniqueness and webhook processing/manual_review states", async () => {
+    const indexes = await pools.owner.query<{ indexname: string }>(
+      `select indexname
+         from pg_indexes
+        where schemaname = 'public'
+          and tablename = 'school_invoice_payments'
+          and indexname = 'school_invoice_payments_stripe_pi_uidx'`,
+    );
+    expect(indexes.rows.map((row) => row.indexname)).toEqual(["school_invoice_payments_stripe_pi_uidx"]);
+    const statusCheck = await pools.owner.query<{ consrc: string }>(
+      `select pg_get_constraintdef(c.oid) as consrc
+         from pg_constraint c
+         join pg_class t on t.oid = c.conrelid
+        where t.relname = 'school_payment_provider_events'
+          and c.conname = 'school_payment_provider_events_status_check'`,
+    );
+    expect(statusCheck.rows[0]?.consrc).toContain("processing");
+    expect(statusCheck.rows[0]?.consrc).toContain("manual_review");
+  });
+
+  it("records finance catch-up 0064 then payment webhook integrity 0065", async () => {
+    const applied = await pools.owner.query<{ filename: string }>(
+      `select filename
+         from schema_migrations
+        where filename in (
+          '0063_admissions_public_confirmation_integrity.sql',
+          '0064_finance_late_joiner_catchup.sql',
+          '0065_payment_webhook_integrity.sql'
+        )
+        order by filename`,
+    );
+    expect(applied.rows.map((row) => row.filename)).toEqual([
+      "0063_admissions_public_confirmation_integrity.sql",
+      "0064_finance_late_joiner_catchup.sql",
+      "0065_payment_webhook_integrity.sql",
+    ]);
+  });
+
   it("grants the app role DML on finance tables", async () => {
     const result = await pools.owner.query<{ table_name: string; can_select: boolean }>(
       `select t.table_name, has_table_privilege('schoolapp_app', t.table_name, 'SELECT') as can_select

@@ -236,9 +236,16 @@ async function seedOperational(
   await owner.query(
     `insert into school_invoices (
        organisation_id, reference, billing_account_id, period_key, billing_period_start, billing_period_end,
-       due_date, currency, created_by
-     ) values ($1, $2, $3, $4, '2026-09-01', '2026-12-18', '2026-09-15', 'GBP', $5)`,
-    [school.orgId, `INV-${suffix()}`, account.rows[0]!.id, `2026-T1-${suffix()}`, school.adminId],
+       due_date, currency, created_by, calculation_snapshot
+     ) values ($1, $2, $3, $4, '2026-09-01', '2026-12-18', '2026-09-15', 'GBP', $5, $6::jsonb)`,
+    [
+      school.orgId,
+      `INV-${suffix()}`,
+      account.rows[0]!.id,
+      `2026-T1-${suffix()}`,
+      school.adminId,
+      JSON.stringify({ source: "missing_catchup", catchupStudentProfileId: pupilId }),
+    ],
   );
   const category = await owner.query<{ id: string }>(
     `insert into school_charge_categories (organisation_id, key, name, sort_order)
@@ -925,6 +932,14 @@ describe("Platform Admin operational data reset", () => {
     expect(reset.status).toBe(200);
     expect(stripeCalls).toBe(beforeCalls);
     expect(await count(pools.owner, "student_profiles", school.orgId)).toBe(0);
+    expect(await count(pools.owner, "school_invoices", school.orgId)).toBe(0);
+    expect(await count(pools.owner, "school_payment_receipts", school.orgId)).toBe(0);
+    expect(await count(pools.owner, "school_payment_provider_events", school.orgId)).toBe(0);
+    const preserved = await pools.owner.query<{ mode: string; secret_ref: string; is_active: boolean }>(
+      `select mode, secret_ref, is_active from school_payment_provider_configs where organisation_id = $1`,
+      [school.orgId],
+    );
+    expect(preserved.rows[0]).toMatchObject({ mode: "test", secret_ref: "encrypted:v1", is_active: true });
 
     const evidence = await createSchool(pools.owner, `${id}e`);
     await seedOperational(pools.owner, evidence);

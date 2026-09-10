@@ -3500,7 +3500,8 @@ async function invoiceSucceededPaymentSplit(
 ): Promise<{ stripeCardMinor: number; offlineMinor: number }> {
   const payments = await client.query(
     `select * from school_invoice_payments
-      where organisation_id = $1 and invoice_id = $2 and status = 'succeeded'`,
+      where organisation_id = $1 and invoice_id = $2 and status = 'succeeded'
+      for update`,
     [organisationId, invoiceId],
   );
   let stripeCardMinor = 0;
@@ -3521,23 +3522,33 @@ async function invoiceLocalRefundCreditMinor(
   organisationId: string,
   invoiceId: string,
 ): Promise<number> {
-  const credits = await client.query<{ total: string }>(
-    `select coalesce(sum(amount_minor), 0)::text as total
+  const credits = await client.query<{ amount_minor: string }>(
+    `select amount_minor::text as amount_minor
        from school_invoice_credits
       where organisation_id = $1
         and invoice_id = $2
         and kind = 'refund'
         and status = 'applied'
-        and provider_refund_id is null`,
+        and provider_refund_id is null
+      for update`,
     [organisationId, invoiceId],
   );
-  return Number(credits.rows[0]?.total ?? 0);
+  return credits.rows.reduce((sum, row) => sum + Number(row.amount_minor), 0);
 }
 
 export async function reverseInvoicePayment(
   client: Client,
   input: { organisationId: string; actorUserId: string; paymentId: string; reason: string },
 ) {
+  const found = await client.query(
+    `select invoice_id from school_invoice_payments where id = $1 and organisation_id = $2`,
+    [input.paymentId, input.organisationId],
+  );
+  if (!found.rows[0]) notFound();
+  await client.query(`select id from school_invoices where id = $1 and organisation_id = $2 for update`, [
+    found.rows[0].invoice_id,
+    input.organisationId,
+  ]);
   const payment = await client.query(
     `select * from school_invoice_payments where id = $1 and organisation_id = $2 for update`,
     [input.paymentId, input.organisationId],
@@ -3602,6 +3613,16 @@ export async function createInvoiceCredit(
     );
     if (existing.rows[0]) return mapCredit(existing.rows[0] as Record<string, unknown>);
   }
+  let invoice: Record<string, unknown> | null = null;
+  if (input.invoiceId) {
+    invoice = await refreshInvoiceStatus(client, input.organisationId, input.invoiceId);
+    if (String(invoice.billing_account_id) !== input.billingAccountId) {
+      throw new AppError(400, "validation_failed", "Credit must belong to the invoice family account");
+    }
+    if (["void", "draft"].includes(String(invoice.status))) {
+      throw new AppError(409, "invalid_status_transition", "This invoice cannot accept credits");
+    }
+  }
   if (input.kind === "refund" && !input.fromProviderWebhook && input.invoiceId) {
     const split = await invoiceSucceededPaymentSplit(client, input.organisationId, input.invoiceId);
     if (split.stripeCardMinor > 0) {
@@ -3616,14 +3637,7 @@ export async function createInvoiceCredit(
       }
     }
   }
-  if (input.invoiceId) {
-    const invoice = await refreshInvoiceStatus(client, input.organisationId, input.invoiceId);
-    if (String(invoice.billing_account_id) !== input.billingAccountId) {
-      throw new AppError(400, "validation_failed", "Credit must belong to the invoice family account");
-    }
-    if (["void", "draft"].includes(String(invoice.status))) {
-      throw new AppError(409, "invalid_status_transition", "This invoice cannot accept credits");
-    }
+  if (invoice) {
     const remainingAgainstInvoice =
       Number(invoice.total_minor) - Number(invoice.credit_total_minor ?? 0);
     const outstanding = Number(invoice.outstanding_minor);

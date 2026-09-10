@@ -932,12 +932,22 @@ describe("Stripe live readiness and payment integrity", () => {
         })
       ).status,
     ).toBe(409);
-    const mixedBankRefund = await app.request(`/api/v1/finance/invoices/${mixedInvoice.id}/credits`, {
-      method: "POST",
-      headers: hdrs,
-      body: JSON.stringify({ kind: "refund", amountMinor: mixedBank, reason: "Returned mixed bank transfer" }),
-    });
-    expect(mixedBankRefund.status).toBe(201);
+    const mixedRefundBody = JSON.stringify({ kind: "refund", amountMinor: mixedBank, reason: "Returned mixed bank transfer" });
+    const mixedRefunds = await Promise.all([
+      app.request(`/api/v1/finance/invoices/${mixedInvoice.id}/credits`, {
+        method: "POST",
+        headers: hdrs,
+        body: mixedRefundBody,
+      }),
+      app.request(`/api/v1/finance/invoices/${mixedInvoice.id}/credits`, {
+        method: "POST",
+        headers: hdrs,
+        body: mixedRefundBody,
+      }),
+    ]);
+    expect(mixedRefunds.map((row) => row.status).sort()).toEqual([201, 409]);
+    const mixedBlocked = mixedRefunds.find((row) => row.status === 409)!;
+    expect(((await mixedBlocked.json()) as { error: { code: string } }).error.code).toBe("stripe_refund_via_dashboard");
     const mixedOver = await app.request(`/api/v1/finance/invoices/${mixedInvoice.id}/credits`, {
       method: "POST",
       headers: hdrs,

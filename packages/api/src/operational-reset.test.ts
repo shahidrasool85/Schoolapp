@@ -930,7 +930,8 @@ describe("Platform Admin operational data reset", () => {
     await seedOperational(pools.owner, evidence);
     await pools.owner.query(
       `insert into school_payment_provider_configs (organisation_id, provider_key, secret_ref, mode, is_active)
-       values ($1, 'stripe', 'encrypted:v1', 'test', true)`,
+       values ($1, 'stripe', 'encrypted:v1', 'test', true)
+       on conflict (organisation_id, provider_key) do update set mode = 'test', is_active = true`,
       [evidence.orgId],
     );
     await pools.owner.query(

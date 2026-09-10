@@ -164,7 +164,9 @@ async function saveStripe(
       enabled: input.enabled,
     }),
   });
-  expect(saved.status).toBe(200);
+  if (saved.status !== 200) {
+    throw new Error(`saveStripe failed ${saved.status}: ${await saved.text()}`);
+  }
   return (await saved.json()) as {
     paymentProvider: { webhookPath: string; enabled: boolean; mode: string };
     readiness: { liveReady: boolean; canEnableLive: boolean; checks: Array<{ key: string; ok: boolean }> };
@@ -465,7 +467,7 @@ describe("Stripe live readiness and payment integrity", () => {
     const hdrs = headers(token, school.orgId);
     const saved = await saveStripe(app, hdrs, {
       secretKey: "sk_test_dup_aaaaaaaa",
-      webhookSecret: "whsec_dup",
+      webhookSecret: "whsec_dup_school",
       enabled: true,
     });
     const year = await seedYear(app, hdrs);
@@ -498,7 +500,7 @@ describe("Stripe live readiness and payment integrity", () => {
       amountMinor: Number(session.rows[0]!.amount_minor),
     });
     const body = JSON.stringify(event);
-    const headersWebhook = { "Content-Type": "application/json", "stripe-signature": stripeSignature("whsec_dup", body) };
+    const headersWebhook = { "Content-Type": "application/json", "stripe-signature": stripeSignature("whsec_dup_school", body) };
     const [first, second] = await Promise.all([
       app.request(saved.paymentProvider.webhookPath, { method: "POST", headers: headersWebhook, body }),
       app.request(saved.paymentProvider.webhookPath, { method: "POST", headers: headersWebhook, body }),
@@ -618,7 +620,7 @@ describe("Stripe live readiness and payment integrity", () => {
     const hdrs = headers(token, school.orgId);
     const saved = await saveStripe(app, hdrs, {
       secretKey: "sk_test_can_aaaaaaaa",
-      webhookSecret: "whsec_can",
+      webhookSecret: "whsec_can_school",
       enabled: true,
     });
     const year = await seedYear(app, hdrs);
@@ -655,7 +657,7 @@ describe("Stripe live readiness and payment integrity", () => {
       (
         await app.request(saved.paymentProvider.webhookPath, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "stripe-signature": stripeSignature("whsec_can", expiredBody) },
+          headers: { "Content-Type": "application/json", "stripe-signature": stripeSignature("whsec_can_school", expiredBody) },
           body: expiredBody,
         })
       ).status,
@@ -674,7 +676,7 @@ describe("Stripe live readiness and payment integrity", () => {
     const liveBody = JSON.stringify(liveEvent);
     const mismatched = await app.request(saved.paymentProvider.webhookPath, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "stripe-signature": stripeSignature("whsec_can", liveBody) },
+      headers: { "Content-Type": "application/json", "stripe-signature": stripeSignature("whsec_can_school", liveBody) },
       body: liveBody,
     });
     expect(mismatched.status).toBe(400);
@@ -688,7 +690,7 @@ describe("Stripe live readiness and payment integrity", () => {
     const hdrs = headers(token, school.orgId);
     const saved = await saveStripe(app, hdrs, {
       secretKey: "sk_test_ref_aaaaaaaa",
-      webhookSecret: "whsec_ref",
+      webhookSecret: "whsec_ref_school",
       enabled: true,
     });
     const year = await seedYear(app, hdrs);
@@ -725,7 +727,7 @@ describe("Stripe live readiness and payment integrity", () => {
       (
         await app.request(saved.paymentProvider.webhookPath, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "stripe-signature": stripeSignature("whsec_ref", body) },
+          headers: { "Content-Type": "application/json", "stripe-signature": stripeSignature("whsec_ref_school", body) },
           body,
         })
       ).status,

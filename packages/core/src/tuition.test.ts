@@ -3,6 +3,7 @@ import {
   billingRunDisplayStatus,
   billingRunItemExclusionReason,
   billingRunItemIsIncluded,
+  billingRunMissingEligibility,
   billingRunStatusLabel,
 } from "@schoolapp/domain";
 import {
@@ -12,6 +13,7 @@ import {
   asIsoDate,
   BILLING_RUN_PREVIEW_STALE_RULE,
   billingPeriodKey,
+  catchUpInvoicePeriodKey,
   billingRunConfirmSummary,
   billingRunItemSignature,
   billingRunPreviewSignaturesDiffer,
@@ -360,6 +362,9 @@ describe("invoice status and arrears", () => {
     expect(billingPeriodKey("monthly", "2026-09-01", "2026-09-30")).toBe(
       "tuition:monthly:2026-09-01:2026-09-30",
     );
+    expect(
+      catchUpInvoicePeriodKey("tuition:monthly:2026-09-01:2026-09-30", "11111111-1111-1111-1111-111111111111"),
+    ).toBe("tuition:monthly:2026-09-01:2026-09-30:catchup:11111111-1111-1111-1111-111111111111");
   });
 
   it("normalises driver Date values to ISO calendar dates", () => {
@@ -593,6 +598,30 @@ describe("billing run preview display and stale detection", () => {
       billingRunItemExclusionReason({ error: null, warning: "no_fee_schedule", netAmountMinor: 0 }),
     ).toMatch(/No active fee schedule/);
     expect(billingRunItemIsIncluded({ error: "already_invoiced", netAmountMinor: 0 })).toBe(false);
+    expect(
+      billingRunMissingEligibility({
+        error: null,
+        warning: null,
+        netAmountMinor: 200000,
+        feeScheduleId: "sched-1",
+      }),
+    ).toBe("missing_eligible");
+    expect(
+      billingRunMissingEligibility({
+        error: "already_invoiced",
+        warning: "already_invoiced",
+        netAmountMinor: 0,
+        feeScheduleId: "sched-1",
+      }),
+    ).toBe("already_invoiced");
+    expect(
+      billingRunMissingEligibility({
+        error: null,
+        warning: "no_fee_schedule",
+        netAmountMinor: 0,
+        feeScheduleId: null,
+      }),
+    ).toBe("not_eligible");
   });
 
   it("summarises confirmation as pupil, invoice and total counts", () => {

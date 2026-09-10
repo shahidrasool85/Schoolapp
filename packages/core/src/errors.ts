@@ -339,3 +339,12 @@ export function pgErrorToAppError(error: unknown): AppError | null {
   }
   return null;
 }
+
+export function isPgUniqueViolation(error: unknown, constraintName?: string): boolean {
+  if (!error || typeof error !== "object" || !("code" in error)) return false;
+  if (String((error as { code: unknown }).code) !== "23505") return false;
+  if (!constraintName) return true;
+  const constraint = "constraint" in error ? String((error as { constraint: unknown }).constraint ?? "") : "";
+  const message = "message" in error ? String((error as { message: unknown }).message ?? "") : "";
+  return constraint === constraintName || message.includes(constraintName);
+}

@@ -623,6 +623,10 @@ export function billingPeriodKey(
   return `tuition:${frequency}:${periodStart}:${periodEnd}`;
 }
 
+export function catchUpInvoicePeriodKey(runPeriodKey: string, studentProfileId: string): string {
+  return `${runPeriodKey}:catchup:${studentProfileId}`;
+}
+
 export function arrearsBucket(daysOverdue: number): "current" | "due_soon" | "overdue" | "30" | "60" | "90" {
   if (daysOverdue <= 0) return daysOverdue < -7 ? "current" : "due_soon";
   if (daysOverdue >= 90) return "90";

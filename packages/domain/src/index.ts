@@ -343,8 +343,10 @@ export {
   billingRunDisplayStatus,
   billingRunItemExclusionReason,
   billingRunItemIsIncluded,
+  billingRunMissingEligibility,
   billingRunStatusLabel,
   BILLING_RUN_DISPLAY_STATUSES,
+  MISSING_CATCHUP_INVOICE_SOURCE,
   feeScheduleAnnualMatchesInstalments,
   feeScheduleCreateSummary,
   feeScheduleDeletedRedirect,
@@ -376,6 +378,7 @@ export {
   UK_TAX_YEAR_START_DAY,
   STATEMENT_PERIOD_PRESETS,
   type BillingRunDisplayStatus,
+  type BillingRunMissingEligibility,
   type StatementPeriodPreset,
 } from "./academic-calendar.js";
 

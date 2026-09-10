@@ -232,6 +232,14 @@ describe("Timetable calendar finance UAT hotfix", () => {
     const teacher = await inviteTeacher(app, hdrs, suffix(), structure.classAId);
     expect(() => resetFormSafely(null)).not.toThrow();
 
+    const today = todayInTimeZone("Europe/London");
+    const effectiveFrom = addIsoDaysUtc(today, 1);
+    let firstMonday = effectiveFrom;
+    while (new Date(`${firstMonday}T00:00:00Z`).getUTCDay() !== 1) {
+      firstMonday = addIsoDaysUtc(firstMonday, 1);
+    }
+    const weekEnd = addIsoDaysUtc(firstMonday, 4);
+
     const created = await app.request("/api/v1/timetable/entries", {
       method: "POST",
       headers: hdrs,
@@ -242,7 +250,7 @@ describe("Timetable calendar finance UAT hotfix", () => {
         endsAt: "10:00",
         classId: structure.classAId,
         subjectId: structure.subjectId,
-        effectiveFrom: "2026-09-10",
+        effectiveFrom,
         teachers: [{ staffProfileId: teacher.staffProfileId, isPrimary: true }],
       }),
     });
@@ -253,7 +261,7 @@ describe("Timetable calendar finance UAT hotfix", () => {
       message: string;
     }>(created);
     expect(createdBody.message).toMatch(/Recurring lesson saved/i);
-    expect(createdBody.firstOccurrence?.date).toBe("2026-09-14");
+    expect(createdBody.firstOccurrence?.date).toBe(firstMonday);
 
     const listed = await json<{ entries: Array<{ id: string; lifecycleStatus: string }> }>(
       await app.request("/api/v1/timetable/entries", { headers: hdrs }),
@@ -263,11 +271,11 @@ describe("Timetable calendar finance UAT hotfix", () => {
 
     const week = await json<{ occurrences: Array<{ date: string; entryId: string }> }>(
       await app.request(
-        `/api/v1/timetable/occurrences?from=2026-09-14&to=2026-09-18&classId=${structure.classAId}`,
+        `/api/v1/timetable/occurrences?from=${firstMonday}&to=${weekEnd}&classId=${structure.classAId}`,
         { headers: hdrs },
       ),
     );
-    expect(week.occurrences.map((item) => item.date)).toEqual(["2026-09-14"]);
+    expect(week.occurrences.map((item) => item.date)).toEqual([firstMonday]);
 
     const deleted = await app.request(`/api/v1/timetable/entries/${createdBody.entry.id}`, {
       method: "DELETE",

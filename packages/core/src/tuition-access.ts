@@ -4,7 +4,9 @@ import {
   STAFF_ROLE_KEYS,
   billingRunItemExclusionReason,
   billingRunItemIsIncluded,
+  billingRunMissingEligibility,
   feeScheduleAnnualMatchesInstalments,
+  MISSING_CATCHUP_INVOICE_SOURCE,
   feeScheduleInstalmentPlan,
   overlappingActiveFeeScheduleMessage,
   statementPeriodRange,
@@ -24,7 +26,7 @@ import {
   type StatementPeriodPreset,
 } from "@schoolapp/domain";
 import { writeAudit } from "./academic.js";
-import { AppError } from "./errors.js";
+import { AppError, isPgUniqueViolation } from "./errors.js";
 import { assertPermission, notFound } from "./permissions.js";
 import { nextFinanceReference } from "./payments-access.js";
 import { guardianChildIds } from "./students-access.js";
@@ -76,6 +78,7 @@ import {
   asIsoDate,
   billingPeriodKey,
   billingRunConfirmSummary,
+  catchUpInvoicePeriodKey,
   billingRunPreviewSignaturesDiffer,
   daysOverdue,
   deriveInstalmentNumber,
@@ -1771,6 +1774,8 @@ export type PupilFeeQuote = {
   legalName: string;
   yearGroupName: string | null;
   className: string | null;
+  enrolStart: string;
+  enrolEnd: string | null;
   feeScheduleId: string | null;
   feeScheduleName: string | null;
   billingFrequency: string | null;
@@ -1858,6 +1863,8 @@ function emptyQuote(
     legalName: pupil.legalName,
     yearGroupName: pupil.yearGroupName,
     className: pupil.className,
+    enrolStart: pupil.enrolStart,
+    enrolEnd: pupil.enrolEnd,
     feeScheduleId: null,
     feeScheduleName: null,
     billingFrequency: null,
@@ -1941,6 +1948,7 @@ export async function quotePupilTuition(
         where l.organisation_id = $1
           and l.fee_schedule_id = $2
           and l.student_profile_id = $3
+          and l.kind = 'tuition'
           and i.status <> 'void'
           and i.billing_period_start = $4::date
           and i.billing_period_end = $5::date
@@ -2210,6 +2218,222 @@ export async function previewBillingRun(
   return loadBillingRun(client, input.organisationId, String(billingRun.id));
 }
 
+type TuitionInvoiceIssueItem = {
+  id?: unknown;
+  student_profile_id: unknown;
+  fee_schedule_id: unknown;
+  standard_amount_minor: unknown;
+  calculation?: unknown;
+};
+
+async function issueTuitionInvoiceForAccount(
+  client: Client,
+  input: {
+    organisationId: string;
+    actorUserId: string;
+    accountId: string;
+    academicYearId: string;
+    billingRunId: string | null;
+    periodKey: string;
+    periodStart: unknown;
+    periodEnd: unknown;
+    dueOn: unknown;
+    settings: FinanceSettings;
+    vatPolicy: ReturnType<typeof schoolVatPolicyFromSettings>;
+    items: TuitionInvoiceIssueItem[];
+    invoiceSnapshotExtras?: Record<string, unknown>;
+    linkRunItemIds?: boolean;
+  },
+): Promise<{ invoiceId: string; created: boolean; totalMinor: number }> {
+  const existingInvoice = await client.query(
+    `select id from school_invoices
+      where organisation_id = $1 and billing_account_id = $2 and period_key = $3 and status <> 'void'`,
+    [input.organisationId, input.accountId, input.periodKey],
+  );
+  if (existingInvoice.rows[0]) {
+    if (input.linkRunItemIds) {
+      for (const item of input.items) {
+        if (!item.id) continue;
+        await client.query(
+          `update school_billing_run_items set invoice_id = $3 where id = $1 and organisation_id = $2`,
+          [item.id, input.organisationId, existingInvoice.rows[0].id],
+        );
+      }
+    }
+    return { invoiceId: String(existingInvoice.rows[0].id), created: false, totalMinor: 0 };
+  }
+  const account = await client.query<{ primary_payer_user_id: string | null }>(
+    `select primary_payer_user_id from school_billing_accounts where id = $1 and organisation_id = $2`,
+    [input.accountId, input.organisationId],
+  );
+  const reference = await nextFinanceReference(client, input.organisationId, "invoice");
+  const vatPolicy = input.vatPolicy;
+  const invoice = await client.query(
+    `insert into school_invoices (
+       organisation_id, reference, billing_account_id, payer_user_id, academic_year_id,
+       billing_run_id, period_key, billing_period_start, billing_period_end, invoice_date,
+       due_date, status, currency, payment_instructions_snapshot, invoice_footer_snapshot,
+       calculation_snapshot, created_by
+     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,current_date,$10,'draft',$11,$12,$13,$14::jsonb,$15)
+     returning *`,
+    [
+      input.organisationId,
+      reference,
+      input.accountId,
+      account.rows[0]?.primary_payer_user_id ?? null,
+      input.academicYearId,
+      input.billingRunId,
+      input.periodKey,
+      input.periodStart,
+      input.periodEnd,
+      input.dueOn,
+      input.settings.currency,
+      input.settings.paymentInstructions,
+      input.settings.invoiceFooter,
+      JSON.stringify({
+        stackingMode: input.settings.discountStackingMode,
+        siblingOrderMode: input.settings.siblingOrderMode,
+        vat: {
+          enabled: vatPolicy.enabled,
+          registrationNumber: vatPolicy.registrationNumber,
+          rateBps: vatPolicy.enabled ? vatPolicy.rateBps : null,
+          pricesInclusive: vatPolicy.enabled ? vatPolicy.pricesInclusive : null,
+        },
+        ...(input.invoiceSnapshotExtras ?? {}),
+      }),
+      input.actorUserId,
+    ],
+  );
+  const invoiceId = String(invoice.rows[0]!.id);
+  let sort = 0;
+  let subtotal = 0;
+  let discounts = 0;
+  const vatSplits: Array<{ netMinor: number; vatMinor: number; grossMinor: number }> = [];
+  for (const item of input.items) {
+    const calc = (item.calculation ?? {}) as Record<string, unknown>;
+    const tuitionEntered = Number(item.standard_amount_minor);
+    const vatTreatment = parseVatLineTreatment(calc.vatTreatment);
+    const tuitionVat = applyVatToEnteredAmount(tuitionEntered, vatPolicy, vatTreatment);
+    await client.query(
+      `insert into school_invoice_lines (
+         organisation_id, invoice_id, sort_order, kind, student_profile_id, fee_schedule_id,
+         description, quantity, unit_amount_minor, amount_minor, calculation_snapshot,
+         vat_treatment, vat_rate_bps, vat_net_minor, vat_amount_minor, vat_gross_minor
+       ) values ($1,$2,$3,'tuition',$4,$5,$6,1,$7,$7,$8::jsonb,$9,$10,$11,$12,$13)`,
+      [
+        input.organisationId,
+        invoiceId,
+        sort,
+        item.student_profile_id,
+        item.fee_schedule_id,
+        `${String(calc.legalName ?? "Pupil")} tuition`,
+        tuitionEntered,
+        JSON.stringify({ ...calc, vat: tuitionVat }),
+        tuitionVat.treatment,
+        tuitionVat.mode ? tuitionVat.rateBps : null,
+        tuitionVat.netMinor,
+        tuitionVat.vatMinor,
+        tuitionVat.grossMinor,
+      ],
+    );
+    vatSplits.push(tuitionVat);
+    subtotal += tuitionEntered;
+    sort += 1;
+    const applied = Array.isArray(calc.applied) ? (calc.applied as AppliedDiscount[]) : [];
+    for (const discount of applied) {
+      const discountEntered = -discount.calculatedMinor;
+      const discountVat = applyVatToEnteredAmount(discountEntered, vatPolicy, vatTreatment);
+      await client.query(
+        `insert into school_invoice_lines (
+           organisation_id, invoice_id, sort_order, kind, student_profile_id, discount_rule_id,
+           concession_id, description, quantity, unit_amount_minor, amount_minor, calculation_snapshot,
+           vat_treatment, vat_rate_bps, vat_net_minor, vat_amount_minor, vat_gross_minor
+         ) values ($1,$2,$3,'discount',$4,$5,$6,$7,1,$8,$9,$10::jsonb,$11,$12,$13,$14,$15)`,
+        [
+          input.organisationId,
+          invoiceId,
+          sort,
+          item.student_profile_id,
+          discount.ruleId,
+          discount.concessionId,
+          discount.name,
+          discount.calculatedMinor,
+          discountEntered,
+          JSON.stringify({ ...discount, vat: discountVat }),
+          discountVat.treatment,
+          discountVat.mode ? discountVat.rateBps : null,
+          discountVat.netMinor,
+          discountVat.vatMinor,
+          discountVat.grossMinor,
+        ],
+      );
+      vatSplits.push(discountVat);
+      discounts += discount.calculatedMinor;
+      sort += 1;
+    }
+    if (input.linkRunItemIds && item.id) {
+      await client.query(
+        `update school_billing_run_items set invoice_id = $3 where id = $1 and organisation_id = $2`,
+        [item.id, input.organisationId, invoiceId],
+      );
+    }
+  }
+  const vatTotals = sumVatSplits(vatSplits);
+  const vatIssued = issuedVatSnapshot(vatPolicy, vatTotals);
+  const total = vatIssued.grossMinor;
+  const status = deriveInvoiceStatus({
+    current: "issued",
+    totalMinor: total,
+    paidMinor: 0,
+    creditMinor: 0,
+    dueDate: asIsoDate(input.dueOn),
+    gracePeriodDays: input.settings.gracePeriodDays,
+  });
+  await client.query(
+    `update school_invoices
+        set subtotal_minor = $3,
+            discount_total_minor = $4,
+            total_minor = $5,
+            outstanding_minor = $5,
+            status = $7,
+            issued_by = $6,
+            issued_at = now(),
+            vat_enabled = $8,
+            vat_registration_number = $9,
+            vat_rate_bps = $10,
+            vat_prices_inclusive = $11,
+            vat_net_minor = $12,
+            vat_amount_minor = $13
+      where id = $1 and organisation_id = $2`,
+    [
+      invoiceId,
+      input.organisationId,
+      subtotal,
+      discounts,
+      total,
+      input.actorUserId,
+      status,
+      vatIssued.enabled,
+      vatIssued.registrationNumber,
+      vatIssued.rateBps,
+      vatIssued.pricesInclusive,
+      vatIssued.netMinor,
+      vatIssued.vatMinor,
+    ],
+  );
+  await writeAudit(client, {
+    organisationId: input.organisationId,
+    actorUserId: input.actorUserId,
+    action: "finance.invoice.issued",
+    entityType: "school_invoice",
+    entityId: invoiceId,
+    after: { reference, totalMinor: total, periodKey: input.periodKey },
+  });
+  await persistInvoiceDisplaySnapshot(client, input.organisationId, invoiceId);
+  await queueInvoiceIssuedMail(client, input.organisationId, invoiceId);
+  return { invoiceId, created: true, totalMinor: total };
+}
+
 export async function confirmBillingRun(
   client: Client,
   input: { organisationId: string; actorUserId: string; billingRunId: string },
@@ -2259,185 +2483,27 @@ export async function confirmBillingRun(
     grouped.set(accountId, list);
   }
   for (const [accountId, group] of grouped) {
-    const existingInvoice = await client.query(
-      `select id from school_invoices
-        where organisation_id = $1 and billing_account_id = $2 and period_key = $3 and status <> 'void'`,
-      [input.organisationId, accountId, run.rows[0].period_key],
-    );
-    if (existingInvoice.rows[0]) {
-      for (const item of group) {
-        await client.query(
-          `update school_billing_run_items set invoice_id = $3 where id = $1 and organisation_id = $2`,
-          [item.id, input.organisationId, existingInvoice.rows[0].id],
-        );
-      }
-      continue;
-    }
-    const account = await client.query<{ primary_payer_user_id: string | null }>(
-      `select primary_payer_user_id from school_billing_accounts where id = $1`,
-      [accountId],
-    );
-    const reference = await nextFinanceReference(client, input.organisationId, "invoice");
-    const invoice = await client.query(
-      `insert into school_invoices (
-         organisation_id, reference, billing_account_id, payer_user_id, academic_year_id,
-         billing_run_id, period_key, billing_period_start, billing_period_end, invoice_date,
-         due_date, status, currency, payment_instructions_snapshot, invoice_footer_snapshot,
-         calculation_snapshot, created_by
-       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,current_date,$10,'draft',$11,$12,$13,$14::jsonb,$15)
-       returning *`,
-      [
-        input.organisationId,
-        reference,
-        accountId,
-        account.rows[0]?.primary_payer_user_id ?? null,
-        run.rows[0].academic_year_id,
-        input.billingRunId,
-        run.rows[0].period_key,
-        run.rows[0].period_start,
-        run.rows[0].period_end,
-        run.rows[0].due_on,
-        settings.currency,
-        settings.paymentInstructions,
-        settings.invoiceFooter,
-        JSON.stringify({
-          stackingMode: settings.discountStackingMode,
-          siblingOrderMode: settings.siblingOrderMode,
-          vat: {
-            enabled: vatPolicy.enabled,
-            registrationNumber: vatPolicy.registrationNumber,
-            rateBps: vatPolicy.enabled ? vatPolicy.rateBps : null,
-            pricesInclusive: vatPolicy.enabled ? vatPolicy.pricesInclusive : null,
-          },
-        }),
-        input.actorUserId,
-      ],
-    );
-    const invoiceId = String(invoice.rows[0]!.id);
-    let sort = 0;
-    let subtotal = 0;
-    let discounts = 0;
-    const vatSplits: Array<{ netMinor: number; vatMinor: number; grossMinor: number }> = [];
-    for (const item of group) {
-      const calc = (item.calculation ?? {}) as Record<string, unknown>;
-      const tuitionEntered = Number(item.standard_amount_minor);
-      const vatTreatment = parseVatLineTreatment(calc.vatTreatment);
-      const tuitionVat = applyVatToEnteredAmount(tuitionEntered, vatPolicy, vatTreatment);
-      await client.query(
-        `insert into school_invoice_lines (
-           organisation_id, invoice_id, sort_order, kind, student_profile_id, fee_schedule_id,
-           description, quantity, unit_amount_minor, amount_minor, calculation_snapshot,
-           vat_treatment, vat_rate_bps, vat_net_minor, vat_amount_minor, vat_gross_minor
-         ) values ($1,$2,$3,'tuition',$4,$5,$6,1,$7,$7,$8::jsonb,$9,$10,$11,$12,$13)`,
-        [
-          input.organisationId,
-          invoiceId,
-          sort,
-          item.student_profile_id,
-          item.fee_schedule_id,
-          `${String(calc.legalName ?? "Pupil")} tuition`,
-          tuitionEntered,
-          JSON.stringify({ ...calc, vat: tuitionVat }),
-          tuitionVat.treatment,
-          tuitionVat.mode ? tuitionVat.rateBps : null,
-          tuitionVat.netMinor,
-          tuitionVat.vatMinor,
-          tuitionVat.grossMinor,
-        ],
-      );
-      vatSplits.push(tuitionVat);
-      subtotal += tuitionEntered;
-      sort += 1;
-      const applied = Array.isArray(calc.applied) ? (calc.applied as AppliedDiscount[]) : [];
-      for (const discount of applied) {
-        const discountEntered = -discount.calculatedMinor;
-        const discountVat = applyVatToEnteredAmount(discountEntered, vatPolicy, vatTreatment);
-        await client.query(
-          `insert into school_invoice_lines (
-             organisation_id, invoice_id, sort_order, kind, student_profile_id, discount_rule_id,
-             concession_id, description, quantity, unit_amount_minor, amount_minor, calculation_snapshot,
-             vat_treatment, vat_rate_bps, vat_net_minor, vat_amount_minor, vat_gross_minor
-           ) values ($1,$2,$3,'discount',$4,$5,$6,$7,1,$8,$9,$10::jsonb,$11,$12,$13,$14,$15)`,
-          [
-            input.organisationId,
-            invoiceId,
-            sort,
-            item.student_profile_id,
-            discount.ruleId,
-            discount.concessionId,
-            discount.name,
-            discount.calculatedMinor,
-            discountEntered,
-            JSON.stringify({ ...discount, vat: discountVat }),
-            discountVat.treatment,
-            discountVat.mode ? discountVat.rateBps : null,
-            discountVat.netMinor,
-            discountVat.vatMinor,
-            discountVat.grossMinor,
-          ],
-        );
-        vatSplits.push(discountVat);
-        discounts += discount.calculatedMinor;
-        sort += 1;
-      }
-      await client.query(
-        `update school_billing_run_items set invoice_id = $3 where id = $1 and organisation_id = $2`,
-        [item.id, input.organisationId, invoiceId],
-      );
-    }
-    const vatTotals = sumVatSplits(vatSplits);
-    const vatIssued = issuedVatSnapshot(vatPolicy, vatTotals);
-    const total = vatIssued.grossMinor;
-    const status = deriveInvoiceStatus({
-      current: "issued",
-      totalMinor: total,
-      paidMinor: 0,
-      creditMinor: 0,
-      dueDate: asIsoDate(run.rows[0].due_on),
-      gracePeriodDays: settings.gracePeriodDays,
-    });
-    await client.query(
-      `update school_invoices
-          set subtotal_minor = $3,
-              discount_total_minor = $4,
-              total_minor = $5,
-              outstanding_minor = $5,
-              status = $7,
-              issued_by = $6,
-              issued_at = now(),
-              vat_enabled = $8,
-              vat_registration_number = $9,
-              vat_rate_bps = $10,
-              vat_prices_inclusive = $11,
-              vat_net_minor = $12,
-              vat_amount_minor = $13
-        where id = $1 and organisation_id = $2`,
-      [
-        invoiceId,
-        input.organisationId,
-        subtotal,
-        discounts,
-        total,
-        input.actorUserId,
-        status,
-        vatIssued.enabled,
-        vatIssued.registrationNumber,
-        vatIssued.rateBps,
-        vatIssued.pricesInclusive,
-        vatIssued.netMinor,
-        vatIssued.vatMinor,
-      ],
-    );
-    await writeAudit(client, {
+    await issueTuitionInvoiceForAccount(client, {
       organisationId: input.organisationId,
       actorUserId: input.actorUserId,
-      action: "finance.invoice.issued",
-      entityType: "school_invoice",
-      entityId: invoiceId,
-      after: { reference, totalMinor: total, periodKey: run.rows[0].period_key },
+      accountId,
+      academicYearId: String(run.rows[0].academic_year_id),
+      billingRunId: input.billingRunId,
+      periodKey: String(run.rows[0].period_key),
+      periodStart: run.rows[0].period_start,
+      periodEnd: run.rows[0].period_end,
+      dueOn: run.rows[0].due_on,
+      settings,
+      vatPolicy,
+      items: group.map((item) => ({
+        id: item.id,
+        student_profile_id: item.student_profile_id,
+        fee_schedule_id: item.fee_schedule_id,
+        standard_amount_minor: item.standard_amount_minor,
+        calculation: item.calculation,
+      })),
+      linkRunItemIds: true,
     });
-    await persistInvoiceDisplaySnapshot(client, input.organisationId, invoiceId);
-    await queueInvoiceIssuedMail(client, input.organisationId, invoiceId);
   }
   await client.query(
     `update school_billing_runs
@@ -2454,6 +2520,325 @@ export async function confirmBillingRun(
     after: { periodKey: run.rows[0].period_key },
   });
   return loadBillingRun(client, input.organisationId, input.billingRunId);
+}
+
+export type MissingBillingRunPupil = {
+  studentProfileId: string;
+  legalName: string;
+  yearGroupName: string | null;
+  className: string | null;
+  enrolStart: string;
+  enrolEnd: string | null;
+  feeScheduleId: string | null;
+  feeScheduleName: string | null;
+  annualAmountMinor: number | null;
+  instalmentNumber: number | null;
+  instalmentCount: number | null;
+  amountPerInstalmentMinor: number | null;
+  standardAmountMinor: number;
+  discountTotalMinor: number;
+  netAmountMinor: number;
+  grossAmountMinor: number;
+  currency: string;
+  periodStart: string;
+  periodEnd: string;
+  dueOn: string;
+  eligibility: ReturnType<typeof billingRunMissingEligibility>;
+  warning: string | null;
+  error: string | null;
+};
+
+function quotedTuitionGrossMinor(quote: PupilFeeQuote, vatPolicy: SchoolVatPolicy): number {
+  return vatForQuotedTuition(
+    quote.standardAmountMinor,
+    quote.appliedDiscounts,
+    vatPolicy,
+    parseVatLineTreatment(quote.calculation.vatTreatment),
+  ).totals.grossMinor;
+}
+
+function mapMissingQuote(
+  quote: PupilFeeQuote,
+  dueOn: string,
+  vatPolicy: SchoolVatPolicy,
+): MissingBillingRunPupil {
+  return {
+    studentProfileId: quote.studentProfileId,
+    legalName: quote.legalName,
+    yearGroupName: quote.yearGroupName,
+    className: quote.className,
+    enrolStart: quote.enrolStart,
+    enrolEnd: quote.enrolEnd,
+    feeScheduleId: quote.feeScheduleId,
+    feeScheduleName: quote.feeScheduleName,
+    annualAmountMinor: quote.annualAmountMinor,
+    instalmentNumber: quote.instalmentNumber,
+    instalmentCount: quote.instalmentCount,
+    amountPerInstalmentMinor: quote.amountPerInstalmentMinor,
+    standardAmountMinor: quote.standardAmountMinor,
+    discountTotalMinor: quote.discountTotalMinor,
+    netAmountMinor: quote.netAmountMinor,
+    grossAmountMinor: quotedTuitionGrossMinor(quote, vatPolicy),
+    currency: quote.currency,
+    periodStart: quote.periodStart,
+    periodEnd: quote.periodEnd,
+    dueOn,
+    eligibility: billingRunMissingEligibility({
+      error: quote.error,
+      warning: quote.warning,
+      netAmountMinor: quote.netAmountMinor,
+      feeScheduleId: quote.feeScheduleId,
+    }),
+    warning: quote.warning,
+    error: quote.error,
+  };
+}
+
+async function listCatchUpInvoicesForRun(client: Client, organisationId: string, billingRunId: string) {
+  const rows = await client.query(
+    `select i.*, a.name as billing_account_name
+       from school_invoices i
+       join school_billing_accounts a on a.id = i.billing_account_id
+      where i.organisation_id = $1
+        and i.status <> 'void'
+        and i.calculation_snapshot->>'source' = $3
+        and i.calculation_snapshot->>'sourceBillingRunId' = $2
+      order by i.created_at, i.reference`,
+    [organisationId, billingRunId, MISSING_CATCHUP_INVOICE_SOURCE],
+  );
+  return rows.rows.map((row) => mapInvoice(row as Record<string, unknown>));
+}
+
+async function buildMissingBillingRunPreview(
+  client: Client,
+  organisationId: string,
+  run: Record<string, unknown>,
+) {
+  const frequency = String(run.billing_frequency);
+  if (!isSchoolBillingFrequency(frequency)) {
+    throw new AppError(400, "validation_failed", "Invalid billing frequency");
+  }
+  const periodStart = asIsoDate(run.period_start);
+  const periodEnd = asIsoDate(run.period_end);
+  const dueOn = asIsoDate(run.due_on);
+  const settings = await loadFinanceSettings(client, organisationId);
+  const vatPolicy = schoolVatPolicyFromSettings(settings);
+  const quotes = await quotePupilTuition(client, {
+    organisationId,
+    academicYearId: String(run.academic_year_id),
+    periodStart,
+    periodEnd,
+    frequency,
+    instalmentNumber: run.instalment_number == null ? null : Number(run.instalment_number),
+    feeScheduleId: feeScheduleIdFromPeriodKey(String(run.period_key)),
+  });
+  const mapped = quotes.map((quote) => mapMissingQuote(quote, dueOn, vatPolicy));
+  const missingEligible = mapped.filter((item) => item.eligibility === "missing_eligible");
+  const alreadyInvoiced = mapped.filter((item) => item.eligibility === "already_invoiced");
+  const notEligible = mapped.filter((item) => item.eligibility === "not_eligible");
+  const catchUpInvoices = await listCatchUpInvoicesForRun(client, organisationId, String(run.id));
+  const proposedTotalMinor = missingEligible.reduce((sum, item) => sum + item.grossAmountMinor, 0);
+  return {
+    dueOn,
+    periodStart,
+    periodEnd,
+    currency: String(run.currency),
+    feeScheduleId: feeScheduleIdFromPeriodKey(String(run.period_key)) ?? null,
+    missingEligible,
+    alreadyInvoiced,
+    notEligible,
+    catchUpInvoices,
+    allEligibleInvoiced: missingEligible.length === 0,
+    proposedTotalMinor,
+    quotes,
+  };
+}
+
+export async function previewMissingBillingRunInvoices(
+  client: Client,
+  input: { organisationId: string; billingRunId: string },
+) {
+  const run = await client.query(`select * from school_billing_runs where id = $1 and organisation_id = $2`, [
+    input.billingRunId,
+    input.organisationId,
+  ]);
+  if (!run.rows[0]) notFound();
+  if (String(run.rows[0].status) !== "confirmed") {
+    throw new AppError(
+      409,
+      "invalid_status_transition",
+      "Catch-up invoices can only be previewed for an issued billing run.",
+    );
+  }
+  const preview = await buildMissingBillingRunPreview(client, input.organisationId, run.rows[0] as Record<string, unknown>);
+  return {
+    dueOn: preview.dueOn,
+    periodStart: preview.periodStart,
+    periodEnd: preview.periodEnd,
+    currency: preview.currency,
+    feeScheduleId: preview.feeScheduleId,
+    missingEligible: preview.missingEligible,
+    alreadyInvoiced: preview.alreadyInvoiced,
+    notEligible: preview.notEligible,
+    catchUpInvoices: preview.catchUpInvoices,
+    allEligibleInvoiced: preview.allEligibleInvoiced,
+    proposedTotalMinor: preview.proposedTotalMinor,
+  };
+}
+
+export async function confirmMissingBillingRunInvoices(
+  client: Client,
+  input: { organisationId: string; actorUserId: string; billingRunId: string },
+) {
+  const run = await client.query(`select * from school_billing_runs where id = $1 and organisation_id = $2 for update`, [
+    input.billingRunId,
+    input.organisationId,
+  ]);
+  if (!run.rows[0]) notFound();
+  if (String(run.rows[0].status) !== "confirmed") {
+    throw new AppError(
+      409,
+      "invalid_status_transition",
+      "Catch-up invoices can only be created for an issued billing run.",
+    );
+  }
+  const settings = await loadFinanceSettings(client, input.organisationId);
+  const vatPolicy = schoolVatPolicyFromSettings(settings);
+  if (vatPolicy.enabled) {
+    try {
+      validateSchoolVatPolicy(vatPolicy);
+    } catch {
+      throw new AppError(
+        400,
+        "validation_failed",
+        "VAT is enabled but the registration number is missing. Update Finance Settings before issuing invoices.",
+      );
+    }
+  }
+  const preview = await buildMissingBillingRunPreview(client, input.organisationId, run.rows[0] as Record<string, unknown>);
+  const quotesByPupil = new Map(preview.quotes.map((quote) => [quote.studentProfileId, quote]));
+  let createdCount = 0;
+  let skippedCount = 0;
+  let totalMinor = 0;
+  const createdInvoiceIds: string[] = [];
+  for (const item of preview.missingEligible) {
+    const quote = quotesByPupil.get(item.studentProfileId);
+    if (!quote || !quote.feeScheduleId) {
+      skippedCount += 1;
+      continue;
+    }
+    await client.query("savepoint catchup_invoice");
+    try {
+      const accountId = await ensureBillingAccount(client, input.organisationId, quote.studentProfileId);
+      const issued = await issueTuitionInvoiceForAccount(client, {
+        organisationId: input.organisationId,
+        actorUserId: input.actorUserId,
+        accountId,
+        academicYearId: String(run.rows[0].academic_year_id),
+        billingRunId: input.billingRunId,
+        periodKey: catchUpInvoicePeriodKey(String(run.rows[0].period_key), quote.studentProfileId),
+        periodStart: run.rows[0].period_start,
+        periodEnd: run.rows[0].period_end,
+        dueOn: run.rows[0].due_on,
+        settings,
+        vatPolicy,
+        items: [
+          {
+            student_profile_id: quote.studentProfileId,
+            fee_schedule_id: quote.feeScheduleId,
+            standard_amount_minor: quote.standardAmountMinor,
+            calculation: {
+              ...quote.calculation,
+              applied: quote.appliedDiscounts,
+              discarded: quote.discardedDiscounts,
+              feeScheduleId: quote.feeScheduleId,
+              feeScheduleName: quote.feeScheduleName,
+              legalName: quote.legalName,
+              yearGroupName: quote.yearGroupName,
+              className: quote.className,
+              enrolStart: quote.enrolStart,
+              annualAmountMinor: quote.annualAmountMinor,
+              instalmentNumber: quote.instalmentNumber,
+              instalmentCount: quote.instalmentCount,
+              amountPerInstalmentMinor: quote.amountPerInstalmentMinor,
+              standardAmountMinor: quote.standardAmountMinor,
+              billedAmountMinor: quote.netAmountMinor,
+              periodStart: quote.periodStart,
+              periodEnd: quote.periodEnd,
+              dueOn: asIsoDate(run.rows[0].due_on),
+              billingFrequency: quote.billingFrequency,
+            },
+          },
+        ],
+        invoiceSnapshotExtras: {
+          source: MISSING_CATCHUP_INVOICE_SOURCE,
+          sourceBillingRunId: String(run.rows[0].id),
+          sourceBillingRunReference: String(run.rows[0].reference),
+          catchupStudentProfileId: quote.studentProfileId,
+          instalmentNumber: quote.instalmentNumber,
+        },
+        linkRunItemIds: false,
+      });
+      await client.query("release savepoint catchup_invoice");
+      if (issued.created) {
+        createdCount += 1;
+        createdInvoiceIds.push(issued.invoiceId);
+        totalMinor += issued.totalMinor;
+      } else {
+        skippedCount += 1;
+      }
+    } catch (error) {
+      await client.query("rollback to savepoint catchup_invoice");
+      await client.query("release savepoint catchup_invoice");
+      if (
+        isPgUniqueViolation(error, "school_invoices_period_uidx") ||
+        isPgUniqueViolation(error, "school_invoices_catchup_pupil_period_uidx")
+      ) {
+        skippedCount += 1;
+        continue;
+      }
+      throw error;
+    }
+  }
+  await writeAudit(client, {
+    organisationId: input.organisationId,
+    actorUserId: input.actorUserId,
+    action: "finance.billing_run.catchup_issued",
+    entityType: "school_billing_run",
+    entityId: input.billingRunId,
+    after: {
+      source: MISSING_CATCHUP_INVOICE_SOURCE,
+      periodKey: run.rows[0].period_key,
+      periodStart: asIsoDate(run.rows[0].period_start),
+      periodEnd: asIsoDate(run.rows[0].period_end),
+      feeScheduleId: feeScheduleIdFromPeriodKey(String(run.rows[0].period_key)) ?? null,
+      invoiceCount: createdCount,
+      skippedCount,
+      totalMinor,
+      invoiceIds: createdInvoiceIds,
+    },
+  });
+  const refreshed = await buildMissingBillingRunPreview(
+    client,
+    input.organisationId,
+    run.rows[0] as Record<string, unknown>,
+  );
+  return {
+    createdCount,
+    skippedCount,
+    totalMinor,
+    dueOn: refreshed.dueOn,
+    periodStart: refreshed.periodStart,
+    periodEnd: refreshed.periodEnd,
+    currency: refreshed.currency,
+    feeScheduleId: refreshed.feeScheduleId,
+    missingEligible: refreshed.missingEligible,
+    alreadyInvoiced: refreshed.alreadyInvoiced,
+    notEligible: refreshed.notEligible,
+    catchUpInvoices: refreshed.catchUpInvoices,
+    allEligibleInvoiced: refreshed.allEligibleInvoiced,
+    proposedTotalMinor: refreshed.proposedTotalMinor,
+  };
 }
 
 function feeScheduleIdFromPeriodKey(periodKey: string): string | undefined {

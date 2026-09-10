@@ -3493,6 +3493,24 @@ async function invoicePaymentIsStripeCard(
   return (linked.rowCount ?? 0) > 0;
 }
 
+async function invoiceHasStripeCardPayment(
+  client: Client,
+  organisationId: string,
+  invoiceId: string,
+): Promise<boolean> {
+  const payments = await client.query(
+    `select * from school_invoice_payments
+      where organisation_id = $1 and invoice_id = $2 and status = 'succeeded'`,
+    [organisationId, invoiceId],
+  );
+  for (const payment of payments.rows) {
+    if (await invoicePaymentIsStripeCard(client, organisationId, payment as Record<string, unknown>)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export async function reverseInvoicePayment(
   client: Client,
   input: { organisationId: string; actorUserId: string; paymentId: string; reason: string },
@@ -3551,7 +3569,12 @@ export async function createInvoiceCredit(
   if (!isSchoolCreditKind(input.kind)) {
     throw new AppError(400, "validation_failed", "Invalid credit kind");
   }
-  if (input.kind === "refund" && !input.fromProviderWebhook) {
+  if (
+    input.kind === "refund" &&
+    !input.fromProviderWebhook &&
+    input.invoiceId &&
+    (await invoiceHasStripeCardPayment(client, input.organisationId, input.invoiceId))
+  ) {
     throw new AppError(
       409,
       "stripe_refund_via_dashboard",

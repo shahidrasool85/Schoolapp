@@ -753,6 +753,50 @@ describe("Stripe live readiness and payment integrity", () => {
     expect(credit.status).toBe(409);
     expect(((await credit.json()) as { error: { code: string } }).error.code).toBe("stripe_refund_via_dashboard");
 
+    const bankPreview = await app.request("/api/v1/finance/billing-runs/preview", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        academicYearId: year.yearId,
+        frequency: "monthly",
+        periodStart: "2026-10-01",
+        periodEnd: "2026-10-31",
+        dueOn: "2026-10-15",
+      }),
+    });
+    expect(bankPreview.status).toBe(201);
+    const bankRun = (await bankPreview.json()) as { run: { id: string } };
+    expect(
+      (await app.request(`/api/v1/finance/billing-runs/${bankRun.run.id}/confirm`, { method: "POST", headers: hdrs, body: "{}" }))
+        .status,
+    ).toBe(200);
+    const bankInvoices = (await (await app.request("/api/v1/finance/invoices", { headers: hdrs })).json()) as {
+      invoices: Array<{ id: string; outstandingMinor: number }>;
+    };
+    const bankInvoice = bankInvoices.invoices.find((row) => row.id !== invoice.id && row.outstandingMinor > 0)!;
+    const bankPay = await app.request(`/api/v1/finance/invoices/${bankInvoice.id}/payments`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ amountMinor: bankInvoice.outstandingMinor, method: "bank_transfer" }),
+    });
+    expect(bankPay.status).toBe(201);
+    const bankRefund = await app.request(`/api/v1/finance/invoices/${bankInvoice.id}/credits`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        kind: "refund",
+        amountMinor: bankInvoice.outstandingMinor,
+        reason: "Returned bank transfer",
+      }),
+    });
+    expect(bankRefund.status).toBe(201);
+    const afterBankRefund = (await (await app.request(`/api/v1/finance/invoices/${bankInvoice.id}`, { headers: hdrs })).json()) as {
+      invoice: { outstandingMinor: number; creditTotalMinor: number; paidMinor: number };
+    };
+    expect(afterBankRefund.invoice.paidMinor).toBe(bankInvoice.outstandingMinor);
+    expect(afterBankRefund.invoice.creditTotalMinor).toBe(bankInvoice.outstandingMinor);
+    expect(afterBankRefund.invoice.outstandingMinor).toBe(0);
+
     const prod = testApp(pools, { payments: { providerKey: "fake", allowPlatformFakeProvider: false } });
     const demo = await prod.request(`/api/v1/payments/demo/checkout/${randomUUID()}?t=nope`);
     expect(demo.status).toBe(404);

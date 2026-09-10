@@ -20,6 +20,26 @@ import {
 
 const suffix = () => randomUUID().slice(0, 8);
 
+function isoWeekdayUtc(isoDate: string): number {
+  return new Date(`${isoDate}T00:00:00Z`).getUTCDay();
+}
+
+function nextWeekdayOnOrAfter(isoDate: string, weekday: number): string {
+  let date = isoDate;
+  while (isoWeekdayUtc(date) !== weekday) {
+    date = addIsoDaysUtc(date, 1);
+  }
+  return date;
+}
+
+function lastWeekdayOnOrBefore(isoDate: string, weekday: number): string {
+  let date = isoDate;
+  while (isoWeekdayUtc(date) !== weekday) {
+    date = addIsoDaysUtc(date, -1);
+  }
+  return date;
+}
+
 async function createSchool(owner: ReturnType<typeof testPools>["owner"], id: string) {
   const adminId = await insertUser(owner, {
     email: `admin-${id}@example.com`,
@@ -410,16 +430,22 @@ describe("Timetable calendar finance UAT hotfix", () => {
       }),
     );
 
+    const today = todayInTimeZone("Europe/London");
+    const stopFrom = addIsoDaysUtc(today, 1);
+    const lastIncluded = addIsoDaysUtc(stopFrom, -1);
+    const historyMonday = lastWeekdayOnOrBefore(lastIncluded, 1);
+    const futureMonday = nextWeekdayOnOrAfter(stopFrom, 1);
+
     const ended = await app.request(`/api/v1/timetable/entries/${created.entry.id}/end`, {
       method: "POST",
       headers: hdrs,
-      body: JSON.stringify({ stopFrom: "2026-09-11" }),
+      body: JSON.stringify({ stopFrom }),
     });
     expect(ended.status).toBe(200);
     const endedBody = await json<{ entry: { effectiveUntil: string; lifecycleStatus: string; isActive?: boolean } }>(
       ended,
     );
-    expect(endedBody.entry.effectiveUntil).toBe("2026-09-10");
+    expect(endedBody.entry.effectiveUntil).toBe(lastIncluded);
     expect(endedBody.entry.lifecycleStatus).toBe("active");
 
     const overlap = await app.request("/api/v1/timetable/entries", {
@@ -432,7 +458,7 @@ describe("Timetable calendar finance UAT hotfix", () => {
         endsAt: "10:00",
         classId: structure.classAId,
         subjectId: structure.subjectId,
-        effectiveFrom: "2026-09-10",
+        effectiveFrom: lastIncluded,
         teachers: [{ staffProfileId: replacementTeacher.staffProfileId, isPrimary: true }],
       }),
     });
@@ -448,7 +474,7 @@ describe("Timetable calendar finance UAT hotfix", () => {
         endsAt: "10:00",
         classId: structure.classAId,
         subjectId: structure.subjectId,
-        effectiveFrom: "2026-09-11",
+        effectiveFrom: stopFrom,
         teachers: [{ staffProfileId: replacementTeacher.staffProfileId, isPrimary: true }],
       }),
     });
@@ -457,34 +483,34 @@ describe("Timetable calendar finance UAT hotfix", () => {
 
     const history = await json<{ occurrences: Array<{ date: string; entryId: string }> }>(
       await app.request(
-        `/api/v1/timetable/occurrences?from=2026-09-07&to=2026-09-07&classId=${structure.classAId}`,
+        `/api/v1/timetable/occurrences?from=${historyMonday}&to=${historyMonday}&classId=${structure.classAId}`,
         { headers: hdrs },
       ),
     );
     expect(history.occurrences).toEqual([
-      expect.objectContaining({ date: "2026-09-07", entryId: created.entry.id }),
+      expect.objectContaining({ date: historyMonday, entryId: created.entry.id }),
     ]);
 
     const future = await json<{ occurrences: Array<{ date: string; entryId: string }> }>(
       await app.request(
-        `/api/v1/timetable/occurrences?from=2026-09-14&to=2026-09-14&classId=${structure.classAId}`,
+        `/api/v1/timetable/occurrences?from=${futureMonday}&to=${futureMonday}&classId=${structure.classAId}`,
         { headers: hdrs },
       ),
     );
     expect(future.occurrences).toEqual([
-      expect.objectContaining({ date: "2026-09-14", entryId: replacementBody.entry.id }),
+      expect.objectContaining({ date: futureMonday, entryId: replacementBody.entry.id }),
     ]);
 
     const teacherToken = await login(app, teacher.email, "teacher-pass-1");
     const teacherH = headers(teacherToken, school.orgId);
     const teacherPast = await json<{ occurrences: Array<{ entryId: string }> }>(
-      await app.request("/api/v1/timetable/occurrences?from=2026-09-07&to=2026-09-07&mine=true", {
+      await app.request(`/api/v1/timetable/occurrences?from=${historyMonday}&to=${historyMonday}&mine=true`, {
         headers: teacherH,
       }),
     );
     expect(teacherPast.occurrences.some((item) => item.entryId === created.entry.id)).toBe(true);
     const teacherFuture = await json<{ occurrences: Array<{ entryId: string }> }>(
-      await app.request("/api/v1/timetable/occurrences?from=2026-09-14&to=2026-09-14&mine=true", {
+      await app.request(`/api/v1/timetable/occurrences?from=${futureMonday}&to=${futureMonday}&mine=true`, {
         headers: teacherH,
       }),
     );
@@ -507,17 +533,19 @@ describe("Timetable calendar finance UAT hotfix", () => {
     const studentToken = await loginAlias(app, school.slug, alias, "student-pass-1");
     const studentH = headers(studentToken, school.orgId);
     const studentPast = await json<{ occurrences: Array<{ entryId: string; date: string }> }>(
-      await app.request("/api/v1/student/timetable?from=2026-09-07", { headers: studentH }),
+      await app.request(`/api/v1/student/timetable?from=${historyMonday}`, { headers: studentH }),
     );
-    expect(studentPast.occurrences.some((item) => item.entryId === created.entry.id && item.date === "2026-09-07")).toBe(
-      true,
-    );
+    expect(
+      studentPast.occurrences.some((item) => item.entryId === created.entry.id && item.date === historyMonday),
+    ).toBe(true);
     const studentFuture = await json<{ occurrences: Array<{ entryId: string; date: string }> }>(
-      await app.request("/api/v1/student/timetable?from=2026-09-14", { headers: studentH }),
+      await app.request(`/api/v1/student/timetable?from=${futureMonday}`, { headers: studentH }),
     );
     expect(studentFuture.occurrences.some((item) => item.entryId === created.entry.id)).toBe(false);
     expect(
-      studentFuture.occurrences.some((item) => item.entryId === replacementBody.entry.id && item.date === "2026-09-14"),
+      studentFuture.occurrences.some(
+        (item) => item.entryId === replacementBody.entry.id && item.date === futureMonday,
+      ),
     ).toBe(true);
 
     const listed = await json<{ entries: Array<{ id: string; lifecycleStatus: string }> }>(

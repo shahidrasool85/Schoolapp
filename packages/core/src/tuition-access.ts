@@ -31,7 +31,7 @@ import { AppError, isPgUniqueViolation } from "./errors.js";
 import { assertPermission, notFound } from "./permissions.js";
 import { nextFinanceReference } from "./payments-access.js";
 import { loadOrganisationPaymentProviderConfig } from "./org-payment-provider.js";
-import type { PaymentWebhookSettlement, ProviderEvent } from "./payment-provider.js";
+import { isProviderRefundEvent, type PaymentWebhookSettlement, type ProviderEvent } from "./payment-provider.js";
 import { guardianChildIds } from "./students-access.js";
 import {
   financeInvoiceIssuedMail,
@@ -3493,22 +3493,45 @@ async function invoicePaymentIsStripeCard(
   return (linked.rowCount ?? 0) > 0;
 }
 
-async function invoiceHasStripeCardPayment(
+async function invoiceSucceededPaymentSplit(
   client: Client,
   organisationId: string,
   invoiceId: string,
-): Promise<boolean> {
+): Promise<{ stripeCardMinor: number; offlineMinor: number }> {
   const payments = await client.query(
     `select * from school_invoice_payments
       where organisation_id = $1 and invoice_id = $2 and status = 'succeeded'`,
     [organisationId, invoiceId],
   );
+  let stripeCardMinor = 0;
+  let offlineMinor = 0;
   for (const payment of payments.rows) {
+    const amount = Number((payment as Record<string, unknown>).amount_minor);
     if (await invoicePaymentIsStripeCard(client, organisationId, payment as Record<string, unknown>)) {
-      return true;
+      stripeCardMinor += amount;
+    } else {
+      offlineMinor += amount;
     }
   }
-  return false;
+  return { stripeCardMinor, offlineMinor };
+}
+
+async function invoiceLocalRefundCreditMinor(
+  client: Client,
+  organisationId: string,
+  invoiceId: string,
+): Promise<number> {
+  const credits = await client.query<{ total: string }>(
+    `select coalesce(sum(amount_minor), 0)::text as total
+       from school_invoice_credits
+      where organisation_id = $1
+        and invoice_id = $2
+        and kind = 'refund'
+        and status = 'applied'
+        and provider_refund_id is null`,
+    [organisationId, invoiceId],
+  );
+  return Number(credits.rows[0]?.total ?? 0);
 }
 
 export async function reverseInvoicePayment(
@@ -3564,22 +3587,34 @@ export async function createInvoiceCredit(
     amountMinor: number;
     reason: string;
     fromProviderWebhook?: boolean;
+    providerRefundId?: string | null;
   },
 ) {
   if (!isSchoolCreditKind(input.kind)) {
     throw new AppError(400, "validation_failed", "Invalid credit kind");
   }
-  if (
-    input.kind === "refund" &&
-    !input.fromProviderWebhook &&
-    input.invoiceId &&
-    (await invoiceHasStripeCardPayment(client, input.organisationId, input.invoiceId))
-  ) {
-    throw new AppError(
-      409,
-      "stripe_refund_via_dashboard",
-      "Stripe card payments must be refunded in the Stripe Dashboard. LuvLearn records the refund when Stripe confirms it.",
+  const providerRefundId = input.providerRefundId?.trim() || null;
+  if (providerRefundId) {
+    const existing = await client.query(
+      `select * from school_invoice_credits
+        where organisation_id = $1 and provider_refund_id = $2`,
+      [input.organisationId, providerRefundId],
     );
+    if (existing.rows[0]) return mapCredit(existing.rows[0] as Record<string, unknown>);
+  }
+  if (input.kind === "refund" && !input.fromProviderWebhook && input.invoiceId) {
+    const split = await invoiceSucceededPaymentSplit(client, input.organisationId, input.invoiceId);
+    if (split.stripeCardMinor > 0) {
+      const localAlready = await invoiceLocalRefundCreditMinor(client, input.organisationId, input.invoiceId);
+      const remainingOffline = Math.max(0, split.offlineMinor - localAlready);
+      if (input.amountMinor > remainingOffline) {
+        throw new AppError(
+          409,
+          "stripe_refund_via_dashboard",
+          "Stripe card payments must be refunded in the Stripe Dashboard. LuvLearn records the refund when Stripe confirms it.",
+        );
+      }
+    }
   }
   if (input.invoiceId) {
     const invoice = await refreshInvoiceStatus(client, input.organisationId, input.invoiceId);
@@ -3603,24 +3638,41 @@ export async function createInvoiceCredit(
   }
   const settings = await loadFinanceSettings(client, input.organisationId);
   const reference = await nextFinanceReference(client, input.organisationId, "credit");
-  const created = await client.query(
-    `insert into school_invoice_credits (
-       organisation_id, billing_account_id, invoice_id, reference, kind, amount_minor,
-       currency, reason, created_by
-     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-     returning *`,
-    [
-      input.organisationId,
-      input.billingAccountId,
-      input.invoiceId ?? null,
-      reference,
-      input.kind,
-      input.amountMinor,
-      settings.currency,
-      input.reason,
-      input.actorUserId,
-    ],
-  );
+  let created: pg.QueryResult | undefined;
+  try {
+    created = await client.query(
+      `insert into school_invoice_credits (
+         organisation_id, billing_account_id, invoice_id, reference, kind, amount_minor,
+         currency, reason, created_by, provider_refund_id
+       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       returning *`,
+      [
+        input.organisationId,
+        input.billingAccountId,
+        input.invoiceId ?? null,
+        reference,
+        input.kind,
+        input.amountMinor,
+        settings.currency,
+        input.reason,
+        input.actorUserId,
+        providerRefundId,
+      ],
+    );
+  } catch (error) {
+    if (providerRefundId && isPgUniqueViolation(error, "school_invoice_credits_provider_refund_uidx")) {
+      const existing = await client.query(
+        `select * from school_invoice_credits
+          where organisation_id = $1 and provider_refund_id = $2`,
+        [input.organisationId, providerRefundId],
+      );
+      if (existing.rows[0]) return mapCredit(existing.rows[0] as Record<string, unknown>);
+    }
+    throw error;
+  }
+  if (!created?.rows[0]) {
+    throw new AppError(409, "conflict", "Resource already exists");
+  }
   if (input.invoiceId) {
     await client.query(
       `update school_invoices
@@ -3635,10 +3687,10 @@ export async function createInvoiceCredit(
     actorUserId: input.actorUserId,
     action: "finance.credit.created",
     entityType: "school_invoice_credit",
-    entityId: String(created.rows[0]!.id),
+    entityId: String(created.rows[0].id),
     after: { reference, kind: input.kind, amountMinor: input.amountMinor, invoiceId: input.invoiceId ?? null },
   });
-  await queueRefundIssuedMail(client, input.organisationId, String(created.rows[0]!.id), input.billingAccountId);
+  await queueRefundIssuedMail(client, input.organisationId, String(created.rows[0].id), input.billingAccountId);
   return mapCredit(created.rows[0] as Record<string, unknown>);
 }
 
@@ -5545,7 +5597,11 @@ export async function settleInvoiceProviderEvent(
   );
   if (!tx.rows[0]) throw new AppError(400, "unknown_reference", "Unknown payment reference");
   const transaction = tx.rows[0] as Record<string, unknown>;
-  if (input.event.amountMinor != null && Number(input.event.amountMinor) !== Number(transaction.amount_minor)) {
+  if (
+    !isProviderRefundEvent(input.event) &&
+    input.event.amountMinor != null &&
+    Number(input.event.amountMinor) !== Number(transaction.amount_minor)
+  ) {
     if (transaction.status === "pending") {
       await failInvoiceCheckout(client, {
         organisationId: input.organisationId,
@@ -5585,6 +5641,15 @@ export async function settleInvoiceProviderEvent(
     return webhookSettlement("settled");
   }
   if (input.event.outcome === "refunded") {
+    const providerRefundId = input.event.providerRefundId?.trim() || null;
+    const amountMinor = input.event.amountMinor == null ? null : Number(input.event.amountMinor);
+    if (!providerRefundId || amountMinor == null || !Number.isFinite(amountMinor) || amountMinor <= 0) {
+      return webhookSettlement(
+        "manual_review",
+        "unknown_reference",
+        "Provider refund is missing a refund id or refunded amount",
+      );
+    }
     const invoiceMeta = await client.query<{ billing_account_id: string; created_by: string }>(
       `select billing_account_id, created_by from school_invoices where id = $1 and organisation_id = $2`,
       [input.session.invoice_id, input.organisationId],
@@ -5604,9 +5669,10 @@ export async function settleInvoiceProviderEvent(
         billingAccountId: String(invoiceMeta.rows[0].billing_account_id),
         invoiceId: input.session.invoice_id,
         kind: "refund",
-        amountMinor: Number(input.event.amountMinor ?? transaction.amount_minor),
+        amountMinor,
         reason: "Provider refund",
         fromProviderWebhook: true,
+        providerRefundId,
       });
     } catch (error) {
       if (error instanceof AppError && (error.code === "credit_exceeds_outstanding" || error.code === "overpayment")) {

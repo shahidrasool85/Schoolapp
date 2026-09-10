@@ -138,11 +138,56 @@ describe("stripe webhook helper", () => {
     ).toBe("failed");
     expect(
       mapStripeEvent({
+        id: "evt_refund_created",
+        type: "refund.created",
+        data: {
+          object: {
+            id: "re_1",
+            amount: 500,
+            currency: "gbp",
+            payment_intent: "pi_1",
+            status: "succeeded",
+          },
+        },
+      }),
+    ).toMatchObject({
+      outcome: "refunded",
+      providerRefundId: "re_1",
+      providerPaymentId: "pi_1",
+      amountMinor: 500,
+    });
+    expect(
+      mapStripeEvent({
         id: "evt_refund",
         type: "charge.refunded",
-        data: { object: { id: "re_1", status: "succeeded", amount: 500 } },
-      }).outcome,
-    ).toBe("refunded");
+        data: {
+          object: {
+            id: "ch_1",
+            amount: 2000,
+            amount_refunded: 500,
+            currency: "gbp",
+            payment_intent: "pi_1",
+            refunds: { data: [{ id: "re_1", amount: 500, status: "succeeded" }] },
+          },
+        },
+      }),
+    ).toMatchObject({
+      outcome: "refunded",
+      providerRefundId: "re_1",
+      providerPaymentId: "pi_1",
+      amountMinor: 500,
+    });
+    expect(
+      mapStripeEvent({
+        id: "evt_refund_bare",
+        type: "charge.refunded",
+        data: { object: { id: "ch_1", amount: 2000, amount_refunded: 2000, payment_intent: "pi_1" } },
+      }),
+    ).toMatchObject({
+      outcome: "refunded",
+      providerRefundId: null,
+      amountMinor: null,
+    });
     expect(() =>
       assertStripeEventMatchesMode(
         { providerKey: "stripe", eventId: "e", eventType: "checkout.session.completed", outcome: "succeeded", livemode: true },

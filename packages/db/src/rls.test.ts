@@ -200,7 +200,7 @@ describe("RLS catalog", () => {
     expect(statusCheck.rows[0]?.consrc).toContain("manual_review");
   });
 
-  it("records finance catch-up 0064, invoice email 0065, then payment webhook integrity 0066", async () => {
+  it("records finance catch-up 0064, invoice email 0065, webhook integrity 0066, then invoice refund ids 0067", async () => {
     const applied = await pools.owner.query<{ filename: string }>(
       `select filename
          from schema_migrations
@@ -208,7 +208,8 @@ describe("RLS catalog", () => {
           '0063_admissions_public_confirmation_integrity.sql',
           '0064_finance_late_joiner_catchup.sql',
           '0065_finance_invoice_email_setting.sql',
-          '0066_payment_webhook_integrity.sql'
+          '0066_payment_webhook_integrity.sql',
+          '0067_invoice_credit_provider_refund.sql'
         )
         order by filename`,
     );
@@ -217,6 +218,7 @@ describe("RLS catalog", () => {
       "0064_finance_late_joiner_catchup.sql",
       "0065_finance_invoice_email_setting.sql",
       "0066_payment_webhook_integrity.sql",
+      "0067_invoice_credit_provider_refund.sql",
     ]);
     const emailCol = await pools.owner.query<{ column_name: string }>(
       `select column_name
@@ -226,6 +228,22 @@ describe("RLS catalog", () => {
           and column_name = 'automatic_invoice_email_enabled'`,
     );
     expect(emailCol.rows.map((row) => row.column_name)).toEqual(["automatic_invoice_email_enabled"]);
+    const refundCol = await pools.owner.query<{ column_name: string }>(
+      `select column_name
+         from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'school_invoice_credits'
+          and column_name = 'provider_refund_id'`,
+    );
+    expect(refundCol.rows.map((row) => row.column_name)).toEqual(["provider_refund_id"]);
+    const refundIdx = await pools.owner.query<{ indexname: string }>(
+      `select indexname
+         from pg_indexes
+        where schemaname = 'public'
+          and tablename = 'school_invoice_credits'
+          and indexname = 'school_invoice_credits_provider_refund_uidx'`,
+    );
+    expect(refundIdx.rows.map((row) => row.indexname)).toEqual(["school_invoice_credits_provider_refund_uidx"]);
   });
 
   it("grants the app role DML on finance tables", async () => {

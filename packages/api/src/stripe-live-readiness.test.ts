@@ -196,6 +196,58 @@ function checkoutEvent(input: {
   };
 }
 
+function refundCreatedEvent(input: {
+  eventId: string;
+  refundId: string;
+  paymentId: string;
+  amountMinor: number;
+}) {
+  return {
+    id: input.eventId,
+    type: "refund.created",
+    livemode: false,
+    data: {
+      object: {
+        id: input.refundId,
+        object: "refund",
+        amount: input.amountMinor,
+        currency: "gbp",
+        payment_intent: input.paymentId,
+        status: "succeeded",
+      },
+    },
+  };
+}
+
+function chargeRefundedEvent(input: {
+  eventId: string;
+  chargeId: string;
+  refundId: string;
+  paymentId: string;
+  chargeAmountMinor: number;
+  refundAmountMinor: number;
+}) {
+  return {
+    id: input.eventId,
+    type: "charge.refunded",
+    livemode: false,
+    data: {
+      object: {
+        id: input.chargeId,
+        object: "charge",
+        amount: input.chargeAmountMinor,
+        amount_refunded: input.refundAmountMinor,
+        currency: "gbp",
+        payment_intent: input.paymentId,
+        refunds: {
+          object: "list",
+          data: [{ id: input.refundId, amount: input.refundAmountMinor, status: "succeeded" }],
+        },
+      },
+    },
+  };
+}
+
 describe("Stripe live readiness and payment integrity", () => {
   const pools = testPools();
   const calls: StripeCall[] = [];
@@ -796,6 +848,159 @@ describe("Stripe live readiness and payment integrity", () => {
     expect(afterBankRefund.invoice.paidMinor).toBe(bankInvoice.outstandingMinor);
     expect(afterBankRefund.invoice.creditTotalMinor).toBe(bankInvoice.outstandingMinor);
     expect(afterBankRefund.invoice.outstandingMinor).toBe(0);
+
+    const mixedBank = 10000;
+    const mixedPreview = await app.request("/api/v1/finance/billing-runs/preview", {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({
+        academicYearId: year.yearId,
+        frequency: "monthly",
+        periodStart: "2026-11-01",
+        periodEnd: "2026-11-30",
+        dueOn: "2026-11-15",
+      }),
+    });
+    expect(mixedPreview.status).toBe(201);
+    const mixedRun = (await mixedPreview.json()) as { run: { id: string } };
+    expect(
+      (await app.request(`/api/v1/finance/billing-runs/${mixedRun.run.id}/confirm`, { method: "POST", headers: hdrs, body: "{}" }))
+        .status,
+    ).toBe(200);
+    const mixedList = (await (await app.request("/api/v1/finance/invoices", { headers: hdrs })).json()) as {
+      invoices: Array<{ id: string; outstandingMinor: number }>;
+    };
+    const mixedInvoice = mixedList.invoices.find(
+      (row) => row.id !== invoice.id && row.id !== bankInvoice.id && row.outstandingMinor > 0,
+    )!;
+    const mixedBankPay = await app.request(`/api/v1/finance/invoices/${mixedInvoice.id}/payments`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ amountMinor: mixedBank, method: "bank_transfer" }),
+    });
+    expect(mixedBankPay.status).toBe(201);
+    const mixedNote = await app.request(`/api/v1/finance/invoices/${mixedInvoice.id}/credits`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ kind: "credit_note", amountMinor: 500, reason: "Concession on mixed invoice" }),
+    });
+    expect(mixedNote.status).toBe(201);
+    expect(
+      (
+        await app.request(`/api/v1/parent/finance/invoices/${mixedInvoice.id}/checkout`, {
+          method: "POST",
+          headers: headers(parentToken, school.orgId),
+          body: "{}",
+        })
+      ).status,
+    ).toBe(200);
+    const mixedSession = await pools.owner.query<{ provider_session_id: string; amount_minor: string }>(
+      `select provider_session_id, amount_minor::text from school_payment_sessions
+        where organisation_id = $1 and invoice_id = $2 order by created_at desc limit 1`,
+      [school.orgId, mixedInvoice.id],
+    );
+    const mixedPi = `pi_mixed_${id}`;
+    const mixedSettle = checkoutEvent({
+      eventId: `evt_mixed_${id}`,
+      sessionId: mixedSession.rows[0]!.provider_session_id,
+      paymentId: mixedPi,
+      amountMinor: Number(mixedSession.rows[0]!.amount_minor),
+    });
+    const mixedSettleBody = JSON.stringify(mixedSettle);
+    expect(
+      (
+        await app.request(saved.paymentProvider.webhookPath, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "stripe-signature": stripeSignature("whsec_ref_school", mixedSettleBody) },
+          body: mixedSettleBody,
+        })
+      ).status,
+    ).toBe(200);
+    const mixedLoaded = (await (await app.request(`/api/v1/finance/invoices/${mixedInvoice.id}`, { headers: hdrs })).json()) as {
+      invoice: { outstandingMinor: number; paidMinor: number };
+      payments: Array<{ id: string; method: string }>;
+    };
+    expect(mixedLoaded.invoice.outstandingMinor).toBe(0);
+    expect(mixedLoaded.invoice.paidMinor).toBe(mixedInvoice.outstandingMinor - 500);
+    const mixedStripePayment = mixedLoaded.payments.find((row) => row.method === "card")!;
+    expect(
+      (
+        await app.request(`/api/v1/finance/invoice-payments/${mixedStripePayment.id}/reverse`, {
+          method: "POST",
+          headers: hdrs,
+          body: JSON.stringify({ reason: "local reverse" }),
+        })
+      ).status,
+    ).toBe(409);
+    const mixedBankRefund = await app.request(`/api/v1/finance/invoices/${mixedInvoice.id}/credits`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ kind: "refund", amountMinor: mixedBank, reason: "Returned mixed bank transfer" }),
+    });
+    expect(mixedBankRefund.status).toBe(201);
+    const mixedOver = await app.request(`/api/v1/finance/invoices/${mixedInvoice.id}/credits`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ kind: "refund", amountMinor: 1, reason: "pretend Stripe refund" }),
+    });
+    expect(mixedOver.status).toBe(409);
+    expect(((await mixedOver.json()) as { error: { code: string } }).error.code).toBe("stripe_refund_via_dashboard");
+    const afterMixed = (await (await app.request(`/api/v1/finance/invoices/${mixedInvoice.id}`, { headers: hdrs })).json()) as {
+      invoice: { creditTotalMinor: number };
+    };
+    expect(afterMixed.invoice.creditTotalMinor).toBe(mixedBank + 500);
+
+    const refundAmount = 12500;
+    const refundId = `re_inv_${id}`;
+    const firstRefund = refundCreatedEvent({
+      eventId: `evt_re_created_${id}`,
+      refundId,
+      paymentId: `pi_ref_${id}`,
+      amountMinor: refundAmount,
+    });
+    const chargeRefund = chargeRefundedEvent({
+      eventId: `evt_ch_refunded_${id}`,
+      chargeId: `ch_ref_${id}`,
+      refundId,
+      paymentId: `pi_ref_${id}`,
+      chargeAmountMinor: Number(session.rows[0]!.amount_minor),
+      refundAmountMinor: refundAmount,
+    });
+    const updatedRefund = {
+      id: `evt_re_updated_${id}`,
+      type: "refund.updated",
+      livemode: false,
+      data: {
+        object: {
+          id: refundId,
+          object: "refund",
+          amount: refundAmount,
+          currency: "gbp",
+          payment_intent: `pi_ref_${id}`,
+          status: "succeeded",
+        },
+      },
+    };
+    for (const payload of [firstRefund, chargeRefund, updatedRefund]) {
+      const body = JSON.stringify(payload);
+      const posted = await app.request(saved.paymentProvider.webhookPath, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "stripe-signature": stripeSignature("whsec_ref_school", body) },
+        body,
+      });
+      expect(posted.status).toBe(200);
+      expect(((await posted.json()) as { review?: boolean }).review).toBeUndefined();
+    }
+    const afterStripeRefund = (await (await app.request(`/api/v1/finance/invoices/${invoice.id}`, { headers: hdrs })).json()) as {
+      invoice: { creditTotalMinor: number; outstandingMinor: number; paidMinor: number };
+    };
+    expect(afterStripeRefund.invoice.creditTotalMinor).toBe(refundAmount);
+    const creditRows = await pools.owner.query<{ n: string }>(
+      `select count(*)::text as n from school_invoice_credits
+        where organisation_id = $1 and invoice_id = $2 and kind = 'refund'`,
+      [school.orgId, invoice.id],
+    );
+    expect(Number(creditRows.rows[0]!.n)).toBe(1);
 
     const prod = testApp(pools, { payments: { providerKey: "fake", allowPlatformFakeProvider: false } });
     const demo = await prod.request(`/api/v1/payments/demo/checkout/${randomUUID()}?t=nope`);

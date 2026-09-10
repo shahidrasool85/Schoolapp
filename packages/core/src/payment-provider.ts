@@ -566,6 +566,55 @@ export function verifyStripeSignature(rawBody: string, header: string | null, se
   }
 }
 
+export function isProviderRefundEvent(
+  event: Pick<ProviderEvent, "outcome" | "eventType" | "providerRefundId">,
+): boolean {
+  return (
+    event.outcome === "refunded" ||
+    Boolean(event.providerRefundId) ||
+    event.eventType.includes("refund")
+  );
+}
+
+function stripeRefundObject(
+  object: Record<string, unknown>,
+): { id: string | null; amountMinor: number | null } | null {
+  const refunds = object.refunds as { data?: Array<Record<string, unknown>> } | undefined;
+  const latest = Array.isArray(refunds?.data) ? refunds.data[0] : undefined;
+  if (latest) {
+    const id = latest.id != null && String(latest.id) ? String(latest.id) : null;
+    const amountMinor = latest.amount != null ? Number(latest.amount) : null;
+    return { id, amountMinor: Number.isFinite(amountMinor) ? amountMinor : null };
+  }
+  if (typeof object.refund === "string" && object.refund.startsWith("re_")) {
+    return { id: object.refund, amountMinor: null };
+  }
+  return null;
+}
+
+function stripeEventRefundId(type: string, object: Record<string, unknown>): string | null {
+  if (type === "refund.created" || type === "refund.updated" || type === "charge.refund.updated") {
+    return object.id != null && String(object.id) ? String(object.id) : null;
+  }
+  if (type === "charge.refunded") {
+    return stripeRefundObject(object)?.id ?? null;
+  }
+  return null;
+}
+
+function stripeEventAmountMinor(type: string, object: Record<string, unknown>): number | null {
+  if (type === "refund.created" || type === "refund.updated" || type === "charge.refund.updated") {
+    return object.amount != null && Number.isFinite(Number(object.amount)) ? Number(object.amount) : null;
+  }
+  if (type === "charge.refunded") {
+    const nested = stripeRefundObject(object)?.amountMinor ?? null;
+    return nested != null && Number.isFinite(nested) ? nested : null;
+  }
+  if (object.amount_total != null && Number.isFinite(Number(object.amount_total))) return Number(object.amount_total);
+  if (object.amount != null && Number.isFinite(Number(object.amount))) return Number(object.amount);
+  return null;
+}
+
 export function mapStripeEvent(event: Record<string, unknown>): ProviderEvent {
   const type = String(event.type ?? "");
   const object = ((event.data as { object?: Record<string, unknown> } | undefined)?.object ??
@@ -604,8 +653,8 @@ export function mapStripeEvent(event: Record<string, unknown>): ProviderEvent {
       ? sessionId
       : String((object.metadata as { schoolapp_session_id?: string } | undefined)?.schoolapp_session_id ?? "") || null,
     providerPaymentId: paymentIntent,
-    providerRefundId: type.includes("refund") ? String(object.id ?? "") : null,
-    amountMinor: object.amount_total != null ? Number(object.amount_total) : object.amount != null ? Number(object.amount) : null,
+    providerRefundId: stripeEventRefundId(type, object),
+    amountMinor: stripeEventAmountMinor(type, object),
     currency: object.currency ? String(object.currency).toUpperCase() : null,
     livemode: typeof event.livemode === "boolean" ? event.livemode : null,
     outcome,

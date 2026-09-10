@@ -24,7 +24,13 @@ import {
   shouldGenerateActivityCharge,
   type ChargeBalance,
 } from "./payments.js";
-import type { PaymentProvider, PaymentRuntimeConfig, PaymentWebhookSettlement, ProviderEvent } from "./payment-provider.js";
+import {
+  isProviderRefundEvent,
+  type PaymentProvider,
+  type PaymentRuntimeConfig,
+  type PaymentWebhookSettlement,
+  type ProviderEvent,
+} from "./payment-provider.js";
 import { loadOrganisationPaymentProviderConfig, resolveOrganisationPaymentProviderForRefund } from "./org-payment-provider.js";
 import { requireLinkedChild } from "./portal.js";
 import { guardianChildIds } from "./students-access.js";
@@ -771,7 +777,11 @@ export async function settleProviderEvent(
   );
   if (!tx.rows[0]) throw new AppError(400, "unknown_reference", "Unknown payment reference");
   const transaction = tx.rows[0] as Record<string, unknown>;
-  if (input.event.amountMinor != null && Number(input.event.amountMinor) !== Number(transaction.amount_minor)) {
+  if (
+    !isProviderRefundEvent(input.event) &&
+    input.event.amountMinor != null &&
+    Number(input.event.amountMinor) !== Number(transaction.amount_minor)
+  ) {
     if (transaction.status === "pending") await failTransaction(client, transaction, "amount_mismatch");
     return { result: "manual_review", code: "amount_mismatch", message: "Provider amount does not match the session" };
   }

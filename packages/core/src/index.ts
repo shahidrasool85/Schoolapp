@@ -718,6 +718,7 @@ export {
   parseFakePaymentEvent,
   verifyStripeSignature,
   mapStripeEvent,
+  isProviderRefundEvent,
   assertStripeEventMatchesMode,
   safeProviderMetadata,
   originSchemeAndHost,

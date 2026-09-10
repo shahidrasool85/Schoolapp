@@ -537,7 +537,8 @@ export async function setOrganisationStripeEnabled(
       throw new AppError(
         409,
         "live_not_ready",
-        readiness.warnings[0] ?? "This school is not ready to enable LIVE Stripe payments",
+        readiness.warnings.find((warning) => warning !== "LIVE mode processes real payments.") ??
+          "This school is not ready to enable LIVE Stripe payments",
       );
     }
   }

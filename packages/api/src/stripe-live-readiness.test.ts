@@ -294,7 +294,10 @@ describe("Stripe live readiness and payment integrity", () => {
       body: JSON.stringify({ confirmLivePayments: true }),
     });
     expect(enableNoTest.status).toBe(409);
-    expect(((await enableNoTest.json()) as { error: { code: string } }).error.code).toBe("live_not_ready");
+    const enableNoTestBody = (await enableNoTest.json()) as { error: { code: string; message: string } };
+    expect(enableNoTestBody.error.code).toBe("live_not_ready");
+    expect(enableNoTestBody.error.message).toMatch(/Connection tested/i);
+    expect(enableNoTestBody.error.message).not.toBe("LIVE mode processes real payments.");
 
     const tested = await app.request("/api/v1/finance/payment-provider/test", { method: "POST", headers: hdrs, body: "{}" });
     expect(tested.status).toBe(200);

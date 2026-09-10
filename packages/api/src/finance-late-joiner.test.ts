@@ -457,6 +457,31 @@ describe("Finance late-joiner missing invoice catch-up", () => {
     const eshaalAccount = accounts.accounts.find((account) => account.pupilNames.includes("Eshaal"));
     expect(eshaalAccount?.outstandingMinor).toBe(200000);
 
+    const feesAfterCatchup = await json<{
+      pupils: Array<{
+        studentProfileId: string;
+        invoicedMinor: number;
+        outstandingMinor: number;
+        paidMinor: number;
+        status: string;
+      }>;
+    }>(await app.request("/api/v1/finance/student-fees?asOf=2026-09-15", { headers: hdrs }));
+    const eshaalFees = feesAfterCatchup.pupils.find((row) => row.studentProfileId === eshaal.student.id);
+    expect(eshaalFees?.invoicedMinor).toBe(200000);
+    expect(eshaalFees?.outstandingMinor).toBe(200000);
+    expect(eshaalFees?.paidMinor).toBe(0);
+    expect(["unpaid", "due_soon", "not_yet_due", "overdue"]).toContain(eshaalFees?.status);
+    const pupilPage = await json<{
+      fees: { invoicedMinor: number; outstandingMinor: number; paidMinor: number } | null;
+    }>(await app.request(`/api/v1/finance/pupils/${eshaal.student.id}?asOf=2026-09-15`, { headers: hdrs }));
+    expect(pupilPage.fees?.invoicedMinor).toBe(200000);
+    expect(pupilPage.fees?.outstandingMinor).toBe(200000);
+    const autoMail = await pools.owner.query(
+      `select id from mail_outbox where organisation_id = $1 and purpose = 'finance_invoice_issued'`,
+      [school.orgId],
+    );
+    expect(autoMail.rowCount).toBe(0);
+
     const parentToken = await login(app, parentEmail, "parent-pass-1");
     const parentFinance = await json<{ invoices: Array<{ id: string; totalMinor: number }>; outstandingMinor: number }>(
       await app.request("/api/v1/parent/finance", { headers: headers(parentToken, school.orgId) }),
@@ -544,6 +569,20 @@ describe("Finance late-joiner missing invoice catch-up", () => {
       await app.request("/api/v1/parent/finance", { headers: headers(parentToken, school.orgId) }),
     );
     expect(parentAfterPay.outstandingMinor).toBe(0);
+    const feesAfterPay = await json<{
+      pupils: Array<{ studentProfileId: string; outstandingMinor: number; paidMinor: number; status: string }>;
+    }>(await app.request("/api/v1/finance/student-fees?asOf=2026-09-15", { headers: hdrs }));
+    const eshaalPaid = feesAfterPay.pupils.find((row) => row.studentProfileId === eshaal.student.id);
+    expect(eshaalPaid?.outstandingMinor).toBe(0);
+    expect(eshaalPaid?.paidMinor).toBe(Number(firstSession.rows[0]!.amount_minor));
+    expect(eshaalPaid?.status).toBe("paid");
+    const pupilAfterPay = await json<{
+      fees: { outstandingMinor: number; paidMinor: number; status: string } | null;
+      receipts: Array<{ id: string }>;
+    }>(await app.request(`/api/v1/finance/pupils/${eshaal.student.id}?asOf=2026-09-15`, { headers: hdrs }));
+    expect(pupilAfterPay.fees?.outstandingMinor).toBe(0);
+    expect(pupilAfterPay.fees?.status).toBe("paid");
+    expect(pupilAfterPay.receipts.length).toBeGreaterThan(0);
     const replay = await app.request(stripeConfig.paymentProvider.webhookPath, {
       method: "POST",
       headers: { "Content-Type": "application/json", "stripe-signature": stripeSignature("whsec_late_joiner", paidBody) },

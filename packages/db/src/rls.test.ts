@@ -200,22 +200,32 @@ describe("RLS catalog", () => {
     expect(statusCheck.rows[0]?.consrc).toContain("manual_review");
   });
 
-  it("records finance catch-up 0064 then payment webhook integrity 0065", async () => {
+  it("records finance catch-up 0064, invoice email 0065, then payment webhook integrity 0066", async () => {
     const applied = await pools.owner.query<{ filename: string }>(
       `select filename
          from schema_migrations
         where filename in (
           '0063_admissions_public_confirmation_integrity.sql',
           '0064_finance_late_joiner_catchup.sql',
-          '0065_payment_webhook_integrity.sql'
+          '0065_finance_invoice_email_setting.sql',
+          '0066_payment_webhook_integrity.sql'
         )
         order by filename`,
     );
     expect(applied.rows.map((row) => row.filename)).toEqual([
       "0063_admissions_public_confirmation_integrity.sql",
       "0064_finance_late_joiner_catchup.sql",
-      "0065_payment_webhook_integrity.sql",
+      "0065_finance_invoice_email_setting.sql",
+      "0066_payment_webhook_integrity.sql",
     ]);
+    const emailCol = await pools.owner.query<{ column_name: string }>(
+      `select column_name
+         from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'school_finance_settings'
+          and column_name = 'automatic_invoice_email_enabled'`,
+    );
+    expect(emailCol.rows.map((row) => row.column_name)).toEqual(["automatic_invoice_email_enabled"]);
   });
 
   it("grants the app role DML on finance tables", async () => {

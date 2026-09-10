@@ -421,15 +421,22 @@ describe("student fees UX and invoice notifications", () => {
     expect(notifyAgain.alreadyQueued).toBe(true);
 
     await withTenantContext(pools.app, school.adminId, school.orgId, async (client) => {
-      const mail = await client.query<{ action_url: string; idempotency_key: string; to_email: string }>(
-        `select action_url, idempotency_key, to_email from mail_outbox
+      const mail = await client.query<{ idempotency_key: string; to_email: string }>(
+        `select idempotency_key, to_email from mail_outbox
           where organisation_id = $1 and purpose = 'finance_invoice_issued'`,
         [school.orgId],
       );
       expect(mail.rows).toHaveLength(1);
-      expect(mail.rows[0]?.action_url).toBe(`/parent/finance/invoices/${invoiceId}`);
       expect(mail.rows[0]?.idempotency_key).toBe(`finance.invoice_issued:${invoiceId}`);
       expect(mail.rows[0]?.to_email).toBe(`pat-${id}@example.com`);
+    });
+    const queued = await pools.owner.query<{ action_url: string }>(
+      `select action_url from mail_outbox
+        where organisation_id = $1 and purpose = 'finance_invoice_issued'`,
+      [school.orgId],
+    );
+    expect(queued.rows[0]?.action_url).toBe(`/parent/finance/invoices/${invoiceId}`);
+    await withTenantContext(pools.app, school.adminId, school.orgId, async (client) => {
       const leaked = await client.query("select id from mail_outbox where organisation_id = $1", [other.orgId]);
       expect(leaked.rows).toHaveLength(0);
     });

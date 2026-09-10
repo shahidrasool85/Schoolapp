@@ -357,6 +357,7 @@ export function renderEmailTemplate(
         `A new fee payment is due for ${pupilFirst}.`,
         amount ? `Amount due: ${amount}` : null,
         due ? `Due date: ${due}` : null,
+        data.invoiceReference ? `Invoice ${safeEmailText(data.invoiceReference, 80)}.` : null,
         `Sign in to ${school} to pay securely. This email does not include sensitive pupil details.`,
       ].filter((line): line is string => Boolean(line)),
     });

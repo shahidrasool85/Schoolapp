@@ -36,6 +36,7 @@ import {
   financePaymentReceivedMail,
   financeRefundIssuedMail,
 } from "./mail.js";
+import { enqueueOutboxMail } from "./finance-mail-queue.js";
 import { firstNameFromDisplayName } from "./email-template-overrides.js";
 import {
   DEFAULT_FINANCE_DOCUMENT_TEMPLATE,

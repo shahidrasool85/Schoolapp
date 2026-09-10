@@ -346,6 +346,217 @@ async function seedOperational(
   return { yearId, pupilId, brandingId: branding.rows[0]!.id };
 }
 
+/** Kingswood-like issued tuition + Stripe TEST payment graph (0064–0067). */
+async function seedIssuedFinanceLifecycle(
+  owner: ReturnType<typeof testPools>["owner"],
+  school: School,
+  input: { yearId: string; pupilId: string },
+): Promise<{
+  invoiceId: string;
+  catchupInvoiceId: string;
+  paymentId: string;
+  receiptId: string;
+  billingRunId: string;
+  historicalAuditId: string;
+}> {
+  const tag = suffix();
+  const account = await owner.query<{ id: string }>(
+    `insert into school_billing_accounts (organisation_id, name) values ($1, 'Kingswood family') returning id`,
+    [school.orgId],
+  );
+  const accountId = account.rows[0]!.id;
+  await owner.query(
+    `insert into school_billing_account_pupils (organisation_id, billing_account_id, student_profile_id)
+     values ($1, $2, $3)`,
+    [school.orgId, accountId, input.pupilId],
+  );
+  const periodKey = `tuition:termly:2026-09-01:2026-12-18:${tag}`;
+  const billingRun = await owner.query<{ id: string }>(
+    `insert into school_billing_runs (
+       organisation_id, reference, period_key, academic_year_id, billing_frequency,
+       period_start, period_end, due_on, status, currency, created_by, confirmed_by, confirmed_at
+     ) values ($1, $2, $3, $4, 'termly', '2026-09-01', '2026-12-18', '2026-09-15',
+               'confirmed', 'GBP', $5, $5, now()) returning id`,
+    [school.orgId, `BRN-${tag}`, periodKey, input.yearId, school.adminId],
+  );
+  const billingRunId = billingRun.rows[0]!.id;
+  const invoice = await owner.query<{ id: string }>(
+    `insert into school_invoices (
+       organisation_id, reference, billing_account_id, academic_year_id, billing_run_id, period_key,
+       billing_period_start, billing_period_end, due_date, status, currency, created_by,
+       calculation_snapshot, total_minor, outstanding_minor
+     ) values ($1, $2, $3, $4, $5, $6, '2026-09-01', '2026-12-18', '2026-09-15', 'draft', 'GBP', $7,
+               '{}'::jsonb, 250000, 250000) returning id`,
+    [school.orgId, `KSW-INV-${tag}`, accountId, input.yearId, billingRunId, periodKey, school.adminId],
+  );
+  const invoiceId = invoice.rows[0]!.id;
+  await owner.query(
+    `insert into school_invoice_lines (
+       organisation_id, invoice_id, sort_order, kind, student_profile_id, description,
+       quantity, unit_amount_minor, amount_minor
+     ) values ($1, $2, 0, 'tuition', $3, 'Autumn term tuition', 1, 250000, 250000)`,
+    [school.orgId, invoiceId, input.pupilId],
+  );
+  await owner.query(
+    `update school_invoices
+        set status = 'issued', issued_at = now(), issued_by = $2
+      where id = $1`,
+    [invoiceId, school.adminId],
+  );
+  await owner.query(
+    `insert into school_billing_run_items (
+       organisation_id, billing_run_id, student_profile_id, billing_account_id,
+       standard_amount_minor, net_amount_minor, currency, invoice_id
+     ) values ($1, $2, $3, $4, 250000, 250000, 'GBP', $5)`,
+    [school.orgId, billingRunId, input.pupilId, accountId, invoiceId],
+  );
+
+  const catchupPeriodKey = `${periodKey}:catchup:${input.pupilId}`;
+  const catchup = await owner.query<{ id: string }>(
+    `insert into school_invoices (
+       organisation_id, reference, billing_account_id, academic_year_id, period_key,
+       billing_period_start, billing_period_end, due_date, status, currency, created_by,
+       calculation_snapshot, total_minor, outstanding_minor
+     ) values ($1, $2, $3, $4, $5, '2026-10-01', '2026-12-18', '2026-10-15', 'draft', 'GBP', $6,
+               $7::jsonb, 50000, 50000) returning id`,
+    [
+      school.orgId,
+      `KSW-INV-CU-${tag}`,
+      accountId,
+      input.yearId,
+      catchupPeriodKey,
+      school.adminId,
+      JSON.stringify({ source: "missing_catchup", catchupStudentProfileId: input.pupilId }),
+    ],
+  );
+  const catchupInvoiceId = catchup.rows[0]!.id;
+  await owner.query(
+    `insert into school_invoice_lines (
+       organisation_id, invoice_id, sort_order, kind, student_profile_id, description,
+       quantity, unit_amount_minor, amount_minor
+     ) values ($1, $2, 0, 'tuition', $3, 'Late-joiner catch-up', 1, 50000, 50000)`,
+    [school.orgId, catchupInvoiceId, input.pupilId],
+  );
+  await owner.query(
+    `update school_invoices
+        set status = 'issued', issued_at = now(), issued_by = $2
+      where id = $1`,
+    [catchupInvoiceId, school.adminId],
+  );
+
+  const payment = await owner.query<{ id: string }>(
+    `insert into school_payment_transactions (
+       organisation_id, charge_id, invoice_id, reference, amount_minor, currency,
+       channel, provider_key, provider_session_id, provider_payment_id, status, paid_at, metadata
+     ) values ($1, null, $2, $3, 250000, 'GBP', 'provider', 'stripe', $4, $5, 'succeeded', now(),
+               jsonb_build_object('livemode', false, 'mode', 'test')) returning id`,
+    [school.orgId, invoiceId, `PAY-${tag}`, `cs_test_${tag}`, `pi_${tag}`],
+  );
+  const paymentId = payment.rows[0]!.id;
+  await owner.query(
+    `insert into school_payment_sessions (
+       organisation_id, charge_id, invoice_id, transaction_id, provider_key, provider_session_id,
+       amount_minor, currency, status, created_by, completed_at
+     ) values ($1, null, $2, $3, 'stripe', $4, 250000, 'GBP', 'completed', $5, now())`,
+    [school.orgId, invoiceId, paymentId, `cs_test_${tag}`, school.adminId],
+  );
+  const invoicePayment = await owner.query<{ id: string }>(
+    `insert into school_invoice_payments (
+       organisation_id, invoice_id, billing_account_id, reference, amount_minor, currency,
+       method, external_reference, recorded_by, status
+     ) values ($1, $2, $3, $4, 250000, 'GBP', 'card', $5, $6, 'succeeded') returning id`,
+    [school.orgId, invoiceId, accountId, `IPAY-${tag}`, `pi_${tag}`, school.adminId],
+  );
+  const receipt = await owner.query<{ id: string }>(
+    `insert into school_payment_receipts (
+       organisation_id, charge_id, transaction_id, invoice_id, invoice_payment_id, reference, snapshot
+     ) values ($1, null, $2, $3, $4, $5, '{}'::jsonb) returning id`,
+    [school.orgId, paymentId, invoiceId, invoicePayment.rows[0]!.id, `KSW-RCT-${tag}`],
+  );
+  await owner.query(
+    `update school_invoices
+        set status = 'paid', paid_minor = 250000, outstanding_minor = 0
+      where id = $1`,
+    [invoiceId],
+  );
+  await owner.query(
+    `insert into school_payment_provider_events (
+       organisation_id, provider_key, event_id, event_type, status, charge_id, transaction_id, processed_at
+     ) values
+       ($1, 'stripe', $2, 'checkout.session.completed', 'processed', null, $5, now()),
+       ($1, 'stripe', $3, 'payment_intent.succeeded', 'processing', null, $5, null),
+       ($1, 'stripe', $4, 'charge.refunded', 'manual_review', null, $5, now())`,
+    [school.orgId, `evt_processed_${tag}`, `evt_processing_${tag}`, `evt_review_${tag}`, paymentId],
+  );
+  await owner.query(
+    `insert into school_invoice_credits (
+       organisation_id, billing_account_id, invoice_id, reference, kind, amount_minor, currency,
+       reason, created_by, provider_refund_id
+     ) values ($1, $2, $3, $4, 'refund', 1000, 'GBP', 'Stripe TEST refund', $5, $6)`,
+    [school.orgId, accountId, invoiceId, `CRN-${tag}`, school.adminId, `re_${tag}`],
+  );
+  await owner.query(
+    `insert into mail_outbox (
+       organisation_id, purpose, template_key, to_email, subject, body_text, status, idempotency_key
+     ) values
+       ($1, 'finance_invoice_issued', 'finance_invoice_issued', 'payer@example.com',
+        'Invoice issued', 'Please pay', 'sent', $2),
+       ($1, 'finance_payment_received', 'finance_payment_received', 'payer@example.com',
+        'Payment received', 'Thank you', 'queued', $3)`,
+    [school.orgId, `finance.invoice_issued:${invoiceId}`, `finance.payment_received:${paymentId}`],
+  );
+  await owner.query(
+    `update school_finance_settings
+        set automatic_invoice_email_enabled = true,
+            invoice_prefix = 'KSW-INV',
+            receipt_prefix = 'KSW-RCT',
+            invoice_footer = 'Pay to the school bank'
+      where organisation_id = $1`,
+    [school.orgId],
+  );
+  const census = await owner.query<{ id: string }>(
+    `insert into census_runs (
+       organisation_id, academic_year_id, census_type, census_date, status, created_by
+     ) values ($1, $2, 'autumn', '2026-10-01', 'draft', $3) returning id`,
+    [school.orgId, input.yearId, school.adminId],
+  );
+  await owner.query(
+    `insert into census_snapshot_schools (organisation_id, census_run_id, snapshot_version, statutory_name)
+     values ($1, $2, 1, 'Kingswood School')`,
+    [school.orgId, census.rows[0]!.id],
+  );
+  await owner.query(
+    `insert into census_snapshot_pupils (
+       organisation_id, census_run_id, snapshot_version, student_profile_id, legal_surname, legal_forename
+     ) values ($1, $2, 1, $3, 'Pupil', 'Test')`,
+    [school.orgId, census.rows[0]!.id, input.pupilId],
+  );
+  await owner.query(
+    `insert into census_validation_issues (
+       organisation_id, census_run_id, snapshot_version, source, rule_key, severity, entity_type, message
+     ) values ($1, $2, 1, 'snapshot', 'name_required', 'warning', 'pupil', 'Check name')`,
+    [school.orgId, census.rows[0]!.id],
+  );
+  await owner.query(`update census_runs set status = 'ready', finalised_at = now() where id = $1`, [
+    census.rows[0]!.id,
+  ]);
+  const audit = await owner.query<{ id: string }>(
+    `insert into audit_events (
+       organisation_id, actor_user_id, action, entity_type, entity_id, after_data, priority
+     ) values ($1, $2, 'finance.invoice.issued', 'school_invoice', $3, '{"reference":"historical"}'::jsonb, 'high')
+     returning id`,
+    [school.orgId, school.adminId, invoiceId],
+  );
+  return {
+    invoiceId,
+    catchupInvoiceId,
+    paymentId,
+    receiptId: receipt.rows[0]!.id,
+    billingRunId,
+    historicalAuditId: audit.rows[0]!.id,
+  };
+}
+
 describe("Platform Admin operational data reset", () => {
   const pools = testPools();
   const mail = new FakeEmailProvider();
@@ -968,5 +1179,174 @@ describe("Platform Admin operational data reset", () => {
     expect(blocked.status).toBe(409);
     expect(((await blocked.json()) as { error: { code: string } }).error.code).toBe("live_financial_reset_blocked");
     expect(stripeCalls).toBe(beforeCalls);
+  });
+
+  it("resets a Kingswood-like issued invoice, Stripe TEST payment, and 0065–0067 records", { timeout: 60_000 }, async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id, {
+      slug: `kingswood-${id}`,
+      name: "Kingswood School",
+      adminEmail: `marketing-${id}@kingswoodschool.co.uk`,
+    });
+    const seeded = await seedOperational(pools.owner, school);
+    const finance = await seedIssuedFinanceLifecycle(pools.owner, school, {
+      yearId: seeded.yearId,
+      pupilId: seeded.pupilId,
+    });
+    expect(await count(pools.owner, "school_invoice_lines", school.orgId)).toBeGreaterThan(0);
+    expect(await count(pools.owner, "school_invoice_payments", school.orgId)).toBeGreaterThan(0);
+    expect(await count(pools.owner, "school_invoice_credits", school.orgId)).toBeGreaterThan(0);
+    expect(await count(pools.owner, "school_billing_runs", school.orgId)).toBeGreaterThan(0);
+    expect(await count(pools.owner, "school_payment_sessions", school.orgId)).toBeGreaterThan(0);
+    expect(await count(pools.owner, "census_snapshot_pupils", school.orgId)).toBeGreaterThan(0);
+
+    const platform = await platformHeaders(`${id}kw`);
+    const path = `/api/v1/platform/organisations/${school.orgId}/operational-reset`;
+    const preview = await app.request(path, { headers: platform });
+    expect(preview.status).toBe(200);
+    const previewBody = (await preview.json()) as {
+      liveFinancialResetBlocked: boolean;
+      counts: { invoices: number; payments: number; receipts: number; mailOutbox: number };
+      organisation: { slug: string; name: string };
+    };
+    expect(previewBody.liveFinancialResetBlocked).toBe(false);
+    expect(previewBody.counts.invoices).toBeGreaterThan(1);
+    expect(previewBody.counts.payments).toBeGreaterThan(0);
+    expect(previewBody.counts.receipts).toBeGreaterThan(0);
+    expect(previewBody.counts.mailOutbox).toBeGreaterThan(0);
+
+    const pupilsBefore = await count(pools.owner, "student_profiles", school.orgId);
+    const invoicesBefore = await count(pools.owner, "school_invoices", school.orgId);
+    await expect(
+      executeOperationalReset({
+        owner: pools.owner,
+        storage: testObjectStorage,
+        actorUserId: (
+          await pools.owner.query<{ id: string }>("select id from users where email = $1", [
+            `platform-${id}kw@example.com`,
+          ])
+        ).rows[0]!.id,
+        organisationId: school.orgId,
+        confirmationText: "Kingswood School",
+        backupConfirmed: true,
+        understandPermanent: true,
+        resetMode: "operational_reset_v1",
+        testOnlyFailBeforeCommit: true,
+      }),
+    ).rejects.toMatchObject({ code: "injected_failure" });
+    expect(await count(pools.owner, "student_profiles", school.orgId)).toBe(pupilsBefore);
+    expect(await count(pools.owner, "school_invoices", school.orgId)).toBe(invoicesBefore);
+    expect(await count(pools.owner, "school_invoice_lines", school.orgId)).toBeGreaterThan(0);
+    expect(
+      (
+        await pools.owner.query(`select 1 from school_invoices where id = $1`, [finance.invoiceId])
+      ).rowCount,
+    ).toBe(1);
+
+    const sentBefore = mail.sent.length;
+    const stripeBefore = stripeCalls;
+    const reset = await app.request(path, {
+      method: "POST",
+      headers: platform,
+      body: JSON.stringify({
+        confirmationText: "kingswood school",
+        backupConfirmed: true,
+        understandPermanent: true,
+        resetMode: "operational_reset_v1",
+      }),
+    });
+    expect(reset.status).toBe(200);
+    expect(mail.sent.length).toBe(sentBefore);
+    expect(stripeCalls).toBe(stripeBefore);
+
+    expect(await count(pools.owner, "student_profiles", school.orgId)).toBe(0);
+    expect(await count(pools.owner, "school_invoices", school.orgId)).toBe(0);
+    expect(await count(pools.owner, "school_invoice_lines", school.orgId)).toBe(0);
+    expect(await count(pools.owner, "school_invoice_payments", school.orgId)).toBe(0);
+    expect(await count(pools.owner, "school_invoice_credits", school.orgId)).toBe(0);
+    expect(await count(pools.owner, "school_billing_runs", school.orgId)).toBe(0);
+    expect(await count(pools.owner, "school_billing_run_items", school.orgId)).toBe(0);
+    expect(await count(pools.owner, "school_payment_transactions", school.orgId)).toBe(0);
+    expect(await count(pools.owner, "school_payment_sessions", school.orgId)).toBe(0);
+    expect(await count(pools.owner, "school_payment_receipts", school.orgId)).toBe(0);
+    expect(await count(pools.owner, "school_payment_provider_events", school.orgId)).toBe(0);
+    expect(await count(pools.owner, "mail_outbox", school.orgId)).toBe(0);
+    expect(await count(pools.owner, "census_runs", school.orgId)).toBe(0);
+    expect(await count(pools.owner, "census_snapshot_pupils", school.orgId)).toBe(0);
+    expect(await count(pools.owner, "census_snapshot_schools", school.orgId)).toBe(0);
+
+    const org = await pools.owner.query(`select id, slug, name, status from organisations where id = $1`, [
+      school.orgId,
+    ]);
+    expect(org.rows[0]).toMatchObject({
+      id: school.orgId,
+      slug: school.slug,
+      name: "Kingswood School",
+      status: "active",
+    });
+    const stripeConfig = await pools.owner.query(
+      `select mode, secret_ref, is_active from school_payment_provider_configs where organisation_id = $1`,
+      [school.orgId],
+    );
+    expect(stripeConfig.rows[0]).toMatchObject({ mode: "test", secret_ref: "encrypted:v1", is_active: true });
+    const financeSettings = await pools.owner.query(
+      `select automatic_invoice_email_enabled, invoice_prefix, receipt_prefix, invoice_footer, vat_enabled
+         from school_finance_settings where organisation_id = $1`,
+      [school.orgId],
+    );
+    expect(financeSettings.rows[0]).toMatchObject({
+      automatic_invoice_email_enabled: true,
+      invoice_prefix: "KSW-INV",
+      receipt_prefix: "KSW-RCT",
+      invoice_footer: "Pay to the school bank",
+      vat_enabled: false,
+    });
+    const adminLogin = await login(app, `marketing-${id}@kingswoodschool.co.uk`, "password-12x");
+    expect(adminLogin).toBeTruthy();
+    const adminMembership = await pools.owner.query(
+      `select m.status, r.key
+         from organisation_memberships m
+         join membership_roles mr on mr.membership_id = m.id
+         join roles r on r.id = mr.role_id
+        where m.organisation_id = $1 and m.user_id = $2`,
+      [school.orgId, school.adminId],
+    );
+    expect(adminMembership.rows[0]).toMatchObject({ status: "active", key: "school.admin" });
+
+    const historical = await pools.owner.query(
+      `select action from audit_events where id = $1 and organisation_id = $2`,
+      [finance.historicalAuditId, school.orgId],
+    );
+    expect(historical.rows[0]?.action).toBe("finance.invoice.issued");
+    const resetAudit = await pools.owner.query(
+      `select action from audit_events
+        where organisation_id = $1 and action = 'platform.organisation.operational_reset'`,
+      [school.orgId],
+    );
+    expect(resetAudit.rowCount).toBe(1);
+
+    const second = await app.request(path, {
+      method: "POST",
+      headers: platform,
+      body: JSON.stringify({
+        confirmationText: school.slug,
+        backupConfirmed: true,
+        understandPermanent: true,
+        resetMode: "operational_reset_v1",
+      }),
+    });
+    expect(second.status).toBe(200);
+    const secondBody = (await second.json()) as { alreadyClean: boolean };
+    expect(secondBody.alreadyClean).toBe(true);
+    expect(stripeCalls).toBe(stripeBefore);
+    expect(await count(pools.owner, "school_invoices", school.orgId)).toBe(0);
+    expect(
+      (
+        await pools.owner.query(
+          `select mode from school_payment_provider_configs where organisation_id = $1`,
+          [school.orgId],
+        )
+      ).rows[0]?.mode,
+    ).toBe("test");
   });
 });

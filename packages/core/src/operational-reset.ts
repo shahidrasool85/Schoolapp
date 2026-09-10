@@ -31,6 +31,36 @@ const CONDITIONAL_ORG_TABLES = [
   "roles",
 ] as const;
 
+/**
+ * Delete children of issued invoices / census snapshots before their parents.
+ * `school_invoice_lines_immutable_tg` raises 23514 (`invoice_lines_immutable`)
+ * for schoolapp_app on issued/void invoices; schoolapp_owner may DELETE
+ * (migration 0068). Payment rows must not have invoice_id/charge_id nulled:
+ * that violates school_payment_*_target_chk and school_finance_same_org_tg.
+ */
+const OPERATIONAL_RESET_DELETE_FIRST = [
+  "school_payment_provider_events",
+  "school_payment_receipts",
+  "school_payment_refunds",
+  "school_payment_sessions",
+  "school_invoice_credits",
+  "school_invoice_payments",
+  "school_payment_transactions",
+  "school_invoice_lines",
+  "school_billing_run_items",
+  "school_charge_adjustments",
+  "census_validation_issues",
+  "census_snapshot_pupils",
+  "census_snapshot_schools",
+] as const;
+
+const PAYMENT_TARGET_TABLES = new Set([
+  "school_payment_sessions",
+  "school_payment_transactions",
+  "school_payment_receipts",
+]);
+const PAYMENT_TARGET_COLUMNS = new Set(["charge_id", "invoice_id"]);
+
 const CLASSIFIED_TABLES = new Set<string>([
   ...OPERATIONAL_RESET_PRESERVED_TABLES,
   ...OPERATIONAL_RESET_CATALOGUE_TABLES,
@@ -578,12 +608,17 @@ async function orderTablesForDelete(client: pg.PoolClient, tables: string[]): Pr
   return ordered;
 }
 
+function preferOperationalResetDeleteOrder(tables: string[]): string[] {
+  const preferred = new Set<string>(OPERATIONAL_RESET_DELETE_FIRST);
+  return [...tables.filter((table) => preferred.has(table)), ...tables.filter((table) => !preferred.has(table))];
+}
+
 async function deleteResetTables(
   client: pg.PoolClient,
   tables: string[],
   organisationId: string,
 ): Promise<void> {
-  const remaining = new Set(await orderTablesForDelete(client, tables));
+  const remaining = new Set(preferOperationalResetDeleteOrder(await orderTablesForDelete(client, tables)));
   let lastError: unknown = null;
   for (let pass = 0; pass < 24 && remaining.size > 0; pass += 1) {
     const failed = new Set<string>();
@@ -619,6 +654,7 @@ async function deleteResetTables(
       );
       for (const fk of fks.rows) {
         if (!remaining.has(fk.table_name)) continue;
+        if (PAYMENT_TARGET_TABLES.has(fk.table_name) && PAYMENT_TARGET_COLUMNS.has(fk.column_name)) continue;
         await client.query(
           `update ${quoteIdent(fk.table_name)}
               set ${quoteIdent(fk.column_name)} = null

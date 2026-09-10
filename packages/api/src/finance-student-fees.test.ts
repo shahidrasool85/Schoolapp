@@ -296,12 +296,19 @@ describe("student fees UX and invoice notifications", () => {
       body: JSON.stringify({ classId: teaching.class.id, startedOn: "2026-09-01" }),
     });
     expect(teachingMembership.status).toBe(201);
+    const teachingMembershipBody = await json<{ membership: { id: string } }>(teachingMembership);
     const afterTeaching = await json<FeesBody>(
       await app.request("/api/v1/finance/student-fees?asOf=2026-09-10&sort=name", { headers: hdrs }),
     );
     expect(afterTeaching.pupils.filter((row) => row.studentProfileId === eshaal.student.id)).toHaveLength(1);
     expect(afterTeaching.pupils.find((row) => row.studentProfileId === eshaal.student.id)?.className).toBe("3A");
     expect(afterTeaching.summary.expectedAnnualFeesMinor).toBe(listed.summary.expectedAnnualFeesMinor);
+    const endedTeaching = await app.request(`/api/v1/class-memberships/${teachingMembershipBody.membership.id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ endedOn: "2026-09-01" }),
+    });
+    expect(endedTeaching.status).toBe(200);
 
     const yearFilter = await json<FeesBody>(
       await app.request(`/api/v1/finance/student-fees?asOf=2026-09-10&yearGroupId=${seeded.year3Id}`, {

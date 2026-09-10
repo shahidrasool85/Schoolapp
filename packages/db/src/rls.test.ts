@@ -169,6 +169,17 @@ describe("RLS catalog", () => {
     expect(schedules.rows.map((row) => row.column_name)).toEqual(["vat_treatment"]);
   });
 
+  it("adds a void-aware unique index for catch-up tuition invoices", async () => {
+    const result = await pools.owner.query<{ indexname: string }>(
+      `select indexname
+         from pg_indexes
+        where schemaname = 'public'
+          and tablename = 'school_invoices'
+          and indexname = 'school_invoices_catchup_pupil_period_uidx'`,
+    );
+    expect(result.rows.map((row) => row.indexname)).toEqual(["school_invoices_catchup_pupil_period_uidx"]);
+  });
+
   it("grants the app role DML on finance tables", async () => {
     const result = await pools.owner.query<{ table_name: string; can_select: boolean }>(
       `select t.table_name, has_table_privilege('schoolapp_app', t.table_name, 'SELECT') as can_select

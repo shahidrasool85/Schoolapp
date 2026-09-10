@@ -35,7 +35,7 @@ export {
   auditAdmissions,
 } from "./admissions.js";
 
-export { AppError, pgErrorToAppError, timetableConflictMessage, type AppErrorDetails, type TimetableConflictDetail } from "./errors.js";
+export { AppError, isPgUniqueViolation, pgErrorToAppError, timetableConflictMessage, type AppErrorDetails, type TimetableConflictDetail } from "./errors.js";
 
 export {
   normalizePlatformDomain,
@@ -812,6 +812,7 @@ export {
   asIsoDate,
   BILLING_RUN_PREVIEW_STALE_RULE,
   billingPeriodKey,
+  catchUpInvoicePeriodKey,
   billingRunConfirmSummary,
   billingRunItemSignature,
   billingRunPreviewSignaturesDiffer,
@@ -873,6 +874,7 @@ export {
   canManageInvoices,
   canReadTuition,
   confirmBillingRun,
+  confirmMissingBillingRunInvoices,
   createDiscountRule,
   createFeeSchedule,
   createInvoiceCheckoutSession,
@@ -909,6 +911,7 @@ export {
   parentAuthorisedAccountIds,
   persistInvoiceDisplaySnapshot,
   previewBillingRun,
+  previewMissingBillingRunInvoices,
   quotePupilTuition,
   recordInvoicePayment,
   renderFamilyStatementZip,

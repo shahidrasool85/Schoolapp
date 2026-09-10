@@ -15,6 +15,7 @@ import {
   testOrganisationStripeConnection,
   upsertOrganisationStripeConfig,
   confirmBillingRun,
+  confirmMissingBillingRunInvoices,
   createDiscountRule,
   createFeeSchedule,
   createInvoiceCredit,
@@ -43,6 +44,7 @@ import {
   loadTuitionDashboard,
   parentAuthorisedAccountIds,
   previewBillingRun,
+  previewMissingBillingRunInvoices,
   recordInvoicePayment,
   renderFamilyStatementZip,
   renderInvoicePdfBytes,
@@ -920,6 +922,26 @@ export function registerTuitionRoutes(app: SchoolappApi) {
       if (!canManageBillingRuns(actor)) throw new AppError(403, "forbidden", "Missing permission");
       return c.json(
         await confirmBillingRun(client, {
+          organisationId: orgId,
+          actorUserId: userId,
+          billingRunId: uuidRouteParam(c, "runId"),
+        }),
+      );
+    }),
+  );
+
+  app.get("/finance/billing-runs/:runId/missing-invoices", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertTuitionRead(actor);
+      return c.json(await previewMissingBillingRunInvoices(client, { organisationId: orgId, billingRunId: uuidRouteParam(c, "runId") }));
+    }),
+  );
+
+  app.post("/finance/billing-runs/:runId/missing-invoices", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageBillingRuns(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      return c.json(
+        await confirmMissingBillingRunInvoices(client, {
           organisationId: orgId,
           actorUserId: userId,
           billingRunId: uuidRouteParam(c, "runId"),

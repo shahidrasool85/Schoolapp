@@ -457,3 +457,25 @@ export function billingRunItemExclusionReason(input: {
   }
   return null;
 }
+
+export const MISSING_CATCHUP_INVOICE_SOURCE = "missing_catchup" as const;
+
+export type BillingRunMissingEligibility = "already_invoiced" | "missing_eligible" | "not_eligible";
+
+export function billingRunMissingEligibility(input: {
+  error?: string | null;
+  warning?: string | null;
+  netAmountMinor: number;
+  feeScheduleId?: string | null;
+}): BillingRunMissingEligibility {
+  if (input.error === "already_invoiced" || input.warning === "already_invoiced") {
+    return "already_invoiced";
+  }
+  if (
+    billingRunItemIsIncluded({ error: input.error, netAmountMinor: input.netAmountMinor }) &&
+    Boolean(input.feeScheduleId)
+  ) {
+    return "missing_eligible";
+  }
+  return "not_eligible";
+}

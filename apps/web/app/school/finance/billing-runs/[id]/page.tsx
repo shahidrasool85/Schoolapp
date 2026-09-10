@@ -131,6 +131,180 @@ type Bundle = {
   excludedItems?: Array<Bundle["items"][number]>;
 };
 
+type MissingPreview = {
+  dueOn: string;
+  periodStart: string;
+  periodEnd: string;
+  currency: string;
+  allEligibleInvoiced: boolean;
+  missingEligible: Array<{
+    studentProfileId: string;
+    legalName: string;
+    yearGroupName: string | null;
+    className: string | null;
+    enrolStart: string;
+    feeScheduleName: string | null;
+    netAmountMinor: number;
+    currency: string;
+    periodStart: string;
+    periodEnd: string;
+    dueOn: string;
+  }>;
+  catchUpInvoices: Array<{
+    id: string;
+    reference: string;
+    totalMinor: number;
+    outstandingMinor: number;
+    status: string;
+  }>;
+};
+
+function MissingEligibleSection({ runId, currency }: { runId: string; currency: string }) {
+  const [preview, setPreview] = useState<MissingPreview | null>(null);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  async function loadPreview() {
+    return api<MissingPreview>(`/api/v1/finance/billing-runs/${runId}/missing-invoices`);
+  }
+
+  useEffect(() => {
+    loadPreview()
+      .then(setPreview)
+      .catch((err: Error) => setError(userFacingError(err, "Could not check for newly eligible pupils.")));
+  }, [runId]);
+
+  async function previewOnly() {
+    setBusy(true);
+    setError("");
+    try {
+      const body = await loadPreview();
+      setPreview(body);
+      setNotice("Preview only. No invoices were created.");
+    } catch (err) {
+      setError(userFacingError(err as Error, "Could not preview missing invoices."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createMissing() {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const body = await api<MissingPreview & { createdCount: number; skippedCount: number; totalMinor: number }>(
+        `/api/v1/finance/billing-runs/${runId}/missing-invoices`,
+        { method: "POST", body: "{}" },
+      );
+      setPreview(body);
+      setConfirmOpen(false);
+      if (body.createdCount === 0) {
+        setNotice("No new invoices were created. Eligible pupils already have an invoice for this period.");
+      } else {
+        const invoiceWord = body.createdCount === 1 ? "invoice" : "invoices";
+        setNotice(
+          `${body.createdCount} catch-up ${invoiceWord} issued. Total ${formatMinor(body.totalMinor, body.currency)}. The original billing run was not changed.`,
+        );
+      }
+    } catch (err) {
+      setError(userFacingError(err as Error, "Could not create missing invoices."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!preview && !error) return <SectionCard title="Newly eligible pupils not yet invoiced"><LoadingState label="Checking for missing invoices…" /></SectionCard>;
+
+  const missing = preview?.missingEligible ?? [];
+  const created = preview?.catchUpInvoices ?? [];
+  const invoiceWord = missing.length === 1 ? "invoice" : "invoices";
+  const pupilWord = missing.length === 1 ? "pupil" : "pupils";
+
+  return (
+    <>
+      <SectionCard title="Newly eligible pupils not yet invoiced">
+        {notice ? <Alert tone="success">{notice}</Alert> : null}
+        {error ? <Alert tone="danger">{error}</Alert> : null}
+        {preview?.allEligibleInvoiced ? (
+          <p className="muted">All currently eligible pupils have been invoiced for this period.</p>
+        ) : (
+          <>
+            <p>
+              {missing.length} newly eligible {pupilWord} {missing.length === 1 ? "has" : "have"} no invoice for this
+              period. The issued billing run is left unchanged.
+            </p>
+            <DataTable
+              headers={
+                <>
+                  <th>Pupil</th>
+                  <th>Year group</th>
+                  <th>Class</th>
+                  <th>Enrolment start</th>
+                  <th>Fee schedule</th>
+                  <th>Amount</th>
+                  <th>Period</th>
+                  <th>Proposed due date</th>
+                </>
+              }
+            >
+              {missing.map((item) => (
+                <tr key={item.studentProfileId}>
+                  <td>
+                    <Link href={`/school/finance/pupils/${item.studentProfileId}`}>{item.legalName}</Link>
+                  </td>
+                  <td>{item.yearGroupName ?? "—"}</td>
+                  <td>{item.className ?? "—"}</td>
+                  <td>{formatUkNumericDate(item.enrolStart)}</td>
+                  <td>{item.feeScheduleName ?? "—"}</td>
+                  <td>
+                    <strong>{formatMinor(item.netAmountMinor, item.currency || currency)}</strong>
+                  </td>
+                  <td>{formatUkNumericDateRange(item.periodStart, item.periodEnd)}</td>
+                  <td>{formatUkNumericDate(item.dueOn)}</td>
+                </tr>
+              ))}
+            </DataTable>
+            <p className="toolbar">
+              <button type="button" onClick={() => void previewOnly()} disabled={busy}>
+                {busy ? "Working…" : "Preview missing invoices"}
+              </button>
+              <button type="button" onClick={() => setConfirmOpen(true)} disabled={busy || missing.length === 0}>
+                Create missing invoices
+              </button>
+            </p>
+          </>
+        )}
+        {created.length ? (
+          <p>
+            Catch-up invoices already issued:{" "}
+            {created.map((invoice, index) => (
+              <span key={invoice.id}>
+                {index > 0 ? ", " : ""}
+                <Link href={`/school/finance/invoices/${invoice.id}`}>{invoice.reference}</Link>
+              </span>
+            ))}
+            .
+          </p>
+        ) : null}
+      </SectionCard>
+      <ConfirmationDialog
+        open={confirmOpen}
+        title="Create missing invoices?"
+        description={`${missing.length} ${invoiceWord} will be issued for newly eligible pupils. Total: ${formatMinor(missing.reduce((sum, item) => sum + item.netAmountMinor, 0), preview?.currency ?? currency)}. Existing invoices are not duplicated and the original billing run is not changed.`}
+        confirmLabel={busy ? "Issuing…" : "Create missing invoices"}
+        busy={busy}
+        onConfirm={() => void createMissing()}
+        onClose={() => {
+          if (!busy) setConfirmOpen(false);
+        }}
+      />
+    </>
+  );
+}
+
 export default function BillingRunDetailPage() {
   const params = useParams<{ id: string }>();
   const [data, setData] = useState<Bundle | null>(null);
@@ -302,6 +476,7 @@ export default function BillingRunDetailPage() {
           </DataTable>
         )}
       </SectionCard>
+      {issued ? <MissingEligibleSection runId={data.run.id} currency={data.run.currency} /> : null}
       <SectionCard title="Excluded pupils">
         {excluded.length === 0 ? (
           <p className="muted">Every eligible pupil in this period is included.</p>

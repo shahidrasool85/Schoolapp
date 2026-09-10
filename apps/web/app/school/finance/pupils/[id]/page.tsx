@@ -4,10 +4,11 @@ import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { formatUkNumericDate, formatUkNumericDateRange } from "@schoolapp/domain";
-import { Alert, LoadingState, PageError, PageHeader, SectionCard, StatusBadge } from "../../../../../components/ui";
+import { Alert, LoadingState, PageError, PageHeader, SectionCard, StatCard, StatusBadge } from "../../../../../components/ui";
 import { api } from "../../../../../lib/api";
 import { userFacingError } from "../../../../../lib/errors";
 import { formatMinor, poundsToMinor } from "../../../../../lib/money";
+import { usePermissions } from "../../../../../lib/use-permissions";
 import { FinanceNav } from "../../finance-nav";
 
 type Quote = {
@@ -53,6 +54,25 @@ type Bundle = {
     effectiveFrom: string;
   } | null;
   invoices: Array<{ id: string; reference: string; status: string; outstandingMinor: number; currency: string }>;
+  fees: {
+    annualFeeMinor: number | null;
+    discountMinor: number;
+    discountLabel: string | null;
+    netAnnualFeeMinor: number | null;
+    currentInstalmentMinor: number | null;
+    invoicedMinor: number;
+    paidMinor: number;
+    outstandingMinor: number;
+    overdueMinor: number;
+    nextDueDate: string | null;
+    status: string;
+    parentPaymentAvailability: string;
+    billingAccountId: string | null;
+    currency: string;
+    warning: string | null;
+    scheduleConflict: boolean;
+  } | null;
+  receipts: Array<{ id: string; reference: string; amountMinor: number | null; currency: string | null; paymentDate: string | null }>;
 };
 
 function quoteHasSchedule(quote: Quote | null): boolean {
@@ -64,6 +84,9 @@ export default function PupilFeeProfilePage() {
   const [data, setData] = useState<Bundle | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const permissions = usePermissions();
+  const canNotify = permissions.has("finance.invoices.manage") || permissions.has("finance.billing_runs.manage") || permissions.has("finance.manage");
+  const canRecord = permissions.has("finance.payments.record_offline") || permissions.has("finance.invoices.manage") || permissions.has("finance.manage");
 
   async function reload() {
     setData(await api<Bundle>(`/api/v1/finance/pupils/${params.id}`));
@@ -106,9 +129,10 @@ export default function PupilFeeProfilePage() {
     <>
       <PageHeader
         title={`${data.legalName} — school fees`}
-        description="Fee applicability uses the same overlap rules as billing-run preview. Today and the current billing period are labelled separately."
+        description="Fee plan, invoices and payments for this pupil. Family totals stay on the family account."
         breadcrumbs={[
           { href: "/school/finance", label: "Finance" },
+          { href: "/school/finance/student-fees", label: "Student fees" },
           { label: data.legalName },
         ]}
       />
@@ -121,6 +145,36 @@ export default function PupilFeeProfilePage() {
           {formatUkNumericDate(data.enrolment.startedOn)}
           {data.enrolment.endedOn ? ` to ${formatUkNumericDate(data.enrolment.endedOn)}` : ""}
         </p>
+      ) : (
+        <Alert tone="warning">This pupil is not enrolled in the current academic year.</Alert>
+      )}
+      {data.fees?.scheduleConflict ? (
+        <Alert tone="warning">More than one fee schedule matches this pupil. Check Advanced → Fee schedules.</Alert>
+      ) : null}
+      {data.fees && data.fees.warning === "no_fee_schedule" ? (
+        <Alert tone="warning">No applicable fee schedule. Add a year-group schedule or assign one on this pupil.</Alert>
+      ) : null}
+      {data.fees ? (
+        <div className="stat-grid">
+          <StatCard
+            label="Annual fee"
+            value={data.fees.annualFeeMinor == null ? "—" : formatMinor(data.fees.annualFeeMinor, data.fees.currency)}
+          />
+          <StatCard
+            label="Discount / concession"
+            value={formatMinor(data.fees.discountMinor, data.fees.currency)}
+            hint={data.fees.discountLabel ?? undefined}
+          />
+          <StatCard
+            label="Net annual fee"
+            value={data.fees.netAnnualFeeMinor == null ? "—" : formatMinor(data.fees.netAnnualFeeMinor, data.fees.currency)}
+          />
+          <StatCard label="Invoiced" value={formatMinor(data.fees.invoicedMinor, data.fees.currency)} />
+          <StatCard label="Paid" value={formatMinor(data.fees.paidMinor, data.fees.currency)} />
+          <StatCard label="Outstanding" value={formatMinor(data.fees.outstandingMinor, data.fees.currency)} />
+          <StatCard label="Overdue" value={formatMinor(data.fees.overdueMinor, data.fees.currency)} />
+          <StatCard label="Status" value={data.fees.status.replaceAll("_", " ")} />
+        </div>
       ) : null}
       <SectionCard title={`Applies today (${formatUkNumericDate(data.evaluatedOn)})`}>
         {todayApplies && data.todayQuote ? (
@@ -210,15 +264,64 @@ export default function PupilFeeProfilePage() {
         </form>
       </SectionCard>
       <SectionCard title="Invoices">
-        <ul className="plain-list">
-          {data.invoices.map((invoice) => (
-            <li key={invoice.id}>
-              <Link href={`/school/finance/invoices/${invoice.id}`}>{invoice.reference}</Link>{" "}
-              <StatusBadge status={invoice.status} /> {formatMinor(invoice.outstandingMinor, invoice.currency)}
-            </li>
-          ))}
-        </ul>
+        {data.invoices.length === 0 ? (
+          <p className="muted">No invoices have been issued for this pupil yet.</p>
+        ) : (
+          <ul className="plain-list">
+            {data.invoices.map((invoice) => (
+              <li key={invoice.id}>
+                <Link href={`/school/finance/invoices/${invoice.id}`}>{invoice.reference}</Link>{" "}
+                <StatusBadge status={invoice.status} /> {formatMinor(invoice.outstandingMinor, invoice.currency)}
+                {canNotify && invoice.status !== "void" && invoice.status !== "paid" ? (
+                  <>
+                    {" "}
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => {
+                        api(`/api/v1/finance/invoices/${invoice.id}/notify`, { method: "POST", body: "{}" })
+                          .then(() => setMessage("Payment notification queued for the authorised payer."))
+                          .catch((err: Error) =>
+                            setError(userFacingError(err, "Could not send the payment notification.")),
+                          );
+                      }}
+                    >
+                      Send payment notification
+                    </button>
+                  </>
+                ) : null}
+                {canRecord && invoice.outstandingMinor > 0 ? (
+                  <>
+                    {" "}
+                    <Link href={`/school/finance/invoices/${invoice.id}`}>Record offline payment</Link>
+                  </>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
       </SectionCard>
+      <SectionCard title="Receipts">
+        {(data.receipts ?? []).length === 0 ? (
+          <p className="muted">Receipts appear after a payment is recorded.</p>
+        ) : (
+          <ul className="plain-list">
+            {(data.receipts ?? []).map((receipt) => (
+              <li key={receipt.id}>
+                {receipt.paymentDate ?? ""} · {receipt.reference}
+                {receipt.amountMinor != null && receipt.currency
+                  ? ` · ${formatMinor(receipt.amountMinor, receipt.currency)}`
+                  : ""}
+              </li>
+            ))}
+          </ul>
+        )}
+      </SectionCard>
+      {data.fees?.billingAccountId ? (
+        <p>
+          <Link href={`/school/finance/accounts/${data.fees.billingAccountId}`}>Open family account</Link>
+        </p>
+      ) : null}
     </>
   );
 }

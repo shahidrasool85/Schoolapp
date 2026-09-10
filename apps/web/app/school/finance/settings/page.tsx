@@ -57,6 +57,7 @@ type Settings = {
     footerShowContact: boolean;
     footerShowLegal: boolean;
   };
+  automaticInvoiceEmailEnabled: boolean;
 };
 
 export default function FinanceSettingsPage() {
@@ -99,6 +100,7 @@ function FinanceSettingsBody() {
             footerShowContact: Boolean(body.settings.documentTemplate?.footerShowContact),
             footerShowLegal: body.settings.documentTemplate?.footerShowLegal !== false,
           },
+          automaticInvoiceEmailEnabled: Boolean(body.settings.automaticInvoiceEmailEnabled),
         }),
       )
       .catch((err: Error) => setError(userFacingError(err, "Could not load finance settings.")));
@@ -413,6 +415,31 @@ function FinanceSettingsBody() {
       </SectionCard>
       ) : null}
       {tab === "online-payments" ? <PaymentProviderSettings /> : null}
+      {settings && tab === "notifications" ? (
+        <SectionCard title="Automatic parent payment notifications">
+          <form className="stack" onSubmit={save}>
+            <p>
+              When an invoice is issued and this setting is on, the authorised payer receives one email with a Pay now
+              link to the parent finance page. Historical invoices are never emailed automatically.
+            </p>
+            <label>
+              <input
+                type="checkbox"
+                checked={Boolean(settings.automaticInvoiceEmailEnabled)}
+                onChange={(event) =>
+                  setSettings({ ...settings, automaticInvoiceEmailEnabled: event.target.checked })
+                }
+              />{" "}
+              Automatic invoice email
+            </label>
+            <p className="muted">
+              Off by default. Due-soon and overdue reminders are not sent automatically in this release. School email
+              delivery settings are unchanged.
+            </p>
+            <button type="submit">Save notification settings</button>
+          </form>
+        </SectionCard>
+      ) : null}
     </>
   );
 }

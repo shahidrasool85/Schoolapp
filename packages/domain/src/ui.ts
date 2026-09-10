@@ -122,6 +122,9 @@ const WARNING_STATUSES = new Set([
   "information_required",
   "in_progress",
   "late",
+  "due_soon",
+  "part_paid",
+  "schedule_conflict",
   "needs_attention",
   "no_account",
   "offer_pending",
@@ -179,6 +182,8 @@ const NEUTRAL_STATUSES = new Set([
   "not_marked",
   "ended",
   "unused",
+  "not_yet_due",
+  "no_fee_assigned",
 ]);
 
 export function statusTone(status: string | null | undefined): StatusTone {

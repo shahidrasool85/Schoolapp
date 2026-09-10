@@ -2753,3 +2753,23 @@ tr.is-selected td {
 .command-palette li span { color: var(--muted); font-size: 0.85rem; }
 .command-palette-hint { margin-top: 0.75rem; }
 
+.student-fees-cards { display: none; }
+.student-fees-table .table-wrap { overflow-x: auto; }
+.student-fees-table table { min-width: 72rem; }
+.student-fees-table th:first-child,
+.student-fees-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface);
+  box-shadow: 1px 0 0 var(--line);
+}
+
+@media (max-width: 800px) {
+  .student-fees-table { display: none; }
+  .student-fees-cards {
+    display: grid;
+    gap: 0.9rem;
+  }
+}
+

@@ -150,16 +150,20 @@ describe("transactional email templates", () => {
     const invoice = renderEmailTemplate(
       "finance_invoice_issued",
       {
-        recipientName: "Pat Parent",
-        actionUrl: "https://kingswood.example.test/parent/finance",
+        recipientName: "Pat",
+        childName: "Eshaal",
+        amountDue: "£2,000.00",
+        dueDate: "15 September 2026",
+        actionUrl: "https://kingswood.example.test/parent/finance/invoices/inv-1",
       },
       branding,
     );
-    expect(invoice.subject).toContain("invoice is available");
-    expect(invoice.text).toContain("An invoice is available in your Kingswood School portal");
+    expect(invoice.subject).toContain("Fee payment due");
+    expect(invoice.text).toContain("A new fee payment is due for Eshaal");
+    expect(invoice.text).toContain("Amount due");
+    expect(invoice.html).toContain("Pay now");
+    expect(invoice.html).toContain("/parent/finance/invoices/inv-1");
     expect(invoice.text.toLowerCase()).not.toContain("date of birth");
-    expect(invoice.text.toLowerCase()).not.toContain("card");
-    expect(invoice.html).toContain("/parent/finance");
     const receipt = renderEmailTemplate("finance_payment_received", fixturePreviewData("finance_payment_received"), branding);
     expect(receipt.text.toLowerCase()).toContain("receipt is available");
   });

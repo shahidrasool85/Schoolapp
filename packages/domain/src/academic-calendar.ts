@@ -259,6 +259,29 @@ export function formatUkNumericDate(isoDate: string): string {
   return `${day}/${month}/${year}`;
 }
 
+const UK_MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+] as const;
+
+export function formatUkLongDate(isoDate: string): string {
+  const [year, month, day] = isoDate.slice(0, 10).split("-");
+  if (!year || !month || !day) return isoDate;
+  const monthName = UK_MONTH_NAMES[Number(month) - 1];
+  if (!monthName) return isoDate;
+  return `${Number(day)} ${monthName} ${year}`;
+}
+
 export function feeScheduleInstalmentPlan(
   annualMinor: number,
   instalmentCount: number,

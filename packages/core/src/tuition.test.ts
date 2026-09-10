@@ -11,6 +11,8 @@ import {
   applyMidPeriodPolicy,
   arrearsBucket,
   asIsoDate,
+  allocateShareMinor,
+  studentFeeStatus,
   BILLING_RUN_PREVIEW_STALE_RULE,
   billingPeriodKey,
   catchUpInvoicePeriodKey,
@@ -632,5 +634,94 @@ describe("billing run preview display and stale detection", () => {
         { studentProfileId: "p3", billingAccountId: "a2", netAmountMinor: 150000, error: "already_invoiced" },
       ]),
     ).toEqual({ pupilCount: 1, invoiceCount: 1, totalMinor: 200000 });
+  });
+});
+
+describe("student fee status and pence-safe shares", () => {
+  it("allocates invoice shares with integer minor units", () => {
+    expect(allocateShareMinor(200000, 100000, 200000)).toBe(100000);
+    expect(allocateShareMinor(100, 1, 3)).toBe(33);
+    expect(allocateShareMinor(0, 50, 100)).toBe(0);
+  });
+
+  it("does not mark unpaid invoices overdue before the due date", () => {
+    expect(
+      studentFeeStatus({
+        hasFeeSchedule: true,
+        scheduleConflict: false,
+        invoicedMinor: 200000,
+        paidMinor: 0,
+        outstandingMinor: 200000,
+        overdueMinor: 0,
+        nextDueDate: "2026-10-15",
+        today: "2026-09-10",
+        gracePeriodDays: 0,
+      }),
+    ).toBe("not_yet_due");
+    expect(
+      studentFeeStatus({
+        hasFeeSchedule: true,
+        scheduleConflict: false,
+        invoicedMinor: 200000,
+        paidMinor: 0,
+        outstandingMinor: 200000,
+        overdueMinor: 0,
+        nextDueDate: "2026-09-12",
+        today: "2026-09-10",
+        gracePeriodDays: 0,
+      }),
+    ).toBe("due_soon");
+    expect(
+      studentFeeStatus({
+        hasFeeSchedule: true,
+        scheduleConflict: false,
+        invoicedMinor: 200000,
+        paidMinor: 0,
+        outstandingMinor: 200000,
+        overdueMinor: 200000,
+        nextDueDate: "2026-09-01",
+        today: "2026-09-10",
+        gracePeriodDays: 0,
+      }),
+    ).toBe("overdue");
+    expect(
+      studentFeeStatus({
+        hasFeeSchedule: true,
+        scheduleConflict: false,
+        invoicedMinor: 200000,
+        paidMinor: 100000,
+        outstandingMinor: 100000,
+        overdueMinor: 0,
+        nextDueDate: "2026-09-20",
+        today: "2026-09-10",
+        gracePeriodDays: 0,
+      }),
+    ).toBe("part_paid");
+    expect(
+      studentFeeStatus({
+        hasFeeSchedule: true,
+        scheduleConflict: false,
+        invoicedMinor: 200000,
+        paidMinor: 200000,
+        outstandingMinor: 0,
+        overdueMinor: 0,
+        nextDueDate: null,
+        today: "2026-09-10",
+        gracePeriodDays: 0,
+      }),
+    ).toBe("paid");
+    expect(
+      studentFeeStatus({
+        hasFeeSchedule: false,
+        scheduleConflict: false,
+        invoicedMinor: 0,
+        paidMinor: 0,
+        outstandingMinor: 0,
+        overdueMinor: 0,
+        nextDueDate: null,
+        today: "2026-09-10",
+        gracePeriodDays: 0,
+      }),
+    ).toBe("no_fee_assigned");
   });
 });

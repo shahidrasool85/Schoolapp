@@ -16,6 +16,7 @@ import {
   formatUkNumericDateRange,
   startOfIsoMonth,
   todayInTimeZone,
+  financeInvoicePayPath,
   type Actor,
   type SchoolBillingFrequency,
   type SchoolDiscountStackingMode,
@@ -35,7 +36,7 @@ import {
   financePaymentReceivedMail,
   financeRefundIssuedMail,
 } from "./mail.js";
-import { enqueueOutboxMail } from "./finance-mail-queue.js";
+import { firstNameFromDisplayName } from "./email-template-overrides.js";
 import {
   DEFAULT_FINANCE_DOCUMENT_TEMPLATE,
   financeDocumentTemplateFromSettings,
@@ -70,7 +71,7 @@ import {
   type VatLineTreatment,
 } from "./vat.js";
 import { resolveFinanceAccent, type FinancePdfLogo } from "./finance-pdf.js";
-import { redactProviderReference } from "./money.js";
+import { redactProviderReference, formatMoney } from "./money.js";
 import {
   applyDiscounts,
   applyMidPeriodPolicy,
@@ -181,6 +182,7 @@ export type FinanceSettings = {
   financeLogoObjectId: string | null;
   documentLogoMode: FinanceDocumentLogoMode;
   documentTemplate: FinanceDocumentTemplate;
+  automaticInvoiceEmailEnabled: boolean;
 };
 
 function mapSettings(row: Record<string, unknown>): FinanceSettings {
@@ -217,6 +219,7 @@ function mapSettings(row: Record<string, unknown>): FinanceSettings {
     financeLogoObjectId: row.finance_logo_object_id ? String(row.finance_logo_object_id) : null,
     documentLogoMode: parseFinanceDocumentLogoMode(row.document_logo_mode ? String(row.document_logo_mode) : "school"),
     documentTemplate: financeDocumentTemplateFromSettings(row),
+    automaticInvoiceEmailEnabled: Boolean(row.automatic_invoice_email_enabled),
   };
 }
 
@@ -273,6 +276,7 @@ export async function updateFinanceSettings(
       documentShowVatNumber: boolean;
       documentFooterShowContact: boolean;
       documentFooterShowLegal: boolean;
+      automaticInvoiceEmailEnabled: boolean;
     }>;
   },
 ): Promise<FinanceSettings> {
@@ -310,6 +314,7 @@ export async function updateFinanceSettings(
         vatPricesInclusive: input.patch.vatPricesInclusive,
         documentLogoMode: input.patch.documentLogoMode,
         documentTemplate: undefined,
+        automaticInvoiceEmailEnabled: input.patch.automaticInvoiceEmailEnabled,
       }).filter(([, value]) => value !== undefined),
     ),
   } as FinanceSettings;
@@ -420,6 +425,7 @@ export async function updateFinanceSettings(
             document_show_vat_number = $37,
             document_footer_show_contact = $38,
             document_footer_show_legal = $39,
+            automatic_invoice_email_enabled = $40,
             updated_by = $18
       where organisation_id = $1`,
     [
@@ -462,6 +468,7 @@ export async function updateFinanceSettings(
       next.documentTemplate.showVatNumber,
       next.documentTemplate.footerShowContact,
       next.documentTemplate.footerShowLegal,
+      next.automaticInvoiceEmailEnabled,
     ],
   );
   await writeAudit(client, {
@@ -470,8 +477,16 @@ export async function updateFinanceSettings(
     action: "finance.settings.updated",
     entityType: "school_finance_settings",
     entityId: input.organisationId,
-    before: { tuitionEnabled: current.tuitionEnabled, stacking: current.discountStackingMode },
-    after: { tuitionEnabled: next.tuitionEnabled, stacking: next.discountStackingMode },
+    before: {
+      tuitionEnabled: current.tuitionEnabled,
+      stacking: current.discountStackingMode,
+      automaticInvoiceEmailEnabled: current.automaticInvoiceEmailEnabled,
+    },
+    after: {
+      tuitionEnabled: next.tuitionEnabled,
+      stacking: next.discountStackingMode,
+      automaticInvoiceEmailEnabled: next.automaticInvoiceEmailEnabled,
+    },
   });
   return loadFinanceSettings(client, input.organisationId);
 }
@@ -1606,6 +1621,33 @@ async function resolveFeeSchedule(
   return (rows.rows[0] as Record<string, unknown> | undefined) ?? null;
 }
 
+async function matchingFeeScheduleCount(
+  client: Client,
+  organisationId: string,
+  pupil: EligiblePupil,
+  academicYearId: string,
+  periodStart: string,
+  periodEnd: string,
+  schedule: Record<string, unknown> | null,
+): Promise<number> {
+  if (!schedule || pupil.feeScheduleId) return schedule ? 1 : 0;
+  const classId = schedule.class_id ? String(schedule.class_id) : null;
+  const yearGroupId = schedule.year_group_id ? String(schedule.year_group_id) : null;
+  const rows = await client.query<{ count: string }>(
+    `select count(*)::text as count
+       from school_fee_schedules
+      where organisation_id = $1
+        and academic_year_id = $2
+        and is_active
+        and effective_from <= $6::date
+        and (effective_until is null or effective_until >= $3::date)
+        and class_id is not distinct from $4::uuid
+        and year_group_id is not distinct from $5::uuid`,
+    [organisationId, academicYearId, periodStart, classId, yearGroupId, periodEnd],
+  );
+  return Number(rows.rows[0]?.count ?? 0);
+}
+
 async function instalmentAmount(
   client: Client,
   schedule: Record<string, unknown>,
@@ -1898,6 +1940,8 @@ export async function quotePupilTuition(
     instalmentNumber?: number | null;
     studentProfileId?: string;
     feeScheduleId?: string;
+    /** billing (default) skips already-invoiced pupils; fee_plan still quotes the plan. */
+    mode?: "billing" | "fee_plan";
   },
 ): Promise<PupilFeeQuote[]> {
   const settings = await loadFinanceSettings(client, input.organisationId);
@@ -1955,7 +1999,8 @@ export async function quotePupilTuition(
         limit 1`,
       [input.organisationId, schedule.id, pupil.studentProfileId, input.periodStart, input.periodEnd],
     );
-    if (already.rows[0]) {
+    const alreadyInvoiced = Boolean(already.rows[0]);
+    if (alreadyInvoiced && input.mode !== "fee_plan") {
       quotes.push(
         emptyQuote(pupil, { ...period, currency: String(schedule.currency) }, {
           ...scheduleFields,
@@ -2005,6 +2050,16 @@ export async function quotePupilTuition(
       })),
       settings.siblingOrderMode,
     );
+    const matchingCount = await matchingFeeScheduleCount(
+      client,
+      input.organisationId,
+      pupil,
+      input.academicYearId,
+      input.periodStart,
+      input.periodEnd,
+      schedule,
+    );
+    const scheduleConflict = matchingCount > 1;
     quotes.push({
       ...emptyQuote(pupil, { ...period, currency: String(schedule.currency) }, {
         ...scheduleFields,
@@ -2014,7 +2069,13 @@ export async function quotePupilTuition(
         discardedDiscounts: applied.discarded,
         discountTotalMinor: applied.discountTotalMinor,
         netAmountMinor: applied.netMinor,
-        warning: join.prorated ? "prorated" : null,
+        warning: join.prorated
+          ? "prorated"
+          : alreadyInvoiced
+            ? "already_invoiced"
+            : scheduleConflict
+              ? "conflicting_schedules"
+              : null,
         calculation: {
           scheduleAmountMinor: Number(schedule.amount_minor),
           overrideAmountMinor: pupil.overrideAmountMinor,
@@ -2025,6 +2086,9 @@ export async function quotePupilTuition(
           periodDays: join.periodDays,
           familyStudentIds: family.map((member) => member.studentProfileId),
           vatTreatment: parseVatLineTreatment(schedule.vat_treatment),
+          alreadyInvoicedForPeriod: alreadyInvoiced,
+          matchingScheduleCount: matchingCount,
+          scheduleConflict,
         },
       }),
     });
@@ -3779,6 +3843,33 @@ export async function loadTuitionDashboard(client: Client, organisationId: strin
   );
   const recentInvoices = await listInvoices(client, organisationId);
   const overdue = await listArrears(client, organisationId, "overdue");
+  const confirmedRuns = await client.query<{ id: string; reference: string }>(
+    `select id, reference from school_billing_runs
+      where organisation_id = $1 and status = 'confirmed'
+      order by confirmed_at desc nulls last, created_at desc
+      limit 8`,
+    [organisationId],
+  );
+  let missingInvoiceCount = 0;
+  let missingInvoiceRunId: string | null = null;
+  let missingInvoiceRunReference: string | null = null;
+  for (const run of confirmedRuns.rows) {
+    try {
+      const preview = await previewMissingBillingRunInvoices(client, {
+        organisationId,
+        billingRunId: run.id,
+      });
+      if (preview.missingEligible.length > 0) {
+        missingInvoiceCount += preview.missingEligible.length;
+        if (!missingInvoiceRunId) {
+          missingInvoiceRunId = run.id;
+          missingInvoiceRunReference = run.reference;
+        }
+      }
+    } catch {
+      // Confirmed runs that cannot be catch-up previewed are ignored on the overview.
+    }
+  }
   return {
     settings,
     expectedFeesMinor: Number(invoiceTotals.rows[0]?.invoiced ?? 0),
@@ -3788,6 +3879,9 @@ export async function loadTuitionDashboard(client: Client, organisationId: strin
     overdueMinor: overdue.reduce((sum, item) => sum + item.outstandingMinor, 0),
     creditsMinor: Number(invoiceTotals.rows[0]?.credits ?? 0),
     currency: settings.currency,
+    missingInvoiceCount,
+    missingInvoiceRunId,
+    missingInvoiceRunReference,
     upcomingRuns: await mapBillingRunsWithStale(
       client,
       organisationId,
@@ -3856,6 +3950,7 @@ export async function loadPupilFeeProfile(
         periodEnd: asOf,
         frequency: settings.defaultBillingFrequency,
         studentProfileId,
+        mode: "fee_plan",
       })
     : [];
   const periodQuotes =
@@ -3867,6 +3962,7 @@ export async function loadPupilFeeProfile(
           periodEnd: evaluatedPeriod.periodEnd,
           frequency: settings.defaultBillingFrequency,
           studentProfileId,
+          mode: "fee_plan",
         })
       : [];
   const todayQuote = todayQuotes.find((item) => item.studentProfileId === studentProfileId) ?? null;
@@ -3969,6 +4065,16 @@ export async function parentAuthorisedAccountIds(
 
 export async function loadParentFinance(client: Client, organisationId: string, actor: Actor) {
   const settings = await loadFinanceSettings(client, organisationId);
+  const asOfToday = new Date().toISOString().slice(0, 10);
+  await client.query(
+    `update school_invoices
+        set status = 'overdue'
+      where organisation_id = $1
+        and status in ('issued', 'partially_paid')
+        and outstanding_minor > 0
+        and $2::date > (due_date + $3::int)`,
+    [organisationId, asOfToday, settings.gracePeriodDays],
+  );
   const accountIds = await parentAuthorisedAccountIds(client, organisationId, actor);
   if (!settings.tuitionEnabled || accountIds.length === 0) {
     return {
@@ -3978,9 +4084,13 @@ export async function loadParentFinance(client: Client, organisationId: string, 
       currency: settings.currency,
       amountDueMinor: 0,
       outstandingMinor: 0,
+      invoicedMinor: 0,
+      paidMinor: 0,
+      overdueMinor: 0,
       nextDueDate: null,
       invoices: [],
       payments: [],
+      pupils: [],
     };
   }
   const invoices = settings.parentsCanViewInvoices
@@ -4016,9 +4126,73 @@ export async function loadParentFinance(client: Client, organisationId: string, 
   const outstanding = invoices
     .filter((invoice) => ["issued", "partially_paid", "overdue"].includes(String(invoice.status)))
     .reduce((sum, invoice) => sum + Number(invoice.outstandingMinor), 0);
+  const invoicedMinor = invoices
+    .filter((invoice) => String(invoice.status) !== "void")
+    .reduce((sum, invoice) => sum + Number(invoice.totalMinor), 0);
+  const paidMinor = invoices
+    .filter((invoice) => String(invoice.status) !== "void")
+    .reduce((sum, invoice) => sum + Number(invoice.paidMinor), 0);
+  const overdueMinor = invoices
+    .filter((invoice) => String(invoice.status) === "overdue")
+    .reduce((sum, invoice) => sum + Number(invoice.outstandingMinor), 0);
   const next = invoices
     .filter((invoice) => Number(invoice.outstandingMinor) > 0)
     .sort((left, right) => String(left.dueDate).localeCompare(String(right.dueDate)))[0];
+  const children = await client.query<{
+    student_profile_id: string;
+    legal_name: string;
+  }>(
+    `select distinct p.student_profile_id, sp.legal_name
+       from school_billing_account_pupils p
+       join student_profiles sp on sp.id = p.student_profile_id
+      where p.organisation_id = $1 and p.billing_account_id = any($2::uuid[])
+      order by sp.legal_name`,
+    [organisationId, accountIds],
+  );
+  const year = await client.query<{ id: string; starts_on: Date | string; ends_on: Date | string }>(
+    `select id, starts_on, ends_on from academic_years where organisation_id = $1 and is_current limit 1`,
+    [organisationId],
+  );
+  const asOf = asOfToday;
+  const period = year.rows[0]
+    ? resolveCurrentBillingPeriod({
+        asOf,
+        frequency: settings.defaultBillingFrequency,
+        yearStartsOn: asIsoDate(year.rows[0].starts_on),
+        yearEndsOn: asIsoDate(year.rows[0].ends_on),
+      })
+    : null;
+  const quotes =
+    year.rows[0] && period
+      ? (
+          await Promise.all(
+            children.rows.map((child) =>
+              quotePupilTuition(client, {
+                organisationId,
+                academicYearId: year.rows[0]!.id,
+                periodStart: period.periodStart,
+                periodEnd: period.periodEnd,
+                frequency: settings.defaultBillingFrequency,
+                studentProfileId: child.student_profile_id,
+                mode: "fee_plan",
+              }),
+            ),
+          )
+        ).flat()
+      : [];
+  const quoteByPupil = new Map(quotes.map((quote) => [quote.studentProfileId, quote]));
+  const hideAmounts = !settings.parentsCanViewBalances;
+  const pupils = children.rows.map((child) => {
+    const quote = quoteByPupil.get(child.student_profile_id) ?? null;
+    return {
+      studentProfileId: child.student_profile_id,
+      legalName: child.legal_name,
+      feeScheduleName: quote?.feeScheduleName ?? null,
+      annualAmountMinor: hideAmounts ? null : quote?.annualAmountMinor ?? null,
+      currentInstalmentMinor: hideAmounts ? null : quote?.netAmountMinor ?? null,
+      nextDueDate: next?.dueDate ?? null,
+    };
+  });
   return {
     tuitionEnabled: settings.tuitionEnabled,
     canViewInvoices: settings.parentsCanViewInvoices,
@@ -4026,6 +4200,9 @@ export async function loadParentFinance(client: Client, organisationId: string, 
     currency: settings.currency,
     amountDueMinor: settings.parentsCanViewBalances ? outstanding : null,
     outstandingMinor: settings.parentsCanViewBalances ? outstanding : null,
+    invoicedMinor: settings.parentsCanViewBalances ? invoicedMinor : null,
+    paidMinor: settings.parentsCanViewBalances ? paidMinor : null,
+    overdueMinor: settings.parentsCanViewBalances ? overdueMinor : null,
     nextDueDate: next?.dueDate ?? null,
     invoices: settings.parentsCanViewBalances
       ? invoices
@@ -4033,6 +4210,7 @@ export async function loadParentFinance(client: Client, organisationId: string, 
     payments: settings.parentsCanViewBalances
       ? payments
       : payments.map((payment) => ({ ...payment, amountMinor: null })),
+    pupils,
   };
 }
 
@@ -4361,14 +4539,39 @@ export async function renderFinanceDocumentPreviewPdf(
 }
 
 async function payerContact(client: Client, organisationId: string, billingAccountId: string) {
-  const row = await client.query<{ email: string | null; full_name: string | null }>(
-    `select u.email, u.full_name
+  const row = await client.query<{
+    email: string | null;
+    full_name: string | null;
+    user_id: string | null;
+    user_kind: string | null;
+    user_status: string | null;
+  }>(
+    `select u.id as user_id, u.email, u.full_name, u.user_kind, u.status as user_status
        from school_billing_accounts a
        left join users u on u.id = a.primary_payer_user_id
       where a.id = $1 and a.organisation_id = $2`,
     [billingAccountId, organisationId],
   );
-  return row.rows[0] ?? { email: null, full_name: null };
+  const found = row.rows[0];
+  if (!found?.user_id || !found.email) return { email: null, full_name: null, reason: "no_payer" as const };
+  if (found.user_status !== "active") return { email: null, full_name: null, reason: "inactive_payer" as const };
+  if (found.user_kind === "student") return { email: null, full_name: null, reason: "student_account" as const };
+  const relationship = await client.query(
+    `select 1
+       from guardianships g
+       join school_billing_account_pupils p
+         on p.student_profile_id = g.student_profile_id
+        and p.organisation_id = g.organisation_id
+      where g.organisation_id = $1
+        and p.billing_account_id = $2
+        and g.guardian_user_id = $3
+        and (g.ended_on is null or g.ended_on >= current_date)
+        and (g.started_on is null or g.started_on <= current_date)
+      limit 1`,
+    [organisationId, billingAccountId, found.user_id],
+  );
+  if (!relationship.rows[0]) return { email: null, full_name: found.full_name, reason: "no_current_relationship" as const };
+  return { email: found.email, full_name: found.full_name, reason: null };
 }
 
 async function payerBillingDetails(client: Client, organisationId: string, billingAccountId: string) {
@@ -4598,15 +4801,63 @@ export async function createInvoiceReceipt(
   );
 }
 
-async function queueInvoiceIssuedMail(client: Client, organisationId: string, invoiceId: string) {
-  const invoice = await client.query<{ billing_account_id: string; reference: string }>(
-    `select billing_account_id, reference from school_invoices where id = $1 and organisation_id = $2`,
+async function queueInvoiceIssuedMail(
+  client: Client,
+  organisationId: string,
+  invoiceId: string,
+  options?: { force?: boolean; actorUserId?: string | null },
+): Promise<{ enqueued: boolean; alreadyQueued: boolean; reason: string | null }> {
+  const settings = await loadFinanceSettings(client, organisationId);
+  if (!options?.force && !settings.automaticInvoiceEmailEnabled) {
+    return { enqueued: false, alreadyQueued: false, reason: "automatic_email_disabled" };
+  }
+  const invoice = await client.query<{
+    billing_account_id: string;
+    reference: string;
+    outstanding_minor: string;
+    currency: string;
+    due_date: Date | string | null;
+    status: string;
+  }>(
+    `select billing_account_id, reference, outstanding_minor::text, currency, due_date, status
+       from school_invoices
+      where id = $1 and organisation_id = $2`,
     [invoiceId, organisationId],
   );
-  if (!invoice.rows[0]) return;
+  if (!invoice.rows[0]) return { enqueued: false, alreadyQueued: false, reason: "not_found" };
+  if (invoice.rows[0].status === "void") {
+    return { enqueued: false, alreadyQueued: false, reason: "void" };
+  }
   const contact = await payerContact(client, organisationId, String(invoice.rows[0].billing_account_id));
-  if (!contact.email) return;
+  if (!contact.email) {
+    await writeAudit(client, {
+      organisationId,
+      actorUserId: options?.actorUserId ?? null,
+      action: "finance.invoice.notification_skipped",
+      entityType: "school_invoice",
+      entityId: invoiceId,
+      after: { reason: contact.reason ?? "no_payer" },
+    });
+    return { enqueued: false, alreadyQueued: false, reason: contact.reason ?? "no_payer" };
+  }
+  const pupil = await client.query<{ legal_name: string | null }>(
+    `select sp.legal_name
+       from school_invoice_lines l
+       join student_profiles sp on sp.id = l.student_profile_id
+      where l.invoice_id = $1 and l.organisation_id = $2 and l.student_profile_id is not null
+      order by l.sort_order
+      limit 1`,
+    [invoiceId, organisationId],
+  );
   const school = await loadSchoolFinanceProfile(client, organisationId);
+  const payPath = financeInvoicePayPath(invoiceId);
+  const idempotencyKey = `finance.invoice_issued:${invoiceId}`;
+  const existing = await client.query<{ id: string }>(
+    `select id from mail_outbox
+      where organisation_id = $1 and idempotency_key = $2
+      limit 1`,
+    [organisationId, idempotencyKey],
+  );
   await enqueueOutboxMail(
     client,
     financeInvoiceIssuedMail({
@@ -4615,9 +4866,35 @@ async function queueInvoiceIssuedMail(client: Client, organisationId: string, in
       toEmail: contact.email,
       toName: contact.full_name,
       invoiceId,
-      portalPath: "/parent/finance",
+      invoiceReference: invoice.rows[0].reference,
+      amountDueLabel: formatMoney(Number(invoice.rows[0].outstanding_minor), String(invoice.rows[0].currency)),
+      dueDate: invoice.rows[0].due_date ? asIsoDate(invoice.rows[0].due_date) : null,
+      pupilFirstName: firstNameFromDisplayName(pupil.rows[0]?.legal_name),
+      portalPath: payPath,
     }),
   );
+  const alreadyQueued = Boolean(existing.rows[0]);
+  if (!alreadyQueued) {
+    await writeAudit(client, {
+      organisationId,
+      actorUserId: options?.actorUserId ?? null,
+      action: "finance.invoice.notification_enqueued",
+      entityType: "school_invoice",
+      entityId: invoiceId,
+      after: { idempotencyKey },
+    });
+  }
+  return { enqueued: true, alreadyQueued, reason: alreadyQueued ? "already_queued" : null };
+}
+
+export async function notifyInvoiceIssued(
+  client: Client,
+  input: { organisationId: string; actorUserId: string; invoiceId: string },
+) {
+  return queueInvoiceIssuedMail(client, input.organisationId, input.invoiceId, {
+    force: true,
+    actorUserId: input.actorUserId,
+  });
 }
 
 async function queuePaymentReceivedMail(

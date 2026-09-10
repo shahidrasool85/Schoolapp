@@ -177,7 +177,7 @@ export default function InvoiceDetailPage() {
         </DataTable>
       </SectionCard>
       {invoice.status !== "void" && invoice.outstandingMinor > 0 ? (
-        <SectionCard title="Record a payment">
+        <SectionCard title="Record offline payment">
           <form className="stack" onSubmit={pay}>
             <label>
               Amount (£)
@@ -202,7 +202,7 @@ export default function InvoiceDetailPage() {
               Note
               <textarea name="note" />
             </label>
-            <button type="submit">Record payment</button>
+            <button type="submit">Record offline payment</button>
           </form>
         </SectionCard>
       ) : null}

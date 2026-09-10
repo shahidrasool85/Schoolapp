@@ -302,6 +302,28 @@ export {
 } from "./finance-settings-tabs.js";
 
 export {
+  STUDENT_FEE_STATUSES,
+  STUDENT_FEE_STATUS_LABELS,
+  STUDENT_FEE_SORTS,
+  PARENT_PAYMENT_AVAILABILITY,
+  PARENT_PAYMENT_AVAILABILITY_LABELS,
+  STUDENT_FEES_PATH,
+  FINANCE_ADVANCED_PATH,
+  FINANCE_REPORTS_PATH,
+  FINANCE_PRIMARY_NAV_HREFS,
+  FINANCE_ADVANCED_NAV_LINKS,
+  FINANCE_ADVANCED_HREFS,
+  isStudentFeeStatus,
+  isStudentFeeSort,
+  studentFeeStatusLabel,
+  isFinanceAdvancedPath,
+  financeInvoicePayPath,
+  type StudentFeeStatus,
+  type StudentFeeSort,
+  type ParentPaymentAvailability,
+} from "./student-fees.js";
+
+export {
   ADMISSIONS_STATUS_EMAIL_BY_STATUS,
   ADMISSIONS_STATUS_EMAIL_TEMPLATE_KEYS,
   CUSTOMIZABLE_EMAIL_TEMPLATE_KEYS,
@@ -354,6 +376,7 @@ export {
   feeScheduleListNoticeFromQuery,
   formatGbpMinor,
   formatUkNumericDate,
+  formatUkLongDate,
   formatUkNumericDateRange,
   overlappingActiveFeeScheduleMessage,
   isIsoDate,

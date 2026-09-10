@@ -364,16 +364,19 @@ describe("student fees UX and invoice notifications", () => {
       await app.request(`/api/v1/finance/invoices?studentId=${eshaal.student.id}`, { headers: hdrs }),
     );
     const invoiceId = invoices.invoices[0]!.id;
-    await app.request(`/api/v1/finance/invoices/${invoiceId}/payments`, {
+    const firstPay = Math.floor(invoices.invoices[0]!.outstandingMinor / 2);
+    expect(firstPay).toBeGreaterThan(0);
+    const partPayRes = await app.request(`/api/v1/finance/invoices/${invoiceId}/payments`, {
       method: "POST",
       headers: hdrs,
       body: JSON.stringify({
-        amountMinor: Math.floor(invoices.invoices[0]!.outstandingMinor / 2),
+        amountMinor: firstPay,
         method: "bank_transfer",
         receivedOn: "2026-09-10",
         idempotencyKey: `off-${id}-1`,
       }),
     });
+    expect(partPayRes.status).toBe(201);
     const partPaid = await json<FeesBody>(
       await app.request("/api/v1/finance/student-fees?asOf=2026-09-10", { headers: hdrs }),
     );
@@ -381,17 +384,23 @@ describe("student fees UX and invoice notifications", () => {
     expect(partRow.paidMinor).toBeGreaterThan(0);
     expect(partRow.outstandingMinor).toBeGreaterThan(0);
     expect(partRow.status).toBe("part_paid");
+    expect(Number.isInteger(partRow.paidMinor)).toBe(true);
+    expect(Number.isInteger(partRow.outstandingMinor)).toBe(true);
 
-    await app.request(`/api/v1/finance/invoices/${invoiceId}/payments`, {
+    const remaining = await json<{ invoice: { outstandingMinor: number } }>(
+      await app.request(`/api/v1/finance/invoices/${invoiceId}`, { headers: hdrs }),
+    );
+    const settleRes = await app.request(`/api/v1/finance/invoices/${invoiceId}/payments`, {
       method: "POST",
       headers: hdrs,
       body: JSON.stringify({
-        amountMinor: partRow.outstandingMinor,
+        amountMinor: remaining.invoice.outstandingMinor,
         method: "bank_transfer",
         receivedOn: "2026-09-10",
         idempotencyKey: `off-${id}-2`,
       }),
     });
+    expect(settleRes.status).toBe(201);
     const paid = await json<FeesBody>(
       await app.request("/api/v1/finance/student-fees?asOf=2026-09-10", { headers: hdrs }),
     );

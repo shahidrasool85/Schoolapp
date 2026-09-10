@@ -2244,7 +2244,7 @@ async function issueTuitionInvoiceForAccount(
     invoiceSnapshotExtras?: Record<string, unknown>;
     linkRunItemIds?: boolean;
   },
-): Promise<{ invoiceId: string; created: boolean }> {
+): Promise<{ invoiceId: string; created: boolean; totalMinor: number }> {
   const existingInvoice = await client.query(
     `select id from school_invoices
       where organisation_id = $1 and billing_account_id = $2 and period_key = $3 and status <> 'void'`,
@@ -2260,7 +2260,7 @@ async function issueTuitionInvoiceForAccount(
         );
       }
     }
-    return { invoiceId: String(existingInvoice.rows[0].id), created: false };
+    return { invoiceId: String(existingInvoice.rows[0].id), created: false, totalMinor: 0 };
   }
   const account = await client.query<{ primary_payer_user_id: string | null }>(
     `select primary_payer_user_id from school_billing_accounts where id = $1 and organisation_id = $2`,
@@ -2431,7 +2431,7 @@ async function issueTuitionInvoiceForAccount(
   });
   await persistInvoiceDisplaySnapshot(client, input.organisationId, invoiceId);
   await queueInvoiceIssuedMail(client, input.organisationId, invoiceId);
-  return { invoiceId, created: true };
+  return { invoiceId, created: true, totalMinor: total };
 }
 
 export async function confirmBillingRun(
@@ -2538,6 +2538,7 @@ export type MissingBillingRunPupil = {
   standardAmountMinor: number;
   discountTotalMinor: number;
   netAmountMinor: number;
+  grossAmountMinor: number;
   currency: string;
   periodStart: string;
   periodEnd: string;
@@ -2547,9 +2548,19 @@ export type MissingBillingRunPupil = {
   error: string | null;
 };
 
+function quotedTuitionGrossMinor(quote: PupilFeeQuote, vatPolicy: SchoolVatPolicy): number {
+  return vatForQuotedTuition(
+    quote.standardAmountMinor,
+    quote.appliedDiscounts,
+    vatPolicy,
+    parseVatLineTreatment(quote.calculation.vatTreatment),
+  ).totals.grossMinor;
+}
+
 function mapMissingQuote(
   quote: PupilFeeQuote,
   dueOn: string,
+  vatPolicy: SchoolVatPolicy,
 ): MissingBillingRunPupil {
   return {
     studentProfileId: quote.studentProfileId,
@@ -2567,6 +2578,7 @@ function mapMissingQuote(
     standardAmountMinor: quote.standardAmountMinor,
     discountTotalMinor: quote.discountTotalMinor,
     netAmountMinor: quote.netAmountMinor,
+    grossAmountMinor: quotedTuitionGrossMinor(quote, vatPolicy),
     currency: quote.currency,
     periodStart: quote.periodStart,
     periodEnd: quote.periodEnd,
@@ -2609,6 +2621,8 @@ async function buildMissingBillingRunPreview(
   const periodStart = asIsoDate(run.period_start);
   const periodEnd = asIsoDate(run.period_end);
   const dueOn = asIsoDate(run.due_on);
+  const settings = await loadFinanceSettings(client, organisationId);
+  const vatPolicy = schoolVatPolicyFromSettings(settings);
   const quotes = await quotePupilTuition(client, {
     organisationId,
     academicYearId: String(run.academic_year_id),
@@ -2618,11 +2632,12 @@ async function buildMissingBillingRunPreview(
     instalmentNumber: run.instalment_number == null ? null : Number(run.instalment_number),
     feeScheduleId: feeScheduleIdFromPeriodKey(String(run.period_key)),
   });
-  const mapped = quotes.map((quote) => mapMissingQuote(quote, dueOn));
+  const mapped = quotes.map((quote) => mapMissingQuote(quote, dueOn, vatPolicy));
   const missingEligible = mapped.filter((item) => item.eligibility === "missing_eligible");
   const alreadyInvoiced = mapped.filter((item) => item.eligibility === "already_invoiced");
   const notEligible = mapped.filter((item) => item.eligibility === "not_eligible");
   const catchUpInvoices = await listCatchUpInvoicesForRun(client, organisationId, String(run.id));
+  const proposedTotalMinor = missingEligible.reduce((sum, item) => sum + item.grossAmountMinor, 0);
   return {
     dueOn,
     periodStart,
@@ -2634,6 +2649,7 @@ async function buildMissingBillingRunPreview(
     notEligible,
     catchUpInvoices,
     allEligibleInvoiced: missingEligible.length === 0,
+    proposedTotalMinor,
     quotes,
   };
 }
@@ -2666,6 +2682,7 @@ export async function previewMissingBillingRunInvoices(
     notEligible: preview.notEligible,
     catchUpInvoices: preview.catchUpInvoices,
     allEligibleInvoiced: preview.allEligibleInvoiced,
+    proposedTotalMinor: preview.proposedTotalMinor,
   };
 }
 
@@ -2766,7 +2783,7 @@ export async function confirmMissingBillingRunInvoices(
       if (issued.created) {
         createdCount += 1;
         createdInvoiceIds.push(issued.invoiceId);
-        totalMinor += quote.netAmountMinor;
+        totalMinor += issued.totalMinor;
       } else {
         skippedCount += 1;
       }
@@ -2820,6 +2837,7 @@ export async function confirmMissingBillingRunInvoices(
     notEligible: refreshed.notEligible,
     catchUpInvoices: refreshed.catchUpInvoices,
     allEligibleInvoiced: refreshed.allEligibleInvoiced,
+    proposedTotalMinor: refreshed.proposedTotalMinor,
   };
 }
 

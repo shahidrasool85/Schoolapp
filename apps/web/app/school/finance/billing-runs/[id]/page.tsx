@@ -145,6 +145,7 @@ type MissingPreview = {
     enrolStart: string;
     feeScheduleName: string | null;
     netAmountMinor: number;
+    grossAmountMinor: number;
     currency: string;
     periodStart: string;
     periodEnd: string;
@@ -157,6 +158,7 @@ type MissingPreview = {
     outstandingMinor: number;
     status: string;
   }>;
+  proposedTotalMinor?: number;
 };
 
 function MissingEligibleSection({ runId, currency }: { runId: string; currency: string }) {
@@ -260,7 +262,7 @@ function MissingEligibleSection({ runId, currency }: { runId: string; currency: 
                   <td>{formatUkNumericDate(item.enrolStart)}</td>
                   <td>{item.feeScheduleName ?? "—"}</td>
                   <td>
-                    <strong>{formatMinor(item.netAmountMinor, item.currency || currency)}</strong>
+                    <strong>{formatMinor(item.grossAmountMinor ?? item.netAmountMinor, item.currency || currency)}</strong>
                   </td>
                   <td>{formatUkNumericDateRange(item.periodStart, item.periodEnd)}</td>
                   <td>{formatUkNumericDate(item.dueOn)}</td>
@@ -293,7 +295,7 @@ function MissingEligibleSection({ runId, currency }: { runId: string; currency: 
       <ConfirmationDialog
         open={confirmOpen}
         title="Create missing invoices?"
-        description={`${missing.length} ${invoiceWord} will be issued for newly eligible pupils. Total: ${formatMinor(missing.reduce((sum, item) => sum + item.netAmountMinor, 0), preview?.currency ?? currency)}. Existing invoices are not duplicated and the original billing run is not changed.`}
+        description={`${missing.length} ${invoiceWord} will be issued for newly eligible pupils. Total: ${formatMinor(preview?.proposedTotalMinor ?? missing.reduce((sum, item) => sum + (item.grossAmountMinor ?? item.netAmountMinor), 0), preview?.currency ?? currency)}. Existing invoices are not duplicated and the original billing run is not changed.`}
         confirmLabel={busy ? "Issuing…" : "Create missing invoices"}
         busy={busy}
         onConfirm={() => void createMissing()}

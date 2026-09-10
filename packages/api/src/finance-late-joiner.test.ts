@@ -193,6 +193,7 @@ type MissingBody = {
     legalName: string;
     enrolStart: string;
     netAmountMinor: number;
+    grossAmountMinor?: number;
     dueOn: string;
     feeScheduleName: string | null;
   }>;
@@ -203,6 +204,7 @@ type MissingBody = {
   createdCount?: number;
   skippedCount?: number;
   totalMinor?: number;
+  proposedTotalMinor?: number;
 };
 
 describe("Finance late-joiner missing invoice catch-up", () => {
@@ -334,6 +336,8 @@ describe("Finance late-joiner missing invoice catch-up", () => {
     expect(missingPreview.missingEligible[0]!.studentProfileId).toBe(eshaal.student.id);
     expect(missingPreview.missingEligible[0]!.enrolStart).toBe("2026-09-07");
     expect(missingPreview.missingEligible[0]!.netAmountMinor).toBe(200000);
+    expect(missingPreview.missingEligible[0]!.grossAmountMinor).toBe(200000);
+    expect(missingPreview.proposedTotalMinor).toBe(200000);
     expect(missingPreview.missingEligible[0]!.dueOn).toBe("2026-09-15");
     expect(missingPreview.alreadyInvoiced.some((item) => item.studentProfileId === original.student.id)).toBe(true);
     expect(missingPreview.allEligibleInvoiced).toBe(false);
@@ -364,6 +368,7 @@ describe("Finance late-joiner missing invoice catch-up", () => {
     expect(created.missingEligible).toEqual([]);
     expect(created.allEligibleInvoiced).toBe(true);
     expect(created.catchUpInvoices).toHaveLength(1);
+    expect(created.totalMinor).toBe(200000);
     expect(created.catchUpInvoices[0]!.totalMinor).toBe(200000);
     expect(created.catchUpInvoices[0]!.vatEnabled).toBe(false);
     expect(created.catchUpInvoices[0]!.vatAmountMinor).toBe(0);
@@ -438,6 +443,7 @@ describe("Finance late-joiner missing invoice catch-up", () => {
     expect(Number(afterCreate.eshaalLines[0]!.amount_minor)).toBe(200000);
     expect(afterCreate.catchupAudit.source).toBe("missing_catchup");
     expect(afterCreate.catchupAudit.invoiceCount).toBe(1);
+    expect(afterCreate.catchupAudit.totalMinor).toBe(200000);
     expect(JSON.stringify(afterCreate.catchupAudit)).not.toMatch(/medical|allergy|safeguarding/i);
 
     const accounts = await json<{ accounts: Array<{ outstandingMinor: number; pupilNames: string }> }>(
@@ -729,7 +735,7 @@ describe("Finance late-joiner missing invoice catch-up", () => {
       vatEnabled: true,
       vatRegistrationNumber: "GB123456789",
       vatRatePercent: 20,
-      vatPricesInclusive: true,
+      vatPricesInclusive: false,
     });
     await createStudent(app, hdrs, pools, school, {
       legalName: "Original Year 3",
@@ -767,6 +773,13 @@ describe("Finance late-joiner missing invoice catch-up", () => {
       classId: seeded.classAId,
       startedOn: "2026-09-07",
     });
+    const missingPreview = await json<MissingBody>(
+      await app.request(`/api/v1/finance/billing-runs/${preview.run.id}/missing-invoices`, { headers: hdrs }),
+    );
+    expect(missingPreview.missingEligible).toHaveLength(1);
+    expect(missingPreview.missingEligible[0]!.netAmountMinor).toBe(200000);
+    expect(missingPreview.missingEligible[0]!.grossAmountMinor).toBe(240000);
+    expect(missingPreview.proposedTotalMinor).toBe(240000);
     const created = await json<MissingBody>(
       await app.request(`/api/v1/finance/billing-runs/${preview.run.id}/missing-invoices`, {
         method: "POST",
@@ -775,14 +788,20 @@ describe("Finance late-joiner missing invoice catch-up", () => {
       }),
     );
     expect(created.createdCount).toBe(1);
+    expect(created.totalMinor).toBe(240000);
+    expect(created.catchUpInvoices[0]!.totalMinor).toBe(240000);
     const catchUp = await json<{
       invoice: { vatEnabled: boolean; vatRateBps: number | null; vatAmountMinor: number; totalMinor: number; vatPricesInclusive: boolean | null };
     }>(await app.request(`/api/v1/finance/invoices/${created.catchUpInvoices[0]!.id}`, { headers: hdrs }));
     expect(catchUp.invoice.vatEnabled).toBe(originalInvoice.invoice.vatEnabled);
     expect(catchUp.invoice.vatRateBps).toBe(originalInvoice.invoice.vatRateBps);
-    expect(catchUp.invoice.vatPricesInclusive).toBe(originalInvoice.invoice.vatPricesInclusive);
+    expect(catchUp.invoice.vatPricesInclusive).toBe(false);
+    expect(originalInvoice.invoice.vatPricesInclusive).toBe(false);
     expect(catchUp.invoice.totalMinor).toBe(originalInvoice.invoice.totalMinor);
+    expect(catchUp.invoice.totalMinor).toBe(240000);
     expect(catchUp.invoice.vatAmountMinor).toBe(originalInvoice.invoice.vatAmountMinor);
+    expect(catchUp.invoice.vatAmountMinor).toBe(40000);
+    expect(created.totalMinor).toBe(catchUp.invoice.totalMinor);
     expect(catchUp.invoice.totalMinor % 1).toBe(0);
   });
 

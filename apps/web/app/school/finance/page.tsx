@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { EmptyState, LoadingState, PageError, PageHeader, SectionCard, StatCard, StatusBadge } from "../../../components/ui";
+import { Alert, EmptyState, LoadingState, PageError, PageHeader, SectionCard, StatCard, StatusBadge } from "../../../components/ui";
 import { api } from "../../../lib/api";
 import { userFacingError } from "../../../lib/errors";
 import { formatMinor } from "../../../lib/money";
@@ -24,6 +24,8 @@ type Overview = {
     outstandingMinor: number;
     overdueMinor: number;
     creditsMinor: number;
+    missingInvoiceCount?: number;
+    missingInvoiceRunId?: string | null;
     upcomingRuns: Array<{ id: string; reference: string; periodStart: string; status: string }>;
     recentPayments: Array<{
       id: string;
@@ -74,19 +76,31 @@ export default function FinanceOverviewPage() {
     <>
       <PageHeader
         title="Finance"
-        description="School fees, family accounts, and other payments for this school only."
+        description="See what each pupil owes on Student fees. Billing runs stay under Advanced."
         actions={
           <>
-            <Link className="button secondary" href="/school/finance/billing-runs">
-              Billing runs
+            <Link className="button secondary" href="/school/finance/student-fees">
+              Student fees
             </Link>
-            <Link className="button" href="/school/finance/charges/new">
-              Other charge
+            <Link className="button" href="/school/finance/student-fees">
+              Prepare monthly fees
             </Link>
           </>
         }
       />
       <FinanceNav />
+      {tuition && (tuition.missingInvoiceCount ?? 0) > 0 ? (
+        <Alert tone="warning">
+          {tuition.missingInvoiceCount === 1
+            ? "1 pupil has not yet been invoiced for an issued period."
+            : `${tuition.missingInvoiceCount} pupils have not yet been invoiced for an issued period.`}{" "}
+          {tuition.missingInvoiceRunId ? (
+            <Link href={`/school/finance/billing-runs/${tuition.missingInvoiceRunId}`}>Review missing invoices</Link>
+          ) : (
+            <Link href="/school/finance/student-fees">Open student fees</Link>
+          )}
+        </Alert>
+      ) : null}
       {tuition?.settings.tuitionEnabled ? (
         <div className="stat-grid">
           <StatCard label="Invoiced" value={formatMinor(tuition.invoicedMinor, currency)} href="/school/finance/invoices" />

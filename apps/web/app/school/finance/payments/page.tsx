@@ -47,6 +47,7 @@ export default function FinancePaymentsPage() {
       <PageHeader title="Payments" description="Invoice payments recorded for this school, including Stripe and school-recorded amounts." />
       <FinanceNav />
       <p className="toolbar">
+        <Link href="/school/finance/invoices">Record offline payment on an invoice</Link>
         <input value={q} onChange={(event) => setQ(event.target.value)} placeholder="Search payments" />
         <select value={status} onChange={(event) => setStatus(event.target.value)}>
           <option value="">All statuses</option>

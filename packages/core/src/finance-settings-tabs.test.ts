@@ -24,12 +24,14 @@ describe("finance settings tabs", () => {
     expect(parseFinanceSettingsTab("payment")).toBe("payment");
     expect(parseFinanceSettingsTab("vat")).toBe("vat");
     expect(parseFinanceSettingsTab("online-payments")).toBe("online-payments");
+    expect(parseFinanceSettingsTab("notifications")).toBe("notifications");
     expect(FINANCE_SETTINGS_TABS).toEqual([
       "general",
       "documents",
       "payment",
       "vat",
       "online-payments",
+      "notifications",
     ]);
   });
 
@@ -42,12 +44,16 @@ describe("finance settings tabs", () => {
     expect(financeSettingsTabHref("online-payments")).toBe(
       "/school/finance/settings?tab=online-payments",
     );
+    expect(financeSettingsTabHref("notifications")).toBe(
+      "/school/finance/settings?tab=notifications",
+    );
     expect(FINANCE_SETTINGS_TAB_ITEMS.map((item) => item.label)).toEqual([
       "General",
       "Documents",
       "Payment details",
       "VAT / Tax",
       "Online payments",
+      "Notifications",
     ]);
   });
 });

@@ -353,7 +353,12 @@ describe("academic calendar, search and finance lifecycle", () => {
     await app.request("/api/v1/finance/settings", {
       method: "PATCH",
       headers: hdrs,
-      body: JSON.stringify({ tuitionEnabled: true, invoicePrefix: "KSW-INV", receiptPrefix: "KSW-RCT" }),
+      body: JSON.stringify({
+        tuitionEnabled: true,
+        invoicePrefix: "KSW-INV",
+        receiptPrefix: "KSW-RCT",
+        automaticInvoiceEmailEnabled: true,
+      }),
     });
 
     const unused = await json<{ schedule: { id: string } }>(

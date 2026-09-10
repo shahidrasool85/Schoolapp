@@ -6,6 +6,7 @@ export const FINANCE_SETTINGS_TABS = [
   "payment",
   "vat",
   "online-payments",
+  "notifications",
 ] as const;
 
 export type FinanceSettingsTab = (typeof FINANCE_SETTINGS_TABS)[number];
@@ -21,6 +22,7 @@ export const FINANCE_SETTINGS_TAB_ITEMS: ReadonlyArray<{
   { key: "payment", label: "Payment details" },
   { key: "vat", label: "VAT / Tax" },
   { key: "online-payments", label: "Online payments" },
+  { key: "notifications", label: "Notifications" },
 ];
 
 export function parseFinanceSettingsTab(value: string | null | undefined): FinanceSettingsTab {

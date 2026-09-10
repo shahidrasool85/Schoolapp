@@ -844,6 +844,6 @@ describe("automatic email attachments and logo visibility", () => {
     await deliverQueuedMail(testApiConfig(pools, { emailDeliveryProvider: email }), { id: queued.rows[0]!.id });
     const sent = email.sent.find((row) => row.to.address === "payer@example.com");
     expect(sent?.attachments).toBeUndefined();
-    expect(sent?.html).toContain("invoice");
+    expect(sent?.html).toContain("Fee payment due");
   });
 });

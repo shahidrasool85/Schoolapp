@@ -806,6 +806,7 @@ export {
 } from "./payments-access.js";
 
 export {
+  annualizeDiscountMinor,
   applyDiscounts,
   applyMidPeriodPolicy,
   arrearsBucket,
@@ -838,6 +839,8 @@ export {
   prorateMinor,
   resolveCurrentBillingPeriod,
   splitAnnualIntoInstalments,
+  studentFeeStatus,
+  allocateShareMinor,
   type AppliedDiscount,
   type BillingRunScheduleDisplayContext,
   type DiscountApplication,
@@ -928,7 +931,16 @@ export {
   updateFinanceSettings,
   upsertPupilFeeProfile,
   voidInvoice,
+  notifyInvoiceIssued,
 } from "./tuition-access.js";
+
+export {
+  listStudentFees,
+  prepareCurrentPeriodFees,
+  type StudentFeeRow,
+  type StudentFeeSummary,
+  type StudentFeesList,
+} from "./student-fees-access.js";
 
 export {
   isMessageConversationType,

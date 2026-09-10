@@ -33,6 +33,7 @@ import {
   listInvoicePayments,
   listInvoices,
   listStaffChildLinks,
+  listStudentFees,
   loadAccountStatement,
   loadBillingAccount,
   loadBillingRun,
@@ -42,7 +43,9 @@ import {
   loadInvoice,
   loadPupilFeeProfile,
   loadTuitionDashboard,
+  notifyInvoiceIssued,
   parentAuthorisedAccountIds,
+  prepareCurrentPeriodFees,
   previewBillingRun,
   previewMissingBillingRunInvoices,
   recordInvoicePayment,
@@ -120,6 +123,7 @@ export function registerTuitionRoutes(app: SchoolappApi) {
           documentShowVatNumber: z.boolean().optional(),
           documentFooterShowContact: z.boolean().optional(),
           documentFooterShowLegal: z.boolean().optional(),
+          automaticInvoiceEmailEnabled: z.boolean().optional(),
         })
         .safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid finance settings");
@@ -305,6 +309,35 @@ export function registerTuitionRoutes(app: SchoolappApi) {
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       assertPermission(actor, PERMISSIONS.FINANCE_REPORTS_READ);
       return c.json(await loadTuitionDashboard(client, orgId));
+    }),
+  );
+
+  app.get("/finance/student-fees", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId }) => {
+      assertTuitionRead(actor);
+      return c.json(
+        await listStudentFees(client, orgId, {
+          search: c.req.query("search") || undefined,
+          yearGroupId: c.req.query("yearGroupId") || undefined,
+          classId: c.req.query("classId") || undefined,
+          status: c.req.query("status") || undefined,
+          paid: c.req.query("paid") === "true",
+          unpaid: c.req.query("unpaid") === "true",
+          overdue: c.req.query("overdue") === "true",
+          discounted: c.req.query("discounted") === "true",
+          noFeeAssigned: c.req.query("noFeeAssigned") === "true",
+          sort: c.req.query("sort") || undefined,
+          asOf: c.req.query("asOf") || undefined,
+          studentProfileId: c.req.query("studentId") || undefined,
+        }),
+      );
+    }),
+  );
+
+  app.post("/finance/student-fees/prepare-period", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageBillingRuns(actor)) throw new AppError(403, "forbidden", "Missing permission");
+      return c.json(await prepareCurrentPeriodFees(client, { organisationId: orgId, actorUserId: userId }), 201);
     }),
   );
 
@@ -583,7 +616,20 @@ export function registerTuitionRoutes(app: SchoolappApi) {
       if (asOf && !dateSchema.safeParse(asOf).success) {
         throw new AppError(400, "validation_failed", "asOf must be a date in YYYY-MM-DD format.");
       }
-      return c.json(await loadPupilFeeProfile(client, orgId, uuidRouteParam(c, "studentId"), { asOf }));
+      const studentId = uuidRouteParam(c, "studentId");
+      const profile = await loadPupilFeeProfile(client, orgId, studentId, { asOf });
+      const fees = await listStudentFees(client, orgId, { studentProfileId: studentId, asOf });
+      const feeRow = fees.pupils[0] ?? null;
+      const receipts = feeRow?.billingAccountId
+        ? await listFinanceReceipts(client, orgId, { billingAccountId: feeRow.billingAccountId })
+        : [];
+      return c.json({
+        ...profile,
+        fees: feeRow,
+        summary: fees.summary,
+        receipts,
+        missingInvoices: fees.missingInvoices,
+      });
     }),
   );
 
@@ -789,6 +835,21 @@ export function registerTuitionRoutes(app: SchoolappApi) {
         });
       }
       return c.json(loaded);
+    }),
+  );
+
+  app.post("/finance/invoices/:invoiceId/notify", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      if (!canManageInvoices(actor) && !canManageBillingRuns(actor)) {
+        throw new AppError(403, "forbidden", "Missing permission");
+      }
+      return c.json(
+        await notifyInvoiceIssued(client, {
+          organisationId: orgId,
+          actorUserId: userId,
+          invoiceId: uuidRouteParam(c, "invoiceId"),
+        }),
+      );
     }),
   );
 

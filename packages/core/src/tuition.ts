@@ -584,6 +584,38 @@ export function applyDiscounts(
   };
 }
 
+export function annualizeDiscountMinor(input: {
+  annualAmountMinor: number | null;
+  instalmentCount: number | null;
+  discountTotalMinor: number;
+  appliedDiscounts: AppliedDiscount[];
+}): number {
+  const count = input.instalmentCount && input.instalmentCount > 0 ? input.instalmentCount : 1;
+  const annual = input.annualAmountMinor;
+  if (annual == null) {
+    if (!Number.isInteger(input.discountTotalMinor) || input.discountTotalMinor < 0) {
+      throw new Error("invalid_amount");
+    }
+    return input.discountTotalMinor * count;
+  }
+  const candidates: DiscountCandidate[] = input.appliedDiscounts.map((discount) => ({
+    key: discount.key,
+    ruleId: discount.ruleId,
+    concessionId: discount.concessionId,
+    kind: discount.kind,
+    name: discount.name,
+    amountType: discount.amountType,
+    percentBps: discount.percentBps,
+    amountMinor:
+      discount.amountType === "fixed"
+        ? (discount.amountMinor != null ? discount.amountMinor : discount.calculatedMinor) * count
+        : discount.amountMinor,
+    stackingPriority: discount.stackingPriority,
+    exclusiveGroup: discount.exclusiveGroup,
+  }));
+  return applyDiscounts(annual, candidates, "stack").discountTotalMinor;
+}
+
 export function deriveInvoiceStatus(input: {
   current: SchoolInvoiceStatus;
   totalMinor: number;
@@ -608,6 +640,44 @@ export function invoiceOutstandingMinor(totalMinor: number, paidMinor: number, c
   if (!Number.isInteger(creditMinor) || creditMinor < 0) throw new Error("invalid_amount");
   const settled = paidMinor + creditMinor;
   return settled >= totalMinor ? 0 : totalMinor - settled;
+}
+
+export function allocateShareMinor(totalMinor: number, shareMinor: number, ofMinor: number): number {
+  if (!Number.isInteger(totalMinor) || !Number.isInteger(shareMinor) || !Number.isInteger(ofMinor)) {
+    throw new Error("invalid_amount");
+  }
+  if (totalMinor < 0 || shareMinor < 0 || ofMinor < 0) throw new Error("invalid_amount");
+  if (totalMinor === 0 || shareMinor === 0 || ofMinor === 0) return 0;
+  return Math.floor((totalMinor * shareMinor) / ofMinor);
+}
+
+export function studentFeeStatus(input: {
+  hasFeeSchedule: boolean;
+  scheduleConflict: boolean;
+  invoicedMinor: number;
+  paidMinor: number;
+  outstandingMinor: number;
+  overdueMinor: number;
+  nextDueDate: string | null;
+  today: string;
+  gracePeriodDays: number;
+}): import("@schoolapp/domain").StudentFeeStatus {
+  if (input.overdueMinor > 0) return "overdue";
+  if (input.invoicedMinor > 0 && input.outstandingMinor <= 0) return "paid";
+  if (input.invoicedMinor > 0 && input.paidMinor > 0 && input.outstandingMinor > 0) return "part_paid";
+  if (input.invoicedMinor > 0 && input.outstandingMinor > 0) {
+    if (input.nextDueDate) {
+      const overdueDays = daysOverdue(input.nextDueDate, input.today, input.gracePeriodDays);
+      if (overdueDays > 0) return "overdue";
+      if (overdueDays >= -7) return "due_soon";
+      return "not_yet_due";
+    }
+    return "unpaid";
+  }
+  if (input.scheduleConflict && !input.hasFeeSchedule) return "schedule_conflict";
+  if (!input.hasFeeSchedule) return "no_fee_assigned";
+  if (input.invoicedMinor <= 0) return "not_yet_due";
+  return "unpaid";
 }
 
 export function isOverdue(dueDate: string, gracePeriodDays: number, today: string): boolean {

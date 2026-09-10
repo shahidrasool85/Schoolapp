@@ -61,6 +61,13 @@ export const STAFF_SEARCH_DESTINATIONS: readonly GlobalSearchDestination[] = [
     "finance",
     "billing",
   ], { permissionPrefix: "finance." }),
+  staffPage("student-fees", "Student fees", "/school/finance/student-fees", [
+    "student fees",
+    "pupil fees",
+    "balances",
+    "outstanding",
+    "overdue",
+  ], { permissions: ["finance.invoices.read", "finance.read", "finance.reports.read"] }),
   staffPage("fee-schedules", "Fee schedules", "/school/finance/fee-schedules", [
     "fee schedule",
     "fee schedules",

@@ -1,4 +1,5 @@
 import type { EmailTemplateKey, MailPurpose } from "@schoolapp/domain";
+import { financeInvoicePayPath, formatUkLongDate } from "@schoolapp/domain";
 import { purposeToTemplateKey } from "./email-provider.js";
 import {
   renderAccountInvitation,
@@ -7,7 +8,7 @@ import {
   renderPasswordReset,
   type TransactionalBranding,
 } from "./email-templates.js";
-import { renderTransactionalEmail } from "./email-template-overrides.js";
+import { firstNameFromDisplayName, renderTransactionalEmail } from "./email-template-overrides.js";
 
 export type MailMessage = {
   organisationId: string | null;
@@ -453,20 +454,35 @@ export function financeInvoiceIssuedMail(input: {
   toEmail: string;
   toName?: string | null;
   invoiceId: string;
-  portalPath: string;
+  invoiceReference?: string | null;
+  amountDueLabel?: string | null;
+  dueDate?: string | null;
+  pupilFirstName?: string | null;
+  portalPath?: string;
   branding?: TransactionalBranding;
 }): MailMessage {
+  const school = input.organisationName;
+  const payPath = input.portalPath ?? financeInvoicePayPath(input.invoiceId);
+  const recipientFirst = firstNameFromDisplayName(input.toName) || "Parent/Guardian";
+  const pupilFirst = input.pupilFirstName?.trim() || "your child";
+  const dueLabel = input.dueDate ? formatUkLongDate(input.dueDate) : null;
+  const amount = input.amountDueLabel ?? null;
+  const paragraphs = [
+    `A new fee payment is due for ${pupilFirst}.`,
+    amount ? `Amount due: ${amount}` : null,
+    dueLabel ? `Due date: ${dueLabel}` : null,
+    input.invoiceReference ? `Invoice ${input.invoiceReference}.` : null,
+    `Sign in to ${school} to pay securely. This email does not include sensitive pupil details.`,
+  ].filter((line): line is string => Boolean(line));
   const rendered = renderFinanceNotice({
     branding: brandingOf(input.organisationName, input.branding),
-    recipientName: input.toName,
+    recipientName: recipientFirst,
     documentLabel: "invoice",
-    actionUrl: input.portalPath,
-    heading: "Invoice available",
-    subject: `${input.organisationName} — An invoice is available`,
-    paragraphs: [
-      `An invoice is available in your ${input.organisationName} portal.`,
-      "Sign in to view the amount due and download a copy. This email does not include sensitive pupil details.",
-    ],
+    actionUrl: payPath,
+    buttonLabel: "Pay now",
+    heading: "Fee payment due",
+    subject: `Fee payment due – ${school}`,
+    paragraphs,
   });
   return {
     organisationId: input.organisationId,
@@ -477,9 +493,16 @@ export function financeInvoiceIssuedMail(input: {
     subject: rendered.subject,
     textBody: rendered.text,
     htmlBody: rendered.html,
-    actionUrl: input.portalPath,
+    actionUrl: payPath,
     idempotencyKey: `finance.invoice_issued:${input.invoiceId}`,
-    templateData: { recipientName: input.toName ?? null, actionUrl: input.portalPath },
+    templateData: {
+      recipientName: recipientFirst,
+      actionUrl: payPath,
+      childName: pupilFirst,
+      invoiceReference: input.invoiceReference ?? null,
+      amountDue: amount,
+      dueDate: dueLabel,
+    },
     metadata: { invoiceId: input.invoiceId, hasActionLink: true },
   };
 }

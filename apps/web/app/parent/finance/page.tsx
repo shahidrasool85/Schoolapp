@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { formatUkNumericDate } from "@schoolapp/domain";
 import { EmptyState, LoadingState, PageError, PageHeader, SectionCard, StatCard, StatusBadge } from "../../../components/ui";
 import { api, downloadAuthenticated } from "../../../lib/api";
 import { userFacingError } from "../../../lib/errors";
@@ -14,6 +15,9 @@ type Finance = {
   currency: string;
   amountDueMinor: number | null;
   outstandingMinor: number | null;
+  invoicedMinor: number | null;
+  paidMinor: number | null;
+  overdueMinor: number | null;
   nextDueDate: string | null;
   invoices: Array<{
     id: string;
@@ -25,6 +29,14 @@ type Finance = {
     currency: string;
   }>;
   payments: Array<{ id: string; reference: string; amountMinor: number | null; receivedOn: string; invoiceReference: string }>;
+  pupils: Array<{
+    studentProfileId: string;
+    legalName: string;
+    feeScheduleName: string | null;
+    annualAmountMinor: number | null;
+    currentInstalmentMinor: number | null;
+    nextDueDate: string | null;
+  }>;
 };
 
 type Receipt = {
@@ -79,8 +91,48 @@ export default function ParentFinancePage() {
                     : "Hidden"
               }
             />
-            <StatCard label="Next due" value={data.nextDueDate ?? "None"} />
+            <StatCard
+              label="Invoiced"
+              value={
+                data.canViewBalances && data.invoicedMinor != null
+                  ? formatMinor(data.invoicedMinor, data.currency)
+                  : "Hidden"
+              }
+            />
+            <StatCard
+              label="Paid"
+              value={
+                data.canViewBalances && data.paidMinor != null ? formatMinor(data.paidMinor, data.currency) : "Hidden"
+              }
+            />
+            <StatCard
+              label="Overdue"
+              value={
+                data.canViewBalances && data.overdueMinor != null
+                  ? formatMinor(data.overdueMinor, data.currency)
+                  : "Hidden"
+              }
+            />
+            <StatCard label="Next due" value={data.nextDueDate ? formatUkNumericDate(data.nextDueDate) : "None"} />
           </div>
+          {(data.pupils ?? []).length > 0 ? (
+            <SectionCard title="Fee plan">
+              <ul className="plain-list">
+                {(data.pupils ?? []).map((pupil) => (
+                  <li key={pupil.studentProfileId}>
+                    {pupil.legalName}
+                    {pupil.feeScheduleName ? ` · ${pupil.feeScheduleName}` : ""}
+                    {data.canViewBalances && pupil.annualAmountMinor != null
+                      ? ` · Annual ${formatMinor(pupil.annualAmountMinor, data.currency)}`
+                      : ""}
+                    {data.canViewBalances && pupil.currentInstalmentMinor != null
+                      ? ` · Next instalment ${formatMinor(pupil.currentInstalmentMinor, data.currency)}`
+                      : ""}
+                  </li>
+                ))}
+              </ul>
+            </SectionCard>
+          ) : null}
           <p className="toolbar">
             <Link href="/parent/finance/statement">Statement & documents</Link>
             <Link href="/parent/payments">Other payments</Link>
@@ -99,7 +151,12 @@ export default function ParentFinancePage() {
                     {data.canViewBalances && invoice.outstandingMinor != null
                       ? ` · ${formatMinor(invoice.outstandingMinor, invoice.currency)}`
                       : ""}
-                    {data.canViewBalances && (invoice.outstandingMinor ?? 0) > 0 ? " · Pay now" : ""}
+                    {data.canViewBalances && (invoice.outstandingMinor ?? 0) > 0 ? (
+                      <>
+                        {" "}
+                        · <Link href={`/parent/finance/invoices/${invoice.id}`}>Pay now</Link>
+                      </>
+                    ) : null}
                   </li>
                 ))}
               </ul>

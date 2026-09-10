@@ -117,8 +117,15 @@ export function fixturePreviewData(template: EmailTemplateKey): Record<string, s
     return {
       recipientName: "Pat Example",
       schoolName: "Kingswood School",
+      childName: "Eshaal",
+      invoiceReference: "INV-1001",
+      amountDue: "£2,000.00",
+      dueDate: "15 September 2026",
       documentLabel: template === "finance_invoice_issued" ? "invoice" : template === "finance_refund_issued" ? "refund" : "receipt",
-      actionUrl: "https://kingswood.example.test/parent/finance",
+      actionUrl:
+        template === "finance_invoice_issued"
+          ? "https://kingswood.example.test/parent/finance/invoices/preview"
+          : "https://kingswood.example.test/parent/finance",
     };
   }
   return {
@@ -267,6 +274,7 @@ export function renderFinanceNotice(input: {
   heading: string;
   subject: string;
   paragraphs: string[];
+  buttonLabel?: string;
 }): RenderedEmail {
   const school = safeEmailText(input.branding.schoolName, 160) || "School";
   const name = safeEmailText(input.recipientName, 120) || "Parent/Guardian";
@@ -277,7 +285,7 @@ export function renderFinanceNotice(input: {
     preheader: input.paragraphs[0] ?? `${school} finance`,
     greeting: `Hello ${name},`,
     paragraphs: input.paragraphs,
-    button: { label: "Open parent portal", url: input.actionUrl },
+    button: { label: input.buttonLabel ?? "Open parent portal", url: input.actionUrl },
     signoff: `Regards\n${school}`,
   });
 }
@@ -333,17 +341,25 @@ export function renderEmailTemplate(
   }
   if (template === "finance_invoice_issued") {
     const school = safeEmailText(branding.schoolName, 160) || "School";
+    const pupilFirst = safeEmailText(data.childName, 80) || "your child";
+    const amount = safeEmailText(data.amountDue, 40);
+    const due = safeEmailText(data.dueDate, 40);
+    const payUrl = data.actionUrl || "#";
     return renderFinanceNotice({
       branding,
       recipientName: data.recipientName,
       documentLabel: "invoice",
-      actionUrl: data.actionUrl || "#",
-      heading: "Invoice available",
-      subject: `${school} — An invoice is available`,
+      actionUrl: payUrl,
+      buttonLabel: "Pay now",
+      heading: "Fee payment due",
+      subject: `Fee payment due – ${school}`,
       paragraphs: [
-        `An invoice is available in your ${school} portal.`,
-        "Sign in to view the amount due and download a copy. This email does not include sensitive pupil details.",
-      ],
+        `A new fee payment is due for ${pupilFirst}.`,
+        amount ? `Amount due: ${amount}` : null,
+        due ? `Due date: ${due}` : null,
+        data.invoiceReference ? `Invoice ${safeEmailText(data.invoiceReference, 80)}.` : null,
+        `Sign in to ${school} to pay securely. This email does not include sensitive pupil details.`,
+      ].filter((line): line is string => Boolean(line)),
     });
   }
   if (template === "finance_payment_received") {

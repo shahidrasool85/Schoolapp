@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   assertStripeSecretMatchesMode,
+  decryptOrganisationSecret,
   decryptSecret,
   encryptSecret,
   looksLikeSecret,
   parseSecretsEncryptionKey,
   payloadContainsSecret,
   paymentProviderAuditSafe,
+  secretsCipherVersion,
   stripeSecretHint,
 } from "./encrypted-secrets.js";
 
@@ -17,6 +19,7 @@ describe("encrypted organisation secrets", () => {
     const blob = encryptSecret("sk_test_school_a_secret", KEY);
     expect(blob.startsWith("v1:")).toBe(true);
     expect(decryptSecret(blob, KEY)).toBe("sk_test_school_a_secret");
+    expect(secretsCipherVersion(blob)).toBe("v1");
     const other = parseSecretsEncryptionKey("abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789");
     expect(() => decryptSecret(blob, other)).toThrow(/could not be read/);
   });
@@ -44,7 +47,20 @@ describe("encrypted organisation secrets", () => {
       }),
     ).toEqual({ provider: "stripe", enabled: true, mode: "test" });
     expect(looksLikeSecret("sk_live_abc")).toBe(true);
+    expect(looksLikeSecret("pi_abc_secret_def")).toBe(true);
     expect(payloadContainsSecret({ after: { secretKey: "sk_test_abc" } })).toBe(true);
     expect(payloadContainsSecret({ after: { enabled: true, mode: "test" } })).toBe(false);
+  });
+
+  it("decrypts with the previous key during a rotation window", () => {
+    const previous = parseSecretsEncryptionKey("abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789");
+    const blob = encryptSecret("whsec_rotated", previous);
+    expect(() => decryptSecret(blob, KEY)).toThrow(/could not be read/);
+    expect(
+      decryptOrganisationSecret(blob, {
+        SCHOOLAPP_SECRETS_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        SCHOOLAPP_SECRETS_ENCRYPTION_KEY_PREVIOUS: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+      }),
+    ).toBe("whsec_rotated");
   });
 });

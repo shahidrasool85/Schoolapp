@@ -24,8 +24,14 @@ import {
   shouldGenerateActivityCharge,
   type ChargeBalance,
 } from "./payments.js";
-import type { PaymentProvider, PaymentRuntimeConfig, ProviderEvent } from "./payment-provider.js";
-import { resolveOrganisationPaymentProviderForRefund } from "./org-payment-provider.js";
+import {
+  isProviderRefundEvent,
+  type PaymentProvider,
+  type PaymentRuntimeConfig,
+  type PaymentWebhookSettlement,
+  type ProviderEvent,
+} from "./payment-provider.js";
+import { loadOrganisationPaymentProviderConfig, resolveOrganisationPaymentProviderForRefund } from "./org-payment-provider.js";
 import { requireLinkedChild } from "./portal.js";
 import { guardianChildIds } from "./students-access.js";
 
@@ -711,6 +717,7 @@ export async function createCheckoutSession(
     amountMinor: amount,
     currency: String(charge.currency),
     title: String(charge.title),
+    schoolName: await loadSchoolName(client, input.organisationId),
     successUrl: input.successUrl,
     cancelUrl: input.cancelUrl,
     idempotencyKey: input.idempotencyKey,
@@ -736,6 +743,14 @@ export async function createCheckoutSession(
       where id = $1 and organisation_id = $2`,
     [tx.rows[0]!.id, input.organisationId, created.providerSessionId],
   );
+  const providerConfig = await loadOrganisationPaymentProviderConfig(client, input.organisationId);
+  const paymentMode = input.provider.key === "stripe" ? providerConfig?.mode ?? "test" : "test";
+  await client.query(
+    `update school_payment_transactions
+        set metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object('mode', $3::text, 'livemode', $4::text)
+      where id = $1 and organisation_id = $2`,
+    [tx.rows[0]!.id, input.organisationId, paymentMode, paymentMode === "live" ? "true" : "false"],
+  );
   return { session: session.rows[0] as Record<string, unknown>, checkoutUrl: created.checkoutUrl };
 }
 
@@ -752,7 +767,7 @@ export async function settleProviderEvent(
       currency: string;
     };
   },
-): Promise<void> {
+): Promise<PaymentWebhookSettlement> {
   const charge = await lockCharge(client, input.organisationId, input.session.charge_id);
   const tx = await client.query(
     `select * from school_payment_transactions
@@ -762,21 +777,25 @@ export async function settleProviderEvent(
   );
   if (!tx.rows[0]) throw new AppError(400, "unknown_reference", "Unknown payment reference");
   const transaction = tx.rows[0] as Record<string, unknown>;
-  if (input.event.amountMinor != null && Number(input.event.amountMinor) !== Number(transaction.amount_minor)) {
-    await failTransaction(client, transaction, "amount_mismatch");
-    throw new AppError(400, "amount_mismatch", "Provider amount does not match the session");
+  if (
+    !isProviderRefundEvent(input.event) &&
+    input.event.amountMinor != null &&
+    Number(input.event.amountMinor) !== Number(transaction.amount_minor)
+  ) {
+    if (transaction.status === "pending") await failTransaction(client, transaction, "amount_mismatch");
+    return { result: "manual_review", code: "amount_mismatch", message: "Provider amount does not match the session" };
   }
   if (input.event.currency && input.event.currency.toUpperCase() !== String(transaction.currency)) {
-    await failTransaction(client, transaction, "currency_mismatch");
-    throw new AppError(400, "currency_mismatch", "Provider currency does not match the session");
+    if (transaction.status === "pending") await failTransaction(client, transaction, "currency_mismatch");
+    return { result: "manual_review", code: "currency_mismatch", message: "Provider currency does not match the session" };
   }
   if (Number(input.session.amount_minor) !== Number(transaction.amount_minor)) {
-    await failTransaction(client, transaction, "amount_mismatch");
-    throw new AppError(400, "amount_mismatch", "Provider amount does not match the session");
+    if (transaction.status === "pending") await failTransaction(client, transaction, "amount_mismatch");
+    return { result: "manual_review", code: "amount_mismatch", message: "Provider amount does not match the session" };
   }
 
   if (input.event.outcome === "ignored") {
-    return;
+    return { result: "ignored" };
   }
   if (input.event.outcome === "refunded") {
     await completeProviderRefund(client, {
@@ -785,7 +804,7 @@ export async function settleProviderEvent(
       transaction,
       event: input.event,
     });
-    return;
+    return { result: "settled" };
   }
   if (
     input.event.outcome === "failed" &&
@@ -800,11 +819,11 @@ export async function settleProviderEvent(
           and ($3::text is null or provider_refund_id = $3)`,
       [input.organisationId, transaction.id, input.event.providerRefundId ?? null],
     );
-    return;
+    return { result: "settled" };
   }
   if (input.event.outcome === "failed" || input.event.outcome === "cancelled") {
     if (transaction.status !== "pending") {
-      return;
+      return { result: "noop" };
     }
     await client.query(
       `update school_payment_transactions
@@ -823,33 +842,51 @@ export async function settleProviderEvent(
       `update school_payment_sessions set status = $3 where id = $1 and organisation_id = $2`,
       [input.session.session_id, input.organisationId, input.event.outcome === "cancelled" ? "cancelled" : "failed"],
     );
-    return;
+    return { result: "settled" };
   }
 
-  if (input.event.outcome !== "succeeded") return;
-  if (transaction.status !== "pending") {
-    return;
+  if (input.event.outcome !== "succeeded") return { result: "ignored" };
+  const providerPaymentId = input.event.providerPaymentId ?? null;
+  if (providerPaymentId) {
+    const existing = await client.query(
+      `select id from school_payment_transactions
+        where organisation_id = $1 and provider_key = $2 and provider_payment_id = $3 and status = 'succeeded'`,
+      [input.organisationId, transaction.provider_key, providerPaymentId],
+    );
+    if (existing.rows[0]) return { result: "noop" };
   }
+  if (transaction.status === "succeeded") return { result: "noop" };
+
   const chargeStatus = String(charge.status);
   if (chargeStatus === "cancelled" || chargeStatus === "waived") {
-    await failTransaction(client, transaction, "charge_not_payable");
-    throw new AppError(409, "payment_unavailable", "This charge is no longer payable");
+    return {
+      result: "manual_review",
+      code: "payment_unavailable",
+      message: "This charge is no longer payable",
+    };
   }
 
   const balance = await chargeBalanceFor(client, charge);
   if (Number(transaction.amount_minor) > balance.outstandingMinor) {
-    await failTransaction(client, transaction, "overpayment");
-    throw new AppError(409, "overpayment", "This payment would exceed the amount outstanding");
+    return {
+      result: "manual_review",
+      code: "overpayment",
+      message: "This payment would exceed the amount outstanding",
+    };
   }
 
-  await client.query(
+  const revived = await client.query(
     `update school_payment_transactions
         set status = 'succeeded',
             paid_at = now(),
-            provider_payment_id = coalesce($3, provider_payment_id)
-      where id = $1 and organisation_id = $2`,
-    [transaction.id, input.organisationId, input.event.providerPaymentId ?? null],
+            provider_payment_id = coalesce($3, provider_payment_id),
+            failed_at = null,
+            cancelled_at = null
+      where id = $1 and organisation_id = $2 and status in ('pending', 'failed', 'cancelled')
+      returning id`,
+    [transaction.id, input.organisationId, providerPaymentId],
   );
+  if (!revived.rows[0]) return { result: "noop" };
   await client.query(
     `update school_payment_sessions
         set status = 'completed', completed_at = now()
@@ -859,7 +896,7 @@ export async function settleProviderEvent(
   const paidTx = {
     ...transaction,
     status: "succeeded",
-    provider_payment_id: input.event.providerPaymentId ?? transaction.provider_payment_id,
+    provider_payment_id: providerPaymentId ?? transaction.provider_payment_id,
     paid_at: new Date().toISOString(),
   };
   await refreshChargeStatus(client, charge);
@@ -878,6 +915,7 @@ export async function settleProviderEvent(
     chargeId: String(charge.id),
     studentProfileId: String(charge.student_profile_id),
   });
+  return { result: "settled" };
 }
 
 async function completeProviderRefund(

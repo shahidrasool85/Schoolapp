@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closePools, withTenantContext } from "@schoolapp/db";
 import {
@@ -13,6 +13,11 @@ import {
 const suffix = () => randomUUID().slice(0, 8);
 
 type StripeCall = { url: string; body: string };
+
+function stripeSignature(secret: string, body: string, timestamp = Math.floor(Date.now() / 1000)): string {
+  const v1 = createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex");
+  return `t=${timestamp},v1=${v1}`;
+}
 
 async function createSchool(owner: ReturnType<typeof testPools>["owner"], id: string) {
   const adminId = await insertUser(owner, {
@@ -452,6 +457,31 @@ describe("Finance late-joiner missing invoice catch-up", () => {
     const eshaalAccount = accounts.accounts.find((account) => account.pupilNames.includes("Eshaal"));
     expect(eshaalAccount?.outstandingMinor).toBe(200000);
 
+    const feesAfterCatchup = await json<{
+      pupils: Array<{
+        studentProfileId: string;
+        invoicedMinor: number;
+        outstandingMinor: number;
+        paidMinor: number;
+        status: string;
+      }>;
+    }>(await app.request("/api/v1/finance/student-fees?asOf=2026-09-15", { headers: hdrs }));
+    const eshaalFees = feesAfterCatchup.pupils.find((row) => row.studentProfileId === eshaal.student.id);
+    expect(eshaalFees?.invoicedMinor).toBe(200000);
+    expect(eshaalFees?.outstandingMinor).toBe(200000);
+    expect(eshaalFees?.paidMinor).toBe(0);
+    expect(["unpaid", "due_soon", "not_yet_due", "overdue"]).toContain(eshaalFees?.status);
+    const pupilPage = await json<{
+      fees: { invoicedMinor: number; outstandingMinor: number; paidMinor: number } | null;
+    }>(await app.request(`/api/v1/finance/pupils/${eshaal.student.id}?asOf=2026-09-15`, { headers: hdrs }));
+    expect(pupilPage.fees?.invoicedMinor).toBe(200000);
+    expect(pupilPage.fees?.outstandingMinor).toBe(200000);
+    const autoMail = await pools.owner.query(
+      `select id from mail_outbox where organisation_id = $1 and purpose = 'finance_invoice_issued'`,
+      [school.orgId],
+    );
+    expect(autoMail.rowCount).toBe(0);
+
     const parentToken = await login(app, parentEmail, "parent-pass-1");
     const parentFinance = await json<{ invoices: Array<{ id: string; totalMinor: number }>; outstandingMinor: number }>(
       await app.request("/api/v1/parent/finance", { headers: headers(parentToken, school.orgId) }),
@@ -474,8 +504,10 @@ describe("Finance late-joiner missing invoice catch-up", () => {
       }),
     });
     expect(savedStripe.status).toBe(200);
+    const stripeConfig = await json<{ paymentProvider: { webhookPath: string } }>(savedStripe);
     stripeCalls.length = 0;
-    const checkout = await app.request(`/api/v1/parent/finance/invoices/${created.catchUpInvoices[0]!.id}/checkout`, {
+    const catchUpInvoiceId = created.catchUpInvoices[0]!.id;
+    const checkout = await app.request(`/api/v1/parent/finance/invoices/${catchUpInvoiceId}/checkout`, {
       method: "POST",
       headers: headers(parentToken, school.orgId),
       body: JSON.stringify({ idempotencyKey: `lj-pay-${suffix()}` }),
@@ -483,6 +515,134 @@ describe("Finance late-joiner missing invoice catch-up", () => {
     expect(checkout.status).toBe(200);
     const checkoutBody = await json<{ checkoutUrl: string }>(checkout);
     expect(checkoutBody.checkoutUrl).toContain("https://checkout.stripe.test/");
+    const firstSession = await pools.owner.query<{ id: string; provider_session_id: string; amount_minor: string }>(
+      `select id, provider_session_id, amount_minor::text from school_payment_sessions
+        where organisation_id = $1 and invoice_id = $2 order by created_at desc limit 1`,
+      [school.orgId, catchUpInvoiceId],
+    );
+    await pools.owner.query(`update school_payment_sessions set expires_at = now() - interval '1 hour' where id = $1`, [
+      firstSession.rows[0]!.id,
+    ]);
+    const rotated = await app.request(`/api/v1/parent/finance/invoices/${catchUpInvoiceId}/checkout`, {
+      method: "POST",
+      headers: headers(parentToken, school.orgId),
+      body: JSON.stringify({ idempotencyKey: `lj-stale-${suffix()}` }),
+    });
+    expect(rotated.status).toBe(200);
+    const paidEvent = {
+      id: `evt_lj_${suffix()}`,
+      type: "checkout.session.completed",
+      livemode: false,
+      data: {
+        object: {
+          id: firstSession.rows[0]!.provider_session_id,
+          payment_status: "paid",
+          payment_intent: `pi_lj_${suffix()}`,
+          amount_total: Number(firstSession.rows[0]!.amount_minor),
+          currency: "gbp",
+        },
+      },
+    };
+    const paidBody = JSON.stringify(paidEvent);
+    const webhook = await app.request(stripeConfig.paymentProvider.webhookPath, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "stripe-signature": stripeSignature("whsec_late_joiner", paidBody) },
+      body: paidBody,
+    });
+    expect(webhook.status).toBe(200);
+    const settled = await json<{
+      invoice: { outstandingMinor: number; paidMinor: number; status: string };
+      payments: Array<{ amountMinor: number }>;
+    }>(await app.request(`/api/v1/finance/invoices/${catchUpInvoiceId}`, { headers: hdrs }));
+    expect(settled.invoice.outstandingMinor).toBe(0);
+    expect(settled.invoice.paidMinor).toBe(Number(firstSession.rows[0]!.amount_minor));
+    expect(settled.invoice.status).toBe("paid");
+    expect(settled.payments[0]?.amountMinor).toBe(Number(firstSession.rows[0]!.amount_minor));
+    const receipts = await pools.owner.query<{ amount_minor: string }>(
+      `select (snapshot->>'amountMinor')::text as amount_minor
+         from school_payment_receipts
+        where organisation_id = $1 and invoice_id = $2`,
+      [school.orgId, catchUpInvoiceId],
+    );
+    expect(Number(receipts.rows[0]?.amount_minor)).toBe(Number(firstSession.rows[0]!.amount_minor));
+    const parentAfterPay = await json<{ outstandingMinor: number }>(
+      await app.request("/api/v1/parent/finance", { headers: headers(parentToken, school.orgId) }),
+    );
+    expect(parentAfterPay.outstandingMinor).toBe(0);
+    const feesAfterPay = await json<{
+      pupils: Array<{ studentProfileId: string; outstandingMinor: number; paidMinor: number; status: string }>;
+    }>(await app.request("/api/v1/finance/student-fees?asOf=2026-09-15", { headers: hdrs }));
+    const eshaalPaid = feesAfterPay.pupils.find((row) => row.studentProfileId === eshaal.student.id);
+    expect(eshaalPaid?.outstandingMinor).toBe(0);
+    expect(eshaalPaid?.paidMinor).toBe(Number(firstSession.rows[0]!.amount_minor));
+    expect(eshaalPaid?.status).toBe("paid");
+    const pupilAfterPay = await json<{
+      fees: { outstandingMinor: number; paidMinor: number; status: string } | null;
+      receipts: Array<{ id: string }>;
+    }>(await app.request(`/api/v1/finance/pupils/${eshaal.student.id}?asOf=2026-09-15`, { headers: hdrs }));
+    expect(pupilAfterPay.fees?.outstandingMinor).toBe(0);
+    expect(pupilAfterPay.fees?.status).toBe("paid");
+    expect(pupilAfterPay.receipts.length).toBeGreaterThan(0);
+    const replay = await app.request(stripeConfig.paymentProvider.webhookPath, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "stripe-signature": stripeSignature("whsec_late_joiner", paidBody) },
+      body: paidBody,
+    });
+    expect(replay.status).toBe(200);
+    expect((await json<{ replayed?: boolean }>(replay)).replayed).toBe(true);
+    const newSession = await pools.owner.query<{ provider_session_id: string; amount_minor: string }>(
+      `select provider_session_id, amount_minor::text from school_payment_sessions
+        where organisation_id = $1 and invoice_id = $2 order by created_at desc limit 1`,
+      [school.orgId, catchUpInvoiceId],
+    );
+    const extraEvent = {
+      id: `evt_lj_extra_${suffix()}`,
+      type: "checkout.session.completed",
+      livemode: false,
+      data: {
+        object: {
+          id: newSession.rows[0]!.provider_session_id,
+          payment_status: "paid",
+          payment_intent: `pi_lj_extra_${suffix()}`,
+          amount_total: Number(newSession.rows[0]!.amount_minor),
+          currency: "gbp",
+        },
+      },
+    };
+    const extraBody = JSON.stringify(extraEvent);
+    const extraRes = await app.request(stripeConfig.paymentProvider.webhookPath, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "stripe-signature": stripeSignature("whsec_late_joiner", extraBody) },
+      body: extraBody,
+    });
+    expect(extraRes.status).toBe(200);
+    expect((await json<{ review?: boolean }>(extraRes)).review).toBe(true);
+    const afterExtra = await json<{ invoice: { paidMinor: number } }>(
+      await app.request(`/api/v1/finance/invoices/${catchUpInvoiceId}`, { headers: hdrs }),
+    );
+    expect(afterExtra.invoice.paidMinor).toBe(Number(firstSession.rows[0]!.amount_minor));
+    const other = await createSchool(pools.owner, `x-${suffix()}`);
+    const otherToken = await login(app, other.adminEmail, "password-12x");
+    const otherHdrs = headers(otherToken, other.orgId);
+    const otherStripe = await app.request("/api/v1/finance/payment-provider", {
+      method: "PUT",
+      headers: otherHdrs,
+      body: JSON.stringify({
+        mode: "test",
+        secretKey: "sk_test_other_joiner_bbbbbbbb",
+        webhookSecret: "whsec_other_joiner",
+        enabled: true,
+      }),
+    });
+    expect(otherStripe.status).toBe(200);
+    const otherPath = (await json<{ paymentProvider: { webhookPath: string } }>(otherStripe)).paymentProvider.webhookPath;
+    const crossed = await app.request(otherPath, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "stripe-signature": stripeSignature("whsec_other_joiner", paidBody) },
+      body: paidBody,
+    });
+    expect(crossed.status).toBe(400);
+    expect((await json<{ error: { code: string } }>(crossed)).error.code).toBe("organisation_mismatch");
 
     const october = await json<{
       includedItems: Array<{ studentProfileId: string; legalName: string; netAmountMinor: number }>;

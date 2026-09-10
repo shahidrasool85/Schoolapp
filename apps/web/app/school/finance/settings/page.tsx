@@ -694,6 +694,15 @@ function VatExamples({ ratePercent, inclusive }: { ratePercent: number; inclusiv
   );
 }
 
+type StripeReadiness = {
+  liveReady: boolean;
+  canEnableLive: boolean;
+  testConfigured: boolean;
+  fakeProviderWouldBeUsed: boolean;
+  checks: Array<{ key: string; ok: boolean; label: string }>;
+  warnings: string[];
+};
+
 type PaymentProvider = {
   provider: "stripe";
   configured: boolean;
@@ -733,18 +742,25 @@ function PaymentProviderSettings() {
   const permissions = usePermissions();
   const canManage = canAccessFinanceSettingsAdmin(permissions.permissions ?? []);
   const [provider, setProvider] = useState<PaymentProvider | null>(null);
+  const [readiness, setReadiness] = useState<StripeReadiness | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [mode, setMode] = useState<"test" | "live">("test");
   const [secretKey, setSecretKey] = useState("");
   const [webhookSecret, setWebhookSecret] = useState("");
+  const [confirmLive, setConfirmLive] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  function applyPayload(body: { paymentProvider: PaymentProvider; readiness?: StripeReadiness }) {
+    setProvider(body.paymentProvider);
+    if (body.readiness) setReadiness(body.readiness);
+    if (body.paymentProvider.mode) setMode(body.paymentProvider.mode);
+  }
+
   useEffect(() => {
-    api<{ paymentProvider: PaymentProvider }>("/api/v1/finance/payment-provider")
+    api<{ paymentProvider: PaymentProvider; readiness: StripeReadiness }>("/api/v1/finance/payment-provider")
       .then((body) => {
-        setProvider(body.paymentProvider);
-        if (body.paymentProvider.mode) setMode(body.paymentProvider.mode);
+        applyPayload(body);
       })
       .catch((err: Error) => setError(userFacingError(err, "Could not load payment settings.")));
   }, []);
@@ -756,18 +772,22 @@ function PaymentProviderSettings() {
     setError("");
     setMessage("");
     try {
-      const body = await api<{ paymentProvider: PaymentProvider }>("/api/v1/finance/payment-provider", {
-        method: "PUT",
-        body: JSON.stringify({
-          mode,
-          ...(secretKey.trim() ? { secretKey: secretKey.trim() } : {}),
-          ...(webhookSecret.trim() ? { webhookSecret: webhookSecret.trim() } : {}),
-        }),
-      });
-      setProvider(body.paymentProvider);
+      const body = await api<{ paymentProvider: PaymentProvider; readiness: StripeReadiness }>(
+        "/api/v1/finance/payment-provider",
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            mode,
+            ...(secretKey.trim() ? { secretKey: secretKey.trim() } : {}),
+            ...(webhookSecret.trim() ? { webhookSecret: webhookSecret.trim() } : {}),
+          }),
+        },
+      );
+      applyPayload(body);
       setSecretKey("");
       setWebhookSecret("");
-      setMessage("Payment settings saved. Secret keys are stored encrypted and are not shown again.");
+      setConfirmLive(false);
+      setMessage("Payment settings saved. Secret keys are stored encrypted and are not shown again. Enabling LIVE mode is a separate step.");
     } catch (err) {
       setError(userFacingError(err as Error, "Could not save payment settings."));
     } finally {
@@ -781,12 +801,12 @@ function PaymentProviderSettings() {
     setError("");
     setMessage("");
     try {
-      const body = await api<{ result: string; paymentProvider: PaymentProvider }>("/api/v1/finance/payment-provider/test", {
-        method: "POST",
-        body: "{}",
-      });
-      setProvider(body.paymentProvider);
-      if (body.result === "connected") setMessage("Stripe connection succeeded.");
+      const body = await api<{ result: string; paymentProvider: PaymentProvider; readiness: StripeReadiness }>(
+        "/api/v1/finance/payment-provider/test",
+        { method: "POST", body: "{}" },
+      );
+      applyPayload(body);
+      if (body.result === "connected") setMessage("Stripe connection succeeded. No charge was created.");
       else if (body.result === "configuration_incomplete") setError("Configuration incomplete. Save a Stripe secret key first.");
       else setError("Stripe authentication failed. Check the secret key and try again.");
     } catch (err) {
@@ -798,15 +818,23 @@ function PaymentProviderSettings() {
 
   async function setEnabled(enabled: boolean) {
     if (!canManage) return;
+    if (enabled && provider?.mode === "live" && !confirmLive) {
+      setError("Confirm that LIVE mode processes real payments before enabling.");
+      return;
+    }
     setBusy(true);
     setError("");
     setMessage("");
     try {
-      const body = await api<{ paymentProvider: PaymentProvider }>(
+      const body = await api<{ paymentProvider: PaymentProvider; readiness: StripeReadiness }>(
         enabled ? "/api/v1/finance/payment-provider/enable" : "/api/v1/finance/payment-provider/disable",
-        { method: "POST", body: "{}" },
+        {
+          method: "POST",
+          body: JSON.stringify(enabled && provider?.mode === "live" ? { confirmLivePayments: true } : {}),
+        },
       );
-      setProvider(body.paymentProvider);
+      applyPayload(body);
+      setConfirmLive(false);
       setMessage(enabled ? "Stripe is enabled for this school." : "Stripe is disabled for this school.");
     } catch (err) {
       setError(userFacingError(err as Error, "Could not update Stripe."));
@@ -826,10 +854,19 @@ function PaymentProviderSettings() {
       </p>
       {message ? <Alert tone="success">{message}</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
+      {mode === "live" || provider.mode === "live" ? (
+        <Alert tone="danger">
+          LIVE MODE: real card payments will be processed. Switching Test → Live requires a new live secret key and
+          webhook signing secret. Enable only after this school’s operational data is ready and the Stripe account
+          identity has been verified.
+        </Alert>
+      ) : null}
       <p>
         <strong>Payment provider:</strong> Stripe{" "}
         <Badge tone={STATUS_TONE[provider.connectionStatus]}>{STATUS_LABEL[provider.connectionStatus]}</Badge>
         {provider.enabled ? <Badge tone="success">Enabled</Badge> : <Badge tone="neutral">Disabled</Badge>}
+        {provider.mode === "live" ? <Badge tone="danger">Live</Badge> : null}
+        {provider.mode === "test" ? <Badge tone="warning">Test</Badge> : null}
       </p>
       <dl className="stack">
         {provider.displayName ? (
@@ -847,8 +884,8 @@ function PaymentProviderSettings() {
           <dd>{provider.secretKeyConfigured ? provider.secretKeyHint ?? "Configured" : "Not configured"}</dd>
         </div>
         <div>
-          <dt>Webhook signing secret</dt>
-          <dd>{provider.webhookSecretConfigured ? "Configured" : "Not configured"}</dd>
+          <dt>Webhook</dt>
+          <dd>{provider.webhookSecretConfigured ? "Signing secret configured" : "Not configured"}</dd>
         </div>
         {provider.webhookUrl ? (
           <div>
@@ -879,9 +916,39 @@ function PaymentProviderSettings() {
           </div>
         ) : null}
       </dl>
+      {readiness ? (
+        <div className="stack">
+          <p>
+            <strong>Configuration:</strong>{" "}
+            {readiness.liveReady
+              ? "LIVE ready"
+              : provider.mode === "live"
+                ? "LIVE not ready"
+                : readiness.testConfigured
+                  ? "Test configured"
+                  : "Incomplete"}
+          </p>
+          <ul className="plain-list">
+            {readiness.checks
+              .filter((check) => provider.mode === "live" || mode === "live" || (check.key !== "mode_live" && check.key !== "secret_live_shape" && check.key !== "connection_tested"))
+              .map((check) => (
+                <li key={check.key}>
+                  {check.ok ? "Ready" : "Missing"} — {check.label}
+                </li>
+              ))}
+          </ul>
+          {readiness.warnings.length > 0 ? (
+            <Alert tone="warning">
+              {readiness.warnings.map((warning) => (
+                <div key={warning}>{warning}</div>
+              ))}
+            </Alert>
+          ) : null}
+        </div>
+      ) : null}
       {canManage ? (
         <form className="stack" onSubmit={save}>
-          <FormField label="Mode" hint="Use Test while connecting a Stripe sandbox. Live keys must be marked Live.">
+          <FormField label="Mode" hint="Use Test while connecting a Stripe sandbox. Live keys must be marked Live. Switching Test → Live requires replacing both keys.">
             <select value={mode} onChange={(event) => setMode(event.target.value as "test" | "live")}>
               <option value="test">Test</option>
               <option value="live">Live</option>
@@ -911,6 +978,16 @@ function PaymentProviderSettings() {
               placeholder={provider.webhookSecretConfigured ? "••••••••" : "whsec_…"}
             />
           </FormField>
+          {provider.mode === "live" && !provider.enabled ? (
+            <label className="row">
+              <input
+                type="checkbox"
+                checked={confirmLive}
+                onChange={(event) => setConfirmLive(event.target.checked)}
+              />
+              <span>I understand that LIVE mode processes real payments.</span>
+            </label>
+          ) : null}
           <div className="row">
             <Button type="submit" disabled={busy}>
               Save Stripe settings
@@ -923,7 +1000,16 @@ function PaymentProviderSettings() {
                 Disable Stripe
               </Button>
             ) : (
-              <Button type="button" disabled={busy || !provider.secretKeyConfigured || !provider.webhookSecretConfigured} onClick={() => setEnabled(true)}>
+              <Button
+                type="button"
+                disabled={
+                  busy ||
+                  !provider.secretKeyConfigured ||
+                  !provider.webhookSecretConfigured ||
+                  (provider.mode === "live" && !confirmLive)
+                }
+                onClick={() => setEnabled(true)}
+              >
                 Enable Stripe
               </Button>
             )}

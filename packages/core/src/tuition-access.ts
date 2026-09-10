@@ -30,6 +30,8 @@ import { writeAudit } from "./academic.js";
 import { AppError, isPgUniqueViolation } from "./errors.js";
 import { assertPermission, notFound } from "./permissions.js";
 import { nextFinanceReference } from "./payments-access.js";
+import { loadOrganisationPaymentProviderConfig } from "./org-payment-provider.js";
+import { isProviderRefundEvent, type PaymentWebhookSettlement, type ProviderEvent } from "./payment-provider.js";
 import { guardianChildIds } from "./students-access.js";
 import {
   financeInvoiceIssuedMail,
@@ -3470,16 +3472,96 @@ export async function recordInvoicePayment(
   return mapInvoicePayment(inserted.rows[0] as Record<string, unknown>);
 }
 
+async function invoicePaymentIsStripeCard(
+  client: Client,
+  organisationId: string,
+  payment: Record<string, unknown>,
+): Promise<boolean> {
+  if (String(payment.method) !== "card") return false;
+  const external = String(payment.external_reference ?? "");
+  if (external.startsWith("pi_") || external.startsWith("ch_")) return true;
+  const linked = await client.query(
+    `select 1
+       from school_payment_receipts r
+       join school_payment_transactions t on t.id = r.transaction_id
+      where r.organisation_id = $1
+        and r.invoice_payment_id = $2
+        and t.provider_key = 'stripe'
+      limit 1`,
+    [organisationId, payment.id],
+  );
+  return (linked.rowCount ?? 0) > 0;
+}
+
+async function invoiceSucceededPaymentSplit(
+  client: Client,
+  organisationId: string,
+  invoiceId: string,
+): Promise<{ stripeCardMinor: number; offlineMinor: number }> {
+  const payments = await client.query(
+    `select * from school_invoice_payments
+      where organisation_id = $1 and invoice_id = $2 and status = 'succeeded'
+      for update`,
+    [organisationId, invoiceId],
+  );
+  let stripeCardMinor = 0;
+  let offlineMinor = 0;
+  for (const payment of payments.rows) {
+    const amount = Number((payment as Record<string, unknown>).amount_minor);
+    if (await invoicePaymentIsStripeCard(client, organisationId, payment as Record<string, unknown>)) {
+      stripeCardMinor += amount;
+    } else {
+      offlineMinor += amount;
+    }
+  }
+  return { stripeCardMinor, offlineMinor };
+}
+
+async function invoiceLocalRefundCreditMinor(
+  client: Client,
+  organisationId: string,
+  invoiceId: string,
+): Promise<number> {
+  const credits = await client.query<{ amount_minor: string }>(
+    `select amount_minor::text as amount_minor
+       from school_invoice_credits
+      where organisation_id = $1
+        and invoice_id = $2
+        and kind = 'refund'
+        and status = 'applied'
+        and provider_refund_id is null
+      for update`,
+    [organisationId, invoiceId],
+  );
+  return credits.rows.reduce((sum, row) => sum + Number(row.amount_minor), 0);
+}
+
 export async function reverseInvoicePayment(
   client: Client,
   input: { organisationId: string; actorUserId: string; paymentId: string; reason: string },
 ) {
+  const found = await client.query(
+    `select invoice_id from school_invoice_payments where id = $1 and organisation_id = $2`,
+    [input.paymentId, input.organisationId],
+  );
+  if (!found.rows[0]) notFound();
+  await client.query(`select id from school_invoices where id = $1 and organisation_id = $2 for update`, [
+    found.rows[0].invoice_id,
+    input.organisationId,
+  ]);
   const payment = await client.query(
     `select * from school_invoice_payments where id = $1 and organisation_id = $2 for update`,
     [input.paymentId, input.organisationId],
   );
   if (!payment.rows[0]) notFound();
   if (payment.rows[0].status === "reversed") return mapInvoicePayment(payment.rows[0] as Record<string, unknown>);
+  if (await invoicePaymentIsStripeCard(client, input.organisationId, payment.rows[0] as Record<string, unknown>)) {
+    throw new AppError(
+      409,
+      "stripe_refund_via_dashboard",
+      "Stripe card payments must be refunded in the Stripe Dashboard. LuvLearn records the refund when Stripe confirms it.",
+    );
+  }
   await client.query(
     `update school_invoice_payments
         set status = 'reversed', reversed_by = $3, reversed_at = now(), reverse_reason = $4
@@ -3515,19 +3597,47 @@ export async function createInvoiceCredit(
     kind: string;
     amountMinor: number;
     reason: string;
+    fromProviderWebhook?: boolean;
+    providerRefundId?: string | null;
   },
 ) {
   if (!isSchoolCreditKind(input.kind)) {
     throw new AppError(400, "validation_failed", "Invalid credit kind");
   }
+  const providerRefundId = input.providerRefundId?.trim() || null;
+  if (providerRefundId) {
+    const existing = await client.query(
+      `select * from school_invoice_credits
+        where organisation_id = $1 and provider_refund_id = $2`,
+      [input.organisationId, providerRefundId],
+    );
+    if (existing.rows[0]) return mapCredit(existing.rows[0] as Record<string, unknown>);
+  }
+  let invoice: Record<string, unknown> | null = null;
   if (input.invoiceId) {
-    const invoice = await refreshInvoiceStatus(client, input.organisationId, input.invoiceId);
+    invoice = await refreshInvoiceStatus(client, input.organisationId, input.invoiceId);
     if (String(invoice.billing_account_id) !== input.billingAccountId) {
       throw new AppError(400, "validation_failed", "Credit must belong to the invoice family account");
     }
     if (["void", "draft"].includes(String(invoice.status))) {
       throw new AppError(409, "invalid_status_transition", "This invoice cannot accept credits");
     }
+  }
+  if (input.kind === "refund" && !input.fromProviderWebhook && input.invoiceId) {
+    const split = await invoiceSucceededPaymentSplit(client, input.organisationId, input.invoiceId);
+    if (split.stripeCardMinor > 0) {
+      const localAlready = await invoiceLocalRefundCreditMinor(client, input.organisationId, input.invoiceId);
+      const remainingOffline = Math.max(0, split.offlineMinor - localAlready);
+      if (input.amountMinor > remainingOffline) {
+        throw new AppError(
+          409,
+          "stripe_refund_via_dashboard",
+          "Stripe card payments must be refunded in the Stripe Dashboard. LuvLearn records the refund when Stripe confirms it.",
+        );
+      }
+    }
+  }
+  if (invoice) {
     const remainingAgainstInvoice =
       Number(invoice.total_minor) - Number(invoice.credit_total_minor ?? 0);
     const outstanding = Number(invoice.outstanding_minor);
@@ -3542,24 +3652,41 @@ export async function createInvoiceCredit(
   }
   const settings = await loadFinanceSettings(client, input.organisationId);
   const reference = await nextFinanceReference(client, input.organisationId, "credit");
-  const created = await client.query(
-    `insert into school_invoice_credits (
-       organisation_id, billing_account_id, invoice_id, reference, kind, amount_minor,
-       currency, reason, created_by
-     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-     returning *`,
-    [
-      input.organisationId,
-      input.billingAccountId,
-      input.invoiceId ?? null,
-      reference,
-      input.kind,
-      input.amountMinor,
-      settings.currency,
-      input.reason,
-      input.actorUserId,
-    ],
-  );
+  let created: pg.QueryResult | undefined;
+  try {
+    created = await client.query(
+      `insert into school_invoice_credits (
+         organisation_id, billing_account_id, invoice_id, reference, kind, amount_minor,
+         currency, reason, created_by, provider_refund_id
+       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       returning *`,
+      [
+        input.organisationId,
+        input.billingAccountId,
+        input.invoiceId ?? null,
+        reference,
+        input.kind,
+        input.amountMinor,
+        settings.currency,
+        input.reason,
+        input.actorUserId,
+        providerRefundId,
+      ],
+    );
+  } catch (error) {
+    if (providerRefundId && isPgUniqueViolation(error, "school_invoice_credits_provider_refund_uidx")) {
+      const existing = await client.query(
+        `select * from school_invoice_credits
+          where organisation_id = $1 and provider_refund_id = $2`,
+        [input.organisationId, providerRefundId],
+      );
+      if (existing.rows[0]) return mapCredit(existing.rows[0] as Record<string, unknown>);
+    }
+    throw error;
+  }
+  if (!created?.rows[0]) {
+    throw new AppError(409, "conflict", "Resource already exists");
+  }
   if (input.invoiceId) {
     await client.query(
       `update school_invoices
@@ -3574,10 +3701,10 @@ export async function createInvoiceCredit(
     actorUserId: input.actorUserId,
     action: "finance.credit.created",
     entityType: "school_invoice_credit",
-    entityId: String(created.rows[0]!.id),
+    entityId: String(created.rows[0].id),
     after: { reference, kind: input.kind, amountMinor: input.amountMinor, invoiceId: input.invoiceId ?? null },
   });
-  await queueRefundIssuedMail(client, input.organisationId, String(created.rows[0]!.id), input.billingAccountId);
+  await queueRefundIssuedMail(client, input.organisationId, String(created.rows[0].id), input.billingAccountId);
   return mapCredit(created.rows[0] as Record<string, unknown>);
 }
 
@@ -5423,6 +5550,7 @@ export async function createInvoiceCheckoutSession(
     amountMinor: amount,
     currency: String(invoice.currency),
     title: `Invoice ${String(invoice.reference)}`,
+    schoolName: (await loadSchoolFinanceProfile(client, input.organisationId)).schoolName,
     successUrl: input.successUrl,
     cancelUrl: input.cancelUrl,
     idempotencyKey,
@@ -5444,14 +5572,30 @@ export async function createInvoiceCheckoutSession(
     `update school_payment_transactions set provider_session_id = $3 where id = $1 and organisation_id = $2`,
     [tx.rows[0]!.id, input.organisationId, created.providerSessionId],
   );
+  const providerConfig = await loadOrganisationPaymentProviderConfig(client, input.organisationId);
+  const paymentMode = input.provider.key === "stripe" ? providerConfig?.mode ?? "test" : "test";
+  await client.query(
+    `update school_payment_transactions
+        set metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object('mode', $3::text, 'livemode', $4::text)
+      where id = $1 and organisation_id = $2`,
+    [tx.rows[0]!.id, input.organisationId, paymentMode, paymentMode === "live" ? "true" : "false"],
+  );
   return { session: session.rows[0] as Record<string, unknown>, checkoutUrl: created.checkoutUrl };
+}
+
+function webhookSettlement(
+  result: PaymentWebhookSettlement["result"],
+  code?: string,
+  message?: string,
+): PaymentWebhookSettlement {
+  return code ? { result, code, message } : { result };
 }
 
 export async function settleInvoiceProviderEvent(
   client: Client,
   input: {
     organisationId: string;
-    event: import("./payment-provider.js").ProviderEvent;
+    event: ProviderEvent;
     session: {
       session_id: string;
       invoice_id: string;
@@ -5460,34 +5604,42 @@ export async function settleInvoiceProviderEvent(
       currency: string;
     };
   },
-): Promise<{ rejected?: { code: string; message: string } }> {
+): Promise<PaymentWebhookSettlement> {
   const tx = await client.query(
     `select * from school_payment_transactions where id = $1 and organisation_id = $2 for update`,
     [input.session.transaction_id, input.organisationId],
   );
   if (!tx.rows[0]) throw new AppError(400, "unknown_reference", "Unknown payment reference");
   const transaction = tx.rows[0] as Record<string, unknown>;
-  if (input.event.amountMinor != null && Number(input.event.amountMinor) !== Number(transaction.amount_minor)) {
-    await failInvoiceCheckout(client, {
-      organisationId: input.organisationId,
-      transactionId: String(transaction.id),
-      sessionId: input.session.session_id,
-      sessionStatus: "failed",
-    });
-    return { rejected: { code: "amount_mismatch", message: "Provider amount does not match the session" } };
+  if (
+    !isProviderRefundEvent(input.event) &&
+    input.event.amountMinor != null &&
+    Number(input.event.amountMinor) !== Number(transaction.amount_minor)
+  ) {
+    if (transaction.status === "pending") {
+      await failInvoiceCheckout(client, {
+        organisationId: input.organisationId,
+        transactionId: String(transaction.id),
+        sessionId: input.session.session_id,
+        sessionStatus: "failed",
+      });
+    }
+    return webhookSettlement("manual_review", "amount_mismatch", "Provider amount does not match the session");
   }
   if (input.event.currency && input.event.currency.toUpperCase() !== String(transaction.currency).toUpperCase()) {
-    await failInvoiceCheckout(client, {
-      organisationId: input.organisationId,
-      transactionId: String(transaction.id),
-      sessionId: input.session.session_id,
-      sessionStatus: "failed",
-    });
-    return { rejected: { code: "currency_mismatch", message: "Provider currency does not match the session" } };
+    if (transaction.status === "pending") {
+      await failInvoiceCheckout(client, {
+        organisationId: input.organisationId,
+        transactionId: String(transaction.id),
+        sessionId: input.session.session_id,
+        sessionStatus: "failed",
+      });
+    }
+    return webhookSettlement("manual_review", "currency_mismatch", "Provider currency does not match the session");
   }
-  if (input.event.outcome === "ignored") return {};
+  if (input.event.outcome === "ignored") return webhookSettlement("ignored");
   if (input.event.outcome === "failed" || input.event.outcome === "cancelled") {
-    if (transaction.status !== "pending") return {};
+    if (transaction.status !== "pending") return webhookSettlement("noop");
     await client.query(
       `update school_payment_transactions
           set status = $3, failed_at = case when $3 = 'failed' then now() else failed_at end,
@@ -5500,12 +5652,21 @@ export async function settleInvoiceProviderEvent(
       input.organisationId,
       input.event.outcome === "cancelled" ? "cancelled" : "failed",
     ]);
-    return {};
+    return webhookSettlement("settled");
   }
   if (input.event.outcome === "refunded") {
+    const providerRefundId = input.event.providerRefundId?.trim() || null;
+    const amountMinor = input.event.amountMinor == null ? null : Number(input.event.amountMinor);
+    if (!providerRefundId || amountMinor == null || !Number.isFinite(amountMinor) || amountMinor <= 0) {
+      return webhookSettlement(
+        "manual_review",
+        "unknown_reference",
+        "Provider refund is missing a refund id or refunded amount",
+      );
+    }
     const invoiceMeta = await client.query<{ billing_account_id: string; created_by: string }>(
-      `select billing_account_id, created_by from school_invoices where id = $1`,
-      [input.session.invoice_id],
+      `select billing_account_id, created_by from school_invoices where id = $1 and organisation_id = $2`,
+      [input.session.invoice_id, input.organisationId],
     );
     const actorUserId = transaction.payer_user_id
       ? String(transaction.payer_user_id)
@@ -5513,27 +5674,80 @@ export async function settleInvoiceProviderEvent(
         ? String(invoiceMeta.rows[0].created_by)
         : null;
     if (!actorUserId || !invoiceMeta.rows[0]?.billing_account_id) {
-      throw new AppError(400, "unknown_reference", "Unknown payment reference");
+      return webhookSettlement("manual_review", "unknown_reference", "Unknown payment reference");
     }
-    await createInvoiceCredit(client, {
-      organisationId: input.organisationId,
-      actorUserId,
-      billingAccountId: String(invoiceMeta.rows[0].billing_account_id),
-      invoiceId: input.session.invoice_id,
-      kind: "refund",
-      amountMinor: Number(input.event.amountMinor ?? transaction.amount_minor),
-      reason: "Provider refund",
-    });
-    return {};
+    try {
+      await createInvoiceCredit(client, {
+        organisationId: input.organisationId,
+        actorUserId,
+        billingAccountId: String(invoiceMeta.rows[0].billing_account_id),
+        invoiceId: input.session.invoice_id,
+        kind: "refund",
+        amountMinor,
+        reason: "Provider refund",
+        fromProviderWebhook: true,
+        providerRefundId,
+      });
+    } catch (error) {
+      if (error instanceof AppError && (error.code === "credit_exceeds_outstanding" || error.code === "overpayment")) {
+        return webhookSettlement("manual_review", error.code, error.message);
+      }
+      throw error;
+    }
+    return webhookSettlement("settled");
   }
-  if (input.event.outcome !== "succeeded") return {};
-  if (transaction.status !== "pending") return {};
-  await client.query(
+  if (input.event.outcome !== "succeeded") return webhookSettlement("ignored");
+
+  const providerPaymentId = input.event.providerPaymentId ?? null;
+  if (providerPaymentId) {
+    const existingPayment = await client.query(
+      `select id from school_invoice_payments
+        where organisation_id = $1 and method = 'card' and external_reference = $2 and status = 'succeeded'`,
+      [input.organisationId, providerPaymentId],
+    );
+    if (existingPayment.rows[0]) return webhookSettlement("noop");
+    const existingTx = await client.query(
+      `select id, status from school_payment_transactions
+        where organisation_id = $1 and provider_key = $2 and provider_payment_id = $3 and status = 'succeeded'`,
+      [input.organisationId, transaction.provider_key, providerPaymentId],
+    );
+    if (existingTx.rows[0]) return webhookSettlement("noop");
+  }
+  if (transaction.status === "succeeded") return webhookSettlement("noop");
+
+  await client.query(`select id from school_invoices where id = $1 and organisation_id = $2 for update`, [
+    input.session.invoice_id,
+    input.organisationId,
+  ]);
+  const invoice = await refreshInvoiceStatus(client, input.organisationId, input.session.invoice_id);
+  const outstanding = Number(invoice.outstanding_minor);
+  const amount = Number(transaction.amount_minor);
+  const payable = ["issued", "partially_paid", "overdue"].includes(String(invoice.status));
+  if (!payable && outstanding <= 0) {
+    return webhookSettlement(
+      "manual_review",
+      "duplicate_payment",
+      "A payment was already recorded for this invoice",
+    );
+  }
+  if (!payable) {
+    return webhookSettlement("manual_review", "invoice_not_payable", "This invoice cannot accept the payment");
+  }
+  if (amount > outstanding) {
+    return webhookSettlement("manual_review", "overpayment", "This payment would exceed the amount outstanding");
+  }
+
+  const revived = await client.query(
     `update school_payment_transactions
-        set status = 'succeeded', paid_at = now(), provider_payment_id = $3
-      where id = $1 and organisation_id = $2 and status = 'pending'`,
-    [transaction.id, input.organisationId, input.event.providerPaymentId ?? null],
+        set status = 'succeeded', paid_at = now(),
+            provider_payment_id = coalesce($3, provider_payment_id),
+            failed_at = null,
+            cancelled_at = null
+      where id = $1 and organisation_id = $2 and status in ('pending', 'failed', 'cancelled')
+      returning id`,
+    [transaction.id, input.organisationId, providerPaymentId],
   );
+  if (!revived.rows[0]) return webhookSettlement("noop");
   await client.query(`update school_payment_sessions set status = 'completed' where id = $1 and organisation_id = $2`, [
     input.session.session_id,
     input.organisationId,
@@ -5542,18 +5756,18 @@ export async function settleInvoiceProviderEvent(
     organisationId: input.organisationId,
     actorUserId: String(transaction.payer_user_id),
     invoiceId: input.session.invoice_id,
-    amountMinor: Number(transaction.amount_minor),
+    amountMinor: amount,
     method: "card",
     receivedOn: new Date().toISOString().slice(0, 10),
-    externalReference: input.event.providerPaymentId ?? String(transaction.reference),
-    idempotencyKey: `provider:${input.event.eventId}`,
+    externalReference: providerPaymentId ?? String(transaction.reference),
+    idempotencyKey: providerPaymentId ? `provider:pi:${providerPaymentId}` : `provider:evt:${input.event.eventId}`,
   });
   await client.query(
     `update school_payment_receipts set transaction_id = $3
       where organisation_id = $1 and invoice_payment_id = $2 and transaction_id is null`,
     [input.organisationId, payment.id, transaction.id],
   );
-  return {};
+  return webhookSettlement("settled");
 }
 
 export async function loadStudentFinance(client: Client, organisationId: string, actor: Actor) {

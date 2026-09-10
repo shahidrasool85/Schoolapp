@@ -18,6 +18,7 @@ export type CreatePaymentSessionInput = {
   amountMinor: number;
   currency: string;
   title: string;
+  schoolName?: string | null;
   successUrl: string;
   cancelUrl: string;
   idempotencyKey?: string | null;
@@ -52,8 +53,17 @@ export type ProviderEvent = {
   providerRefundId?: string | null;
   amountMinor?: number | null;
   currency?: string | null;
+  livemode?: boolean | null;
   outcome: "succeeded" | "failed" | "cancelled" | "refunded" | "ignored";
 };
+
+export type PaymentWebhookSettlement = {
+  result: "settled" | "noop" | "ignored" | "manual_review";
+  code?: string;
+  message?: string;
+};
+
+export const STRIPE_CHECKOUT_PRODUCT_DESCRIPTION = "LuvLearn school fees";
 
 export type PaymentProvider = {
   key: PaymentProviderKey;
@@ -224,6 +234,22 @@ function logStripeCheckoutFailure(log: StripeCheckoutFailureLog): void {
   }
 }
 
+export function stripeCheckoutSafeText(value: string, max: number): string {
+  return value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+export function stripeCheckoutProductDescription(schoolName?: string | null): string {
+  const school = schoolName ? stripeCheckoutSafeText(schoolName, 80) : "";
+  if (school) return stripeCheckoutSafeText(`${school} · ${STRIPE_CHECKOUT_PRODUCT_DESCRIPTION}`, 500);
+  return STRIPE_CHECKOUT_PRODUCT_DESCRIPTION;
+}
+
+export function stripeCheckoutSubmitMessage(schoolName?: string | null): string {
+  const school = schoolName ? stripeCheckoutSafeText(schoolName, 80) : "";
+  if (school) return stripeCheckoutSafeText(`Pay ${school} school fees`, 1200);
+  return "Pay LuvLearn school fees";
+}
+
 /**
  * Platform/runtime defaults. Per-school Stripe secret key and webhook secret
  * are stored encrypted on school_payment_provider_configs and are never read
@@ -349,7 +375,16 @@ export class StripePaymentProvider implements PaymentProvider {
     body.set("line_items[0][quantity]", "1");
     body.set("line_items[0][price_data][currency]", input.currency.toLowerCase());
     body.set("line_items[0][price_data][unit_amount]", String(input.amountMinor));
-    body.set("line_items[0][price_data][product_data][name]", input.title);
+    body.set("line_items[0][price_data][product_data][name]", stripeCheckoutSafeText(input.title, 250) || "School fees");
+    const description = stripeCheckoutProductDescription(input.schoolName);
+    if (description) {
+      body.set("line_items[0][price_data][product_data][description]", description);
+      body.set("payment_intent_data[description]", description);
+    }
+    const submitMessage = stripeCheckoutSubmitMessage(input.schoolName);
+    if (submitMessage) {
+      body.set("custom_text[submit][message]", submitMessage);
+    }
     body.set("metadata[schoolapp_organisation_id]", input.organisationId);
     if (input.chargeId) body.set("metadata[schoolapp_charge_id]", input.chargeId);
     if (input.invoiceId) body.set("metadata[schoolapp_invoice_id]", input.invoiceId);
@@ -496,6 +531,7 @@ export function parseFakePaymentEvent(rawBody: string): ProviderEvent {
     providerRefundId: parsed.providerRefundId ? String(parsed.providerRefundId) : null,
     amountMinor: parsed.amountMinor == null ? null : Number(parsed.amountMinor),
     currency: parsed.currency ? String(parsed.currency) : null,
+    livemode: false,
     outcome: outcome as ProviderEvent["outcome"],
   };
 }
@@ -528,6 +564,55 @@ export function verifyStripeSignature(rawBody: string, header: string | null, se
   } catch {
     throw new AppError(400, "validation_failed", "Invalid provider event");
   }
+}
+
+export function isProviderRefundEvent(
+  event: Pick<ProviderEvent, "outcome" | "eventType" | "providerRefundId">,
+): boolean {
+  return (
+    event.outcome === "refunded" ||
+    Boolean(event.providerRefundId) ||
+    event.eventType.includes("refund")
+  );
+}
+
+function stripeRefundObject(
+  object: Record<string, unknown>,
+): { id: string | null; amountMinor: number | null } | null {
+  const refunds = object.refunds as { data?: Array<Record<string, unknown>> } | undefined;
+  const latest = Array.isArray(refunds?.data) ? refunds.data[0] : undefined;
+  if (latest) {
+    const id = latest.id != null && String(latest.id) ? String(latest.id) : null;
+    const amountMinor = latest.amount != null ? Number(latest.amount) : null;
+    return { id, amountMinor: Number.isFinite(amountMinor) ? amountMinor : null };
+  }
+  if (typeof object.refund === "string" && object.refund.startsWith("re_")) {
+    return { id: object.refund, amountMinor: null };
+  }
+  return null;
+}
+
+function stripeEventRefundId(type: string, object: Record<string, unknown>): string | null {
+  if (type === "refund.created" || type === "refund.updated" || type === "charge.refund.updated") {
+    return object.id != null && String(object.id) ? String(object.id) : null;
+  }
+  if (type === "charge.refunded") {
+    return stripeRefundObject(object)?.id ?? null;
+  }
+  return null;
+}
+
+function stripeEventAmountMinor(type: string, object: Record<string, unknown>): number | null {
+  if (type === "refund.created" || type === "refund.updated" || type === "charge.refund.updated") {
+    return object.amount != null && Number.isFinite(Number(object.amount)) ? Number(object.amount) : null;
+  }
+  if (type === "charge.refunded") {
+    const nested = stripeRefundObject(object)?.amountMinor ?? null;
+    return nested != null && Number.isFinite(nested) ? nested : null;
+  }
+  if (object.amount_total != null && Number.isFinite(Number(object.amount_total))) return Number(object.amount_total);
+  if (object.amount != null && Number.isFinite(Number(object.amount))) return Number(object.amount);
+  return null;
 }
 
 export function mapStripeEvent(event: Record<string, unknown>): ProviderEvent {
@@ -568,11 +653,22 @@ export function mapStripeEvent(event: Record<string, unknown>): ProviderEvent {
       ? sessionId
       : String((object.metadata as { schoolapp_session_id?: string } | undefined)?.schoolapp_session_id ?? "") || null,
     providerPaymentId: paymentIntent,
-    providerRefundId: type.includes("refund") ? String(object.id ?? "") : null,
-    amountMinor: object.amount_total != null ? Number(object.amount_total) : object.amount != null ? Number(object.amount) : null,
+    providerRefundId: stripeEventRefundId(type, object),
+    amountMinor: stripeEventAmountMinor(type, object),
     currency: object.currency ? String(object.currency).toUpperCase() : null,
+    livemode: typeof event.livemode === "boolean" ? event.livemode : null,
     outcome,
   };
+}
+
+export function assertStripeEventMatchesMode(event: ProviderEvent, mode: "test" | "live"): void {
+  if (typeof event.livemode !== "boolean") {
+    throw new AppError(400, "webhook_mode_mismatch", "The payment event mode does not match this school’s Stripe mode");
+  }
+  const eventMode = event.livemode ? "live" : "test";
+  if (eventMode !== mode) {
+    throw new AppError(400, "webhook_mode_mismatch", "The payment event mode does not match this school’s Stripe mode");
+  }
 }
 
 export function safeProviderMetadata(value: Record<string, unknown> | null | undefined): Record<string, unknown> {

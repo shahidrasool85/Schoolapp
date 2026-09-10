@@ -257,6 +257,18 @@ export function financeUserError(code: string): { status: number; code: string; 
       return { status: 503, code, message: "Online card payments are currently disabled" };
     case "test_live_mismatch":
       return { status: 400, code, message: "The Stripe secret key does not match the selected mode" };
+    case "live_enablement_not_confirmed":
+      return { status: 400, code, message: "Enabling LIVE mode requires confirming that real payments will be processed" };
+    case "live_not_ready":
+      return { status: 409, code, message: "This school is not ready to enable LIVE Stripe payments" };
+    case "webhook_mode_mismatch":
+      return { status: 400, code, message: "The payment event mode does not match this school’s Stripe mode" };
+    case "stripe_refund_via_dashboard":
+      return {
+        status: 409,
+        code,
+        message: "Stripe card payments must be refunded in the Stripe Dashboard. LuvLearn records the refund when Stripe confirms it.",
+      };
     case "stale_session":
       return { status: 409, code, message: "This payment session is no longer valid" };
     default:

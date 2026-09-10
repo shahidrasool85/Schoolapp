@@ -41,7 +41,20 @@ Never:
 
 After any school has stored payment credentials, operators must **preserve the same key**. Changing or losing the key makes existing encrypted school payment credentials unreadable. Checkout, refunds, webhooks, and connection tests for those schools fail closed.
 
-Key rotation is **not** currently implemented. Do not rotate or replace `SCHOOLAPP_SECRETS_ENCRYPTION_KEY` on a server that already has encrypted school Stripe blobs.
+## Key rotation
+
+Ciphertext is AES-256-GCM with prefix `v1:` (algorithm/format version). Existing school blobs keep this prefix. The active master key is `SCHOOLAPP_SECRETS_ENCRYPTION_KEY`. During a deliberate rotation window, `SCHOOLAPP_SECRETS_ENCRYPTION_KEY_PREVIOUS` may be set so old blobs still decrypt.
+
+Safe rotation (do this only as a planned operations change; never during Kingswood live enablement):
+
+1. Back up the current master key in the host secret store, separately from PostgreSQL.
+2. Generate a new 256-bit key. Set `SCHOOLAPP_SECRETS_ENCRYPTION_KEY` to the new key and `SCHOOLAPP_SECRETS_ENCRYPTION_KEY_PREVIOUS` to the old key. Restart app processes.
+3. Re-save each school’s Stripe secret key and webhook signing secret from the School Admin Online payments screen (or a controlled re-encrypt job). New writes use the current key. Plaintext is never persisted.
+4. Confirm every school can Test Stripe connection and that checkout/webhooks still work.
+5. Remove `SCHOOLAPP_SECRETS_ENCRYPTION_KEY_PREVIOUS` only after every blob decrypts with the new current key.
+6. Keep the previous key in the secret store for rollback until that confirmation is complete.
+
+Do not rotate by deleting the current key. Do not store either key in Git or PostgreSQL. Decrypt failures fail closed without logging key material.
 
 ## Consequences
 

@@ -596,8 +596,13 @@ describe("academic calendar, search and finance lifecycle", () => {
       },
       body: JSON.stringify(mismatchEvent),
     });
-    expect(mismatch.status).toBe(400);
-    expect((await json<{ error: { code?: string; message: string } }>(mismatch)).error.message).toMatch(/currency/i);
+    expect(mismatch.status).toBe(200);
+    const mismatchBody = await json<{ ok?: boolean; review?: boolean; error?: { code?: string; message: string } }>(
+      mismatch,
+    );
+    expect(mismatchBody.review).toBe(true);
+    expect(mismatchBody.error?.code).toBe("currency_mismatch");
+    expect(mismatchBody.error?.message).toMatch(/currency/i);
     const stillUnpaidAfterMismatch = await json<{ invoice: { outstandingMinor: number } }>(
       await app.request(`/api/v1/parent/finance/invoices/${childAInvoice.id}`, { headers: parentHdrs }),
     );

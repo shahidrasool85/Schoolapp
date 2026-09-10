@@ -3,8 +3,12 @@ import { AppError } from "./errors.js";
 
 /** Server-side master key for per-organisation credential encryption. Never commit a value. */
 export const SECRETS_ENCRYPTION_ENV = "SCHOOLAPP_SECRETS_ENCRYPTION_KEY";
+/** Previous master key during a deliberate rotation window. Never commit a value. */
+export const SECRETS_ENCRYPTION_PREVIOUS_ENV = "SCHOOLAPP_SECRETS_ENCRYPTION_KEY_PREVIOUS";
 
-const VERSION_PREFIX = "v1:";
+/** Algorithm/format version. Existing production blobs use this prefix with the current master key. */
+export const SECRETS_CIPHER_VERSION = "v1";
+const VERSION_PREFIX = `${SECRETS_CIPHER_VERSION}:`;
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
@@ -45,6 +49,33 @@ export function encryptSecret(plaintext: string, key: Buffer): string {
   const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
   return `${VERSION_PREFIX}${Buffer.concat([iv, ciphertext, tag]).toString("base64")}`;
+}
+
+export function secretsEncryptionPreviousKeyFromEnv(env: NodeJS.ProcessEnv = process.env): Buffer | null {
+  const raw = env[SECRETS_ENCRYPTION_PREVIOUS_ENV]?.trim();
+  if (!raw) return null;
+  return parseSecretsEncryptionKey(raw);
+}
+
+export function secretsCipherVersion(blob: string): string | null {
+  const match = /^v(\d+):/.exec(blob);
+  return match ? `v${match[1]}` : null;
+}
+
+/**
+ * Decrypt a stored organisation secret. Tries the current master key, then the
+ * previous key when `SCHOOLAPP_SECRETS_ENCRYPTION_KEY_PREVIOUS` is set (rotation window).
+ * Never logs or returns the key material.
+ */
+export function decryptOrganisationSecret(blob: string, env: NodeJS.ProcessEnv = process.env): string {
+  const current = requireSecretsEncryptionKey(env);
+  try {
+    return decryptSecret(blob, current);
+  } catch (error) {
+    const previous = secretsEncryptionPreviousKeyFromEnv(env);
+    if (!previous) throw error;
+    return decryptSecret(blob, previous);
+  }
 }
 
 export function decryptSecret(blob: string, key: Buffer): string {
@@ -123,7 +154,8 @@ export function looksLikeSecret(value: string): boolean {
     value.startsWith("rk_test_") ||
     value.startsWith("rk_live_") ||
     value.startsWith("whsec_") ||
-    value.startsWith("v1:")
+    value.startsWith("v1:") ||
+    /^(?:pi|seti|cs)_[A-Za-z0-9]+_secret_/.test(value)
   );
 }
 

@@ -180,6 +180,72 @@ describe("RLS catalog", () => {
     expect(result.rows.map((row) => row.indexname)).toEqual(["school_invoices_catchup_pupil_period_uidx"]);
   });
 
+  it("adds Stripe PaymentIntent uniqueness and webhook processing/manual_review states", async () => {
+    const indexes = await pools.owner.query<{ indexname: string }>(
+      `select indexname
+         from pg_indexes
+        where schemaname = 'public'
+          and tablename = 'school_invoice_payments'
+          and indexname = 'school_invoice_payments_stripe_pi_uidx'`,
+    );
+    expect(indexes.rows.map((row) => row.indexname)).toEqual(["school_invoice_payments_stripe_pi_uidx"]);
+    const statusCheck = await pools.owner.query<{ consrc: string }>(
+      `select pg_get_constraintdef(c.oid) as consrc
+         from pg_constraint c
+         join pg_class t on t.oid = c.conrelid
+        where t.relname = 'school_payment_provider_events'
+          and c.conname = 'school_payment_provider_events_status_check'`,
+    );
+    expect(statusCheck.rows[0]?.consrc).toContain("processing");
+    expect(statusCheck.rows[0]?.consrc).toContain("manual_review");
+  });
+
+  it("records finance catch-up 0064, invoice email 0065, webhook integrity 0066, then invoice refund ids 0067", async () => {
+    const applied = await pools.owner.query<{ filename: string }>(
+      `select filename
+         from schema_migrations
+        where filename in (
+          '0063_admissions_public_confirmation_integrity.sql',
+          '0064_finance_late_joiner_catchup.sql',
+          '0065_finance_invoice_email_setting.sql',
+          '0066_payment_webhook_integrity.sql',
+          '0067_invoice_credit_provider_refund.sql'
+        )
+        order by filename`,
+    );
+    expect(applied.rows.map((row) => row.filename)).toEqual([
+      "0063_admissions_public_confirmation_integrity.sql",
+      "0064_finance_late_joiner_catchup.sql",
+      "0065_finance_invoice_email_setting.sql",
+      "0066_payment_webhook_integrity.sql",
+      "0067_invoice_credit_provider_refund.sql",
+    ]);
+    const emailCol = await pools.owner.query<{ column_name: string }>(
+      `select column_name
+         from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'school_finance_settings'
+          and column_name = 'automatic_invoice_email_enabled'`,
+    );
+    expect(emailCol.rows.map((row) => row.column_name)).toEqual(["automatic_invoice_email_enabled"]);
+    const refundCol = await pools.owner.query<{ column_name: string }>(
+      `select column_name
+         from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'school_invoice_credits'
+          and column_name = 'provider_refund_id'`,
+    );
+    expect(refundCol.rows.map((row) => row.column_name)).toEqual(["provider_refund_id"]);
+    const refundIdx = await pools.owner.query<{ indexname: string }>(
+      `select indexname
+         from pg_indexes
+        where schemaname = 'public'
+          and tablename = 'school_invoice_credits'
+          and indexname = 'school_invoice_credits_provider_refund_uidx'`,
+    );
+    expect(refundIdx.rows.map((row) => row.indexname)).toEqual(["school_invoice_credits_provider_refund_uidx"]);
+  });
+
   it("grants the app role DML on finance tables", async () => {
     const result = await pools.owner.query<{ table_name: string; can_select: boolean }>(
       `select t.table_name, has_table_privilege('schoolapp_app', t.table_name, 'SELECT') as can_select

@@ -178,10 +178,11 @@ async function saveStripe(
   };
 }
 
-function checkoutEvent(input: { eventId: string; sessionId: string; paymentId: string; amountMinor: number }) {
+function checkoutEvent(input: { eventId: string; sessionId: string; paymentId: string; amountMinor: number; livemode?: boolean }) {
   return {
     id: input.eventId,
     type: "checkout.session.completed",
+    livemode: input.livemode ?? false,
     data: {
       object: {
         id: input.sessionId,

@@ -12,7 +12,6 @@ import { applyVatToEnteredAmount, parseVatLineTreatment, schoolVatPolicyFromSett
 import {
   allocateShareMinor,
   asIsoDate,
-  percentOfMinor,
   resolveCurrentBillingPeriod,
   studentFeeStatus,
 } from "./tuition.js";
@@ -97,19 +96,8 @@ function assertMinor(value: number): number {
 }
 
 function annualizeDiscountMinor(quote: PupilFeeQuote): number {
-  let total = 0;
   const count = quote.instalmentCount && quote.instalmentCount > 0 ? quote.instalmentCount : 1;
-  const annual = quote.annualAmountMinor ?? 0;
-  for (const discount of quote.appliedDiscounts) {
-    if (discount.amountType === "percent") {
-      total += percentOfMinor(annual, discount.percentBps ?? 0);
-    } else if (discount.amountMinor != null) {
-      total += discount.amountMinor * count;
-    } else {
-      total += discount.calculatedMinor * count;
-    }
-  }
-  return total;
+  return assertMinor(quote.discountTotalMinor * count);
 }
 
 function discountLabelOf(quote: PupilFeeQuote): string | null {
@@ -183,6 +171,7 @@ export async function listStudentFees(
       })
     : null;
 
+  const today = new Date().toISOString().slice(0, 10);
   await client.query(
     `update school_invoices
         set status = 'overdue'
@@ -190,7 +179,7 @@ export async function listStudentFees(
         and status in ('issued', 'partially_paid')
         and outstanding_minor > 0
         and $2::date > (due_date + $3::int)`,
-    [organisationId, asOf, settings.gracePeriodDays],
+    [organisationId, today, settings.gracePeriodDays],
   );
 
   const enrolments = await client.query<{
@@ -205,16 +194,21 @@ export async function listStudentFees(
             sp.legal_name,
             se.year_group_id,
             yg.name as year_group_name,
-            cm.class_id,
-            cl.name as class_name
+            form_class.class_id,
+            form_class.class_name
        from student_enrolments se
        join student_profiles sp on sp.id = se.student_profile_id
        left join year_groups yg on yg.id = se.year_group_id
-       left join class_memberships cm
-         on cm.student_profile_id = sp.id
-        and cm.academic_year_id = se.academic_year_id
-        and cm.ended_on is null
-       left join classes cl on cl.id = cm.class_id
+       left join lateral (
+         select cm.class_id, cl.name as class_name
+           from class_memberships cm
+           join classes cl on cl.id = cm.class_id and cl.class_type = 'form'
+          where cm.student_profile_id = sp.id
+            and cm.academic_year_id = se.academic_year_id
+            and cm.ended_on is null
+          order by cl.name, cl.id
+          limit 1
+       ) form_class on true
       where se.organisation_id = $1
         and ($2::uuid is null or se.academic_year_id = $2)
         and se.is_primary
@@ -462,7 +456,7 @@ export async function listStudentFees(
       .length,
   };
 
-  let missingCount = 0;
+  const missingPupils = new Set<string>();
   let missingRunId: string | null = null;
   let missingRunReference: string | null = null;
   const confirmed = await client.query<{ id: string; reference: string }>(
@@ -478,8 +472,8 @@ export async function listStudentFees(
         organisationId,
         billingRunId: run.id,
       });
-      if (preview.missingEligible.length > 0) {
-        missingCount += preview.missingEligible.length;
+      for (const item of preview.missingEligible) {
+        missingPupils.add(item.studentProfileId);
         if (!missingRunId) {
           missingRunId = run.id;
           missingRunReference = run.reference;
@@ -499,7 +493,7 @@ export async function listStudentFees(
     summary,
     pupils: filtered,
     missingInvoices: {
-      count: missingCount,
+      count: missingPupils.size,
       billingRunId: missingRunId,
       billingRunReference: missingRunReference,
       href: missingRunId ? `/school/finance/billing-runs/${missingRunId}` : null,

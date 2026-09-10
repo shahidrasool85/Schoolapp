@@ -278,6 +278,31 @@ describe("student fees UX and invoice notifications", () => {
     expect(listed.summary.expectedAnnualFeesMinor).toBeGreaterThan(0);
     expect(Number.isInteger(listed.summary.expectedAnnualFeesMinor)).toBe(true);
 
+    const teaching = await json<{ class: { id: string } }>(
+      await app.request("/api/v1/classes", {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({
+          name: "Year 3 Maths",
+          academicYearId: seeded.yearId,
+          yearGroupId: seeded.year3Id,
+          classType: "teaching",
+        }),
+      }),
+    );
+    const teachingMembership = await app.request(`/api/v1/students/${eshaal.student.id}/class-memberships`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ classId: teaching.class.id, startedOn: "2026-09-01" }),
+    });
+    expect(teachingMembership.status).toBe(201);
+    const afterTeaching = await json<FeesBody>(
+      await app.request("/api/v1/finance/student-fees?asOf=2026-09-10&sort=name", { headers: hdrs }),
+    );
+    expect(afterTeaching.pupils.filter((row) => row.studentProfileId === eshaal.student.id)).toHaveLength(1);
+    expect(afterTeaching.pupils.find((row) => row.studentProfileId === eshaal.student.id)?.className).toBe("3A");
+    expect(afterTeaching.summary.expectedAnnualFeesMinor).toBe(listed.summary.expectedAnnualFeesMinor);
+
     const yearFilter = await json<FeesBody>(
       await app.request(`/api/v1/finance/student-fees?asOf=2026-09-10&yearGroupId=${seeded.year3Id}`, {
         headers: hdrs,

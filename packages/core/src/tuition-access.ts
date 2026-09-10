@@ -3854,14 +3854,15 @@ export async function loadTuitionDashboard(client: Client, organisationId: strin
   let missingInvoiceCount = 0;
   let missingInvoiceRunId: string | null = null;
   let missingInvoiceRunReference: string | null = null;
+  const missingPupils = new Set<string>();
   for (const run of confirmedRuns.rows) {
     try {
       const preview = await previewMissingBillingRunInvoices(client, {
         organisationId,
         billingRunId: run.id,
       });
-      if (preview.missingEligible.length > 0) {
-        missingInvoiceCount += preview.missingEligible.length;
+      for (const item of preview.missingEligible) {
+        missingPupils.add(item.studentProfileId);
         if (!missingInvoiceRunId) {
           missingInvoiceRunId = run.id;
           missingInvoiceRunReference = run.reference;
@@ -3871,6 +3872,7 @@ export async function loadTuitionDashboard(client: Client, organisationId: strin
       // Confirmed runs that cannot be catch-up previewed are ignored on the overview.
     }
   }
+  missingInvoiceCount = missingPupils.size;
   return {
     settings,
     expectedFeesMinor: Number(invoiceTotals.rows[0]?.invoiced ?? 0),
@@ -4540,6 +4542,21 @@ export async function renderFinanceDocumentPreviewPdf(
 }
 
 async function payerContact(client: Client, organisationId: string, billingAccountId: string) {
+  const row = await client.query<{ email: string | null; full_name: string | null }>(
+    `select u.email, u.full_name
+       from school_billing_accounts a
+       left join users u on u.id = a.primary_payer_user_id
+      where a.id = $1 and a.organisation_id = $2`,
+    [billingAccountId, organisationId],
+  );
+  return row.rows[0] ?? { email: null, full_name: null };
+}
+
+async function authorisedInvoicePayerContact(
+  client: Client,
+  organisationId: string,
+  billingAccountId: string,
+): Promise<{ email: string | null; full_name: string | null; reason: string | null }> {
   const row = await client.query<{
     email: string | null;
     full_name: string | null;
@@ -4554,9 +4571,9 @@ async function payerContact(client: Client, organisationId: string, billingAccou
     [billingAccountId, organisationId],
   );
   const found = row.rows[0];
-  if (!found?.user_id || !found.email) return { email: null, full_name: null, reason: "no_payer" as const };
-  if (found.user_status !== "active") return { email: null, full_name: null, reason: "inactive_payer" as const };
-  if (found.user_kind === "student") return { email: null, full_name: null, reason: "student_account" as const };
+  if (!found?.user_id || !found.email) return { email: null, full_name: null, reason: "no_payer" };
+  if (found.user_status !== "active") return { email: null, full_name: found.full_name, reason: "inactive_payer" };
+  if (found.user_kind === "student") return { email: null, full_name: found.full_name, reason: "student_account" };
   const relationship = await client.query(
     `select 1
        from guardianships g
@@ -4571,7 +4588,9 @@ async function payerContact(client: Client, organisationId: string, billingAccou
       limit 1`,
     [organisationId, billingAccountId, found.user_id],
   );
-  if (!relationship.rows[0]) return { email: null, full_name: found.full_name, reason: "no_current_relationship" as const };
+  if (!relationship.rows[0]) {
+    return { email: null, full_name: found.full_name, reason: "no_current_relationship" };
+  }
   return { email: found.email, full_name: found.full_name, reason: null };
 }
 
@@ -4829,7 +4848,11 @@ async function queueInvoiceIssuedMail(
   if (invoice.rows[0].status === "void") {
     return { enqueued: false, alreadyQueued: false, reason: "void" };
   }
-  const contact = await payerContact(client, organisationId, String(invoice.rows[0].billing_account_id));
+  const contact = await authorisedInvoicePayerContact(
+    client,
+    organisationId,
+    String(invoice.rows[0].billing_account_id),
+  );
   if (!contact.email) {
     await writeAudit(client, {
       organisationId,

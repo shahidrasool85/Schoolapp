@@ -181,6 +181,31 @@ describe("discount stacking", () => {
     expect(result.netMinor).toBe(0);
     expect(result.applied[0]?.calculatedMinor).toBe(60000);
   });
+
+  it("caps stacked percents at the instalment remaining instead of summing independent annual percents", () => {
+    const seventy: DiscountCandidate = {
+      ...staff25,
+      key: "seventy",
+      name: "70%",
+      percentBps: 7000,
+      stackingPriority: 10,
+      exclusiveGroup: null,
+    };
+    const fifty: DiscountCandidate = {
+      ...staff25,
+      key: "fifty",
+      name: "50%",
+      percentBps: 5000,
+      stackingPriority: 20,
+      exclusiveGroup: null,
+    };
+    const instalment = applyDiscounts(200000, [seventy, fifty], "stack");
+    expect(instalment.discountTotalMinor).toBe(200000);
+    expect(instalment.netMinor).toBe(0);
+    const instalmentCount = 10;
+    expect(instalment.discountTotalMinor * instalmentCount).toBe(2_000_000);
+    expect(percentOfMinor(2_000_000, 7000) + percentOfMinor(2_000_000, 5000)).toBe(2_400_000);
+  });
 });
 
 describe("sibling order", () => {
@@ -710,6 +735,19 @@ describe("student fee status and pence-safe shares", () => {
         gracePeriodDays: 0,
       }),
     ).toBe("paid");
+    expect(
+      studentFeeStatus({
+        hasFeeSchedule: false,
+        scheduleConflict: false,
+        invoicedMinor: 200000,
+        paidMinor: 0,
+        outstandingMinor: 200000,
+        overdueMinor: 200000,
+        nextDueDate: "2026-09-01",
+        today: "2026-09-10",
+        gracePeriodDays: 0,
+      }),
+    ).toBe("overdue");
     expect(
       studentFeeStatus({
         hasFeeSchedule: false,

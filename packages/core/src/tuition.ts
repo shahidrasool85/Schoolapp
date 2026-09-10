@@ -630,18 +630,21 @@ export function studentFeeStatus(input: {
   today: string;
   gracePeriodDays: number;
 }): import("@schoolapp/domain").StudentFeeStatus {
+  if (input.overdueMinor > 0) return "overdue";
+  if (input.invoicedMinor > 0 && input.outstandingMinor <= 0) return "paid";
+  if (input.invoicedMinor > 0 && input.paidMinor > 0 && input.outstandingMinor > 0) return "part_paid";
+  if (input.invoicedMinor > 0 && input.outstandingMinor > 0) {
+    if (input.nextDueDate) {
+      const overdueDays = daysOverdue(input.nextDueDate, input.today, input.gracePeriodDays);
+      if (overdueDays > 0) return "overdue";
+      if (overdueDays >= -7) return "due_soon";
+      return "not_yet_due";
+    }
+    return "unpaid";
+  }
   if (input.scheduleConflict && !input.hasFeeSchedule) return "schedule_conflict";
   if (!input.hasFeeSchedule) return "no_fee_assigned";
-  if (input.overdueMinor > 0) return "overdue";
   if (input.invoicedMinor <= 0) return "not_yet_due";
-  if (input.outstandingMinor <= 0) return "paid";
-  if (input.paidMinor > 0) return "part_paid";
-  if (input.nextDueDate) {
-    const overdueDays = daysOverdue(input.nextDueDate, input.today, input.gracePeriodDays);
-    if (overdueDays > 0) return "overdue";
-    if (overdueDays >= -7) return "due_soon";
-    return "not_yet_due";
-  }
   return "unpaid";
 }
 

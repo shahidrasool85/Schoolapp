@@ -10,6 +10,7 @@ import {
   EmailAttachmentLimitConfigError,
   parsePlatformEmailAttachmentLimits,
   pgErrorToAppError,
+  describeUnknownError,
   presentPlatformEmailAttachmentLimits,
   schoolInviteUrl,
   staffInviteMail,
@@ -323,7 +324,17 @@ export function registerPlatformRoutes(app: SchoolappApi) {
         organisationId: organisationId.data,
         actorUserId: c.get("userId"),
       });
-      return c.json(preview);
+      try {
+        return c.json(preview);
+      } catch (error) {
+        console.error("operational_reset_failed", {
+          op: "preview_serialize",
+          organisationId: organisationId.data,
+          actorUserId: c.get("userId"),
+          ...describeUnknownError(error),
+        });
+        throw new AppError(500, "internal_error", "Internal error");
+      }
     } catch (error) {
       throw pgErrorToAppError(error) ?? error;
     }

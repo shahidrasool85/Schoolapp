@@ -1210,6 +1210,7 @@ describe("Platform Admin operational data reset", () => {
       organisation: { slug: string; name: string };
     };
     expect(previewBody.liveFinancialResetBlocked).toBe(false);
+    expect(() => JSON.stringify(previewBody)).not.toThrow();
     expect(previewBody.counts.invoices).toBeGreaterThan(1);
     expect(previewBody.counts.payments).toBeGreaterThan(0);
     expect(previewBody.counts.receipts).toBeGreaterThan(0);
@@ -1348,5 +1349,64 @@ describe("Platform Admin operational data reset", () => {
         )
       ).rows[0]?.mode,
     ).toBe("test");
+  });
+
+  it("logs the postgres error when operational-reset preview cannot use the owner connection", async () => {
+    const platform = await platformHeaders(`${suffix()}log`);
+    const pgErr = Object.assign(new Error('column "mode" does not exist'), {
+      code: "42703",
+      severity: "ERROR",
+      table: "school_payment_provider_configs",
+      column: "mode",
+    });
+    const brokenApp = testApp({
+      app: pools.app,
+      owner: { connect: async () => Promise.reject(pgErr) },
+    } as never);
+    const logged: unknown[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      logged.push(args);
+    };
+    try {
+      const res = await brokenApp.request(`/api/v1/platform/organisations/${randomUUID()}/operational-reset`, {
+        headers: platform,
+      });
+      expect(res.status).toBe(500);
+      const body = (await res.json()) as { error: { code: string } };
+      expect(body.error.code).toBe("internal_error");
+      const resetLogs = logged.filter(
+        (entry) => Array.isArray(entry) && entry[0] === "operational_reset_failed",
+      ) as Array<[string, Record<string, unknown>]>;
+      expect(resetLogs.length).toBeGreaterThan(0);
+      expect(resetLogs[0]![1]).toMatchObject({
+        op: "preview",
+        phase: "connect",
+        code: "42703",
+        column: "mode",
+        table: "school_payment_provider_configs",
+        message: 'column "mode" does not exist',
+      });
+    } finally {
+      console.error = originalError;
+    }
+  });
+
+  it("does not log expected 404s from operational-reset preview as unexpected failures", async () => {
+    const platform = await platformHeaders(`${suffix()}404`);
+    const logged: unknown[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      logged.push(args);
+    };
+    try {
+      const res = await app.request(`/api/v1/platform/organisations/${randomUUID()}/operational-reset`, {
+        headers: platform,
+      });
+      expect(res.status).toBe(404);
+      expect(logged.some((entry) => Array.isArray(entry) && entry[0] === "operational_reset_failed")).toBe(false);
+    } finally {
+      console.error = originalError;
+    }
   });
 });

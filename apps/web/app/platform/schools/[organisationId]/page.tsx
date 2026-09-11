@@ -86,11 +86,13 @@ export default function PlatformSchoolPage() {
       router.replace(loginHrefForReturn(`${window.location.pathname}${window.location.search}`, "platform"));
       return;
     }
+    let cancelled = false;
     Promise.all([
       loadPublicTenant(),
       api<{ isPlatformAdmin: boolean }>("/api/v1/me", { orgId: null }),
     ])
       .then(async ([tenant, me]) => {
+        if (cancelled) return;
         if (tenant.kind === "unknown") {
           setError("This address is not an active school on the platform.");
           return;
@@ -107,12 +109,18 @@ export default function PlatformSchoolPage() {
         const body = await api<Preview>(`/api/v1/platform/organisations/${organisationId}/operational-reset`, {
           orgId: null,
         });
+        if (cancelled) return;
+        setError("");
         setPreview(body);
         setReady(true);
       })
       .catch((err: Error) => {
+        if (cancelled) return;
         setError(userFacingError(err, "Could not load this school."));
       });
+    return () => {
+      cancelled = true;
+    };
   }, [organisationId, router]);
 
   const canSubmit = useMemo(() => {

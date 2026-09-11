@@ -45,6 +45,39 @@ export function timetableConflictMessage(conflicts?: TimetableConflictDetail[] |
   return "This timetable change conflicts with an existing lesson";
 }
 
+const PG_ERROR_KEYS = [
+  "code",
+  "severity",
+  "detail",
+  "hint",
+  "constraint",
+  "table",
+  "column",
+  "schema",
+  "where",
+  "routine",
+  "errno",
+  "syscall",
+] as const;
+
+/** Fields that identify a Postgres/node error without dumping SQL or secrets. */
+export function describeUnknownError(error: unknown): Record<string, unknown> {
+  if (error instanceof AppError) {
+    return { name: error.name, status: error.status, code: error.code, message: error.message };
+  }
+  if (!error || typeof error !== "object") {
+    return { message: String(error) };
+  }
+  const raw = error as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  if (typeof raw.name === "string") out.name = raw.name;
+  if (typeof raw.message === "string") out.message = raw.message;
+  for (const key of PG_ERROR_KEYS) {
+    if (raw[key] != null && raw[key] !== "") out[key] = raw[key];
+  }
+  return out;
+}
+
 export function pgErrorToAppError(error: unknown): AppError | null {
   if (!error || typeof error !== "object" || !("code" in error)) {
     return null;
@@ -310,6 +343,19 @@ export function pgErrorToAppError(error: unknown): AppError | null {
       return new AppError(409, "conflict", "That parent is already linked to this pupil.");
     }
     return new AppError(409, "conflict", "Resource already exists");
+  }
+  if (code === "42P01" || code === "42703" || code === "42883") {
+    return new AppError(500, "internal_error", "Internal error");
+  }
+  if (
+    code === "57014" ||
+    code === "55P03" ||
+    code === "53300" ||
+    code === "53400" ||
+    code === "57P01" ||
+    code === "57P03"
+  ) {
+    return new AppError(503, "internal_error", "Internal error");
   }
   if (code === "23514" || code === "23503") {
     if (message.includes("attachment_limit_cap_exceeded")) {

@@ -35,7 +35,7 @@ export {
   auditAdmissions,
 } from "./admissions.js";
 
-export { AppError, isPgUniqueViolation, pgErrorToAppError, timetableConflictMessage, type AppErrorDetails, type TimetableConflictDetail } from "./errors.js";
+export { AppError, describeUnknownError, isPgUniqueViolation, pgErrorToAppError, timetableConflictMessage, type AppErrorDetails, type TimetableConflictDetail } from "./errors.js";
 
 export {
   normalizePlatformDomain,

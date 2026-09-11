@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { AppError, createEmailDeliveryProvider, emailConfigFromEnv, normalizePlatformDomain } from "@schoolapp/core";
+import { AppError, createEmailDeliveryProvider, describeUnknownError, emailConfigFromEnv, normalizePlatformDomain } from "@schoolapp/core";
 import type { ApiConfig, ApiEnv } from "./types";
 import { tenantResolver } from "./tenant-resolver";
 import { registerAuthRoutes } from "./routes/auth";
@@ -132,6 +132,15 @@ export function createApiApp(config: ApiConfig) {
 
   app.onError((error, c) => {
     if (error instanceof AppError) {
+      if (error.status >= 500) {
+        console.error("api_app_error", {
+          path: c.req.path,
+          method: c.req.method,
+          status: error.status,
+          code: error.code,
+          message: error.message,
+        });
+      }
       return c.json(
         {
           error: {
@@ -143,7 +152,11 @@ export function createApiApp(config: ApiConfig) {
         error.status as 400,
       );
     }
-    console.error(error);
+    console.error("api_unhandled_error", {
+      path: c.req.path,
+      method: c.req.method,
+      ...describeUnknownError(error),
+    });
     return c.json({ error: { code: "internal_error", message: "Internal error" } }, 500);
   });
 

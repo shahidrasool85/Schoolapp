@@ -11,7 +11,7 @@ import {
   type OperationalResetCountKey,
   type OperationalResetSchoolAdmin,
 } from "@schoolapp/domain";
-import { AppError } from "./errors.js";
+import { AppError, describeUnknownError } from "./errors.js";
 
 export type OperationalResetStorage = {
   deleteObject(key: string): Promise<void>;
@@ -110,6 +110,35 @@ function isLockNotAvailable(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && "code" in error && (error as { code: string }).code === "55P03");
 }
 
+function jsonSafeCount(value: string | number | null | undefined): number {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function chunkIdentifiedTables(tables: string[], size: number): string[][] {
+  const out: string[][] = [];
+  for (let i = 0; i < tables.length; i += size) out.push(tables.slice(i, i + size));
+  return out;
+}
+
+function logUnexpectedOperationalResetError(
+  op: "preview" | "execute" | "preview_serialize",
+  context: Record<string, unknown>,
+  error: unknown,
+): void {
+  if (error instanceof AppError && error.status < 500) return;
+  if (error instanceof AppError && error.code === "injected_failure" && process.env.VITEST === "true") return;
+  console.error("operational_reset_failed", {
+    op,
+    ...context,
+    ...describeUnknownError(error),
+    appError:
+      error instanceof AppError
+        ? { status: error.status, code: error.code, message: error.message }
+        : undefined,
+  });
+}
+
 async function requirePlatformAdmin(client: pg.PoolClient, actorUserId: string): Promise<void> {
   const row = await client.query(
     `select 1
@@ -169,14 +198,17 @@ export async function listActiveSchoolAdmins(
   return result.rows;
 }
 
-async function liveFinancialResetBlocked(client: pg.PoolClient | pg.Pool, organisationId: string): Promise<boolean> {
+async function liveFinancialResetBlockReason(
+  client: pg.PoolClient | pg.Pool,
+  organisationId: string,
+): Promise<"provider_mode_live" | "live_payment_evidence" | null> {
   const liveConfig = await client.query(
     `select 1 from school_payment_provider_configs
       where organisation_id = $1 and mode = 'live'
       limit 1`,
     [organisationId],
   );
-  if ((liveConfig.rowCount ?? 0) > 0) return true;
+  if ((liveConfig.rowCount ?? 0) > 0) return "provider_mode_live";
   const liveEvidence = await client.query(
     `select 1 from school_payment_transactions
       where organisation_id = $1
@@ -187,7 +219,11 @@ async function liveFinancialResetBlocked(client: pg.PoolClient | pg.Pool, organi
       limit 1`,
     [organisationId],
   );
-  return (liveEvidence.rowCount ?? 0) > 0;
+  return (liveEvidence.rowCount ?? 0) > 0 ? "live_payment_evidence" : null;
+}
+
+async function liveFinancialResetBlocked(client: pg.PoolClient | pg.Pool, organisationId: string): Promise<boolean> {
+  return (await liveFinancialResetBlockReason(client, organisationId)) !== null;
 }
 
 async function countOrZero(
@@ -196,7 +232,7 @@ async function countOrZero(
   params: unknown[],
 ): Promise<number> {
   const result = await client.query<{ n: string }>(sql, params);
-  return Number(result.rows[0]?.n ?? 0);
+  return jsonSafeCount(result.rows[0]?.n);
 }
 
 export async function loadOperationalResetCounts(
@@ -205,181 +241,106 @@ export async function loadOperationalResetCounts(
   preservedUserIds: string[],
 ): Promise<OperationalResetCounts> {
   const preserved = preservedUserIds.length > 0 ? preservedUserIds : ["00000000-0000-0000-0000-000000000000"];
-  const pupils = await countOrZero(
-    client,
-    "select count(*)::text as n from student_profiles where organisation_id = $1",
-    [organisationId],
-  );
-  const guardianships = await countOrZero(
-    client,
-    "select count(*)::text as n from guardianships where organisation_id = $1",
-    [organisationId],
-  );
-  const staffToRemove = await countOrZero(
-    client,
-    `select count(*)::text as n
-       from organisation_memberships m
-       join users u on u.id = m.user_id
-      where m.organisation_id = $1
-        and u.user_kind = 'staff'
-        and m.user_id <> all($2::uuid[])`,
+  const result = await client.query<{
+    pupils: string;
+    guardianships: string;
+    staffToRemove: string;
+    membershipsToRemove: string;
+    admissionsEnquiries: string;
+    admissionsApplications: string;
+    attendanceMarks: string;
+    timetableLessons: string;
+    assignments: string;
+    safeguardingRecords: string;
+    pastoralConcerns: string;
+    behaviourIncidents: string;
+    medications: string;
+    invoices: string;
+    payments: string;
+    receipts: string;
+    storedDocuments: string;
+    mailOutbox: string;
+    academicYears: string;
+    classes: string;
+    notices: string;
+    messages: string;
+    notifications: string;
+    activities: string;
+    rewards: string;
+    invitations: string;
+    dataImports: string;
+    censusRuns: string;
+  }>(
+    `select
+        (select count(*)::text from student_profiles where organisation_id = $1) as "pupils",
+        (select count(*)::text from guardianships where organisation_id = $1) as "guardianships",
+        (select count(*)::text
+           from organisation_memberships m
+           join users u on u.id = m.user_id
+          where m.organisation_id = $1
+            and u.user_kind = 'staff'
+            and m.user_id <> all($2::uuid[])) as "staffToRemove",
+        (select count(*)::text
+           from organisation_memberships
+          where organisation_id = $1 and user_id <> all($2::uuid[])) as "membershipsToRemove",
+        (select count(*)::text from admissions_enquiries where organisation_id = $1) as "admissionsEnquiries",
+        (select count(*)::text from admissions_applications where organisation_id = $1) as "admissionsApplications",
+        (select count(*)::text from attendance_marks where organisation_id = $1) as "attendanceMarks",
+        (select count(*)::text from timetable_entries where organisation_id = $1) as "timetableLessons",
+        (select count(*)::text from learning_assignments where organisation_id = $1) as "assignments",
+        (select count(*)::text from safeguarding_concerns where organisation_id = $1) as "safeguardingRecords",
+        (select count(*)::text from pastoral_concerns where organisation_id = $1) as "pastoralConcerns",
+        (select count(*)::text from behaviour_incidents where organisation_id = $1) as "behaviourIncidents",
+        (select count(*)::text from student_medications where organisation_id = $1) as "medications",
+        (select count(*)::text from school_invoices where organisation_id = $1) as "invoices",
+        (select count(*)::text from school_payment_transactions where organisation_id = $1) as "payments",
+        (select count(*)::text from school_payment_receipts where organisation_id = $1) as "receipts",
+        (select count(*)::text from stored_objects
+          where organisation_id = $1
+            and domain not in ('branding', 'transactional_email')) as "storedDocuments",
+        (select count(*)::text from mail_outbox where organisation_id = $1) as "mailOutbox",
+        (select count(*)::text from academic_years where organisation_id = $1) as "academicYears",
+        (select count(*)::text from classes where organisation_id = $1) as "classes",
+        (select count(*)::text from announcements where organisation_id = $1) as "notices",
+        (select count(*)::text from messages where organisation_id = $1) as "messages",
+        (select count(*)::text from notifications where organisation_id = $1) as "notifications",
+        (select count(*)::text from school_activities where organisation_id = $1) as "activities",
+        (select count(*)::text from pupil_rewards where organisation_id = $1) as "rewards",
+        (select count(*)::text from invitations where organisation_id = $1) as "invitations",
+        (select count(*)::text from data_imports where organisation_id = $1) as "dataImports",
+        (select count(*)::text from census_runs where organisation_id = $1) as "censusRuns"`,
     [organisationId, preserved],
   );
-  const admissionsEnquiries = await countOrZero(
-    client,
-    "select count(*)::text as n from admissions_enquiries where organisation_id = $1",
-    [organisationId],
-  );
-  const admissionsApplications = await countOrZero(
-    client,
-    "select count(*)::text as n from admissions_applications where organisation_id = $1",
-    [organisationId],
-  );
-  const attendanceMarks = await countOrZero(
-    client,
-    "select count(*)::text as n from attendance_marks where organisation_id = $1",
-    [organisationId],
-  );
-  const timetableLessons = await countOrZero(
-    client,
-    "select count(*)::text as n from timetable_entries where organisation_id = $1",
-    [organisationId],
-  );
-  const assignments = await countOrZero(
-    client,
-    "select count(*)::text as n from learning_assignments where organisation_id = $1",
-    [organisationId],
-  );
-  const safeguardingRecords = await countOrZero(
-    client,
-    "select count(*)::text as n from safeguarding_concerns where organisation_id = $1",
-    [organisationId],
-  );
-  const invoices = await countOrZero(
-    client,
-    "select count(*)::text as n from school_invoices where organisation_id = $1",
-    [organisationId],
-  );
-  const payments = await countOrZero(
-    client,
-    "select count(*)::text as n from school_payment_transactions where organisation_id = $1",
-    [organisationId],
-  );
-  const receipts = await countOrZero(
-    client,
-    "select count(*)::text as n from school_payment_receipts where organisation_id = $1",
-    [organisationId],
-  );
-  const storedDocuments = await countOrZero(
-    client,
-    `select count(*)::text as n from stored_objects
-      where organisation_id = $1
-        and domain not in ('branding', 'transactional_email')`,
-    [organisationId],
-  );
-  const mailOutbox = await countOrZero(
-    client,
-    "select count(*)::text as n from mail_outbox where organisation_id = $1",
-    [organisationId],
-  );
-  const academicYears = await countOrZero(
-    client,
-    "select count(*)::text as n from academic_years where organisation_id = $1",
-    [organisationId],
-  );
-  const classes = await countOrZero(client, "select count(*)::text as n from classes where organisation_id = $1", [
-    organisationId,
-  ]);
-  const notices = await countOrZero(
-    client,
-    "select count(*)::text as n from announcements where organisation_id = $1",
-    [organisationId],
-  );
-  const messages = await countOrZero(client, "select count(*)::text as n from messages where organisation_id = $1", [
-    organisationId,
-  ]);
-  const membershipsToRemove = await countOrZero(
-    client,
-    `select count(*)::text as n
-       from organisation_memberships
-      where organisation_id = $1 and user_id <> all($2::uuid[])`,
-    [organisationId, preserved],
-  );
-  const pastoralConcerns = await countOrZero(
-    client,
-    "select count(*)::text as n from pastoral_concerns where organisation_id = $1",
-    [organisationId],
-  );
-  const behaviourIncidents = await countOrZero(
-    client,
-    "select count(*)::text as n from behaviour_incidents where organisation_id = $1",
-    [organisationId],
-  );
-  const medications = await countOrZero(
-    client,
-    "select count(*)::text as n from student_medications where organisation_id = $1",
-    [organisationId],
-  );
-  const notifications = await countOrZero(
-    client,
-    "select count(*)::text as n from notifications where organisation_id = $1",
-    [organisationId],
-  );
-  const activities = await countOrZero(
-    client,
-    "select count(*)::text as n from school_activities where organisation_id = $1",
-    [organisationId],
-  );
-  const rewards = await countOrZero(
-    client,
-    "select count(*)::text as n from pupil_rewards where organisation_id = $1",
-    [organisationId],
-  );
-  const invitations = await countOrZero(
-    client,
-    "select count(*)::text as n from invitations where organisation_id = $1",
-    [organisationId],
-  );
-  const dataImports = await countOrZero(
-    client,
-    "select count(*)::text as n from data_imports where organisation_id = $1",
-    [organisationId],
-  );
-  const censusRuns = await countOrZero(
-    client,
-    "select count(*)::text as n from census_runs where organisation_id = $1",
-    [organisationId],
-  );
-
+  const row = result.rows[0];
   return {
-    pupils,
-    guardianships,
-    staffToRemove,
-    membershipsToRemove,
-    admissionsEnquiries,
-    admissionsApplications,
-    attendanceMarks,
-    timetableLessons,
-    assignments,
-    safeguardingRecords,
-    pastoralConcerns,
-    behaviourIncidents,
-    medications,
-    invoices,
-    payments,
-    receipts,
-    storedDocuments,
-    mailOutbox,
-    academicYears,
-    classes,
-    notices,
-    messages,
-    notifications,
-    activities,
-    rewards,
-    invitations,
-    dataImports,
-    censusRuns,
+    pupils: jsonSafeCount(row?.pupils),
+    guardianships: jsonSafeCount(row?.guardianships),
+    staffToRemove: jsonSafeCount(row?.staffToRemove),
+    membershipsToRemove: jsonSafeCount(row?.membershipsToRemove),
+    admissionsEnquiries: jsonSafeCount(row?.admissionsEnquiries),
+    admissionsApplications: jsonSafeCount(row?.admissionsApplications),
+    attendanceMarks: jsonSafeCount(row?.attendanceMarks),
+    timetableLessons: jsonSafeCount(row?.timetableLessons),
+    assignments: jsonSafeCount(row?.assignments),
+    safeguardingRecords: jsonSafeCount(row?.safeguardingRecords),
+    pastoralConcerns: jsonSafeCount(row?.pastoralConcerns),
+    behaviourIncidents: jsonSafeCount(row?.behaviourIncidents),
+    medications: jsonSafeCount(row?.medications),
+    invoices: jsonSafeCount(row?.invoices),
+    payments: jsonSafeCount(row?.payments),
+    receipts: jsonSafeCount(row?.receipts),
+    storedDocuments: jsonSafeCount(row?.storedDocuments),
+    mailOutbox: jsonSafeCount(row?.mailOutbox),
+    academicYears: jsonSafeCount(row?.academicYears),
+    classes: jsonSafeCount(row?.classes),
+    notices: jsonSafeCount(row?.notices),
+    messages: jsonSafeCount(row?.messages),
+    notifications: jsonSafeCount(row?.notifications),
+    activities: jsonSafeCount(row?.activities),
+    rewards: jsonSafeCount(row?.rewards),
+    invitations: jsonSafeCount(row?.invitations),
+    dataImports: jsonSafeCount(row?.dataImports),
+    censusRuns: jsonSafeCount(row?.censusRuns),
   };
 }
 
@@ -394,29 +355,31 @@ export async function countRemainingOperationalRows(
       where table_schema = 'public' and table_name = any($1::text[])`,
     [[...OPERATIONAL_RESET_TABLES]],
   );
-  const parts = existing.rows.map(
+  const tableParts = existing.rows.map(
     (row) => `(select count(*) from ${quoteIdent(row.table_name)} where organisation_id = $1)`,
   );
-  parts.push("(select count(*) from mail_outbox where organisation_id = $1)");
-  parts.push(
-    `(select count(*) from stored_objects
-       where organisation_id = $1 and domain not in ('branding', 'transactional_email'))`,
+  let total = 0;
+  for (const chunk of chunkIdentifiedTables(tableParts, 16)) {
+    total += await countOrZero(client, `select (${chunk.join(" + ")})::text as n`, [organisationId]);
+  }
+  total += await countOrZero(
+    client,
+    `select (
+        (select count(*) from mail_outbox where organisation_id = $1)
+      + (select count(*) from stored_objects
+          where organisation_id = $1 and domain not in ('branding', 'transactional_email'))
+      + (select count(*) from organisation_memberships where organisation_id = $1 and user_id <> all($2::uuid[]))
+      + (select count(*) from staff_profiles where organisation_id = $1 and user_id <> all($2::uuid[]))
+      + (select count(*) from user_login_aliases where organisation_id = $1 and user_id <> all($2::uuid[]))
+      + (select count(*) from notification_preferences where organisation_id = $1 and user_id <> all($2::uuid[]))
+      + (select count(*) from organisation_onboarding_preferences
+          where organisation_id = $1 and user_id <> all($2::uuid[]))
+      + (select count(*) from account_tokens where organisation_id = $1 and user_id <> all($2::uuid[]))
+      + (select count(*) from roles where organisation_id = $1)
+     )::text as n`,
+    [organisationId, preserved],
   );
-  parts.push(
-    "(select count(*) from organisation_memberships where organisation_id = $1 and user_id <> all($2::uuid[]))",
-  );
-  parts.push("(select count(*) from staff_profiles where organisation_id = $1 and user_id <> all($2::uuid[]))");
-  parts.push("(select count(*) from user_login_aliases where organisation_id = $1 and user_id <> all($2::uuid[]))");
-  parts.push(
-    "(select count(*) from notification_preferences where organisation_id = $1 and user_id <> all($2::uuid[]))",
-  );
-  parts.push(
-    `(select count(*) from organisation_onboarding_preferences
-       where organisation_id = $1 and user_id <> all($2::uuid[]))`,
-  );
-  parts.push("(select count(*) from account_tokens where organisation_id = $1 and user_id <> all($2::uuid[]))");
-  parts.push("(select count(*) from roles where organisation_id = $1)");
-  return countOrZero(client, `select (${parts.join(" + ")})::text as n`, [organisationId, preserved]);
+  return total;
 }
 
 export async function assertOperationalResetPlanCoversSchema(
@@ -953,13 +916,23 @@ async function buildPreviewFromClient(
   const preservedUserIds = schoolAdminsPreserved.map((admin) => admin.userId);
   const counts = await loadOperationalResetCounts(client, organisationId, preservedUserIds);
   const remainingOperationalRows = await countRemainingOperationalRows(client, organisationId, preservedUserIds);
+  const liveBlockReason = await liveFinancialResetBlockReason(client, organisationId);
+  if (process.env.VITEST !== "true") {
+    console.info("operational_reset_preview", {
+      organisationId,
+      liveFinancialResetBlocked: liveBlockReason !== null,
+      liveFinancialResetBlockReason: liveBlockReason,
+      schoolAdminCount: schoolAdminsPreserved.length,
+      remainingOperationalRows,
+    });
+  }
   return {
     mode: OPERATIONAL_RESET_MODE,
     organisation: org,
     schoolAdminsPreserved,
     counts,
     preserved: OPERATIONAL_RESET_PRESERVED_CATEGORIES.map((item) => ({ key: item.key, label: item.label })),
-    liveFinancialResetBlocked: await liveFinancialResetBlocked(client, organisationId),
+    liveFinancialResetBlocked: liveBlockReason !== null,
     remainingOperationalRows,
     alreadyClean: remainingOperationalRows === 0,
   };
@@ -970,11 +943,35 @@ export async function previewOperationalReset(input: {
   organisationId: string;
   actorUserId: string;
 }): Promise<OperationalResetPreview> {
-  const client = await input.owner.connect();
+  let client: pg.PoolClient;
   try {
-    await requirePlatformAdmin(client, input.actorUserId);
-    await loadOrganisation(client, input.organisationId, false);
-    return await buildPreviewFromClient(client, input.organisationId);
+    client = await input.owner.connect();
+  } catch (error) {
+    logUnexpectedOperationalResetError(
+      "preview",
+      { organisationId: input.organisationId, actorUserId: input.actorUserId, phase: "connect" },
+      error,
+    );
+    throw error;
+  }
+  try {
+    await client.query("begin read only");
+    try {
+      await client.query("set local statement_timeout = '30s'");
+      await requirePlatformAdmin(client, input.actorUserId);
+      await loadOrganisation(client, input.organisationId, false);
+      const preview = await buildPreviewFromClient(client, input.organisationId);
+      await client.query("commit");
+      return preview;
+    } catch (error) {
+      await client.query("rollback").catch(() => undefined);
+      logUnexpectedOperationalResetError(
+        "preview",
+        { organisationId: input.organisationId, actorUserId: input.actorUserId },
+        error,
+      );
+      throw error;
+    }
   } finally {
     client.release();
   }
@@ -1113,6 +1110,11 @@ export async function executeOperationalReset(input: {
     } catch {
       // Connection may already be broken.
     }
+    logUnexpectedOperationalResetError(
+      "execute",
+      { organisationId: input.organisationId, actorUserId: input.actorUserId },
+      error,
+    );
     throw error;
   } finally {
     client.release();

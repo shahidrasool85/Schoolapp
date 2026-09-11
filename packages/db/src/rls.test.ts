@@ -200,7 +200,7 @@ describe("RLS catalog", () => {
     expect(statusCheck.rows[0]?.consrc).toContain("manual_review");
   });
 
-  it("records finance catch-up 0064, invoice email 0065, webhook integrity 0066, then invoice refund ids 0067", async () => {
+  it("records finance catch-up 0064, invoice email 0065, webhook integrity 0066, refund ids 0067, then reset wipe 0068", async () => {
     const applied = await pools.owner.query<{ filename: string }>(
       `select filename
          from schema_migrations
@@ -209,7 +209,8 @@ describe("RLS catalog", () => {
           '0064_finance_late_joiner_catchup.sql',
           '0065_finance_invoice_email_setting.sql',
           '0066_payment_webhook_integrity.sql',
-          '0067_invoice_credit_provider_refund.sql'
+          '0067_invoice_credit_provider_refund.sql',
+          '0068_operational_reset_immutable_documents.sql'
         )
         order by filename`,
     );
@@ -219,6 +220,7 @@ describe("RLS catalog", () => {
       "0065_finance_invoice_email_setting.sql",
       "0066_payment_webhook_integrity.sql",
       "0067_invoice_credit_provider_refund.sql",
+      "0068_operational_reset_immutable_documents.sql",
     ]);
     const emailCol = await pools.owner.query<{ column_name: string }>(
       `select column_name
@@ -244,6 +246,58 @@ describe("RLS catalog", () => {
           and indexname = 'school_invoice_credits_provider_refund_uidx'`,
     );
     expect(refundIdx.rows.map((row) => row.indexname)).toEqual(["school_invoice_credits_provider_refund_uidx"]);
+  });
+
+  it("keeps issued invoice lines immutable for schoolapp_app and allows schoolapp_owner wipe", async () => {
+    const id = randomUUID().slice(0, 8);
+    const admin = await pools.owner.query<{ id: string }>(
+      `insert into users (email, full_name, user_kind, status)
+       values ($1, 'Finance Admin', 'staff', 'active') returning id`,
+      [`inv-line-${id}@example.com`],
+    );
+    const org = await pools.owner.query<{ id: string }>(
+      "insert into organisations (slug, name, status) values ($1, $2, 'active') returning id",
+      [`inv-line-${id}`, "Invoice Line School"],
+    );
+    await pools.owner.query(
+      `insert into organisation_memberships (organisation_id, user_id, status)
+       values ($1, $2, 'active')`,
+      [org.rows[0]!.id, admin.rows[0]!.id],
+    );
+    const account = await pools.owner.query<{ id: string }>(
+      `insert into school_billing_accounts (organisation_id, name) values ($1, 'Family') returning id`,
+      [org.rows[0]!.id],
+    );
+    const invoice = await pools.owner.query<{ id: string }>(
+      `insert into school_invoices (
+         organisation_id, reference, billing_account_id, period_key,
+         billing_period_start, billing_period_end, due_date, status, currency, created_by
+       ) values ($1, $2, $3, $4, '2026-09-01', '2026-12-18', '2026-09-15', 'draft', 'GBP', $5)
+       returning id`,
+      [org.rows[0]!.id, `INV-${id}`, account.rows[0]!.id, `period-${id}`, admin.rows[0]!.id],
+    );
+    const line = await pools.owner.query<{ id: string }>(
+      `insert into school_invoice_lines (
+         organisation_id, invoice_id, sort_order, kind, description, quantity, unit_amount_minor, amount_minor
+       ) values ($1, $2, 0, 'tuition', 'Autumn tuition', 1, 1000, 1000) returning id`,
+      [org.rows[0]!.id, invoice.rows[0]!.id],
+    );
+    await pools.owner.query(`update school_invoices set status = 'issued', issued_at = now() where id = $1`, [
+      invoice.rows[0]!.id,
+    ]);
+
+    await expect(
+      withTenantContext(pools.app, admin.rows[0]!.id, org.rows[0]!.id, async (client) => {
+        await client.query(`delete from school_invoice_lines where id = $1`, [line.rows[0]!.id]);
+      }),
+    ).rejects.toThrow(/invoice_lines_immutable/);
+
+    await pools.owner.query(`delete from school_invoice_lines where organisation_id = $1`, [org.rows[0]!.id]);
+    const leftover = await pools.owner.query(
+      `select count(*)::int as n from school_invoice_lines where organisation_id = $1`,
+      [org.rows[0]!.id],
+    );
+    expect(leftover.rows[0]?.n).toBe(0);
   });
 
   it("grants the app role DML on finance tables", async () => {

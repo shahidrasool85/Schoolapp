@@ -102,7 +102,7 @@ function emptyToNull(value: string | null | undefined): string | null | undefine
   return trimmed.length === 0 ? null : trimmed;
 }
 
-function canReadGuardianContacts(permissions: Set<string>): boolean {
+function canReadGuardianContacts(permissions: ReadonlySet<string>): boolean {
   return (
     permissions.has(PERMISSIONS.GUARDIANSHIPS_MANAGE) ||
     permissions.has(PERMISSIONS.STUDENTS_PROFILES_READ) ||
@@ -782,7 +782,7 @@ export function registerPeopleRoutes(app: SchoolappApi) {
       assertPermission(actor, PERMISSIONS.GUARDIANSHIPS_MANAGE);
       const parsed = guardianSchema.safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid guardian payload");
-      const studentId = c.req.param("id");
+      const studentId = routeParam(c, "id");
       const student = await client.query("select id from student_profiles where id = $1 and organisation_id = $2", [
         studentId,
         orgId,

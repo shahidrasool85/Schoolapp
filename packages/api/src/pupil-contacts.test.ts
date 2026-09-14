@@ -362,8 +362,11 @@ describe("Phase 1 pupil guardian contacts", () => {
     expect(set.has(PERMISSIONS.STUDENTS_RESTRICTED_CONTACT_READ)).toBe(false);
     expect(set.has(PERMISSIONS.STUDENTS_PROFILES_READ_ASSIGNED)).toBe(true);
 
+    const restrictedGrant = await pools.owner.query<{ ok: boolean }>(
+      "select has_column_privilege('schoolapp_app', 'guardianships', 'restricted_contact', 'SELECT') as ok",
+    );
+    expect(restrictedGrant.rows[0]?.ok).toBe(false);
     await withTenantContext(pools.app, teacherUser.rows[0]!.id, school.orgId, async (client) => {
-      await expect(client.query("select restricted_contact from guardianships")).rejects.toThrow();
       const listed = await client.query(
         "select * from list_student_guardians_for_actor($1, $2, $3)",
         [teacherUser.rows[0]!.id, school.orgId, assigned.student.id],

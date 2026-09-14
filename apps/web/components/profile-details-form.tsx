@@ -8,6 +8,7 @@ export type ProfileContactValues = {
   title?: string | null;
   preferredName?: string | null;
   phone?: string | null;
+  alternativePhone?: string | null;
   addressLine1?: string | null;
   addressLine2?: string | null;
   addressTown?: string | null;
@@ -39,6 +40,7 @@ export function ProfileDetailsForm({
     if (canEdit("title")) payload.title = String(form.get("title") ?? "") || null;
     if (canEdit("preferredName")) payload.preferredName = String(form.get("preferredName") ?? "") || null;
     if (canEdit("phone")) payload.phone = String(form.get("phone") ?? "") || null;
+    if (canEdit("alternativePhone")) payload.alternativePhone = String(form.get("alternativePhone") ?? "") || null;
     if (canEdit("addressLine1")) payload.addressLine1 = String(form.get("addressLine1") ?? "") || null;
     if (canEdit("addressLine2")) payload.addressLine2 = String(form.get("addressLine2") ?? "") || null;
     if (canEdit("addressTown")) payload.addressTown = String(form.get("addressTown") ?? "") || null;
@@ -74,6 +76,11 @@ export function ProfileDetailsForm({
       {canEdit("phone") ? (
         <FormField label="Phone">
           <Input name="phone" defaultValue={values.phone ?? ""} />
+        </FormField>
+      ) : null}
+      {canEdit("alternativePhone") ? (
+        <FormField label="Alternative telephone">
+          <Input name="alternativePhone" defaultValue={values.alternativePhone ?? ""} />
         </FormField>
       ) : null}
       {canEdit("addressLine1") ? (

@@ -47,6 +47,7 @@ const selfContactSchema = z
       .optional(),
     preferredName: z.string().max(80).nullable().optional(),
     phone: z.string().max(40).nullable().optional(),
+    alternativePhone: z.string().max(40).nullable().optional(),
     addressLine1: z.string().max(120).nullable().optional(),
     addressLine2: z.string().max(120).nullable().optional(),
     addressTown: z.string().max(80).nullable().optional(),
@@ -178,6 +179,7 @@ export function registerProfileRoutes(app: SchoolappApi) {
           title: emptyToNull(parsed.data.title ?? undefined),
           preferredName: emptyToNull(parsed.data.preferredName ?? undefined),
           phone: emptyToNull(parsed.data.phone ?? undefined),
+          alternativePhone: emptyToNull(parsed.data.alternativePhone ?? undefined),
           addressLine1: emptyToNull(parsed.data.addressLine1 ?? undefined),
           addressLine2: emptyToNull(parsed.data.addressLine2 ?? undefined),
           addressTown: emptyToNull(parsed.data.addressTown ?? undefined),
@@ -268,6 +270,7 @@ export function registerProfileRoutes(app: SchoolappApi) {
           title: emptyToNull(parsed.data.title ?? undefined),
           preferredName: emptyToNull(parsed.data.preferredName ?? undefined),
           phone: emptyToNull(parsed.data.phone ?? undefined),
+          alternativePhone: emptyToNull(parsed.data.alternativePhone ?? undefined),
           addressLine1: emptyToNull(parsed.data.addressLine1 ?? undefined),
           addressLine2: emptyToNull(parsed.data.addressLine2 ?? undefined),
           addressTown: emptyToNull(parsed.data.addressTown ?? undefined),
@@ -394,6 +397,7 @@ export function registerProfileRoutes(app: SchoolappApi) {
       assertPermission(actor, PERMISSIONS.GUARDIANSHIPS_MANAGE);
       const rows = await client.query(
         `select u.id as user_id, u.title, u.full_name, u.preferred_name, u.email, u.phone,
+                u.alternative_phone,
                 u.address_line1, u.address_line2, u.address_town, u.address_county, u.address_postcode,
                 m.profile_photo_stored_object_id, m.status as membership_status
          from users u
@@ -453,6 +457,7 @@ export function registerProfileRoutes(app: SchoolappApi) {
         fullName: emptyToNull(parsed.data.fullName ?? undefined),
         preferredName: emptyToNull(parsed.data.preferredName ?? undefined),
         phone: emptyToNull(parsed.data.phone ?? undefined),
+        alternativePhone: emptyToNull(parsed.data.alternativePhone ?? undefined),
         addressLine1: emptyToNull(parsed.data.addressLine1 ?? undefined),
         addressLine2: emptyToNull(parsed.data.addressLine2 ?? undefined),
         addressTown: emptyToNull(parsed.data.addressTown ?? undefined),

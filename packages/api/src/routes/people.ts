@@ -5,13 +5,18 @@ import {
   AppError,
   assertAnyPermission,
   assertPermission,
+  assignedClassIds,
   assignedStudentIds,
-  canListAllStudents,
   assertCanReadStudentBehaviour,
   assertCanReadStudentPastoral,
   canAccessBehaviour,
   canAccessPastoral,
+  canListAllStudents,
   canReadStudentProfile,
+  applyGuardianPrimaryChoice,
+  isAssignedToClass,
+  listOrganisationGuardiansForActor,
+  listStudentGuardiansForActor,
   loadStudentPortalDecision,
   parentInviteMail,
   staffInviteMail,
@@ -64,6 +69,7 @@ const staffCreateSchema = z.object({
   title: z.string().max(20).optional(),
   preferredName: z.string().max(80).optional(),
   phone: z.string().max(40).optional(),
+  alternativePhone: z.string().max(40).optional(),
   addressLine1: z.string().max(120).optional(),
   addressLine2: z.string().max(120).optional(),
   addressTown: z.string().max(80).optional(),
@@ -81,10 +87,53 @@ const guardianSchema = z.object({
   relationship: z.string().min(1).max(40).default("other"),
   hasParentalResponsibility: z.boolean().optional(),
   isEmergencyContact: z.boolean().optional(),
+  isPrimary: z.boolean().optional(),
   livesWithStudent: z.boolean().optional(),
   portalAccess: z.boolean().optional().default(false),
   priority: z.number().int().min(1).max(9).optional(),
+  phone: z.string().max(40).nullable().optional(),
+  alternativePhone: z.string().max(40).nullable().optional(),
 });
+
+function emptyToNull(value: string | null | undefined): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value == null) return null;
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? null : trimmed;
+}
+
+function canReadGuardianContacts(permissions: Set<string>): boolean {
+  return (
+    permissions.has(PERMISSIONS.GUARDIANSHIPS_MANAGE) ||
+    permissions.has(PERMISSIONS.STUDENTS_PROFILES_READ) ||
+    permissions.has(PERMISSIONS.STUDENTS_PROFILES_MANAGE) ||
+    permissions.has(PERMISSIONS.STUDENTS_PROFILES_READ_ASSIGNED)
+  );
+}
+
+function guardianshipAuditAfter(row: ReturnType<typeof mapGuardianship>) {
+  return {
+    relationship: row.relationship,
+    hasParentalResponsibility: row.hasParentalResponsibility,
+    isEmergencyContact: row.isEmergencyContact,
+    isPrimaryContact: row.isPrimaryContact,
+    portalAccess: row.portalAccess,
+    priority: row.priority,
+    endedOn: row.endedOn,
+  };
+}
+
+async function mappedListedGuardianship(
+  client: Parameters<typeof listStudentGuardiansForActor>[0],
+  actorUserId: string,
+  organisationId: string,
+  studentProfileId: string,
+  guardianshipId: string,
+) {
+  const rows = await listStudentGuardiansForActor(client, actorUserId, organisationId, studentProfileId);
+  const row = rows.find((item) => String(item.id) === guardianshipId);
+  return row ? mapGuardianship(row) : null;
+}
 
 const STUDENT_LIST_SQL = `
   select
@@ -230,31 +279,9 @@ export function registerPeopleRoutes(app: SchoolappApi) {
          order by cm.ended_on nulls first, cm.started_on desc`,
         [id, orgId],
       );
-      const guardians = actor.permissions.has(PERMISSIONS.GUARDIANSHIPS_MANAGE)
-        ? await client.query(
-            `select g.id, g.student_profile_id, g.guardian_user_id, u.full_name, u.email, u.phone,
-                    m.profile_photo_stored_object_id,
-                    g.relationship, g.has_parental_responsibility, g.is_emergency_contact,
-                    g.lives_with_student, g.portal_access, g.priority,
-                    g.started_on::text, g.ended_on::text, m.status as membership_status,
-                    user_has_local_credentials(u.id) as has_credentials,
-                    exists(
-                      select 1 from invitations i
-                      where i.organisation_id = g.organisation_id
-                        and i.email = u.email
-                        and i.accepted_at is null and i.revoked_at is null and i.expires_at > now()
-                    ) as pending_invitation
-             from guardianships g
-             join users u on u.id = g.guardian_user_id
-             left join organisation_memberships m
-               on m.user_id = u.id
-              and m.organisation_id = g.organisation_id
-              and m.ended_at is null
-             where g.student_profile_id = $1 and g.organisation_id = $2
-             order by g.priority, u.full_name`,
-            [id, orgId],
-          )
-        : { rows: [] };
+      const guardians = canReadGuardianContacts(actor.permissions)
+        ? await listStudentGuardiansForActor(client, userId, orgId, id)
+        : [];
 
       const canReadAttendance =
         actor.permissions.has(PERMISSIONS.ATTENDANCE_RECORD_READ) ||
@@ -337,7 +364,7 @@ export function registerPeopleRoutes(app: SchoolappApi) {
           startedOn: row.started_on,
           endedOn: row.ended_on,
         })),
-        guardians: guardians.rows.map(mapGuardianship),
+        guardians: guardians.map(mapGuardianship),
         attendanceSummary: canReadAttendance ? summariseAttendanceMarks(attendanceRows.rows) : null,
         behaviourSummary: canSeeBehaviour
           ? {
@@ -827,21 +854,20 @@ export function registerPeopleRoutes(app: SchoolappApi) {
           );
         }
       }
-      const listed = await client.query(
-        `select g.id, g.student_profile_id, g.guardian_user_id, u.full_name, u.email, u.phone,
-                m.profile_photo_stored_object_id,
-                g.relationship, g.has_parental_responsibility, g.is_emergency_contact,
-                g.lives_with_student, g.portal_access, g.priority,
-                g.started_on::text, g.ended_on::text, m.status as membership_status
-         from guardianships g
-         join users u on u.id = g.guardian_user_id
-         left join organisation_memberships m
-           on m.user_id = u.id
-          and m.organisation_id = g.organisation_id
-          and m.ended_at is null
-         where g.id = $1 and g.organisation_id = $2`,
-        [guardianshipId, orgId],
-      );
+      await applyOrgUserContactUpdate(client, {
+        actorUserId: userId,
+        organisationId: orgId,
+        targetUserId: guardianUserId,
+        permission: PERMISSIONS.GUARDIANSHIPS_MANAGE,
+        fullName: parsed.data.fullName,
+        phone: emptyToNull(parsed.data.phone),
+        alternativePhone: emptyToNull(parsed.data.alternativePhone),
+      });
+      await applyGuardianPrimaryChoice(client, orgId, studentId, guardianshipId, {
+        isPrimary: parsed.data.isPrimary,
+        explicitPriority: parsed.data.priority,
+      });
+      const guardianship = await mappedListedGuardianship(client, userId, orgId, studentId, guardianshipId);
       return c.json(
         {
           guardianshipId,
@@ -849,7 +875,7 @@ export function registerPeopleRoutes(app: SchoolappApi) {
           invitationToken,
           guardianUserId,
           alreadyLinked: Boolean(existing.rows[0]),
-          guardianship: listed.rows[0] ? mapGuardianship(listed.rows[0]) : null,
+          guardianship,
         },
         existing.rows[0] ? 200 : 201,
       );
@@ -861,9 +887,13 @@ export function registerPeopleRoutes(app: SchoolappApi) {
       assertPermission(actor, PERMISSIONS.GUARDIANSHIPS_MANAGE);
       const parsed = z
         .object({
+          fullName: z.string().min(1).max(120).optional(),
+          phone: z.string().max(40).nullable().optional(),
+          alternativePhone: z.string().max(40).nullable().optional(),
           relationship: z.string().min(1).max(40).optional(),
           hasParentalResponsibility: z.boolean().optional(),
           isEmergencyContact: z.boolean().optional(),
+          isPrimary: z.boolean().optional(),
           livesWithStudent: z.boolean().optional(),
           portalAccess: z.boolean().optional(),
           priority: z.number().int().min(1).max(9).optional(),
@@ -871,6 +901,7 @@ export function registerPeopleRoutes(app: SchoolappApi) {
         })
         .safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid guardianship payload");
+      const skipNumericPriority = parsed.data.isPrimary !== undefined;
       const updated = await client.query(
         `update guardianships
          set relationship = coalesce($3, relationship),
@@ -892,57 +923,163 @@ export function registerPeopleRoutes(app: SchoolappApi) {
           parsed.data.isEmergencyContact ?? null,
           parsed.data.livesWithStudent ?? null,
           parsed.data.portalAccess ?? null,
-          parsed.data.priority ?? null,
+          skipNumericPriority ? null : parsed.data.priority ?? null,
           parsed.data.endedOn !== undefined,
           parsed.data.endedOn ?? null,
         ],
       );
       if (!updated.rows[0]) throw new AppError(404, "not_found", "Not found");
+      const studentProfileId = String(updated.rows[0].student_profile_id);
+      const guardianUserId = String(updated.rows[0].guardian_user_id);
+      await applyOrgUserContactUpdate(client, {
+        actorUserId: userId,
+        organisationId: orgId,
+        targetUserId: guardianUserId,
+        permission: PERMISSIONS.GUARDIANSHIPS_MANAGE,
+        fullName: parsed.data.fullName,
+        phone: emptyToNull(parsed.data.phone),
+        alternativePhone: emptyToNull(parsed.data.alternativePhone),
+      });
+      if (parsed.data.isPrimary !== undefined || parsed.data.priority !== undefined) {
+        await applyGuardianPrimaryChoice(client, orgId, studentProfileId, String(updated.rows[0].id), {
+          isPrimary: parsed.data.isPrimary,
+          explicitPriority: parsed.data.priority,
+        });
+      }
+      const guardianship = await mappedListedGuardianship(
+        client,
+        userId,
+        orgId,
+        studentProfileId,
+        String(updated.rows[0].id),
+      );
+      if (!guardianship) throw new AppError(404, "not_found", "Not found");
       await writeAudit(client, {
         organisationId: orgId,
         actorUserId: userId,
         action: "guardianship.updated",
         entityType: "guardianship",
         entityId: c.req.param("id"),
-        after: mapGuardianship(updated.rows[0]),
+        after: guardianshipAuditAfter(guardianship),
       });
-      return c.json({ guardianship: mapGuardianship(updated.rows[0]) });
+      return c.json({ guardianship });
     }),
   );
 
   app.get("/guardians", requireUser, async (c) =>
-    withSchoolActor(c, async ({ client, actor, orgId }) => {
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
       assertAnyPermission(actor, [
         PERMISSIONS.GUARDIANSHIPS_MANAGE,
         PERMISSIONS.ORG_MEMBERS_READ,
         PERMISSIONS.STUDENTS_PROFILES_READ,
       ]);
-      const rows = await client.query(
-        `select g.id, g.student_profile_id, sp.legal_name as student_legal_name,
-                g.guardian_user_id, u.full_name, u.email, u.phone,
-                m.profile_photo_stored_object_id, g.relationship,
-                g.has_parental_responsibility, g.is_emergency_contact, g.lives_with_student,
-                g.portal_access, g.priority, g.started_on::text, g.ended_on::text,
-                m.status as membership_status,
-                user_has_local_credentials(u.id) as has_credentials,
-                exists(
-                  select 1 from invitations i
-                  where i.organisation_id = g.organisation_id
-                    and i.email = u.email
-                    and i.accepted_at is null and i.revoked_at is null and i.expires_at > now()
-                ) as pending_invitation
-         from guardianships g
-         join users u on u.id = g.guardian_user_id
-         join student_profiles sp on sp.id = g.student_profile_id
-         left join organisation_memberships m
-           on m.user_id = u.id
-          and m.organisation_id = g.organisation_id
-          and m.ended_at is null
-         where g.organisation_id = $1
-         order by u.full_name, sp.legal_name`,
-        [orgId],
+      const rows = await listOrganisationGuardiansForActor(client, userId, orgId);
+      return c.json({ guardians: rows.map(mapGuardianship) });
+    }),
+  );
+
+  app.get("/my-classes", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertAnyPermission(actor, [
+        PERMISSIONS.STUDENTS_PROFILES_READ_ASSIGNED,
+        PERMISSIONS.STUDENTS_PROFILES_READ,
+        PERMISSIONS.STUDENTS_PROFILES_MANAGE,
+      ]);
+      const assigned = [...(await assignedClassIds(client, userId, orgId))];
+      if (assigned.length === 0) {
+        return c.json({ classes: [] });
+      }
+      const rows = await client.query<{
+        id: string;
+        name: string;
+        class_type: string;
+        year_group_name: string | null;
+        academic_year_name: string | null;
+        pupil_count: number;
+      }>(
+        `select c.id, c.name, c.class_type, yg.name as year_group_name, ay.name as academic_year_name,
+                (
+                  select count(*)::int
+                  from class_memberships cm
+                  where cm.class_id = c.id
+                    and cm.organisation_id = c.organisation_id
+                    and cm.started_on <= current_date
+                    and (cm.ended_on is null or cm.ended_on >= current_date)
+                ) as pupil_count
+         from classes c
+         join academic_years ay on ay.id = c.academic_year_id
+         left join year_groups yg on yg.id = c.year_group_id
+         where c.organisation_id = $1
+           and c.id = any($2::uuid[])
+         order by yg.sort_order nulls last, c.name`,
+        [orgId, assigned],
       );
-      return c.json({ guardians: rows.rows.map(mapGuardianship) });
+      return c.json({
+        classes: rows.rows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          classType: row.class_type,
+          yearGroupName: row.year_group_name,
+          academicYearName: row.academic_year_name,
+          pupilCount: Number(row.pupil_count),
+        })),
+      });
+    }),
+  );
+
+  app.get("/my-classes/:classId", requireUser, async (c) =>
+    withSchoolActor(c, async ({ client, actor, orgId, userId }) => {
+      assertAnyPermission(actor, [
+        PERMISSIONS.STUDENTS_PROFILES_READ_ASSIGNED,
+        PERMISSIONS.STUDENTS_PROFILES_READ,
+        PERMISSIONS.STUDENTS_PROFILES_MANAGE,
+      ]);
+      const classId = routeParam(c, "classId");
+      if (!(await isAssignedToClass(client, userId, orgId, classId))) {
+        throw new AppError(404, "not_found", "Not found");
+      }
+      const cls = await client.query<{
+        id: string;
+        name: string;
+        class_type: string;
+        year_group_name: string | null;
+        academic_year_name: string | null;
+      }>(
+        `select c.id, c.name, c.class_type, yg.name as year_group_name, ay.name as academic_year_name
+         from classes c
+         join academic_years ay on ay.id = c.academic_year_id
+         left join year_groups yg on yg.id = c.year_group_id
+         where c.id = $1 and c.organisation_id = $2`,
+        [classId, orgId],
+      );
+      if (!cls.rows[0]) throw new AppError(404, "not_found", "Not found");
+      const pupils = await client.query<{
+        student_profile_id: string;
+        legal_name: string;
+      }>(
+        `select cm.student_profile_id, sp.legal_name
+         from class_memberships cm
+         join student_profiles sp on sp.id = cm.student_profile_id
+         where cm.class_id = $1
+           and cm.organisation_id = $2
+           and cm.started_on <= current_date
+           and (cm.ended_on is null or cm.ended_on >= current_date)
+         order by sp.legal_name`,
+        [classId, orgId],
+      );
+      return c.json({
+        class: {
+          id: cls.rows[0].id,
+          name: cls.rows[0].name,
+          classType: cls.rows[0].class_type,
+          yearGroupName: cls.rows[0].year_group_name,
+          academicYearName: cls.rows[0].academic_year_name,
+        },
+        pupils: pupils.rows.map((row) => ({
+          studentProfileId: row.student_profile_id,
+          legalName: row.legal_name,
+        })),
+      });
     }),
   );
 
@@ -951,6 +1088,7 @@ export function registerPeopleRoutes(app: SchoolappApi) {
       assertAnyPermission(actor, [PERMISSIONS.ORG_MEMBERS_READ, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE]);
       const rows = await client.query(
         `select sp.id, sp.user_id, u.title, u.full_name, u.preferred_name, u.email, u.phone,
+                u.alternative_phone,
                 u.address_line1, u.address_line2, u.address_town, u.address_county, u.address_postcode,
                 sp.job_title, sp.employee_number, sp.started_on::text, m.status as membership_status,
                 m.profile_photo_stored_object_id,
@@ -1007,6 +1145,7 @@ export function registerPeopleRoutes(app: SchoolappApi) {
         parsed.data.title ||
         parsed.data.preferredName ||
         parsed.data.phone ||
+        parsed.data.alternativePhone ||
         parsed.data.addressLine1 ||
         parsed.data.addressLine2 ||
         parsed.data.addressTown ||
@@ -1021,6 +1160,7 @@ export function registerPeopleRoutes(app: SchoolappApi) {
           title: parsed.data.title ?? undefined,
           preferredName: parsed.data.preferredName ?? undefined,
           phone: parsed.data.phone ?? undefined,
+          alternativePhone: parsed.data.alternativePhone ?? undefined,
           addressLine1: parsed.data.addressLine1 ?? undefined,
           addressLine2: parsed.data.addressLine2 ?? undefined,
           addressTown: parsed.data.addressTown ?? undefined,
@@ -1056,6 +1196,7 @@ export function registerPeopleRoutes(app: SchoolappApi) {
       assertAnyPermission(actor, [PERMISSIONS.ORG_MEMBERS_READ, PERMISSIONS.ACADEMIC_STRUCTURE_MANAGE]);
       const rows = await client.query(
         `select sp.id, sp.user_id, u.title, u.full_name, u.preferred_name, u.email, u.phone,
+                u.alternative_phone,
                 u.address_line1, u.address_line2, u.address_town, u.address_county, u.address_postcode,
                 sp.job_title, sp.employee_number, sp.started_on::text, m.status as membership_status,
                 m.profile_photo_stored_object_id,
@@ -1111,6 +1252,7 @@ export function registerPeopleRoutes(app: SchoolappApi) {
           fullName: z.string().min(1).max(120).optional(),
           preferredName: z.string().max(80).nullable().optional(),
           phone: z.string().max(40).nullable().optional(),
+          alternativePhone: z.string().max(40).nullable().optional(),
           addressLine1: z.string().max(120).nullable().optional(),
           addressLine2: z.string().max(120).nullable().optional(),
           addressTown: z.string().max(80).nullable().optional(),
@@ -1154,6 +1296,7 @@ export function registerPeopleRoutes(app: SchoolappApi) {
         fullName: parsed.data.fullName,
         preferredName: parsed.data.preferredName,
         phone: parsed.data.phone,
+        alternativePhone: parsed.data.alternativePhone,
         addressLine1: parsed.data.addressLine1,
         addressLine2: parsed.data.addressLine2,
         addressTown: parsed.data.addressTown,

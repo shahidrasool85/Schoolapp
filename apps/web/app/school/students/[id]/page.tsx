@@ -17,6 +17,7 @@ import {
   resolvePupilRecordTab,
   selectedEnrolmentClassId,
   statutoryIssueFix,
+  telHref,
   visiblePupilRecordTabs,
   type PupilRecordTab,
 } from "@schoolapp/domain";
@@ -55,8 +56,12 @@ type Guardian = {
   guardianUserId?: string;
   guardianFullName: string | null;
   guardianEmail: string | null;
+  guardianPhone?: string | null;
+  guardianAlternativePhone?: string | null;
   relationship: string;
   hasParentalResponsibility: boolean;
+  isEmergencyContact?: boolean;
+  isPrimaryContact?: boolean;
   portalAccess: boolean;
   membershipStatus: string | null;
   accountStatus?: string;
@@ -123,6 +128,13 @@ type Detail = {
   behaviourSummary: { incidentCount: number; openIncidents: number; positiveCount: number } | null;
   pastoralSummary: { openCount: number; latestPriority: string | null } | null;
 };
+
+function PhoneCallLink({ phone }: { phone: string | null | undefined }) {
+  if (!phone) return <span className="muted">—</span>;
+  const href = telHref(phone);
+  if (!href) return <span>{phone}</span>;
+  return <a href={href}>Call {phone}</a>;
+}
 
 type Option = { id: string; name: string; isCurrent?: boolean; code?: string };
 type ClassOption = Option & { classType?: string; academicYearId?: string; yearGroupId?: string | null };
@@ -252,6 +264,7 @@ export default function StudentDetailPage() {
   const [error, setError] = useState("");
   const [actionErrorMessage, setActionErrorMessage] = useState("");
   const [invite, setInvite] = useState<InviteCreated | null>(null);
+  const [editingGuardianId, setEditingGuardianId] = useState<string | null>(null);
   const [studentLoginToken, setStudentLoginToken] = useState("");
   const [editingIdentity, setEditingIdentity] = useState(false);
   const [movingEnrolment, setMovingEnrolment] = useState(false);
@@ -566,7 +579,11 @@ export default function StudentDetailPage() {
           email,
           fullName: name,
           relationship,
+          phone: String(payload.get("phone") ?? "") || null,
+          alternativePhone: String(payload.get("alternativePhone") ?? "") || null,
           hasParentalResponsibility: payload.get("hasParentalResponsibility") === "on",
+          isEmergencyContact: payload.get("isEmergencyContact") === "on",
+          isPrimary: payload.get("isPrimary") === "on",
           portalAccess: payload.get("portalAccess") === "on",
         }),
       });
@@ -591,6 +608,32 @@ export default function StudentDetailPage() {
       await load();
     } catch (err) {
       setActionErrorMessage(actionError(err, "Could not invite or link this parent."));
+    }
+  }
+
+  async function saveGuardian(event: FormEvent<HTMLFormElement>, guardianId: string) {
+    event.preventDefault();
+    if (!canManageGuardians) return;
+    const payload = new FormData(event.currentTarget);
+    setActionErrorMessage("");
+    try {
+      await api(`/api/v1/guardianships/${guardianId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          fullName: String(payload.get("fullName") ?? ""),
+          relationship: String(payload.get("relationship") || "other"),
+          phone: String(payload.get("phone") ?? "") || null,
+          alternativePhone: String(payload.get("alternativePhone") ?? "") || null,
+          hasParentalResponsibility: payload.get("hasParentalResponsibility") === "on",
+          isEmergencyContact: payload.get("isEmergencyContact") === "on",
+          isPrimary: payload.get("isPrimary") === "on",
+          portalAccess: payload.get("portalAccess") === "on",
+        }),
+      });
+      setEditingGuardianId(null);
+      await load();
+    } catch (err) {
+      setActionErrorMessage(actionError(err, "Could not update this contact."));
     }
   }
 
@@ -733,6 +776,7 @@ export default function StudentDetailPage() {
   const nextClassName = filteredClasses.find((row) => row.id === selectedEnrolmentClassId(enrolClassId, filteredClasses))?.name ?? null;
   const tabLabels: Record<PupilRecordTab, string> = {
     overview: "Overview",
+    contacts: "Contacts",
     attendance: "Attendance",
     learning: "Learning",
     academic: "Academic",
@@ -1023,102 +1067,29 @@ export default function StudentDetailPage() {
             ) : null}
           </SectionCard>
 
-          <SectionCard title="Parents / guardians">
+          <SectionCard
+            title="Parents & guardians"
+            actions={
+              <Button type="button" variant="secondary" onClick={() => goToTab("contacts")}>
+                Open contacts
+              </Button>
+            }
+          >
             {data.guardians.length === 0 ? (
               <p className="muted">No guardians linked yet.</p>
             ) : (
-              <DataTable
-                headers={
-                  <>
-                    <th>Name</th>
-                    <th>Relationship</th>
-                    <th>Account</th>
-                    <th>Portal</th>
-                    <th>PR</th>
-                    <th>Status</th>
-                  </>
-                }
-              >
-                {data.guardians.map((row) => (
-                  <tr key={row.id}>
-                    <td>
-                      {row.guardianFullName}
-                      <div className="muted">{row.guardianEmail}</div>
-                    </td>
-                    <td>{row.relationship}</td>
-                    <td>{guardianAccountLabel(row.membershipStatus)}</td>
-                    <td>
-                      {row.endedOn || !canManageGuardians ? (
-                        portalAccessLabel(row.portalAccess)
-                      ) : (
-                        <Button type="button" variant="secondary" onClick={() => togglePortal(row.id, !row.portalAccess)}>
-                          {portalAccessLabel(row.portalAccess)}
-                        </Button>
-                      )}
-                    </td>
-                    <td>{row.hasParentalResponsibility ? "Yes" : "No"}</td>
-                    <td>
-                      {row.endedOn ?? "current"}
-                      {canManageGuardians && !row.endedOn ? (
-                        <div className="button-row">
-                          <Button type="button" variant="ghost" onClick={() => inviteGuardian(row.id)}>
-                            {row.pendingInvitation ? "Resend" : "Invite"}
-                          </Button>
-                          {row.pendingInvitation ? (
-                            <Button type="button" variant="ghost" onClick={() => revokeGuardianInvite(row.id)}>
-                              Revoke
-                            </Button>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </td>
-                  </tr>
-                ))}
-              </DataTable>
+              <ul>
+                {data.guardians
+                  .filter((row) => !row.endedOn)
+                  .map((row) => (
+                    <li key={row.id}>
+                      {row.guardianFullName ?? "Unnamed"} · {row.relationship}
+                      {row.isPrimaryContact ? " · Primary contact" : ""}
+                      {row.isEmergencyContact ? " · Emergency" : ""}
+                    </li>
+                  ))}
+              </ul>
             )}
-            {canManageGuardians ? (
-              <form className="form-grid" onSubmit={addGuardian} style={{ marginTop: "1rem" }}>
-                <FormField label="Name">
-                  <Input name="fullName" required />
-                </FormField>
-                <FormField label="Email">
-                  <Input name="email" type="email" required />
-                </FormField>
-                <FormField label="Relationship">
-                  <Select name="relationship" defaultValue="mother">
-                    <option value="mother">Mother</option>
-                    <option value="father">Father</option>
-                    <option value="carer">Carer</option>
-                    <option value="other">Other</option>
-                  </Select>
-                </FormField>
-                <Checkbox name="hasParentalResponsibility" label="Parental responsibility" />
-                <Checkbox name="portalAccess" label="Enable parent portal access" />
-                <div>
-                  <Button type="submit">Invite / link parent</Button>
-                </div>
-              </form>
-            ) : null}
-            {canManageGuardians ? (
-              <form className="form-grid" onSubmit={linkExistingGuardian} style={{ marginTop: "1rem" }}>
-                <FormField label="Existing parent user id (same school only)">
-                  <Input name="guardianUserId" required placeholder="uuid" />
-                </FormField>
-                <FormField label="Relationship">
-                  <Select name="relationship" defaultValue="other">
-                    <option value="mother">Mother</option>
-                    <option value="father">Father</option>
-                    <option value="carer">Carer</option>
-                    <option value="other">Other</option>
-                  </Select>
-                </FormField>
-                <Checkbox name="hasParentalResponsibility" label="Parental responsibility" />
-                <Checkbox name="portalAccess" label="Enable parent portal access" />
-                <div>
-                  <Button type="submit">Link existing parent</Button>
-                </div>
-              </form>
-            ) : null}
           </SectionCard>
 
           <SectionCard title="Enrolment history">
@@ -1168,6 +1139,172 @@ export default function StudentDetailPage() {
                 </tr>
               ))}
             </DataTable>
+          </SectionCard>
+        </div>
+      ) : null}
+
+      {activeTab === "contacts" ? (
+        <div className="pupil-tab-panel" id="contacts">
+          <SectionCard title="Parents & guardians" description="Contact details for this pupil. Telephone numbers open the device’s normal phone handler.">
+            {data.guardians.length === 0 ? (
+              <p className="muted">No guardians linked yet.</p>
+            ) : (
+              <DataTable
+                headers={
+                  <>
+                    <th>Name</th>
+                    <th>Relationship</th>
+                    <th>Mobile</th>
+                    <th>Alternative phone</th>
+                    <th>Email</th>
+                    <th>Primary</th>
+                    <th>Emergency</th>
+                    {canManageGuardians ? <th>School admin</th> : null}
+                  </>
+                }
+              >
+                {data.guardians.map((row) => (
+                  <tr key={row.id}>
+                    <td>{row.guardianFullName}</td>
+                    <td>{row.relationship}</td>
+                    <td>
+                      <PhoneCallLink phone={row.guardianPhone} />
+                    </td>
+                    <td>
+                      <PhoneCallLink phone={row.guardianAlternativePhone} />
+                    </td>
+                    <td>{row.guardianEmail ?? "—"}</td>
+                    <td>{row.isPrimaryContact ? "Yes" : "No"}</td>
+                    <td>{row.isEmergencyContact ? "Yes" : "No"}</td>
+                    {canManageGuardians ? (
+                      <td>
+                        {row.endedOn ?? "current"}
+                        <div className="muted">
+                          {guardianAccountLabel(row.membershipStatus)} · {portalAccessLabel(row.portalAccess)}
+                          {row.hasParentalResponsibility ? " · PR" : ""}
+                        </div>
+                        {!row.endedOn ? (
+                          <div className="button-row">
+                            <Button type="button" variant="ghost" onClick={() => setEditingGuardianId(row.id)}>
+                              Edit
+                            </Button>
+                            <Button type="button" variant="ghost" onClick={() => inviteGuardian(row.id)}>
+                              {row.pendingInvitation ? "Resend" : "Invite"}
+                            </Button>
+                            {row.pendingInvitation ? (
+                              <Button type="button" variant="ghost" onClick={() => revokeGuardianInvite(row.id)}>
+                                Revoke
+                              </Button>
+                            ) : null}
+                            <Button type="button" variant="secondary" onClick={() => togglePortal(row.id, !row.portalAccess)}>
+                              Portal {portalAccessLabel(row.portalAccess)}
+                            </Button>
+                          </div>
+                        ) : null}
+                      </td>
+                    ) : null}
+                  </tr>
+                ))}
+              </DataTable>
+            )}
+            {canManageGuardians && editingGuardianId
+              ? data.guardians
+                  .filter((row) => row.id === editingGuardianId)
+                  .map((row) => (
+                    <form
+                      key={`edit-${row.id}`}
+                      className="form-grid"
+                      style={{ marginTop: "1rem" }}
+                      onSubmit={(event) => void saveGuardian(event, row.id)}
+                    >
+                      <FormField label="Guardian name">
+                        <Input name="fullName" defaultValue={row.guardianFullName ?? ""} required />
+                      </FormField>
+                      <FormField label="Relationship">
+                        <Select name="relationship" defaultValue={row.relationship}>
+                          <option value="mother">Mother</option>
+                          <option value="father">Father</option>
+                          <option value="carer">Carer</option>
+                          <option value="other">Other</option>
+                        </Select>
+                      </FormField>
+                      <FormField label="Mobile number">
+                        <Input name="phone" defaultValue={row.guardianPhone ?? ""} />
+                      </FormField>
+                      <FormField label="Alternative telephone">
+                        <Input name="alternativePhone" defaultValue={row.guardianAlternativePhone ?? ""} />
+                      </FormField>
+                      <FormField label="Email">
+                        <Input value={row.guardianEmail ?? ""} disabled />
+                      </FormField>
+                      <Checkbox name="isPrimary" label="Primary contact" defaultChecked={Boolean(row.isPrimaryContact)} />
+                      <Checkbox name="isEmergencyContact" label="Emergency contact" defaultChecked={Boolean(row.isEmergencyContact)} />
+                      <Checkbox
+                        name="hasParentalResponsibility"
+                        label="Parental responsibility"
+                        defaultChecked={row.hasParentalResponsibility}
+                      />
+                      <Checkbox name="portalAccess" label="Enable parent portal access" defaultChecked={row.portalAccess} />
+                      <div className="button-row">
+                        <Button type="submit">Save contact</Button>
+                        <Button type="button" variant="secondary" onClick={() => setEditingGuardianId(null)}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </form>
+                  ))
+              : null}
+            {canManageGuardians ? (
+              <form className="form-grid" onSubmit={addGuardian} style={{ marginTop: "1rem" }}>
+                <FormField label="Guardian name">
+                  <Input name="fullName" required />
+                </FormField>
+                <FormField label="Relationship">
+                  <Select name="relationship" defaultValue="mother">
+                    <option value="mother">Mother</option>
+                    <option value="father">Father</option>
+                    <option value="carer">Carer</option>
+                    <option value="other">Other</option>
+                  </Select>
+                </FormField>
+                <FormField label="Mobile number">
+                  <Input name="phone" />
+                </FormField>
+                <FormField label="Alternative telephone">
+                  <Input name="alternativePhone" />
+                </FormField>
+                <FormField label="Email">
+                  <Input name="email" type="email" required />
+                </FormField>
+                <Checkbox name="isPrimary" label="Primary contact" />
+                <Checkbox name="isEmergencyContact" label="Emergency contact" />
+                <Checkbox name="hasParentalResponsibility" label="Parental responsibility" />
+                <Checkbox name="portalAccess" label="Enable parent portal access" />
+                <div>
+                  <Button type="submit">Invite / link parent</Button>
+                </div>
+              </form>
+            ) : null}
+            {canManageGuardians ? (
+              <form className="form-grid" onSubmit={linkExistingGuardian} style={{ marginTop: "1rem" }}>
+                <FormField label="Existing parent user id (same school only)">
+                  <Input name="guardianUserId" required placeholder="uuid" />
+                </FormField>
+                <FormField label="Relationship">
+                  <Select name="relationship" defaultValue="other">
+                    <option value="mother">Mother</option>
+                    <option value="father">Father</option>
+                    <option value="carer">Carer</option>
+                    <option value="other">Other</option>
+                  </Select>
+                </FormField>
+                <Checkbox name="hasParentalResponsibility" label="Parental responsibility" />
+                <Checkbox name="portalAccess" label="Enable parent portal access" />
+                <div>
+                  <Button type="submit">Link existing parent</Button>
+                </div>
+              </form>
+            ) : null}
           </SectionCard>
         </div>
       ) : null}

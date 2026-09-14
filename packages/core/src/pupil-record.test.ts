@@ -5,6 +5,7 @@ import {
   filterFormClasses,
   formatPupilAddress,
   guardianAccountLabel,
+  isPrimaryGuardianContact,
   isSamePrimaryPlacement,
   lookedAfterPersistValue,
   mapOperationalGenderToStatutorySex,
@@ -17,6 +18,7 @@ import {
   selectedEnrolmentClassId,
   sensitiveSelectValue,
   statutoryIssueFix,
+  telHref,
   upnValidationMessage,
   visiblePupilRecordTabs,
 } from "@schoolapp/domain";
@@ -87,7 +89,14 @@ describe("pupil record helpers", () => {
     expect(adminTabs).toContain("statutory");
     expect(adminTabs).toContain("pastoral");
     expect(teacherTabs).not.toContain("statutory");
-    expect(parentOrStudentTabs).toEqual(["overview", "attendance", "learning", "academic", "documents"]);
+    expect(parentOrStudentTabs).toEqual([
+      "overview",
+      "contacts",
+      "attendance",
+      "learning",
+      "academic",
+      "documents",
+    ]);
     const healthTabs = visiblePupilRecordTabs({ canViewHealth: true });
     expect(healthTabs).toContain("health");
     expect(healthTabs).not.toContain("statutory");
@@ -105,6 +114,23 @@ describe("pupil record helpers", () => {
     expect(resolvePupilRecordTab("#pastoral", parentOrStudentTabs)).toBe("overview");
     expect(resolvePupilRecordTab("#does-not-exist", adminTabs)).toBe("overview");
     expect(resolvePupilRecordTab("", teacherTabs)).toBe("overview");
+    expect(parsePupilRecordTab("#parents")).toBe("contacts");
+    expect(parsePupilRecordTab("#guardians")).toBe("contacts");
+    expect(visiblePupilRecordTabs({}).includes("contacts")).toBe(true);
+  });
+
+  it("treats priority 1 as the primary guardian contact", () => {
+    expect(isPrimaryGuardianContact(1)).toBe(true);
+    expect(isPrimaryGuardianContact(2)).toBe(false);
+    expect(isPrimaryGuardianContact(null)).toBe(false);
+  });
+
+  it("builds a safe tel href and rejects non-telephone values", () => {
+    expect(telHref("07123 456789")).toBe("tel:07123456789");
+    expect(telHref("+44 7123 456789")).toBe("tel:+447123456789");
+    expect(telHref("javascript:alert(1)")).toBeNull();
+    expect(telHref("https://evil.example")).toBeNull();
+    expect(telHref("")).toBeNull();
   });
 
   it("rejects an unchanged primary placement", () => {

@@ -2118,4 +2118,23 @@ describe("RLS catalog", () => {
     expect(grants.rows[0]?.prosecdef).toBe(true);
     expect(grants.rows[0]?.search_path).toMatch(/search_path=pg_catalog,\s*public/);
   });
+
+  it("keeps restricted_contact unreadable to schoolapp_app and FORCE RLS on guardianships", async () => {
+    const privileges = await pools.owner.query<{
+      restricted_select: boolean;
+      alternative_phone_select: boolean;
+      guardianships_forced: boolean;
+    }>(
+      `select
+         has_column_privilege('schoolapp_app', 'guardianships', 'restricted_contact', 'SELECT') as restricted_select,
+         has_column_privilege('schoolapp_app', 'users', 'alternative_phone', 'SELECT') as alternative_phone_select,
+         c.relforcerowsecurity as guardianships_forced
+       from pg_class c
+       join pg_namespace n on n.oid = c.relnamespace
+       where n.nspname = 'public' and c.relname = 'guardianships'`,
+    );
+    expect(privileges.rows[0]?.restricted_select).toBe(false);
+    expect(privileges.rows[0]?.alternative_phone_select).toBe(true);
+    expect(privileges.rows[0]?.guardianships_forced).toBe(true);
+  });
 });

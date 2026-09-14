@@ -16,6 +16,7 @@ export const PROFILE_CONTACT_FIELDS = [
   "title",
   "preferredName",
   "phone",
+  "alternativePhone",
   "addressLine1",
   "addressLine2",
   "addressTown",
@@ -32,6 +33,7 @@ export type PersonContact = {
   displayName: string;
   email: string | null;
   phone: string | null;
+  alternativePhone: string | null;
   addressLine1: string | null;
   addressLine2: string | null;
   addressTown: string | null;
@@ -75,6 +77,7 @@ const CONTACT_COLUMN: Record<ProfileContactField, string> = {
   title: "title",
   preferredName: "preferred_name",
   phone: "phone",
+  alternativePhone: "alternative_phone",
   addressLine1: "address_line1",
   addressLine2: "address_line2",
   addressTown: "address_town",
@@ -88,6 +91,7 @@ export const USER_CONTACT_SELECT = `
   u.preferred_name,
   u.email,
   u.phone,
+  u.alternative_phone,
   u.address_line1,
   u.address_line2,
   u.address_town,
@@ -111,6 +115,7 @@ export function mapPersonContact(row: Record<string, unknown>): PersonContact {
     displayName: displayPersonName({ title, fullName, preferredName }),
     email: (row.email as string | null) ?? null,
     phone: (row.phone as string | null) ?? null,
+    alternativePhone: (row.alternative_phone as string | null) ?? null,
     addressLine1: (row.address_line1 as string | null) ?? null,
     addressLine2: (row.address_line2 as string | null) ?? null,
     addressTown: (row.address_town as string | null) ?? null,
@@ -309,6 +314,7 @@ export async function applyOrgUserContactUpdate(
     fullName?: string | null;
     preferredName?: string | null;
     phone?: string | null;
+    alternativePhone?: string | null;
     addressLine1?: string | null;
     addressLine2?: string | null;
     addressTown?: string | null;
@@ -321,6 +327,7 @@ export async function applyOrgUserContactUpdate(
   if (input.fullName !== undefined) changed.push("fullName");
   if (input.preferredName !== undefined) changed.push("preferredName");
   if (input.phone !== undefined) changed.push("phone");
+  if (input.alternativePhone !== undefined) changed.push("alternativePhone");
   if (input.addressLine1 !== undefined) changed.push("addressLine1");
   if (input.addressLine2 !== undefined) changed.push("addressLine2");
   if (input.addressTown !== undefined) changed.push("addressTown");
@@ -331,7 +338,7 @@ export async function applyOrgUserContactUpdate(
     `select update_org_user_contact(
        $1,$2,$3,$4,
        $5,$6,$7,$8,$9,$10,$11,$12,
-       $13,$14,$15,$16,$17,$18,$19,$20,$21,$22
+       $13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24
      )`,
     [
       input.actorUserId,
@@ -356,6 +363,8 @@ export async function applyOrgUserContactUpdate(
       input.addressCounty ?? null,
       input.addressPostcode !== undefined,
       input.addressPostcode ?? null,
+      input.alternativePhone !== undefined,
+      input.alternativePhone ?? null,
     ],
   );
   await writeAudit(client, {

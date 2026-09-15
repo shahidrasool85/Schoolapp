@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   APPLY_FROM_AFTER_ORIGINAL_END,
   APPLY_FROM_NO_REMAINING_LESSONS,
+  addIsoDaysUtc,
   todayInTimeZone,
 } from "@schoolapp/domain";
 import { closePools } from "@schoolapp/db";
@@ -18,6 +19,26 @@ import {
 } from "./test-helpers";
 
 const suffix = () => randomUUID().slice(0, 8);
+
+function isoWeekdayUtc(isoDate: string): number {
+  return new Date(`${isoDate}T00:00:00Z`).getUTCDay();
+}
+
+function nextWeekdayOnOrAfter(isoDate: string, weekday: number): string {
+  let date = isoDate;
+  while (isoWeekdayUtc(date) !== weekday) {
+    date = addIsoDaysUtc(date, 1);
+  }
+  return date;
+}
+
+function lastWeekdayOnOrBefore(isoDate: string, weekday: number): string {
+  let date = isoDate;
+  while (isoWeekdayUtc(date) !== weekday) {
+    date = addIsoDaysUtc(date, -1);
+  }
+  return date;
+}
 
 async function createSchool(owner: ReturnType<typeof testPools>["owner"], id: string) {
   const adminId = await insertUser(owner, {
@@ -503,12 +524,18 @@ describe("Timetable recurrence UX hotfix", () => {
     const teacher = await inviteTeacher(app, hdrs, suffix(), structure.classAId);
     const replacementTeacher = await inviteTeacher(app, hdrs, suffix(), structure.classAId);
 
+    const today = todayInTimeZone("Europe/London");
+    const stopFrom = addIsoDaysUtc(today, 1);
+    const lastIncluded = addIsoDaysUtc(stopFrom, -1);
+    const historyMonday = lastWeekdayOnOrBefore(lastIncluded, 1);
+    const unusedFrom = nextWeekdayOnOrAfter(addIsoDaysUtc(today, 21), 1);
+
     const future = await json<{ entry: { id: string } }>(
       await app.request("/api/v1/timetable/entries", {
         method: "POST",
         headers: hdrs,
         body: JSON.stringify({
-          ...lessonBody(structure, teacher.staffProfileId, { effectiveFrom: "2026-10-05" }),
+          ...lessonBody(structure, teacher.staffProfileId, { effectiveFrom: unusedFrom }),
           repeatUntil: { kind: "end_of_academic_year" },
         }),
       }),
@@ -541,17 +568,17 @@ describe("Timetable recurrence UX hotfix", () => {
         await app.request(`/api/v1/timetable/entries/${started.entry.id}/end`, {
           method: "POST",
           headers: teacherH,
-          body: JSON.stringify({ stopFrom: "2026-09-11" }),
+          body: JSON.stringify({ stopFrom }),
         })
       ).status,
     ).toBe(403);
 
     const teacherWeek = await json<{ occurrences: Array<{ date: string; entryId: string }> }>(
-      await app.request("/api/v1/timetable/occurrences?from=2026-09-07&to=2026-09-07&mine=true", {
+      await app.request(`/api/v1/timetable/occurrences?from=${historyMonday}&to=${historyMonday}&mine=true`, {
         headers: teacherH,
       }),
     );
-    expect(teacherWeek.occurrences.some((item) => item.entryId === started.entry.id && item.date === "2026-09-07")).toBe(
+    expect(teacherWeek.occurrences.some((item) => item.entryId === started.entry.id && item.date === historyMonday)).toBe(
       true,
     );
 
@@ -567,24 +594,24 @@ describe("Timetable recurrence UX hotfix", () => {
     const ended = await app.request(`/api/v1/timetable/entries/${started.entry.id}/end`, {
       method: "POST",
       headers: hdrs,
-      body: JSON.stringify({ stopFrom: "2026-09-11" }),
+      body: JSON.stringify({ stopFrom }),
     });
     expect(ended.status).toBe(200);
     const history = await json<{ occurrences: Array<{ date: string; entryId: string }> }>(
       await app.request(
-        `/api/v1/timetable/occurrences?from=2026-09-07&to=2026-09-07&classId=${structure.classAId}`,
+        `/api/v1/timetable/occurrences?from=${historyMonday}&to=${historyMonday}&classId=${structure.classAId}`,
         { headers: hdrs },
       ),
     );
     expect(history.occurrences).toEqual([
-      expect.objectContaining({ date: "2026-09-07", entryId: started.entry.id }),
+      expect.objectContaining({ date: historyMonday, entryId: started.entry.id }),
     ]);
 
     const overlap = await app.request("/api/v1/timetable/entries", {
       method: "POST",
       headers: hdrs,
       body: JSON.stringify(
-        lessonBody(structure, replacementTeacher.staffProfileId, { effectiveFrom: "2026-09-10" }),
+        lessonBody(structure, replacementTeacher.staffProfileId, { effectiveFrom: lastIncluded }),
       ),
     });
     expect(overlap.status).toBe(409);
@@ -593,7 +620,7 @@ describe("Timetable recurrence UX hotfix", () => {
       method: "POST",
       headers: hdrs,
       body: JSON.stringify(
-        lessonBody(structure, replacementTeacher.staffProfileId, { effectiveFrom: "2026-09-11" }),
+        lessonBody(structure, replacementTeacher.staffProfileId, { effectiveFrom: stopFrom }),
       ),
     });
     expect(replacement.status).toBe(201);
@@ -620,9 +647,9 @@ describe("Timetable recurrence UX hotfix", () => {
     const studentToken = await loginAlias(app, school.slug, alias, "student-pass-1");
     const studentH = headers(studentToken, school.orgId);
     const studentWeek = await json<{ occurrences: Array<{ date: string }> }>(
-      await app.request("/api/v1/student/timetable?from=2026-09-07", { headers: studentH }),
+      await app.request(`/api/v1/student/timetable?from=${historyMonday}`, { headers: studentH }),
     );
-    expect(studentWeek.occurrences.some((item) => item.date === "2026-09-07")).toBe(true);
+    expect(studentWeek.occurrences.some((item) => item.date === historyMonday)).toBe(true);
     expect(
       (
         await app.request("/api/v1/timetable/entries", {
@@ -712,6 +739,11 @@ describe("Timetable recurrence UX hotfix", () => {
     );
     const teacher = await inviteTeacher(app, hdrs, suffix(), classA.class.id);
     const nextTeacher = await inviteTeacher(app, hdrs, suffix(), classA.class.id);
+    const today = todayInTimeZone("Europe/London");
+    const applyFrom = addIsoDaysUtc(today, 1);
+    const lastIncluded = addIsoDaysUtc(applyFrom, -1);
+    const historyMonday = lastWeekdayOnOrBefore(lastIncluded, 1);
+    const futureMonday = nextWeekdayOnOrAfter(applyFrom, 1);
     const created = await json<{ entry: { id: string } }>(
       await app.request("/api/v1/timetable/entries", {
         method: "POST",
@@ -736,19 +768,19 @@ describe("Timetable recurrence UX hotfix", () => {
         method: "POST",
         headers: hdrs,
         body: JSON.stringify({
-          applyFrom: "2026-09-14",
+          applyFrom,
           teachers: [{ staffProfileId: nextTeacher.staffProfileId, isPrimary: true }],
           repeatUntil: { kind: "end_of_academic_year" },
           effectiveUntil: "2027-07-22",
         }),
       }),
     );
-    expect(replaced.endedEntry.effectiveUntil).toBe("2026-09-13");
+    expect(replaced.endedEntry.effectiveUntil).toBe(lastIncluded);
     expect(replaced.entry.id).not.toBe(created.entry.id);
     expect(replaced.entry.effectiveUntil).toBeNull();
     const past = await json<{ occurrences: Array<{ entryId: string; teachers: Array<{ staffProfileId: string }> }> }>(
       await app.request(
-        `/api/v1/timetable/occurrences?from=2026-09-07&to=2026-09-07&classId=${classA.class.id}`,
+        `/api/v1/timetable/occurrences?from=${historyMonday}&to=${historyMonday}&classId=${classA.class.id}`,
         { headers: hdrs },
       ),
     );
@@ -756,7 +788,7 @@ describe("Timetable recurrence UX hotfix", () => {
     expect(past.occurrences[0]?.teachers.some((item) => item.staffProfileId === teacher.staffProfileId)).toBe(true);
     const future = await json<{ occurrences: Array<{ entryId: string; teachers: Array<{ staffProfileId: string }> }> }>(
       await app.request(
-        `/api/v1/timetable/occurrences?from=2026-09-14&to=2026-09-14&classId=${classA.class.id}`,
+        `/api/v1/timetable/occurrences?from=${futureMonday}&to=${futureMonday}&classId=${classA.class.id}`,
         { headers: hdrs },
       ),
     );

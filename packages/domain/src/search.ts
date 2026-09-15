@@ -52,6 +52,11 @@ export const STAFF_SEARCH_DESTINATIONS: readonly GlobalSearchDestination[] = [
     "pupils",
     "students",
   ], { permissions: ["students.profiles.read", "students.profiles.read_assigned", "students.profiles.manage"] }),
+  staffPage("my-classes", "My Classes", "/school/my-classes", [
+    "my classes",
+    "class list",
+    "assigned classes",
+  ], { permissions: ["students.profiles.read_assigned"] }),
   staffPage("attendance", "Attendance", "/school/attendance", [
     "attendance",
     "register",

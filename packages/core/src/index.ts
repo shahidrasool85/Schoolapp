@@ -1388,6 +1388,14 @@ export {
 export { globalSearch, type SearchHit } from "./search.js";
 
 export {
+  listStudentGuardiansForActor,
+  listOrganisationGuardiansForActor,
+  designatePrimaryGuardian,
+  applyGuardianPrimaryChoice,
+  ensureNonPrimaryGuardianPriority,
+} from "./guardians.js";
+
+export {
   PROFILE_CONTACT_FIELDS,
   USER_CONTACT_SELECT,
   MEMBERSHIP_PHOTO_SELECT,

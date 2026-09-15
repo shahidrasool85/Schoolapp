@@ -4,6 +4,7 @@ export type LookedAfterPersistValue = "none" | "looked_after" | "previously_look
 
 export type PupilRecordTab =
   | "overview"
+  | "contacts"
   | "attendance"
   | "learning"
   | "academic"
@@ -14,6 +15,7 @@ export type PupilRecordTab =
 
 export const PUPIL_RECORD_TABS: PupilRecordTab[] = [
   "overview",
+  "contacts",
   "attendance",
   "learning",
   "academic",
@@ -188,6 +190,7 @@ export function portalAccessGranted(value: boolean | null | undefined): boolean 
 export function parsePupilRecordTab(hash: string | null | undefined): PupilRecordTab {
   const key = (hash ?? "").replace(/^#/, "").trim().toLowerCase();
   if (key === "medication" || key === "medications" || key === "dietary") return "health";
+  if (key === "parents" || key === "guardians" || key === "parent") return "contacts";
   return (PUPIL_RECORD_TABS as string[]).includes(key) ? (key as PupilRecordTab) : "overview";
 }
 
@@ -196,11 +199,27 @@ export function visiblePupilRecordTabs(input: {
   canViewPastoral?: boolean;
   canViewHealth?: boolean;
 }): PupilRecordTab[] {
-  const tabs: PupilRecordTab[] = ["overview", "attendance", "learning", "academic", "documents"];
+  const tabs: PupilRecordTab[] = ["overview", "contacts", "attendance", "learning", "academic", "documents"];
   if (input.canViewHealth) tabs.push("health");
   if (input.canViewStatutory) tabs.push("statutory");
   if (input.canViewPastoral) tabs.push("pastoral");
   return tabs;
+}
+
+export function isPrimaryGuardianContact(priority: number | null | undefined): boolean {
+  return Number(priority) === 1;
+}
+
+/** Safe `tel:` href for a stored telephone. Rejects anything that is not a phone number. */
+export function telHref(phone: string | null | undefined): string | null {
+  const raw = phone?.trim() ?? "";
+  if (!raw) return null;
+  if (!/^[+\d][\d\s().-]{0,39}$/.test(raw)) return null;
+  const digits = raw.replace(/[^\d+]/g, "");
+  const national = digits.replace(/^\+/, "");
+  if (national.length < 7 || national.length > 15) return null;
+  if ((digits.match(/\+/g) ?? []).length > 1) return null;
+  return `tel:${digits}`;
 }
 
 /** Hash tabs the current viewer cannot see fall back to the first permitted tab. */

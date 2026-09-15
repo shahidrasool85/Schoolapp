@@ -26,6 +26,7 @@ type Guardian = {
   displayName: string;
   email: string | null;
   phone: string | null;
+  alternativePhone: string | null;
   addressLine1: string | null;
   addressLine2: string | null;
   addressTown: string | null;
@@ -104,6 +105,7 @@ export default function SchoolParentDetailPage() {
             "title",
             "preferredName",
             "phone",
+            "alternativePhone",
             "addressLine1",
             "addressLine2",
             "addressTown",

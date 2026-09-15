@@ -18,6 +18,7 @@ type Profile = {
   title: string | null;
   email: string | null;
   phone: string | null;
+  alternativePhone?: string | null;
   addressLine1: string | null;
   addressLine2: string | null;
   addressTown: string | null;

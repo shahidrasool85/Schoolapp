@@ -175,6 +175,12 @@ export const STAFF_NAV_SECTIONS: StaffNavSection[] = [
         permissions: ["students.profiles.read", "students.profiles.read_assigned", "students.profiles.manage"],
       },
       {
+        href: "/school/my-classes",
+        label: "My Classes",
+        icon: "users",
+        permissions: ["students.profiles.read_assigned"],
+      },
+      {
         href: "/school/attendance",
         label: "Attendance",
         icon: "check",

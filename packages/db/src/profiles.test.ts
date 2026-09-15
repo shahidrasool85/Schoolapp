@@ -31,12 +31,14 @@ describe("user profile columns", () => {
     const row = await pools.owner.query<{
       title: string | null;
       phone: string | null;
+      alternative_phone: string | null;
       address_line1: string | null;
       full_name: string;
-    }>("select title, phone, address_line1, full_name from users where id = $1", [user.rows[0]!.id]);
+    }>("select title, phone, alternative_phone, address_line1, full_name from users where id = $1", [user.rows[0]!.id]);
     expect(row.rows[0]?.full_name).toBe("Legacy Staff");
     expect(row.rows[0]?.title).toBeNull();
     expect(row.rows[0]?.phone).toBeNull();
+    expect(row.rows[0]?.alternative_phone).toBeNull();
     expect(row.rows[0]?.address_line1).toBeNull();
 
     const org = await pools.owner.query<{ id: string }>(

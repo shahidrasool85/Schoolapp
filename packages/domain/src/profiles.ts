@@ -17,6 +17,7 @@ export const STAFF_SELF_EDITABLE_PROFILE_FIELDS = [
   "title",
   "preferredName",
   "phone",
+  "alternativePhone",
   "addressLine1",
   "addressLine2",
   "addressTown",

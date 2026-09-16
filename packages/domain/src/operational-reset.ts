@@ -3,7 +3,13 @@
  *
  * Destructive, organisation-scoped wipe of UAT/test operational records.
  * Does not delete the organisation, hostnames, branding, provider config,
- * or active School Admin memberships. Not a generic TRUNCATE.
+ * active School Admin memberships, or staff memberships unless a staff
+ * user is explicitly selected for removal. Not a generic TRUNCATE.
+ *
+ * Staff default to preserve. Academic structure, published admissions
+ * forms, and fee schedules default to preserve and require an explicit
+ * wipe flag. There is no automatic genuine/test classification by name,
+ * email, date, role, assignment, or invitation status.
  *
  * There is no platform/system organisation row. Platform identity is
  * `platform_admins` + reserved slugs. Reset must never target a missing
@@ -12,6 +18,21 @@
 
 export const OPERATIONAL_RESET_MODE = "operational_reset_v1" as const;
 export type OperationalResetMode = typeof OPERATIONAL_RESET_MODE;
+
+export const OPERATIONAL_RESET_STAFF_ROLE_KEYS = [
+  "school.admin",
+  "school.headteacher",
+  "school.teacher",
+  "school.admissions",
+  "school.staff",
+] as const;
+
+export type OperationalResetStaffRoleKey = (typeof OPERATIONAL_RESET_STAFF_ROLE_KEYS)[number];
+
+export function intendedRolesIncludeStaff(roleKeys: string[] | null | undefined): boolean {
+  const roles = roleKeys ?? [];
+  return OPERATIONAL_RESET_STAFF_ROLE_KEYS.some((key) => roles.includes(key));
+}
 
 /** Tables whose organisation rows must never be deleted by this reset. */
 export const OPERATIONAL_RESET_PRESERVED_TABLES = [
@@ -35,6 +56,44 @@ export const OPERATIONAL_RESET_PRESERVED_TABLES = [
   "organisation_setup_progress",
 ] as const;
 
+/**
+ * Academic structure. Default PRESERVE. Explicit wipeAcademicStructure
+ * is required before these organisation rows are deleted.
+ */
+export const OPERATIONAL_RESET_ACADEMIC_STRUCTURE_TABLES = [
+  "academic_years",
+  "terms",
+  "half_terms",
+  "year_groups",
+  "houses",
+  "subjects",
+  "rooms",
+  "school_day_profiles",
+  "school_day_periods",
+] as const;
+
+/**
+ * Admissions form definitions (including published forms). Default PRESERVE.
+ * Submissions, enquiries, applications, and submission document attachments
+ * (`admissions_form_documents`) remain operational and are wiped.
+ */
+export const OPERATIONAL_RESET_ADMISSIONS_FORM_TABLES = [
+  "admissions_forms",
+  "admissions_form_sections",
+  "admissions_form_fields",
+] as const;
+
+/**
+ * Fee schedules and discount rules. Default PRESERVE.
+ * Pupil fee profiles, invoices, and payments remain operational and are wiped.
+ */
+export const OPERATIONAL_RESET_FEE_SCHEDULE_TABLES = [
+  "school_fee_schedules",
+  "school_fee_schedule_instalments",
+  "school_discount_rules",
+  "school_discount_rule_tiers",
+] as const;
+
 /** Organisation-scoped operational tables wiped by operational_reset_v1. */
 export const OPERATIONAL_RESET_TABLES = [
   "academic_assessment_classes",
@@ -52,7 +111,6 @@ export const OPERATIONAL_RESET_TABLES = [
   "academic_result_revisions",
   "academic_results",
   "academic_targets",
-  "academic_years",
   "achievement_definitions",
   "admissions_application_contacts",
   "admissions_application_status_history",
@@ -63,10 +121,7 @@ export const OPERATIONAL_RESET_TABLES = [
   "admissions_documents",
   "admissions_enquiries",
   "admissions_form_documents",
-  "admissions_form_fields",
-  "admissions_form_sections",
   "admissions_form_submissions",
-  "admissions_forms",
   "admissions_offers",
   "admissions_waiting_list_entries",
   "announcement_recipient_subjects",
@@ -101,10 +156,7 @@ export const OPERATIONAL_RESET_TABLES = [
   "engagement_year_group_policies",
   "external_identifiers",
   "guardianships",
-  "half_terms",
-  "houses",
   "inter_school_competition_network_members",
-  "invitations",
   "learning_activity_answers",
   "learning_activity_assignments",
   "learning_activity_attempts",
@@ -138,7 +190,6 @@ export const OPERATIONAL_RESET_TABLES = [
   "pupil_rewards",
   "pupil_xp_events",
   "reward_categories",
-  "rooms",
   "safeguarding_attachments",
   "safeguarding_chronology_entries",
   "safeguarding_concern_revisions",
@@ -160,18 +211,12 @@ export const OPERATIONAL_RESET_TABLES = [
   "school_billing_runs",
   "school_charge_adjustments",
   "school_charges",
-  "school_day_periods",
-  "school_day_profiles",
-  "school_discount_rule_tiers",
-  "school_discount_rules",
   "school_event_audience",
   "school_event_audience_subjects",
   "school_event_resources",
   "school_event_status_history",
   "school_event_targets",
   "school_events",
-  "school_fee_schedule_instalments",
-  "school_fee_schedules",
   "school_finance_counters",
   "school_invoice_credits",
   "school_invoice_lines",
@@ -198,13 +243,10 @@ export const OPERATIONAL_RESET_TABLES = [
   "student_portal_year_group_overrides",
   "student_profiles",
   "student_statutory_profiles",
-  "subjects",
-  "terms",
   "timetable_covers",
   "timetable_entries",
   "timetable_entry_teachers",
   "timetable_exceptions",
-  "year_groups",
 ] as const;
 
 /**
@@ -252,19 +294,45 @@ export const OPERATIONAL_RESET_PRESERVED_CATEGORIES = [
   { key: "routing", label: "School hostname and tenant routing" },
   { key: "branding", label: "Public branding, logo, hero, and contact details" },
   { key: "school_admins", label: "All active School Admin accounts, memberships, and roles" },
+  { key: "staff", label: "All staff/teacher accounts unless explicitly selected for removal" },
   { key: "platform", label: "Platform Admin records and platform configuration" },
   { key: "email_config", label: "Transactional email wording, logo visibility, B4 send flags, attachments" },
   { key: "stripe_config", label: "Encrypted Stripe/provider configuration (test/live mode, webhook config)" },
   { key: "finance_config", label: "VAT, invoice/receipt template, footer, and school bank details" },
   { key: "audit", label: "Historical audit_events (including this reset event)" },
-  { key: "setup_entry", label: "School Setup remains available to rebuild academics and people" },
+  { key: "setup_entry", label: "School Setup remains available to rebuild operational people and classes" },
 ] as const;
+
+export const OPERATIONAL_RESET_STRUCTURAL_POLICY_CATEGORIES = [
+  {
+    key: "academicStructure",
+    label: "Academic structure (years, terms, year groups, houses, subjects, rooms, school day)",
+    flag: "wipeAcademicStructure",
+    defaultAction: "preserve",
+  },
+  {
+    key: "publishedAdmissionsForms",
+    label: "Admissions form definitions, including published public forms",
+    flag: "wipePublishedAdmissionsForms",
+    defaultAction: "preserve",
+  },
+  {
+    key: "feeSchedules",
+    label: "Fee schedules, instalments, and discount rules",
+    flag: "wipeFeeSchedules",
+    defaultAction: "preserve",
+  },
+] as const;
+
+export type OperationalResetStructuralPolicyKey =
+  (typeof OPERATIONAL_RESET_STRUCTURAL_POLICY_CATEGORIES)[number]["key"];
 
 export const OPERATIONAL_RESET_COUNT_CATEGORIES = [
   { key: "pupils", label: "Pupils" },
   { key: "guardianships", label: "Guardian relationships" },
-  { key: "staffToRemove", label: "Staff users to remove" },
-  { key: "membershipsToRemove", label: "Non-admin memberships to remove" },
+  { key: "staffToRemove", label: "Staff users explicitly selected for removal" },
+  { key: "staffPreserved", label: "Staff users preserved" },
+  { key: "membershipsToRemove", label: "Non-preserved memberships to remove" },
   { key: "admissionsEnquiries", label: "Admissions enquiries" },
   { key: "admissionsApplications", label: "Applications" },
   { key: "attendanceMarks", label: "Attendance marks" },
@@ -286,7 +354,7 @@ export const OPERATIONAL_RESET_COUNT_CATEGORIES = [
   { key: "notifications", label: "Notifications" },
   { key: "activities", label: "Trips and clubs" },
   { key: "rewards", label: "Rewards" },
-  { key: "invitations", label: "Invitations" },
+  { key: "invitations", label: "Non-staff invitations to remove" },
   { key: "dataImports", label: "Data imports" },
   { key: "censusRuns", label: "Census runs" },
 ] as const;
@@ -298,6 +366,41 @@ export type OperationalResetSchoolAdmin = {
   email: string | null;
   fullName: string;
   membershipStatus: string;
+};
+
+export type OperationalResetStaffMember = {
+  userId: string;
+  email: string | null;
+  fullName: string;
+  preferredName: string | null;
+  userKind: string;
+  roles: string[];
+  membershipStatus: string;
+  userStatus: string;
+  jobTitle: string | null;
+  employeeNumber: string | null;
+  createdAt: string;
+  invitationCreatorName: string | null;
+  invitationCreatedAt: string | null;
+  staffProfileCreatedAt: string | null;
+  classAssignmentCount: number;
+  isSchoolAdmin: boolean;
+};
+
+export type OperationalResetPendingStaffInvite = {
+  invitationId: string;
+  email: string | null;
+  intendedRoleKeys: string[];
+  createdAt: string;
+  invitedUserId: string | null;
+};
+
+export type OperationalResetStructuralPolicy = {
+  key: OperationalResetStructuralPolicyKey;
+  label: string;
+  defaultAction: "preserve";
+  action: "preserve" | "wipe";
+  rowCount: number;
 };
 
 export function confirmationMatchesOrganisation(input: {

@@ -1872,6 +1872,23 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   gap: 1.5rem;
 }
 
+.reset-staff-list,
+.reset-structure-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+}
+
+.reset-staff-list li,
+.reset-structure-list li {
+  margin-bottom: 0.75rem;
+}
+
+.reset-staff-meta {
+  margin: 0.25rem 0 0 1.6rem;
+  font-size: 0.9rem;
+}
+
 @media (max-width: 640px) {
   .reset-count-list { columns: 1; }
 }

@@ -10,6 +10,7 @@ import {
   EmailAttachmentLimitConfigError,
   parsePlatformEmailAttachmentLimits,
   pgErrorToAppError,
+  describeUnknownError,
   presentPlatformEmailAttachmentLimits,
   schoolInviteUrl,
   staffInviteMail,
@@ -314,6 +315,20 @@ export function registerPlatformRoutes(app: SchoolappApi) {
     if (!organisationId.success) {
       throw new AppError(404, "not_found", "Not found");
     }
+    const requestedIds = [
+      ...(c.req.queries("staffUserIdsToRemove") ?? []),
+      ...(c.req.query("staffUserIdsToRemove")?.split(",") ?? []),
+    ]
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const invalidId = requestedIds.find((value) => !z.string().uuid().safeParse(value).success);
+    if (invalidId) {
+      throw new AppError(400, "staff_removal_invalid", "Staff selected for removal must be identified by user ID");
+    }
+    const boolQuery = (name: string): boolean => {
+      const value = (c.req.query(name) ?? "").trim().toLowerCase();
+      return value === "true" || value === "1" || value === "yes";
+    };
     try {
       await c.get("config").pools.app.query("select * from list_platform_organisations($1)", [
         c.get("userId"),
@@ -322,8 +337,24 @@ export function registerPlatformRoutes(app: SchoolappApi) {
         owner: c.get("config").pools.owner,
         organisationId: organisationId.data,
         actorUserId: c.get("userId"),
+        policy: {
+          staffUserIdsToRemove: requestedIds,
+          wipeAcademicStructure: boolQuery("wipeAcademicStructure"),
+          wipePublishedAdmissionsForms: boolQuery("wipePublishedAdmissionsForms"),
+          wipeFeeSchedules: boolQuery("wipeFeeSchedules"),
+        },
       });
-      return c.json(preview);
+      try {
+        return c.json(preview);
+      } catch (error) {
+        console.error("operational_reset_failed", {
+          op: "preview_serialize",
+          organisationId: organisationId.data,
+          actorUserId: c.get("userId"),
+          ...describeUnknownError(error),
+        });
+        throw new AppError(500, "internal_error", "Internal error");
+      }
     } catch (error) {
       throw pgErrorToAppError(error) ?? error;
     }
@@ -341,6 +372,10 @@ export function registerPlatformRoutes(app: SchoolappApi) {
         backupConfirmed: z.boolean(),
         understandPermanent: z.boolean(),
         resetMode: z.literal(OPERATIONAL_RESET_MODE),
+        staffUserIdsToRemove: z.array(z.string().uuid()).optional().default([]),
+        wipeAcademicStructure: z.boolean().optional().default(false),
+        wipePublishedAdmissionsForms: z.boolean().optional().default(false),
+        wipeFeeSchedules: z.boolean().optional().default(false),
       })
       .safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) {
@@ -359,6 +394,12 @@ export function registerPlatformRoutes(app: SchoolappApi) {
         backupConfirmed: parsed.data.backupConfirmed,
         understandPermanent: parsed.data.understandPermanent,
         resetMode: parsed.data.resetMode,
+        policy: {
+          staffUserIdsToRemove: parsed.data.staffUserIdsToRemove,
+          wipeAcademicStructure: parsed.data.wipeAcademicStructure,
+          wipePublishedAdmissionsForms: parsed.data.wipePublishedAdmissionsForms,
+          wipeFeeSchedules: parsed.data.wipeFeeSchedules,
+        },
       });
       return c.json(result);
     } catch (error) {

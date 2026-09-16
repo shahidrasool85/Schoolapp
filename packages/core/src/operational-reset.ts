@@ -1413,7 +1413,17 @@ export async function previewOperationalReset(input: {
     ...input.policy,
     staffUserIdsToRemove: uniqueUuids(input.policy?.staffUserIdsToRemove ?? []),
   };
-  const client = await input.owner.connect();
+  let client: pg.PoolClient;
+  try {
+    client = await input.owner.connect();
+  } catch (error) {
+    logUnexpectedOperationalResetError(
+      "preview",
+      { organisationId: input.organisationId, actorUserId: input.actorUserId, phase: "connect" },
+      error,
+    );
+    throw error;
+  }
   try {
     await requirePlatformAdmin(client, input.actorUserId);
     await loadOrganisation(client, input.organisationId, false);

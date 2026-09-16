@@ -1476,6 +1476,11 @@ describe("Platform Admin operational data reset", () => {
        ) values ($1, $2, $3, '{school.teacher}', $4, now() + interval '14 days', $5)`,
       [school.orgId, `pending-${id}@school.test`, pendingId, `tok-pending-${id}`, school.adminId],
     );
+    await pools.owner.query(
+      `insert into account_tokens (organisation_id, user_id, purpose, token_hash, expires_at, created_by)
+       values ($1, $2, 'password_reset', $3, now() + interval '1 day', $4)`,
+      [school.orgId, pendingId, `reset-pending-${id}`, school.adminId],
+    );
 
     const demoId = await insertUser(pools.owner, {
       email: `demo-${id}@school.test`,
@@ -1649,10 +1654,21 @@ describe("Platform Admin operational data reset", () => {
       expect(profile.rowCount).toBe(1);
     }
     const pendingInvite = await pools.owner.query(
-      `select 1 from invitations where organisation_id = $1 and invited_user_id = $2`,
+      `select token_hash from invitations where organisation_id = $1 and invited_user_id = $2`,
       [school.orgId, pendingId],
     );
     expect(pendingInvite.rowCount).toBe(1);
+    expect(pendingInvite.rows[0]?.token_hash).toBe(`tok-pending-${id}`);
+    const pendingCreds = await pools.owner.query(
+      `select 1 from user_credentials where user_id = $1`,
+      [pendingId],
+    );
+    expect(pendingCreds.rowCount).toBe(1);
+    const pendingToken = await pools.owner.query(
+      `select 1 from account_tokens where organisation_id = $1 and user_id = $2 and purpose = 'password_reset'`,
+      [school.orgId, pendingId],
+    );
+    expect(pendingToken.rowCount).toBe(1);
     const teacherPhotoAfter = await pools.owner.query(
       `select m.profile_photo_stored_object_id, so.id
          from organisation_memberships m
@@ -1736,6 +1752,357 @@ describe("Platform Admin operational data reset", () => {
       );
     } finally {
       await pools.owner.query(`drop table if exists operational_reset_probe_unknown`);
+    }
+  });
+
+  it("does not delete a parent global identity that is also used by another school or as a platform admin", { timeout: 60_000 }, async () => {
+    const id = suffix();
+    const schoolA = await createSchool(pools.owner, id, { slug: `parent-a-${id}`, name: `Parent A ${id}` });
+    const schoolB = await createSchool(pools.owner, `${id}b`, { slug: `parent-b-${id}`, name: `Parent B ${id}` });
+    const seeded = await seedOperational(pools.owner, schoolA);
+
+    const sharedParentId = await insertUser(pools.owner, {
+      email: `shared-parent-${id}@example.com`,
+      password: "password-12x",
+      fullName: "Shared Parent",
+      kind: "parent",
+    });
+    await addMembership(pools.owner, schoolA.orgId, sharedParentId, "school.parent");
+    await addMembership(pools.owner, schoolB.orgId, sharedParentId, "school.parent");
+    await pools.owner.query(
+      `insert into guardianships (organisation_id, student_profile_id, guardian_user_id, relationship, portal_access)
+       values ($1, $2, $3, 'father', true)`,
+      [schoolA.orgId, seeded.pupilId, sharedParentId],
+    );
+    await pools.owner.query(
+      `insert into user_login_aliases (organisation_id, user_id, alias) values ($1, $2, 'sharedparent'), ($3, $2, 'sharedparentb')`,
+      [schoolA.orgId, sharedParentId, schoolB.orgId],
+    );
+    await pools.owner.query(
+      `insert into notification_preferences (organisation_id, user_id, channel, category, enabled)
+       values ($1, $2, 'email', 'attendance', true), ($3, $2, 'email', 'attendance', true)`,
+      [schoolA.orgId, sharedParentId, schoolB.orgId],
+    );
+    await pools.owner.query(
+      `insert into account_tokens (organisation_id, user_id, purpose, token_hash, expires_at)
+       values ($1, $2, 'password_reset', $3, now() + interval '1 day'),
+              ($4, $2, 'password_reset', $5, now() + interval '1 day')`,
+      [schoolA.orgId, sharedParentId, `reset-a-${id}`, schoolB.orgId, `reset-b-${id}`],
+    );
+    const sharedSession = await pools.owner.query<{ id: string }>(
+      `insert into auth_sessions (user_id, refresh_token_hash, expires_at)
+       values ($1, $2, now() + interval '1 day') returning id`,
+      [sharedParentId, `shared-session-${id}`],
+    );
+
+    const onlyParentId = await insertUser(pools.owner, {
+      email: `only-parent-${id}@example.com`,
+      password: "password-12x",
+      fullName: "Kingswood Only Parent",
+      kind: "parent",
+    });
+    await addMembership(pools.owner, schoolA.orgId, onlyParentId, "school.parent");
+    const onlySession = await pools.owner.query<{ id: string }>(
+      `insert into auth_sessions (user_id, refresh_token_hash, expires_at)
+       values ($1, $2, now() + interval '1 day') returning id`,
+      [onlyParentId, `only-session-${id}`],
+    );
+
+    const platformParentId = await insertUser(pools.owner, {
+      email: `platform-parent-${id}@example.com`,
+      password: "password-12x",
+      fullName: "Platform Parent",
+      kind: "platform_admin",
+      platformAdmin: true,
+    });
+    await addMembership(pools.owner, schoolA.orgId, platformParentId, "school.parent");
+    const platformSession = await pools.owner.query<{ id: string }>(
+      `insert into auth_sessions (user_id, refresh_token_hash, expires_at)
+       values ($1, $2, now() + interval '1 day') returning id`,
+      [platformParentId, `platform-parent-session-${id}`],
+    );
+
+    const beforeCredHash = (
+      await pools.owner.query<{ password_hash: string }>(
+        `select password_hash from user_credentials where user_id = $1`,
+        [sharedParentId],
+      )
+    ).rows[0]!.password_hash;
+
+    const platform = await platformHeaders(`${id}parent`);
+    const reset = await app.request(`/api/v1/platform/organisations/${schoolA.orgId}/operational-reset`, {
+      method: "POST",
+      headers: platform,
+      body: JSON.stringify({
+        confirmationText: schoolA.slug,
+        backupConfirmed: true,
+        understandPermanent: true,
+        resetMode: "operational_reset_v1",
+      }),
+    });
+    expect(reset.status).toBe(200);
+
+    expect(await count(pools.owner, "guardianships", schoolA.orgId)).toBe(0);
+    expect(
+      (
+        await pools.owner.query(
+          `select 1 from organisation_memberships where organisation_id = $1 and user_id = $2`,
+          [schoolA.orgId, sharedParentId],
+        )
+      ).rowCount,
+    ).toBe(0);
+    expect(
+      (
+        await pools.owner.query(
+          `select status from organisation_memberships where organisation_id = $1 and user_id = $2`,
+          [schoolB.orgId, sharedParentId],
+        )
+      ).rows[0]?.status,
+    ).toBe("active");
+    expect(
+      (
+        await pools.owner.query(`select status from users where id = $1`, [sharedParentId])
+      ).rows[0]?.status,
+    ).toBe("active");
+    expect(
+      (
+        await pools.owner.query(`select password_hash from user_credentials where user_id = $1`, [sharedParentId])
+      ).rows[0]?.password_hash,
+    ).toBe(beforeCredHash);
+    expect(
+      (
+        await pools.owner.query(`select revoked_at from auth_sessions where id = $1`, [sharedSession.rows[0]!.id])
+      ).rows[0]?.revoked_at,
+    ).toBeNull();
+    expect(
+      (
+        await pools.owner.query(
+          `select 1 from user_login_aliases where organisation_id = $1 and user_id = $2`,
+          [schoolB.orgId, sharedParentId],
+        )
+      ).rowCount,
+    ).toBe(1);
+    expect(
+      (
+        await pools.owner.query(
+          `select 1 from user_login_aliases where organisation_id = $1 and user_id = $2`,
+          [schoolA.orgId, sharedParentId],
+        )
+      ).rowCount,
+    ).toBe(0);
+    expect(
+      (
+        await pools.owner.query(
+          `select 1 from notification_preferences where organisation_id = $1 and user_id = $2`,
+          [schoolB.orgId, sharedParentId],
+        )
+      ).rowCount,
+    ).toBe(1);
+    expect(
+      (
+        await pools.owner.query(
+          `select 1 from account_tokens where organisation_id = $1 and user_id = $2`,
+          [schoolB.orgId, sharedParentId],
+        )
+      ).rowCount,
+    ).toBe(1);
+    expect(
+      (
+        await pools.owner.query(
+          `select 1 from account_tokens where organisation_id = $1 and user_id = $2`,
+          [schoolA.orgId, sharedParentId],
+        )
+      ).rowCount,
+    ).toBe(0);
+
+    const onlyUser = await pools.owner.query(`select status from users where id = $1`, [onlyParentId]);
+    expect(onlyUser.rows[0]?.status).toBe("active");
+    expect(
+      (
+        await pools.owner.query(`select 1 from user_credentials where user_id = $1`, [onlyParentId])
+      ).rowCount,
+    ).toBe(1);
+    expect(
+      (
+        await pools.owner.query(`select revoked_at from auth_sessions where id = $1`, [onlySession.rows[0]!.id])
+      ).rows[0]?.revoked_at,
+    ).not.toBeNull();
+
+    expect(
+      (
+        await pools.owner.query(`select 1 from platform_admins where user_id = $1`, [platformParentId])
+      ).rowCount,
+    ).toBe(1);
+    expect(
+      (
+        await pools.owner.query(`select 1 from organisation_memberships where organisation_id = $1 and user_id = $2`, [
+          schoolA.orgId,
+          platformParentId,
+        ])
+      ).rowCount,
+    ).toBe(0);
+    expect(
+      (
+        await pools.owner.query(`select revoked_at from auth_sessions where id = $1`, [platformSession.rows[0]!.id])
+      ).rows[0]?.revoked_at,
+    ).toBeNull();
+
+    const otherLogin = await login(app, `shared-parent-${id}@example.com`, "password-12x");
+    expect(otherLogin).toBeTruthy();
+  });
+
+  it("honours explicit academic, admissions-form, and fee-schedule wipe combinations", { timeout: 60_000 }, async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const seeded = await seedOperational(pools.owner, school);
+    await pools.owner.query(
+      `insert into admissions_forms (organisation_id, slug, form_type, name, status, created_by)
+       values ($1, 'enquiry', 'enquiry', 'Public enquiry', 'published', $2)`,
+      [school.orgId, school.adminId],
+    );
+    await pools.owner.query(
+      `insert into school_fee_schedules (
+         organisation_id, name, academic_year_id, amount_minor, currency, billing_frequency,
+         effective_from, created_by
+       ) values ($1, 'Year 3 fees', $2, 100000, 'GBP', 'termly', '2026-09-01', $3)`,
+      [school.orgId, seeded.yearId, school.adminId],
+    );
+    await pools.owner.query(
+      `update school_finance_settings set default_academic_year_id = $2 where organisation_id = $1`,
+      [school.orgId, seeded.yearId],
+    );
+    const platform = await platformHeaders(`${id}combo`);
+    const path = `/api/v1/platform/organisations/${school.orgId}/operational-reset`;
+
+    const wipeForms = await app.request(path, {
+      method: "POST",
+      headers: platform,
+      body: JSON.stringify({
+        confirmationText: school.slug,
+        backupConfirmed: true,
+        understandPermanent: true,
+        resetMode: "operational_reset_v1",
+        wipePublishedAdmissionsForms: true,
+      }),
+    });
+    expect(wipeForms.status).toBe(200);
+    expect(await count(pools.owner, "admissions_forms", school.orgId)).toBe(0);
+    expect(await count(pools.owner, "academic_years", school.orgId)).toBeGreaterThan(0);
+    expect(await count(pools.owner, "school_fee_schedules", school.orgId)).toBe(1);
+
+    const wipeFees = await app.request(path, {
+      method: "POST",
+      headers: platform,
+      body: JSON.stringify({
+        confirmationText: school.slug,
+        backupConfirmed: true,
+        understandPermanent: true,
+        resetMode: "operational_reset_v1",
+        wipeFeeSchedules: true,
+      }),
+    });
+    expect(wipeFees.status).toBe(200);
+    expect(await count(pools.owner, "school_fee_schedules", school.orgId)).toBe(0);
+    expect(await count(pools.owner, "academic_years", school.orgId)).toBeGreaterThan(0);
+    expect(
+      (
+        await pools.owner.query(
+          `select default_academic_year_id from school_finance_settings where organisation_id = $1`,
+          [school.orgId],
+        )
+      ).rows[0]?.default_academic_year_id,
+    ).toBe(seeded.yearId);
+
+    await pools.owner.query(
+      `insert into school_fee_schedules (
+         organisation_id, name, academic_year_id, amount_minor, currency, billing_frequency,
+         effective_from, created_by
+       ) values ($1, 'Rebuild fees', $2, 100000, 'GBP', 'termly', '2026-09-01', $3)`,
+      [school.orgId, seeded.yearId, school.adminId],
+    );
+    const wipeBoth = await app.request(path, {
+      method: "POST",
+      headers: platform,
+      body: JSON.stringify({
+        confirmationText: school.slug,
+        backupConfirmed: true,
+        understandPermanent: true,
+        resetMode: "operational_reset_v1",
+        wipeAcademicStructure: true,
+        wipeFeeSchedules: true,
+        wipePublishedAdmissionsForms: true,
+      }),
+    });
+    expect(wipeBoth.status).toBe(200);
+    expect(await count(pools.owner, "academic_years", school.orgId)).toBe(0);
+    expect(await count(pools.owner, "school_fee_schedules", school.orgId)).toBe(0);
+    expect(await count(pools.owner, "admissions_forms", school.orgId)).toBe(0);
+    expect(
+      (
+        await pools.owner.query(
+          `select default_academic_year_id from school_finance_settings where organisation_id = $1`,
+          [school.orgId],
+        )
+      ).rows[0]?.default_academic_year_id,
+    ).toBeNull();
+  });
+
+  it("logs the postgres error when operational-reset preview cannot use the owner connection", async () => {
+    const platform = await platformHeaders(`${suffix()}log`);
+    const pgErr = Object.assign(new Error('column "mode" does not exist'), {
+      code: "42703",
+      severity: "ERROR",
+      table: "school_payment_provider_configs",
+      column: "mode",
+    });
+    const brokenApp = testApp({
+      app: pools.app,
+      owner: { connect: async () => Promise.reject(pgErr) },
+    } as never);
+    const logged: unknown[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      logged.push(args);
+    };
+    try {
+      const res = await brokenApp.request(`/api/v1/platform/organisations/${randomUUID()}/operational-reset`, {
+        headers: platform,
+      });
+      expect(res.status).toBe(500);
+      const body = (await res.json()) as { error: { code: string } };
+      expect(body.error.code).toBe("internal_error");
+      const resetLogs = logged.filter(
+        (entry) => Array.isArray(entry) && entry[0] === "operational_reset_failed",
+      ) as Array<[string, Record<string, unknown>]>;
+      expect(resetLogs.length).toBeGreaterThan(0);
+      expect(resetLogs[0]![1]).toMatchObject({
+        op: "preview",
+        phase: "connect",
+        code: "42703",
+        column: "mode",
+        table: "school_payment_provider_configs",
+        message: 'column "mode" does not exist',
+      });
+    } finally {
+      console.error = originalError;
+    }
+  });
+
+  it("does not log expected 404s from operational-reset preview as unexpected failures", async () => {
+    const platform = await platformHeaders(`${suffix()}404`);
+    const logged: unknown[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      logged.push(args);
+    };
+    try {
+      const res = await app.request(`/api/v1/platform/organisations/${randomUUID()}/operational-reset`, {
+        headers: platform,
+      });
+      expect(res.status).toBe(404);
+      expect(logged.some((entry) => Array.isArray(entry) && entry[0] === "operational_reset_failed")).toBe(false);
+    } finally {
+      console.error = originalError;
     }
   });
 });

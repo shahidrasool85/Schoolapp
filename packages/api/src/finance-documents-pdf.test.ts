@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { deflateSync } from "node:zlib";
-import { extractPdfText } from "@schoolapp/core";
+import { extractPdfText, isoDate } from "@schoolapp/core";
+import { addIsoDaysUtc } from "@schoolapp/domain";
 import { closePools } from "@schoolapp/db";
 import {
   addMembership,
@@ -13,6 +14,8 @@ import {
 } from "./test-helpers";
 
 const suffix = () => randomUUID().slice(0, 8);
+/** Same UTC calendar as overdue promotion: due after today so partial payment stays partially_paid. */
+const futureInvoiceDueOn = () => addIsoDaysUtc(isoDate(), 14);
 
 function crc32(bytes: Uint8Array): number {
   let crc = 0xffffffff;
@@ -235,7 +238,7 @@ describe("Finance invoice and receipt PDFs", () => {
         frequency: "monthly",
         periodStart: "2026-09-01",
         periodEnd: "2026-09-30",
-        dueOn: "2026-09-15",
+        dueOn: futureInvoiceDueOn(),
       }),
     });
     expect(preview.status).toBe(201);

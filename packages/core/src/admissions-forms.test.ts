@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { ADMISSIONS_CANONICAL_FIELD_KEYS } from "@schoolapp/domain";
 import {
+  applicantLegalName,
+  assertAdmissionsFormDefinition,
   buildEmbedCode,
   buildPublicFormUrl,
   computeCompleteness,
@@ -13,6 +16,7 @@ import {
   normalizeCustomFieldKey,
   normalizeFormSlug,
   publicFormIsAccepting,
+  registrationApplicationTemplate,
   isSafeHttpUrl,
   isValidUkPostcode,
   publicFieldRequiredMessage,
@@ -280,5 +284,73 @@ describe("admissions forms", () => {
         { countryCode: "FR" },
       )["child.address"],
     ).toMatchObject({ postcode: "75001" });
+  });
+
+  it("keeps legal name parts separate and composes a display name without splitting a legacy name", () => {
+    expect(applicantLegalName({ legalName: "Maya Cole" })).toBe("Maya Cole");
+    expect(applicantLegalName({ legalName: "Maya Cole", legalForename: "Amelia", legalSurname: "Cole" })).toBe(
+      "Amelia Cole",
+    );
+    expect(applicantLegalName({ legalForename: "Amelia" })).toBe("Amelia");
+    const registration = registrationApplicationTemplate();
+    const fields = registration.flatMap((section) => section.fields);
+    expect(fields.some((field) => field.fieldKey.startsWith("medical."))).toBe(false);
+    expect(fields.map((field) => field.canonicalKey).filter(Boolean).sort()).toEqual(
+      [...new Set(fields.map((field) => field.canonicalKey).filter(Boolean))].sort(),
+    );
+    expect(ADMISSIONS_CANONICAL_FIELD_KEYS).toEqual(
+      expect.arrayContaining(["child.legal_forename", "child.legal_surname", "child.nationality", "child.intended_term_id"]),
+    );
+    const answers = validatePublicAnswers(fields, {
+      "child.legal_forename": "Amelia",
+      "child.legal_surname": "Cole",
+      "child.date_of_birth": "2016-02-02",
+      "child.intended_academic_year_id": "11111111-1111-4111-8111-111111111111",
+      "child.intended_year_group_id": "22222222-2222-4222-8222-222222222222",
+      guardians: [{ fullName: "Priya Cole", email: "priya@example.com", title: "Ms", occupation: "Teacher" }],
+      declaration_privacy: true,
+    });
+    const snapshot = mapAnswersToCanonical(fields, answers);
+    expect(snapshot.child?.legalForename).toBe("Amelia");
+    expect(snapshot.child?.legalSurname).toBe("Cole");
+    expect(snapshot.child?.legalName).toBe("Amelia Cole");
+    expect(snapshot.guardians?.[0]?.title).toBe("Ms");
+    expect(snapshot.guardians?.[0]?.occupation).toBe("Teacher");
+    const heard = fields.find((field) => field.fieldKey === "how_heard");
+    expect(heard?.options.map((option) => option.value)).toEqual([
+      "recommendation",
+      "advertisement",
+      "another_school",
+      "other",
+    ]);
+  });
+
+  it("rejects unsafe form definitions and skips disabled questions", () => {
+    expect(() => assertAdmissionsFormDefinition(defaultFormTemplate("application"))).not.toThrow();
+    expect(() => assertAdmissionsFormDefinition(registrationApplicationTemplate())).not.toThrow();
+    const registration = registrationApplicationTemplate();
+    const broken = structuredClone(registration);
+    broken[0]!.fields[0]!.canonicalKey = "child.not_a_field" as never;
+    expect(() => assertAdmissionsFormDefinition(broken)).toThrow(/not allowed/i);
+    const emptyChoice = structuredClone(registration);
+    const heard = emptyChoice.flatMap((section) => section.fields).find((field) => field.fieldKey === "how_heard")!;
+    heard.options = [];
+    expect(() => assertAdmissionsFormDefinition(emptyChoice)).toThrow(/option/i);
+    const fields = registration.flatMap((section) =>
+      section.fields.map((field) =>
+        field.fieldKey === "child.nationality" ? { ...field, enabled: false, required: true } : field,
+      ),
+    );
+    expect(
+      validatePublicAnswers(fields, {
+        "child.legal_forename": "Amelia",
+        "child.legal_surname": "Cole",
+        "child.date_of_birth": "2016-02-02",
+        "child.intended_academic_year_id": "11111111-1111-4111-8111-111111111111",
+        "child.intended_year_group_id": "22222222-2222-4222-8222-222222222222",
+        guardians: [{ fullName: "Priya Cole", email: "priya@example.com" }],
+        declaration_privacy: true,
+      }),
+    ).not.toHaveProperty("child.nationality");
   });
 });

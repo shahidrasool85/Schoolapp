@@ -15,6 +15,7 @@ import {
 import {
   AppError,
   assertApplicationStatusTransition,
+  applicantLegalName,
   canConvertAdmissions,
   canDecideAdmissions,
   canManageApplications,
@@ -62,20 +63,31 @@ const enquirySchema = z.object({
 
 const contactSchema = z.object({
   fullName: z.string().min(1).max(120),
+  title: z.string().max(20).optional(),
   email: z.string().email().optional(),
   telephone: z.string().max(40).optional(),
+  alternativeTelephone: z.string().max(40).optional(),
+  occupation: z.string().max(120).optional(),
   relationship: z.string().min(1).max(40).default("other"),
   isPrimary: z.boolean().optional(),
   hasParentalResponsibility: z.boolean().optional(),
+  addressLine1: z.string().max(120).optional(),
+  addressLine2: z.string().max(120).optional(),
+  addressTown: z.string().max(80).optional(),
+  addressPostcode: z.string().max(16).optional(),
 });
 
 const applicationSchema = z.object({
   enquiryId: z.string().uuid().optional(),
   pupilLegalName: z.string().min(1).max(120),
+  pupilLegalForename: z.string().max(80).optional(),
+  pupilLegalSurname: z.string().max(80).optional(),
+  nationality: z.string().max(80).optional(),
   pupilPreferredName: z.string().max(80).optional(),
   dateOfBirth: z.string().date().optional(),
   intendedAcademicYearId: z.string().uuid().optional(),
   intendedYearGroupId: z.string().uuid().optional(),
+  intendedTermId: z.string().uuid().nullable().optional(),
   intendedEntryDate: z.string().date().optional(),
   previousSchool: z.string().max(200).optional(),
   currentSchool: z.string().max(200).optional(),
@@ -103,9 +115,11 @@ const ENQUIRY_SQL = `
 `;
 
 const APPLICATION_SQL = `
-  select a.id, a.reference, a.status, a.enquiry_id, a.pupil_legal_name, a.pupil_preferred_name,
+  select a.id, a.reference, a.status, a.enquiry_id, a.pupil_legal_name, a.pupil_legal_forename,
+         a.pupil_legal_surname, a.nationality, a.pupil_preferred_name,
          a.date_of_birth::text, a.intended_academic_year_id, ay.name as intended_academic_year_name,
-         a.intended_year_group_id, yg.name as intended_year_group_name, a.intended_entry_date::text,
+         a.intended_year_group_id, yg.name as intended_year_group_name,
+         a.intended_term_id, t.name as intended_term_name, a.intended_entry_date::text,
          a.previous_school, a.current_school, a.application_date::text, a.submitted_at,
          a.source, a.internal_notes, a.assigned_staff_profile_id, u.full_name as assigned_staff_name,
          a.converted_student_profile_id, a.converted_at, a.public_form_id, f.name as public_form_name,
@@ -115,11 +129,19 @@ const APPLICATION_SQL = `
   from admissions_applications a
   left join academic_years ay on ay.id = a.intended_academic_year_id
   left join year_groups yg on yg.id = a.intended_year_group_id
+  left join terms t on t.id = a.intended_term_id
   left join staff_profiles sp on sp.id = a.assigned_staff_profile_id
   left join users u on u.id = sp.user_id
   left join admissions_forms f on f.id = a.public_form_id
   left join admissions_campaigns camp on camp.id = a.campaign_id
   where a.organisation_id = $1
+`;
+
+const CONTACT_SQL = `
+  select id, application_id, full_name, title, email, telephone, alternative_telephone, occupation,
+         relationship, is_primary, has_parental_responsibility, user_id, is_emergency,
+         authorised_collection, address_line1, address_line2, address_town, address_postcode
+  from admissions_application_contacts
 `;
 
 const ASSESSMENT_SQL = `
@@ -158,6 +180,25 @@ const OFFER_SQL = `
   left join year_groups yg on yg.id = o.offered_year_group_id
   where o.organisation_id = $1
 `;
+
+function blankToNull(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function storedApplicantName(input: {
+  legalName: string;
+  forename: string | null;
+  surname: string | null;
+}): string {
+  const composed = applicantLegalName({
+    legalName: input.legalName,
+    legalForename: input.forename,
+    legalSurname: input.surname,
+  });
+  return composed || input.legalName.trim();
+}
 
 async function requireAdmissionsRead(actor: Parameters<typeof canReadAdmissions>[0]) {
   if (!canReadAdmissions(actor)) {
@@ -217,26 +258,51 @@ async function applyConvertedApplicationCanonicalFields(
     typeof application.address_postcode === "string" && application.address_postcode.trim()
       ? application.address_postcode.trim()
       : null;
+  const nationality =
+    typeof application.nationality === "string" && application.nationality.trim()
+      ? application.nationality.trim()
+      : null;
+  const legalForename =
+    typeof application.pupil_legal_forename === "string" && application.pupil_legal_forename.trim()
+      ? application.pupil_legal_forename.trim()
+      : null;
+  const legalSurname =
+    typeof application.pupil_legal_surname === "string" && application.pupil_legal_surname.trim()
+      ? application.pupil_legal_surname.trim()
+      : null;
   await client.query(
     `update student_profiles
      set gender = coalesce(gender, $3),
          address_line1 = coalesce(address_line1, $4),
          address_line2 = coalesce(address_line2, $5),
          address_town = coalesce(address_town, $6),
-         address_postcode = coalesce(address_postcode, $7)
+         address_postcode = coalesce(address_postcode, $7),
+         nationality = coalesce(nullif(nationality, ''), $8)
      where id = $1 and organisation_id = $2`,
-    [studentProfileId, orgId, operationalGender, addressLine1, addressLine2, addressTown, addressPostcode],
+    [
+      studentProfileId,
+      orgId,
+      operationalGender,
+      addressLine1,
+      addressLine2,
+      addressTown,
+      addressPostcode,
+      nationality,
+    ],
   );
-  if (!sex && !previousSchool) return;
+  if (!sex && !previousSchool && !legalForename && !legalSurname) return;
   await client.query(
     `insert into student_statutory_profiles (
-       student_profile_id, organisation_id, sex, previous_school_name, looked_after_status, updated_by
-     ) values ($1, $2, $3, $4, 'none', $5)
+       student_profile_id, organisation_id, sex, previous_school_name, legal_forename, legal_surname,
+       looked_after_status, updated_by
+     ) values ($1, $2, $3, $4, $5, $6, 'none', $7)
      on conflict (student_profile_id) do update set
        sex = coalesce(student_statutory_profiles.sex, excluded.sex),
        previous_school_name = coalesce(student_statutory_profiles.previous_school_name, excluded.previous_school_name),
+       legal_forename = coalesce(nullif(student_statutory_profiles.legal_forename, ''), excluded.legal_forename),
+       legal_surname = coalesce(nullif(student_statutory_profiles.legal_surname, ''), excluded.legal_surname),
        updated_by = excluded.updated_by`,
-    [studentProfileId, orgId, sex, previousSchool, actorUserId],
+    [studentProfileId, orgId, sex, previousSchool, legalForename, legalSurname, actorUserId],
   );
 }
 
@@ -292,19 +358,27 @@ async function insertContacts(
       : { rows: [] as Array<{ id: string }> };
     await client.query(
       `insert into admissions_application_contacts (
-         organisation_id, application_id, full_name, email, telephone, relationship,
-         is_primary, has_parental_responsibility, user_id
-       ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+         organisation_id, application_id, full_name, title, email, telephone, alternative_telephone,
+         occupation, relationship, is_primary, has_parental_responsibility, user_id,
+         address_line1, address_line2, address_town, address_postcode
+       ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
       [
         orgId,
         applicationId,
         contact.fullName,
+        blankToNull(contact.title),
         contact.email?.toLowerCase() ?? null,
-        contact.telephone ?? null,
+        blankToNull(contact.telephone),
+        blankToNull(contact.alternativeTelephone),
+        blankToNull(contact.occupation),
         contact.relationship,
         contact.isPrimary ?? false,
         contact.hasParentalResponsibility ?? false,
         existingUser.rows[0]?.id ?? null,
+        blankToNull(contact.addressLine1),
+        blankToNull(contact.addressLine2),
+        blankToNull(contact.addressTown),
+        blankToNull(contact.addressPostcode),
       ],
     );
   }
@@ -656,16 +730,24 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
         [orgId],
       );
       const status = parsed.data.status ?? "draft";
+      const forename = blankToNull(parsed.data.pupilLegalForename);
+      const surname = blankToNull(parsed.data.pupilLegalSurname);
+      const legalName = storedApplicantName({
+        legalName: parsed.data.pupilLegalName,
+        forename,
+        surname,
+      });
       await setTransitionReason(client, "Application created");
       const inserted = await client.query(
         `insert into admissions_applications (
-           organisation_id, reference, enquiry_id, status, pupil_legal_name, pupil_preferred_name,
-           date_of_birth, intended_academic_year_id, intended_year_group_id, intended_entry_date,
-           previous_school, current_school, application_date, source, internal_notes,
+           organisation_id, reference, enquiry_id, status, pupil_legal_name, pupil_legal_forename,
+           pupil_legal_surname, nationality, pupil_preferred_name,
+           date_of_birth, intended_academic_year_id, intended_year_group_id, intended_term_id,
+           intended_entry_date, previous_school, current_school, application_date, source, internal_notes,
            assigned_staff_profile_id, created_by, submitted_at
          ) values (
-           $1, $2, $3, $4, $5, $6, $7::date, $8, $9, $10::date, $11, $12,
-           coalesce($13::date, current_date), $14, $15, $16, $17,
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::date, $11, $12, $13, $14::date, $15, $16,
+           coalesce($17::date, current_date), $18, $19, $20, $21,
            case when $4 = 'submitted' then now() else null end
          ) returning id`,
         [
@@ -673,11 +755,15 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
           reference.rows[0]!.next_admissions_reference,
           parsed.data.enquiryId ?? null,
           status,
-          parsed.data.pupilLegalName,
+          legalName,
+          forename,
+          surname,
+          blankToNull(parsed.data.nationality),
           parsed.data.pupilPreferredName ?? null,
           parsed.data.dateOfBirth ?? null,
           parsed.data.intendedAcademicYearId ?? null,
           parsed.data.intendedYearGroupId ?? null,
+          parsed.data.intendedTermId ?? null,
           parsed.data.intendedEntryDate ?? null,
           parsed.data.previousSchool ?? null,
           parsed.data.currentSchool ?? null,
@@ -711,10 +797,7 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
       const id = uuidRouteParam(c, "id");
       const application = await loadApplication(client, orgId, id);
       const contacts = await client.query(
-        `select id, application_id, full_name, email, telephone, relationship,
-                is_primary, has_parental_responsibility, user_id, is_emergency,
-                authorised_collection, address_line1, address_line2, address_town, address_postcode
-         from admissions_application_contacts
+        `${CONTACT_SQL}
          where application_id = $1 and organisation_id = $2
          order by is_primary desc, full_name`,
         [id, orgId],
@@ -802,26 +885,57 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
         .safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid application payload");
       const existing = await loadApplication(client, orgId, id);
+      const forename =
+        parsed.data.pupilLegalForename !== undefined
+          ? blankToNull(parsed.data.pupilLegalForename)
+          : blankToNull(typeof existing.pupil_legal_forename === "string" ? existing.pupil_legal_forename : null);
+      const surname =
+        parsed.data.pupilLegalSurname !== undefined
+          ? blankToNull(parsed.data.pupilLegalSurname)
+          : blankToNull(typeof existing.pupil_legal_surname === "string" ? existing.pupil_legal_surname : null);
+      const nationality =
+        parsed.data.nationality !== undefined
+          ? blankToNull(parsed.data.nationality)
+          : blankToNull(typeof existing.nationality === "string" ? existing.nationality : null);
+      const termId =
+        parsed.data.intendedTermId !== undefined
+          ? parsed.data.intendedTermId
+          : typeof existing.intended_term_id === "string"
+            ? existing.intended_term_id
+            : null;
+      const legalName = storedApplicantName({
+        legalName: parsed.data.pupilLegalName ?? String(existing.pupil_legal_name ?? ""),
+        forename,
+        surname,
+      });
       const updated = await client.query(
         `update admissions_applications
-         set pupil_legal_name = coalesce($3, pupil_legal_name),
-             pupil_preferred_name = coalesce($4, pupil_preferred_name),
-             date_of_birth = coalesce($5::date, date_of_birth),
-             intended_academic_year_id = coalesce($6, intended_academic_year_id),
-             intended_year_group_id = coalesce($7, intended_year_group_id),
-             intended_entry_date = coalesce($8::date, intended_entry_date),
-             previous_school = coalesce($9, previous_school),
-             current_school = coalesce($10, current_school),
-             application_date = coalesce($11::date, application_date),
-             source = coalesce($12, source),
-             internal_notes = coalesce($13, internal_notes),
-             assigned_staff_profile_id = coalesce($14, assigned_staff_profile_id)
+         set pupil_legal_name = $3,
+             pupil_legal_forename = $4,
+             pupil_legal_surname = $5,
+             nationality = $6,
+             intended_term_id = $7,
+             pupil_preferred_name = coalesce($8, pupil_preferred_name),
+             date_of_birth = coalesce($9::date, date_of_birth),
+             intended_academic_year_id = coalesce($10, intended_academic_year_id),
+             intended_year_group_id = coalesce($11, intended_year_group_id),
+             intended_entry_date = coalesce($12::date, intended_entry_date),
+             previous_school = coalesce($13, previous_school),
+             current_school = coalesce($14, current_school),
+             application_date = coalesce($15::date, application_date),
+             source = coalesce($16, source),
+             internal_notes = coalesce($17, internal_notes),
+             assigned_staff_profile_id = coalesce($18, assigned_staff_profile_id)
          where id = $1 and organisation_id = $2
          returning id`,
         [
           id,
           orgId,
-          parsed.data.pupilLegalName ?? null,
+          legalName,
+          forename,
+          surname,
+          nationality,
+          termId,
           parsed.data.pupilPreferredName ?? null,
           parsed.data.dateOfBirth ?? null,
           parsed.data.intendedAcademicYearId ?? null,
@@ -908,10 +1022,7 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid contact payload");
       await insertContacts(client, orgId, id, [parsed.data]);
       const contacts = await client.query(
-        `select id, application_id, full_name, email, telephone, relationship,
-                is_primary, has_parental_responsibility, user_id, is_emergency,
-                authorised_collection, address_line1, address_line2, address_town, address_postcode
-         from admissions_application_contacts
+        `${CONTACT_SQL}
          where application_id = $1 and organisation_id = $2
          order by is_primary desc, full_name`,
         [id, orgId],

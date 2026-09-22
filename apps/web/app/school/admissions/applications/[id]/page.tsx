@@ -178,11 +178,15 @@ export default function ApplicationDetailPage() {
           <SectionCard title="Application overview">
             <dl className="profile-list">
               <Field label="Pupil legal name" value={app.pupilLegalName} />
+              <Field label="Legal forename(s)" value={app.pupilLegalForename ?? child.legalForename} />
+              <Field label="Legal surname" value={app.pupilLegalSurname ?? child.legalSurname} />
               <Field label="Preferred name" value={app.pupilPreferredName ?? child.preferredName} />
               <Field label="Date of birth" value={formatDate(app.dateOfBirth ?? child.dateOfBirth) || null} />
+              <Field label="Nationality" value={app.nationality ?? child.nationality} />
               <Field label="Sex / gender" value={app.gender ?? child.gender} />
               <Field label="Intake" value={app.intendedAcademicYearName} />
               <Field label="Year group" value={app.intendedYearGroupName} />
+              <Field label="Entry term" value={app.intendedTermName} />
               <Field
                 label="Proposed start"
                 value={formatDate(app.intendedEntryDate ?? child.proposedStartDate) || null}
@@ -219,11 +223,13 @@ export default function ApplicationDetailPage() {
                   <div className="person-card" key={contact.id}>
                     <UserAvatar name={contact.fullName} />
                     <div>
-                      <strong>{contact.fullName}</strong>
+                      <strong>{[contact.title, contact.fullName].filter(Boolean).join(" ")}</strong>
                       <p className="muted" style={{ margin: "0.15rem 0 0.35rem" }}>
                         {contact.relationship || "Relationship not provided"}
+                        {contact.occupation ? ` · ${contact.occupation}` : ""}
                         {contact.email ? ` · ${contact.email}` : " · Email not provided"}
                         {contact.telephone ? ` · ${contact.telephone}` : ""}
+                        {contact.alternativeTelephone ? ` · ${contact.alternativeTelephone}` : ""}
                       </p>
                       <div className="person-card-meta">
                         {contact.isPrimary ? <Badge tone="info">Primary</Badge> : null}

@@ -166,6 +166,11 @@ export type ApplicationDetail = {
   assessments: ApplicationAssessment[];
   offers: ApplicationOffer[];
   documents?: ApplicationDocument[];
+  guardianMapping?: {
+    status: "attention_required" | "complete" | "not_recorded";
+    unlinkedCount: number;
+    message: string | null;
+  } | null;
 };
 
 export type Option = { id: string; name: string };

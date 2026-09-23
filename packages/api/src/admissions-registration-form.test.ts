@@ -165,6 +165,9 @@ describe("admissions registration form", () => {
     expect(payload.sections.some((section) => section.fields.some((field) => field.fieldKey === "faith_or_religion"))).toBe(
       true,
     );
+    expect(payload.sections.some((section) => section.fields.some((field) => field.fieldKey.startsWith("medical.")))).toBe(
+      false,
+    );
 
     const rejected = await app.request("/api/v1/public/admissions/forms/application/registration/submissions", {
       method: "POST",
@@ -175,13 +178,49 @@ describe("admissions registration form", () => {
     });
     expect(rejected.status).toBe(400);
 
+    const secondEmail = `second-${id}@example.com`;
     const submitted = await app.request("/api/v1/public/admissions/forms/application/registration/submissions", {
       method: "POST",
       headers: schoolHeaders(school.slug),
-      body: JSON.stringify({ answers: registrationAnswers(structure, existingEmail) }),
+      body: JSON.stringify({
+        answers: registrationAnswers(structure, existingEmail, {
+          "child.previous_school": "Riverside Infants",
+          guardians: [
+            {
+              fullName: "Priya Cole",
+              title: "Ms",
+              email: existingEmail,
+              phone: "01234000099",
+              phoneAlternative: "07700000001",
+              relationship: "mother",
+              occupation: "Teacher",
+              parentalResponsibility: true,
+              primaryContact: true,
+              address: { line1: "1 School Lane", line2: "Flat 2", town: "Bath", postcode: "BA1 1AA" },
+            },
+            {
+              fullName: "Owen Cole",
+              title: "Mr",
+              email: secondEmail,
+              phone: "01234999999",
+              phoneAlternative: "07700999999",
+              relationship: "father",
+              occupation: "Architect",
+              parentalResponsibility: true,
+              primaryContact: false,
+              address: { line1: "9 Other Road", line2: "Annexe", town: "Bristol", postcode: "BS1 4ST" },
+            },
+          ],
+        }),
+      }),
     });
     expect(submitted.status).toBe(201);
-    const submission = (await submitted.json()) as { submission: { applicationReference: string } };
+    const submission = (await submitted.json()) as {
+      submission: { applicationReference: string; completeness: string; formType: string; confirmation?: { title?: string } };
+    };
+    expect(submission.submission.applicationReference).toMatch(/^APP-/);
+    expect(submission.submission.completeness).toBe("complete");
+    expect(submission.submission.formType).toBe("application");
     const applicationId = await applicationIdForReference(
       pools.owner,
       school.orgId,
@@ -196,35 +235,99 @@ describe("admissions registration form", () => {
         pupilLegalName: string;
         pupilLegalForename: string | null;
         pupilLegalSurname: string | null;
+        pupilPreferredName: string | null;
+        dateOfBirth: string | null;
         nationality: string | null;
+        addressLine1: string | null;
+        intendedAcademicYearId: string | null;
+        intendedYearGroupId: string | null;
         intendedTermId: string | null;
         intendedTermName: string | null;
+        intendedEntryDate: string | null;
+        currentSchool: string | null;
+        previousSchool: string | null;
       };
       contacts: Array<{
         fullName: string;
         title: string | null;
+        relationship: string;
         occupation: string | null;
+        telephone: string | null;
         alternativeTelephone: string | null;
         addressLine1: string | null;
+        addressTown: string | null;
+        addressPostcode: string | null;
         email: string | null;
+        isPrimary: boolean;
+        hasParentalResponsibility: boolean;
+        userId: string | null;
       }>;
-      formSubmission: { answers: Record<string, unknown> };
+      formSubmission: {
+        answers: Record<string, unknown>;
+        declarationSnapshot?: {
+          privacyNoticeText?: string | null;
+          capturedAt?: string;
+          declarations?: Array<{ fieldKey: string; label: string; accepted: boolean }>;
+        } | null;
+      };
     };
-    expect(detail.application.pupilLegalForename).toBe("Amelia");
-    expect(detail.application.pupilLegalSurname).toBe("Cole");
-    expect(detail.application.pupilLegalName).toBe("Amelia Cole");
-    expect(detail.application.nationality).toBe("British");
-    expect(detail.application.intendedTermId).toBe(structure.termId);
-    expect(detail.application.intendedTermName).toBe("Autumn");
+    expect(detail.application).toMatchObject({
+      pupilLegalForename: "Amelia",
+      pupilLegalSurname: "Cole",
+      pupilLegalName: "Amelia Cole",
+      pupilPreferredName: "Amy",
+      nationality: "British",
+      addressLine1: "1 School Lane",
+      intendedAcademicYearId: structure.yearId,
+      intendedYearGroupId: structure.year3Id,
+      intendedTermId: structure.termId,
+      intendedTermName: "Autumn",
+      currentSchool: "Park Primary",
+      previousSchool: "Riverside Infants",
+    });
+    expect(String(detail.application.dateOfBirth)).toContain("2016-03-03");
+    expect(String(detail.application.intendedEntryDate)).toContain("2026-09-07");
     const parent = detail.contacts.find((contact) => contact.email === existingEmail);
+    const second = detail.contacts.find((contact) => contact.email === secondEmail);
     expect(parent).toMatchObject({
       title: "Ms",
+      fullName: "Priya Cole",
+      relationship: "mother",
       occupation: "Teacher",
+      telephone: "01234000099",
       alternativeTelephone: "07700000001",
       addressLine1: "1 School Lane",
+      addressTown: "Bath",
+      addressPostcode: "BA1 1AA",
+      isPrimary: true,
+      hasParentalResponsibility: true,
+      userId: null,
     });
+    expect(second).toMatchObject({
+      title: "Mr",
+      fullName: "Owen Cole",
+      relationship: "father",
+      occupation: "Architect",
+      telephone: "01234999999",
+      alternativeTelephone: "07700999999",
+      addressLine1: "9 Other Road",
+      addressTown: "Bristol",
+      addressPostcode: "BS1 4ST",
+      isPrimary: false,
+      hasParentalResponsibility: true,
+      userId: null,
+    });
+    expect(parent?.addressLine1).not.toBe(second?.addressLine1);
     expect(detail.formSubmission.answers.how_heard).toBe("recommendation");
     expect(detail.formSubmission.answers.skills_and_talents).toBe("Piano");
+    expect(detail.formSubmission.answers.hobbies_and_interests).toBe("Chess");
+    expect(detail.formSubmission.answers.faith_or_religion).toBe("None");
+    expect(detail.formSubmission.answers["medical.allergies"]).toBeUndefined();
+    expect(detail.formSubmission.declarationSnapshot?.privacyNoticeText).toMatch(/registration/i);
+    expect(detail.formSubmission.declarationSnapshot?.capturedAt).toBeTruthy();
+    expect(detail.formSubmission.declarationSnapshot?.declarations).toEqual([
+      expect.objectContaining({ fieldKey: "declaration_privacy", accepted: true }),
+    ]);
 
     const unchanged = await pools.owner.query<{ title: string; phone: string; address_line1: string; full_name: string }>(
       "select title, phone, address_line1, full_name from users where id = $1",
@@ -236,6 +339,8 @@ describe("admissions registration form", () => {
       address_line1: "Keep me",
       full_name: "Existing Parent",
     });
+    const secondUser = await pools.owner.query("select id from users where email = $1", [secondEmail]);
+    expect(secondUser.rowCount).toBe(0);
 
     const hidden = await withTenantContext(pools.app, other.adminId, other.orgId, async (client) => {
       const rows = await client.query("select id from admissions_applications where id = $1", [applicationId]);
@@ -333,6 +438,125 @@ describe("admissions registration form", () => {
       [school.orgId, body.submission.applicationReference],
     );
     expect(stored.rows[0]?.nationality).toBeNull();
+
+    const duplicate = structuredClone(created.sections);
+    const forename = duplicate[0]!.fields.find((field) => field.fieldKey === "child.legal_forename")!;
+    duplicate[0]!.fields.push({ ...forename });
+    const duplicateSave = await app.request(`/api/v1/admissions/forms/${created.form.id}/definition`, {
+      method: "PUT",
+      headers: hdrs,
+      body: JSON.stringify({ sections: duplicate }),
+    });
+    expect(duplicateSave.status).toBe(400);
+
+    const emptied = created.sections.map((section) => ({
+      ...section,
+      fields: section.fields.map((field) =>
+        field.fieldKey === "how_heard" ? { ...field, required: true, options: [] } : field,
+      ),
+    }));
+    const emptyOptions = await app.request(`/api/v1/admissions/forms/${created.form.id}/definition`, {
+      method: "PUT",
+      headers: hdrs,
+      body: JSON.stringify({ sections: emptied }),
+    });
+    expect(emptyOptions.status).toBe(400);
+    const stillPublished = (await (
+      await app.request("/api/v1/public/admissions/forms/application/editable", { headers: schoolHeaders(school.slug) })
+    ).json()) as { sections: Section[] };
+    const heard = stillPublished.sections.flatMap((section) => section.fields).find((field) => field.fieldKey === "how_heard");
+    expect(heard?.options.map((option) => option.value)).toEqual(["open_morning"]);
+
+    const other = await createSchool(pools.owner, `${id}z`);
+    const otherToken = await login(app, other.adminEmail, "password-12x");
+    const otherHeaders = headers(otherToken, other.orgId);
+    const foreignGet = await app.request(`/api/v1/admissions/forms/${created.form.id}`, { headers: otherHeaders });
+    expect(foreignGet.status).toBe(404);
+    const foreignPut = await app.request(`/api/v1/admissions/forms/${created.form.id}/definition`, {
+      method: "PUT",
+      headers: otherHeaders,
+      body: JSON.stringify({ sections }),
+    });
+    expect(foreignPut.status).toBe(404);
+
+    const historicalId = await applicationIdForReference(pools.owner, school.orgId, body.submission.applicationReference);
+    const before = (await (
+      await app.request(`/api/v1/admissions/applications/${historicalId}`, { headers: hdrs })
+    ).json()) as {
+      formSubmission: {
+        answers: Record<string, unknown>;
+        declarationSnapshot: { privacyNoticeText: string; declarations: Array<{ label: string }> };
+      };
+    };
+    const relabelled = sections.map((section) => ({
+      ...section,
+      fields: section.fields.map((field) => {
+        if (field.fieldKey === "how_heard") {
+          return { ...field, label: "Changed question", options: [{ value: "open_morning", label: "Changed option" }] };
+        }
+        if (field.fieldKey === "declaration_privacy") return { ...field, label: "Changed declaration" };
+        if (field.fieldKey === "skills_and_talents") return { ...field, label: "Changed skills label" };
+        return field;
+      }),
+    }));
+    const relabel = await app.request(`/api/v1/admissions/forms/${created.form.id}/definition`, {
+      method: "PUT",
+      headers: hdrs,
+      body: JSON.stringify({ sections: relabelled }),
+    });
+    expect(relabel.status).toBe(200);
+    const relabelBody = (await relabel.json()) as { sections: Section[] };
+    expect(relabelBody.sections.flatMap((section) => section.fields).some((field) => field.fieldKey === "how_heard")).toBe(
+      true,
+    );
+    expect(
+      relabelBody.sections.flatMap((section) => section.fields).some((field) => field.fieldKey === "skills_and_talents"),
+    ).toBe(true);
+    await app.request(`/api/v1/admissions/forms/${created.form.id}`, {
+      method: "PATCH",
+      headers: hdrs,
+      body: JSON.stringify({ privacyNoticeText: "Replacement privacy wording" }),
+    });
+    const after = (await (
+      await app.request(`/api/v1/admissions/applications/${historicalId}`, { headers: hdrs })
+    ).json()) as {
+      formSubmission: {
+        answers: Record<string, unknown>;
+        declarationSnapshot: { privacyNoticeText: string; declarations: Array<{ label: string; fieldKey: string }> };
+      };
+    };
+    expect(after.formSubmission.answers).toEqual(before.formSubmission.answers);
+    expect(after.formSubmission.declarationSnapshot).toEqual(before.formSubmission.declarationSnapshot);
+    expect(after.formSubmission.answers.how_heard).toBe("open_morning");
+    expect(after.formSubmission.declarationSnapshot.privacyNoticeText).not.toBe("Replacement privacy wording");
+
+    const disabledRequired = sections.map((section) => ({
+      ...section,
+      fields: section.fields.map((field) =>
+        field.fieldKey === "declaration_privacy" ? { ...field, enabled: false, required: true } : field,
+      ),
+    }));
+    expect(
+      (
+        await app.request(`/api/v1/admissions/forms/${created.form.id}/definition`, {
+          method: "PUT",
+          headers: hdrs,
+          body: JSON.stringify({ sections: disabledRequired }),
+        })
+      ).status,
+    ).toBe(200);
+    const withoutDeclaration = await app.request("/api/v1/public/admissions/forms/application/editable/submissions", {
+      method: "POST",
+      headers: schoolHeaders(school.slug),
+      body: JSON.stringify({
+        answers: registrationAnswers(structure, `later-${id}@example.com`, {
+          "child.nationality": undefined,
+          how_heard: "open_morning",
+          declaration_privacy: undefined,
+        }),
+      }),
+    });
+    expect(withoutDeclaration.status).toBe(201);
   });
 
   it("maps name parts and nationality at enrolment and only fills empty guardian profile fields", async () => {
@@ -418,7 +642,11 @@ describe("admissions registration form", () => {
       }),
     });
     expect(enrolled.status).toBe(200);
-    const enrolBody = (await enrolled.json()) as { studentProfileId: string };
+    const enrolBody = (await enrolled.json()) as {
+      studentProfileId: string;
+      guardianMapping: { status: string; unlinkedCount: number; message: string | null };
+    };
+    expect(enrolBody.guardianMapping).toEqual({ status: "complete", unlinkedCount: 0, message: null });
 
     const statutory = await pools.owner.query<{ legal_forename: string | null; legal_surname: string | null }>(
       "select legal_forename, legal_surname from student_statutory_profiles where student_profile_id = $1",
@@ -515,6 +743,150 @@ describe("admissions registration form", () => {
     expect(failed.rows[0]?.after_data.mapped).not.toContain("guardians");
     const lateUser = await pools.owner.query("select id from users where email = $1", [lateEmail]);
     expect(lateUser.rowCount).toBe(0);
+    const attention = (await (
+      await app.request(`/api/v1/admissions/applications/${applicationId}`, { headers: hdrs })
+    ).json()) as {
+      application: { convertedStudentProfileId: string };
+      guardianMapping: { status: string; unlinkedCount: number; message: string | null };
+    };
+    expect(attention.application.convertedStudentProfileId).toBe(enrolBody.studentProfileId);
+    expect(attention.guardianMapping.status).toBe("attention_required");
+    expect(attention.guardianMapping.unlinkedCount).toBeGreaterThan(0);
+    expect(attention.guardianMapping.message).toMatch(/parent or guardian links need attention/);
+    expect(JSON.stringify(attention.guardianMapping)).not.toMatch(/forbidden|SQL|index row|42501|late-/i);
+  });
+
+  it("reports incomplete guardian mapping when the pupil is enrolled and one guardian link fails", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(token, school.orgId);
+    const structure = await seedStructure(app, hdrs);
+    const goodEmail = `linked-${id}@example.com`;
+    const badEmail = `fail-link-${id}@example.com`;
+    const created = (await (
+      await app.request("/api/v1/admissions/forms", {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({ formType: "application", template: "registration", name: "Partial", slug: "partial" }),
+      })
+    ).json()) as { form: { id: string } };
+    await app.request(`/api/v1/admissions/forms/${created.form.id}/publish`, { method: "POST", headers: hdrs });
+    const submitted = await app.request("/api/v1/public/admissions/forms/application/partial/submissions", {
+      method: "POST",
+      headers: schoolHeaders(school.slug),
+      body: JSON.stringify({
+        answers: registrationAnswers(structure, goodEmail, {
+          guardians: [
+            {
+              fullName: "Linked Parent",
+              title: "Ms",
+              email: goodEmail,
+              phone: "01234000001",
+              relationship: "mother",
+              occupation: "Teacher",
+              parentalResponsibility: true,
+              primaryContact: true,
+              address: { line1: "1 School Lane", town: "Bath", postcode: "BA1 1AA" },
+            },
+            {
+              fullName: "Unlinked Parent",
+              title: "Dr",
+              email: badEmail,
+              phone: "01234000002",
+              relationship: "father",
+              occupation: "Doctor",
+              parentalResponsibility: false,
+              primaryContact: false,
+              address: { line1: "9 Other Road", town: "Bristol", postcode: "BS1 4ST" },
+            },
+          ],
+        }),
+      }),
+    });
+    expect(submitted.status).toBe(201);
+    const submission = (await submitted.json()) as { submission: { applicationReference: string } };
+    const applicationId = await applicationIdForReference(
+      pools.owner,
+      school.orgId,
+      submission.submission.applicationReference,
+    );
+    await pools.owner.query(`
+      create or replace function public.test_block_admissions_guardian_link()
+      returns trigger
+      language plpgsql
+      as $fn$
+      begin
+        if exists (
+          select 1 from users u
+          where u.id = new.guardian_user_id
+            and u.email::text like 'fail-link-%@example.com'
+        ) then
+          raise exception 'guardian_link_blocked' using errcode = '23514';
+        end if;
+        return new;
+      end;
+      $fn$
+    `);
+    await pools.owner.query(`
+      drop trigger if exists test_block_admissions_guardian_link on guardianships;
+      create trigger test_block_admissions_guardian_link
+      before insert on guardianships
+      for each row execute function public.test_block_admissions_guardian_link()
+    `);
+    try {
+    await app.request(`/api/v1/admissions/applications/${applicationId}/status`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ status: "under_review" }),
+    });
+    const offer = await app.request(`/api/v1/admissions/applications/${applicationId}/offers`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ offeredAcademicYearId: structure.yearId, offeredYearGroupId: structure.year3Id }),
+    });
+    const offerBody = (await offer.json()) as { offer: { id: string } };
+    expect(
+      (
+        await app.request(`/api/v1/admissions/offers/${offerBody.offer.id}`, {
+          method: "PATCH",
+          headers: hdrs,
+          body: JSON.stringify({ status: "accepted" }),
+        })
+      ).status,
+    ).toBe(200);
+    const enrolled = await app.request(`/api/v1/admissions/applications/${applicationId}/enrol`, {
+      method: "POST",
+      headers: hdrs,
+      body: JSON.stringify({ academicYearId: structure.yearId, yearGroupId: structure.year3Id, classId: structure.classId }),
+    });
+    expect(enrolled.status).toBe(200);
+    const enrolBody = (await enrolled.json()) as {
+      studentProfileId: string;
+      guardianMapping: { status: string; unlinkedCount: number; message: string | null };
+    };
+    expect(enrolBody.studentProfileId).toBeTruthy();
+    expect(enrolBody.guardianMapping.status).toBe("attention_required");
+    expect(enrolBody.guardianMapping.unlinkedCount).toBe(1);
+    expect(enrolBody.guardianMapping.message).toMatch(/parent or guardian links need attention/);
+    expect(JSON.stringify(enrolBody.guardianMapping)).not.toMatch(/index row|SQL|forbidden|guardian_link_blocked|23514/i);
+    const links = await pools.owner.query(
+      `select u.email::text as email
+       from guardianships g
+       join users u on u.id = g.guardian_user_id
+       where g.student_profile_id = $1 and g.ended_on is null`,
+      [enrolBody.studentProfileId],
+    );
+    expect(links.rows.map((row) => row.email)).toEqual([goodEmail]);
+    const opened = (await (
+      await app.request(`/api/v1/admissions/applications/${applicationId}`, { headers: hdrs })
+    ).json()) as { guardianMapping: { status: string; message: string | null } };
+    expect(opened.guardianMapping.status).toBe("attention_required");
+    expect(opened.guardianMapping.message).toBe(enrolBody.guardianMapping.message);
+    } finally {
+      await pools.owner.query("drop trigger if exists test_block_admissions_guardian_link on guardianships");
+      await pools.owner.query("drop function if exists public.test_block_admissions_guardian_link()");
+    }
   });
 
   it("does not split a legacy legal name into forename and surname", async () => {

@@ -137,6 +137,45 @@ const APPLICATION_SQL = `
   where a.organisation_id = $1
 `;
 
+const GUARDIAN_MAPPING_ATTENTION_MESSAGE =
+  "The pupil was enrolled, but one or more parent or guardian links need attention. Review guardians before relying on parent contact.";
+
+type GuardianMappingReport = {
+  status: "attention_required" | "complete" | "not_recorded";
+  unlinkedCount: number;
+  message: string | null;
+};
+
+async function loadGuardianMapping(
+  client: pg.PoolClient,
+  orgId: string,
+  applicationId: string,
+): Promise<GuardianMappingReport> {
+  const found = await client.query<{ after_data: { guardianLinkFailures?: unknown } | null }>(
+    `select after_data
+     from audit_events
+     where organisation_id = $1
+       and entity_type = 'admissions_application'
+       and entity_id = $2
+       and action = 'admissions.form.submission_mapped'
+     order by occurred_at desc
+     limit 1`,
+    [orgId, applicationId],
+  );
+  const failures = found.rows[0]?.after_data?.guardianLinkFailures;
+  if (typeof failures !== "number" || !Number.isFinite(failures)) {
+    return { status: "not_recorded", unlinkedCount: 0, message: null };
+  }
+  if (failures > 0) {
+    return {
+      status: "attention_required",
+      unlinkedCount: failures,
+      message: GUARDIAN_MAPPING_ATTENTION_MESSAGE,
+    };
+  }
+  return { status: "complete", unlinkedCount: 0, message: null };
+}
+
 const CONTACT_SQL = `
   select id, application_id, full_name, title, email, telephone, alternative_telephone, occupation,
          relationship, is_primary, has_parental_responsibility, user_id, is_emergency,
@@ -851,6 +890,7 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
       );
       return c.json({
         application: mapApplication(application),
+        guardianMapping: await loadGuardianMapping(client, orgId, id),
         contacts: contacts.rows.map(mapApplicationContact),
         history: history.rows.map(mapApplicationHistory),
         assessments: assessments.rows.map(mapAssessment),
@@ -1614,6 +1654,7 @@ export function registerAdmissionsRoutes(app: SchoolappApi) {
       return c.json({
         application: mapApplication(listed.rows[0]!),
         studentProfileId: converted.rows[0]!.student_profile_id,
+        guardianMapping: await loadGuardianMapping(client, orgId, id),
       });
     });
     await queuePreparedAdmissionsStatusEmail(c, pending);

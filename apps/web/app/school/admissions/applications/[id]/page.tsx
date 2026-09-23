@@ -175,6 +175,12 @@ export default function ApplicationDetailPage() {
 
       <div className="record-layout">
         <div className="record-main">
+          {data.guardianMapping?.status === "attention_required" ? (
+            <Alert tone="warning">
+              {data.guardianMapping.message ??
+                "The pupil was enrolled, but one or more parent or guardian links need attention."}
+            </Alert>
+          ) : null}
           <SectionCard title="Application overview">
             <dl className="profile-list">
               <Field label="Pupil legal name" value={app.pupilLegalName} />

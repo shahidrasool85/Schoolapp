@@ -240,6 +240,7 @@ describe("Phase 13 object storage and documents", () => {
                 questionType: "file",
                 label: "Supporting document",
                 required: true,
+                documentPurpose: "other",
               },
             ],
           },
@@ -481,6 +482,7 @@ describe("Phase 13 object storage and documents", () => {
                 questionType: "file",
                 label: "Supporting document",
                 required: true,
+                documentPurpose: "other",
               },
             ],
           },
@@ -585,7 +587,15 @@ describe("Phase 13 object storage and documents", () => {
           {
             sectionKey: "evidence",
             title: "Evidence",
-            fields: [{ fieldKind: "custom", fieldKey: "supporting_evidence", questionType: "file", label: "Evidence" }],
+            fields: [
+              {
+                fieldKind: "custom",
+                fieldKey: "supporting_evidence",
+                questionType: "file",
+                label: "Evidence",
+                documentPurpose: "other",
+              },
+            ],
           },
         ],
       }),

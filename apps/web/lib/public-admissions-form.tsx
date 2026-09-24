@@ -25,12 +25,16 @@ const UK_POSTCODE_RE = /^(GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})$/i;
 
 const PUBLIC_LABELS: Record<string, string> = {
   "child.legal_name": "Legal name",
+  "child.legal_forename": "Legal forename(s)",
+  "child.legal_surname": "Legal surname",
   "child.preferred_name": "Preferred name",
   "child.date_of_birth": "Date of birth",
   "child.gender": "Gender",
+  "child.nationality": "Nationality",
   "child.address": "Home address",
   "child.intended_academic_year_id": "Intended academic year",
   "child.intended_year_group_id": "Intended year group",
+  "child.intended_term_id": "Intended entry term",
   "child.proposed_start_date": "Proposed start date",
   "child.current_school": "Current school",
   "child.previous_school": "Previous school",
@@ -48,6 +52,7 @@ type PublicField = {
   label: string;
   helperText: string | null;
   required: boolean;
+  enabled?: boolean;
   options: Array<{ value: string; label: string }>;
 };
 
@@ -55,8 +60,11 @@ type PublicSection = {
   sectionKey: string;
   title: string;
   helperText: string | null;
+  enabled?: boolean;
   fields: PublicField[];
 };
+
+type TermOption = { id: string; name: string; academicYearId?: string; academicYearName?: string };
 
 type PublicFormPayload = {
   form: {
@@ -74,6 +82,7 @@ type PublicFormPayload = {
   branding?: { primaryColor?: string; logoUrl?: string | null; hasLogo?: boolean; tagline?: string | null };
   academicYears?: YearOption[];
   yearGroups?: YearOption[];
+  terms?: TermOption[];
   sections: PublicSection[];
 };
 
@@ -105,15 +114,33 @@ function fieldValue(type: string, form: FormData, key: string): unknown {
     };
   }
   if (type === "guardian_group") {
-    const names = form.getAll(`${key}.fullName`);
-    return names.map((name, index) => ({
-      fullName: String(name),
-      email: String(form.getAll(`${key}.email`)[index] ?? ""),
-      phone: String(form.getAll(`${key}.phone`)[index] ?? ""),
-      relationship: String(form.getAll(`${key}.relationship`)[index] ?? ""),
-      parentalResponsibility: form.getAll(`${key}.parentalResponsibility`)[index] === "on",
-      primaryContact: form.getAll(`${key}.primaryContact`)[index] === "on",
-    }));
+    const rows = [];
+    for (let index = 0; index < 2; index += 1) {
+      const fullName = String(form.get(`${key}.${index}.fullName`) ?? "").trim();
+      if (!fullName) continue;
+      const checked = (name: string) => {
+        const value = form.get(`${key}.${index}.${name}`);
+        return value === "on" || value === "true";
+      };
+      rows.push({
+        fullName,
+        title: String(form.get(`${key}.${index}.title`) ?? ""),
+        email: String(form.get(`${key}.${index}.email`) ?? ""),
+        phone: String(form.get(`${key}.${index}.phone`) ?? ""),
+        phoneAlternative: String(form.get(`${key}.${index}.phoneAlternative`) ?? ""),
+        relationship: String(form.get(`${key}.${index}.relationship`) ?? ""),
+        occupation: String(form.get(`${key}.${index}.occupation`) ?? ""),
+        parentalResponsibility: checked("parentalResponsibility"),
+        primaryContact: checked("primaryContact"),
+        address: {
+          line1: String(form.get(`${key}.${index}.line1`) ?? ""),
+          line2: String(form.get(`${key}.${index}.line2`) ?? ""),
+          town: String(form.get(`${key}.${index}.town`) ?? ""),
+          postcode: String(form.get(`${key}.${index}.postcode`) ?? ""),
+        },
+      });
+    }
+    return rows;
   }
   return form.get(key);
 }
@@ -143,15 +170,19 @@ function requiredFieldMissing(field: PublicField, value: unknown): boolean {
 }
 
 function fieldLabel(field: PublicField): string {
-  return PUBLIC_LABELS[field.fieldKey] ?? field.label;
+  const configured = field.label?.trim();
+  return configured || PUBLIC_LABELS[field.fieldKey] || field.fieldKey;
 }
 
 function requiredMessage(field: PublicField): string {
   const key = field.fieldKey;
   if (key === "child.legal_name") return "Enter the child's legal name.";
+  if (key === "child.legal_forename") return "Enter the child's legal forename(s).";
+  if (key === "child.legal_surname") return "Enter the child's legal surname.";
   if (key === "child.date_of_birth") return "Enter the child's date of birth.";
   if (key === "child.intended_academic_year_id") return "Select the intended academic year.";
   if (key === "child.intended_year_group_id") return "Select the intended year group.";
+  if (key === "child.intended_term_id") return "Select the intended entry term.";
   if (key === "child.address") return "Enter the child's home address.";
   if (key === "guardians") return "Enter at least one parent or guardian.";
   return `Enter ${fieldLabel(field).toLowerCase()}.`;
@@ -220,6 +251,7 @@ function displayAnswer(
   value: unknown,
   years: YearOption[],
   groups: YearOption[],
+  terms: TermOption[] = [],
 ): string {
   if (isBlank(value)) return "Not provided";
   if (field.questionType === "yes_no" || field.questionType === "declaration") {
@@ -230,6 +262,11 @@ function displayAnswer(
   }
   if (field.fieldKey === "child.intended_year_group_id") {
     return groups.find((row) => row.id === String(value))?.name ?? "Selected";
+  }
+  if (field.fieldKey === "child.intended_term_id") {
+    const term = terms.find((row) => row.id === String(value));
+    if (!term) return "Selected";
+    return term.academicYearName ? `${term.name} (${term.academicYearName})` : term.name;
   }
   if (field.questionType === "address_group") {
     const rec = asRecord(value);
@@ -258,7 +295,15 @@ function childGroups(fields: PublicField[]): Array<{ title: string; keys: string
   return [
     {
       title: "Child information",
-      keys: ["child.legal_name", "child.preferred_name", "child.date_of_birth", "child.gender"],
+      keys: [
+        "child.legal_forename",
+        "child.legal_surname",
+        "child.legal_name",
+        "child.preferred_name",
+        "child.date_of_birth",
+        "child.gender",
+        "child.nationality",
+      ],
     },
     { title: "Home address", keys: ["child.address"] },
     {
@@ -266,6 +311,7 @@ function childGroups(fields: PublicField[]): Array<{ title: string; keys: string
       keys: [
         "child.intended_academic_year_id",
         "child.intended_year_group_id",
+        "child.intended_term_id",
         "child.proposed_start_date",
         "child.current_school",
         "child.previous_school",
@@ -418,6 +464,7 @@ function FieldInput({
   field,
   years,
   groups,
+  terms,
   initial,
   mode,
   formType,
@@ -431,6 +478,7 @@ function FieldInput({
   field: PublicField;
   years: YearOption[];
   groups: YearOption[];
+  terms: TermOption[];
   initial?: unknown;
   mode: "public" | "staff";
   formType: PublicFormType;
@@ -549,32 +597,63 @@ function FieldInput({
         </span>
         {[0, 1].map((index) => {
           const row = Array.isArray(initial) ? asRecord(initial[index]) : null;
+          const address = asRecord(row?.address);
+          const prefix = `${field.fieldKey}.${index}`;
+          const nameRequired = field.required && index === 0;
           return (
             <div key={index} className="admissions-subsection">
               <h3>{index === 0 ? "Primary parent / guardian" : "Additional parent / guardian"}</h3>
               <div className="admissions-grid">
                 <label className="admissions-field">
-                  <span>Name{field.required && index === 0 ? <span className="admissions-req"> (required)</span> : <span className="admissions-opt"> (optional)</span>}</span>
-                  <input name={`${field.fieldKey}.fullName`} required={field.required && index === 0} defaultValue={String(row?.fullName ?? "")} autoComplete="name" />
+                  <span>Title<span className="admissions-opt"> (optional)</span></span>
+                  <input name={`${prefix}.title`} defaultValue={String(row?.title ?? "")} autoComplete="honorific-prefix" />
                 </label>
                 <label className="admissions-field">
-                  <span>Email{field.required && index === 0 ? <span className="admissions-req"> (required)</span> : <span className="admissions-opt"> (optional)</span>}</span>
-                  <input type="email" name={`${field.fieldKey}.email`} required={field.required && index === 0} defaultValue={String(row?.email ?? "")} autoComplete="email" />
-                </label>
-                <label className="admissions-field">
-                  <span>Telephone<span className="admissions-opt"> (optional)</span></span>
-                  <input name={`${field.fieldKey}.phone`} defaultValue={String(row?.phone ?? "")} autoComplete="tel" />
+                  <span>Name{nameRequired ? <span className="admissions-req"> (required)</span> : <span className="admissions-opt"> (optional)</span>}</span>
+                  <input name={`${prefix}.fullName`} required={nameRequired} defaultValue={String(row?.fullName ?? "")} autoComplete="name" />
                 </label>
                 <label className="admissions-field">
                   <span>Relationship<span className="admissions-opt"> (optional)</span></span>
-                  <input name={`${field.fieldKey}.relationship`} defaultValue={String(row?.relationship ?? "")} />
+                  <input name={`${prefix}.relationship`} defaultValue={String(row?.relationship ?? "")} />
+                </label>
+                <label className="admissions-field">
+                  <span>Occupation<span className="admissions-opt"> (optional)</span></span>
+                  <input name={`${prefix}.occupation`} defaultValue={String(row?.occupation ?? "")} />
+                </label>
+                <label className="admissions-field span-2">
+                  <span>Address line 1<span className="admissions-opt"> (optional)</span></span>
+                  <input name={`${prefix}.line1`} defaultValue={String(address?.line1 ?? "")} autoComplete="address-line1" />
+                </label>
+                <label className="admissions-field span-2">
+                  <span>Address line 2<span className="admissions-opt"> (optional)</span></span>
+                  <input name={`${prefix}.line2`} defaultValue={String(address?.line2 ?? "")} autoComplete="address-line2" />
+                </label>
+                <label className="admissions-field">
+                  <span>Town / city<span className="admissions-opt"> (optional)</span></span>
+                  <input name={`${prefix}.town`} defaultValue={String(address?.town ?? "")} autoComplete="address-level2" />
+                </label>
+                <label className="admissions-field">
+                  <span>Postcode<span className="admissions-opt"> (optional)</span></span>
+                  <input name={`${prefix}.postcode`} defaultValue={String(address?.postcode ?? "")} autoComplete="postal-code" />
+                </label>
+                <label className="admissions-field">
+                  <span>Telephone<span className="admissions-opt"> (optional)</span></span>
+                  <input name={`${prefix}.phone`} defaultValue={String(row?.phone ?? "")} autoComplete="tel" />
+                </label>
+                <label className="admissions-field">
+                  <span>Alternative / mobile telephone<span className="admissions-opt"> (optional)</span></span>
+                  <input name={`${prefix}.phoneAlternative`} defaultValue={String(row?.phoneAlternative ?? "")} autoComplete="tel" />
+                </label>
+                <label className="admissions-field">
+                  <span>Email{nameRequired ? <span className="admissions-req"> (required)</span> : <span className="admissions-opt"> (optional)</span>}</span>
+                  <input type="email" name={`${prefix}.email`} required={nameRequired} defaultValue={String(row?.email ?? "")} autoComplete="email" />
                 </label>
                 <label className="admissions-field checkbox-row">
-                  <input type="checkbox" name={`${field.fieldKey}.parentalResponsibility`} defaultChecked={row?.parentalResponsibility === true} />
+                  <input type="checkbox" name={`${prefix}.parentalResponsibility`} value="true" defaultChecked={row?.parentalResponsibility === true} />
                   <span>Parental responsibility</span>
                 </label>
                 <label className="admissions-field checkbox-row">
-                  <input type="checkbox" name={`${field.fieldKey}.primaryContact`} defaultChecked={row?.primaryContact === true || (!row && index === 0)} />
+                  <input type="checkbox" name={`${prefix}.primaryContact`} value="true" defaultChecked={row?.primaryContact === true || (!row && index === 0)} />
                   <span>Primary contact</span>
                 </label>
               </div>
@@ -586,8 +665,20 @@ function FieldInput({
       </div>
     );
   }
-  if (field.fieldKey === "child.intended_academic_year_id" || field.fieldKey === "child.intended_year_group_id") {
-    const options = field.fieldKey === "child.intended_academic_year_id" ? years : groups;
+  if (
+    field.fieldKey === "child.intended_academic_year_id" ||
+    field.fieldKey === "child.intended_year_group_id" ||
+    field.fieldKey === "child.intended_term_id"
+  ) {
+    const options =
+      field.fieldKey === "child.intended_academic_year_id"
+        ? years
+        : field.fieldKey === "child.intended_year_group_id"
+          ? groups
+          : terms.map((term) => ({
+              id: term.id,
+              name: term.academicYearName ? `${term.name} (${term.academicYearName})` : term.name,
+            }));
     return (
       <label className={`admissions-field${invalid ? " is-invalid" : ""}`}>
         <span>
@@ -762,6 +853,7 @@ export function PublicAdmissionsForm({
           api<{
             form: PublicFormPayload["form"] & { name: string };
             sections: PublicSection[];
+            terms?: TermOption[];
           }>(`/api/v1/admissions/forms/${formId}`),
           api<{ academicYears: YearOption[] }>("/api/v1/academic-years"),
           api<{ yearGroups: YearOption[] }>("/api/v1/year-groups"),
@@ -782,6 +874,7 @@ export function PublicAdmissionsForm({
             setError("This saved draft could not be opened. You can start the form again.");
           }
         }
+        const allowedYears = new Set(formBody.form.allowedAcademicYearIds ?? []);
         setPayload({
           form: {
             ...formBody.form,
@@ -791,7 +884,16 @@ export function PublicAdmissionsForm({
           organisation: { name: "Staff entry" },
           academicYears: yearsBody.academicYears,
           yearGroups: groupsBody.yearGroups,
-          sections: formBody.sections.filter((section) => section.fields?.length),
+          terms: (formBody.terms ?? []).filter(
+            (term) => allowedYears.size === 0 || (term.academicYearId ? allowedYears.has(term.academicYearId) : false),
+          ),
+          sections: formBody.sections
+            .filter((section) => section.enabled !== false)
+            .map((section) => ({
+              ...section,
+              fields: section.fields.filter((field) => field.enabled !== false),
+            }))
+            .filter((section) => section.fields.length),
         });
         return;
       }
@@ -1095,6 +1197,7 @@ export function PublicAdmissionsForm({
   const fieldProps = {
     years,
     groups,
+    terms: payload.terms ?? [],
     mode,
     formType,
     slug,
@@ -1303,7 +1406,7 @@ export function PublicAdmissionsForm({
                     {section.fields.map((field) => (
                       <div key={field.fieldKey} style={{ display: "contents" }}>
                         <dt>{fieldLabel(field)}</dt>
-                        <dd>{displayAnswer(field, mergedAnswers[field.fieldKey], years, groups)}</dd>
+                        <dd>{displayAnswer(field, mergedAnswers[field.fieldKey], years, groups, payload.terms ?? [])}</dd>
                       </div>
                     ))}
                   </dl>

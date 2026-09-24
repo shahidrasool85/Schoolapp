@@ -1,11 +1,14 @@
 import { createHash, randomBytes } from "node:crypto";
 import {
+  ADMISSIONS_CANONICAL_FIELD_CATALOGUE,
   ADMISSIONS_CANONICAL_FIELD_KEYS,
   ADMISSIONS_COMPLETENESS_STATUSES,
   ADMISSIONS_DOCUMENT_PURPOSES,
   ADMISSIONS_FORM_STATUSES,
+  ADMISSIONS_FORM_TEMPLATES,
   ADMISSIONS_FORM_TYPES,
   ADMISSIONS_QUESTION_TYPES,
+  ADMISSIONS_STRUCTURE_CHOICE_KEYS,
   CUSTOM_FIELD_KEY_PATTERN,
   PUBLIC_FORM_SLUG_MAX,
   PUBLIC_FORM_SLUG_PATTERN,
@@ -13,6 +16,7 @@ import {
   type AdmissionsCompletenessStatus,
   type AdmissionsDocumentPurpose,
   type AdmissionsFormStatus,
+  type AdmissionsFormTemplate,
   type AdmissionsFormType,
   type AdmissionsQuestionType,
 } from "@schoolapp/domain";
@@ -63,10 +67,13 @@ export type AddressValue = {
 
 export type GuardianValue = {
   fullName?: string;
+  title?: string;
   relationship?: string;
+  occupation?: string;
   parentalResponsibility?: boolean;
   email?: string;
   phone?: string;
+  phoneAlternative?: string;
   primaryContact?: boolean;
   address?: AddressValue;
 };
@@ -82,12 +89,16 @@ export type FileAnswerValue = {
 export type CanonicalSnapshot = {
   child?: {
     legalName?: string;
+    legalForename?: string;
+    legalSurname?: string;
     preferredName?: string;
     dateOfBirth?: string;
     gender?: string;
+    nationality?: string;
     address?: AddressValue;
     intendedAcademicYearId?: string;
     intendedYearGroupId?: string;
+    intendedTermId?: string;
     proposedStartDate?: string;
     currentSchool?: string;
     previousSchool?: string;
@@ -118,78 +129,15 @@ export type CanonicalSnapshot = {
 const CANONICAL_SET = new Set<string>(ADMISSIONS_CANONICAL_FIELD_KEYS);
 const QUESTION_SET = new Set<string>(ADMISSIONS_QUESTION_TYPES);
 const PURPOSE_SET = new Set<string>(ADMISSIONS_DOCUMENT_PURPOSES);
+const STRUCTURE_CHOICE_KEYS = new Set<string>(ADMISSIONS_STRUCTURE_CHOICE_KEYS);
 
-const CANONICAL_TYPES: Record<AdmissionsCanonicalFieldKey, AdmissionsQuestionType> = {
-  "child.legal_name": "short_text",
-  "child.preferred_name": "short_text",
-  "child.date_of_birth": "date",
-  "child.gender": "single_choice",
-  "child.address": "address_group",
-  "child.intended_academic_year_id": "single_choice",
-  "child.intended_year_group_id": "single_choice",
-  "child.proposed_start_date": "date",
-  "child.current_school": "short_text",
-  "child.previous_school": "short_text",
-  "guardian.full_name": "short_text",
-  "guardian.relationship": "short_text",
-  "guardian.parental_responsibility": "yes_no",
-  "guardian.address": "address_group",
-  "guardian.email": "email",
-  "guardian.phone": "phone",
-  "guardian.primary_contact": "yes_no",
-  guardians: "guardian_group",
-  "previous_education.school_name": "short_text",
-  "previous_education.start_date": "date",
-  "previous_education.end_date": "date",
-  "previous_education.report_details": "long_text",
-  "emergency.full_name": "short_text",
-  "emergency.relationship": "short_text",
-  "emergency.telephone": "phone",
-  "emergency.authorised_collection": "yes_no",
-  "medical.allergies": "long_text",
-  "medical.conditions": "long_text",
-  "medical.medication": "long_text",
-  "medical.dietary": "short_text",
-  "medical.send_notes": "long_text",
-  "enquiry.notes": "long_text",
-  "application.notes": "long_text",
-};
+const CANONICAL_TYPES = Object.fromEntries(
+  ADMISSIONS_CANONICAL_FIELD_CATALOGUE.map((row) => [row.key, row.questionType]),
+) as Record<AdmissionsCanonicalFieldKey, AdmissionsQuestionType>;
 
-const CANONICAL_LABELS: Record<AdmissionsCanonicalFieldKey, string> = {
-  "child.legal_name": "Legal name",
-  "child.preferred_name": "Preferred name",
-  "child.date_of_birth": "Date of birth",
-  "child.gender": "Gender",
-  "child.address": "Home address",
-  "child.intended_academic_year_id": "Intended academic year",
-  "child.intended_year_group_id": "Intended year group",
-  "child.proposed_start_date": "Proposed start date",
-  "child.current_school": "Current school",
-  "child.previous_school": "Previous school",
-  "guardian.full_name": "Parent / guardian name",
-  "guardian.relationship": "Relationship to child",
-  "guardian.parental_responsibility": "Has parental responsibility",
-  "guardian.address": "Parent / guardian address",
-  "guardian.email": "Email",
-  "guardian.phone": "Telephone",
-  "guardian.primary_contact": "Primary contact",
-  guardians: "Parents / guardians",
-  "previous_education.school_name": "Current or previous school",
-  "previous_education.start_date": "Dates attended (from)",
-  "previous_education.end_date": "Dates attended (to)",
-  "previous_education.report_details": "Previous report or reference details",
-  "emergency.full_name": "Emergency contact name",
-  "emergency.relationship": "Emergency contact relationship",
-  "emergency.telephone": "Emergency telephone",
-  "emergency.authorised_collection": "Authorised to collect the child",
-  "medical.allergies": "Allergies",
-  "medical.conditions": "Medical conditions",
-  "medical.medication": "Medication",
-  "medical.dietary": "Dietary requirements",
-  "medical.send_notes": "SEND / additional support notes",
-  "enquiry.notes": "Your question or note",
-  "application.notes": "Anything else we should know",
-};
+const CANONICAL_LABELS = Object.fromEntries(
+  ADMISSIONS_CANONICAL_FIELD_CATALOGUE.map((row) => [row.key, row.label]),
+) as Record<AdmissionsCanonicalFieldKey, string>;
 
 export function isAdmissionsFormType(value: string): value is AdmissionsFormType {
   return (ADMISSIONS_FORM_TYPES as readonly string[]).includes(value);
@@ -488,6 +436,217 @@ export function defaultFormTemplate(formType: AdmissionsFormType): FormSectionDe
   ].map((item, index) => ({ ...item, sortOrder: index }));
 }
 
+/**
+ * Registration / application template.
+ * Medical, medication, dietary, SEND, and emergency sections are omitted so a
+ * school can collect them later. They remain in the canonical catalogue and
+ * can be added in the form builder.
+ * Faith/religion is an optional application-only custom question. It is not
+ * written to the pupil record and is not ethnicity.
+ * "How did you hear about us?" starts with editable generic options. Campaign
+ * links stay separate.
+ */
+export function registrationApplicationTemplate(): FormSectionDefinition[] {
+  return [
+    section("child", "Child details", [
+      fieldDefinitionForCanonical("child.legal_forename", { required: true }),
+      fieldDefinitionForCanonical("child.legal_surname", { required: true }),
+      "child.preferred_name",
+      fieldDefinitionForCanonical("child.date_of_birth", { required: true }),
+      fieldDefinitionForCanonical("child.nationality", {
+        helperText: "Collect this only if your school needs it. Nationality is not ethnic background.",
+      }),
+      fieldDefinitionForCanonical("child.address", {
+        helperText: "The child's home address.",
+      }),
+      fieldDefinitionForCanonical("child.intended_academic_year_id", { required: true }),
+      fieldDefinitionForCanonical("child.intended_year_group_id", { required: true }),
+      fieldDefinitionForCanonical("child.intended_term_id", {
+        helperText: "The school term when the child would join.",
+      }),
+      "child.proposed_start_date",
+      fieldDefinitionForCanonical("child.current_school", {
+        helperText: "The school the child attends now, if any.",
+      }),
+      fieldDefinitionForCanonical("child.previous_school", {
+        helperText: "Another school the child has been registered at, if different.",
+      }),
+    ]),
+    section(
+      "guardians",
+      "Parents / guardians",
+      [fieldDefinitionForCanonical("guardians", { required: true })],
+      "Add each parent or guardian. Title, occupation, address, and telephone are stored with this application.",
+    ),
+    section("additional", "Additional information", [
+      {
+        fieldKey: "skills_and_talents",
+        fieldKind: "custom",
+        canonicalKey: null,
+        questionType: "long_text",
+        label: "Artistic, dramatic, musical or sporting skills and experience",
+        helperText: "Stored with this application only.",
+        required: false,
+        enabled: true,
+        sortOrder: 0,
+        sectionKey: "additional",
+        options: [],
+        documentPurpose: null,
+      },
+      {
+        fieldKey: "hobbies_and_interests",
+        fieldKind: "custom",
+        canonicalKey: null,
+        questionType: "long_text",
+        label: "Other hobbies and interests",
+        helperText: null,
+        required: false,
+        enabled: true,
+        sortOrder: 1,
+        sectionKey: "additional",
+        options: [],
+        documentPurpose: null,
+      },
+      "application.notes",
+      {
+        fieldKey: "how_heard",
+        fieldKind: "custom",
+        canonicalKey: null,
+        questionType: "single_choice",
+        label: "How did you hear about us?",
+        helperText: "Edit these options for your school. Campaign links are tracked separately.",
+        required: false,
+        enabled: true,
+        sortOrder: 3,
+        sectionKey: "additional",
+        options: [
+          { value: "recommendation", label: "Recommendation" },
+          { value: "advertisement", label: "Advertisement" },
+          { value: "another_school", label: "Another school" },
+          { value: "other", label: "Other" },
+        ],
+        documentPurpose: null,
+      },
+    ]),
+    section(
+      "faith",
+      "Faith or religion",
+      [
+        {
+          fieldKey: "faith_or_religion",
+          fieldKind: "custom",
+          canonicalKey: null,
+          questionType: "short_text",
+          label: "Faith or religion",
+          helperText:
+            "Optional. Kept on this application only. It is not copied to the pupil record and is not used as ethnicity.",
+          required: false,
+          enabled: true,
+          sortOrder: 0,
+          sectionKey: "faith",
+          options: [],
+          documentPurpose: null,
+        },
+      ],
+      "Disable this section if your school does not ask for faith or religion at registration.",
+    ),
+    section("declarations", "Declaration", [
+      {
+        fieldKey: "declaration_privacy",
+        fieldKind: "custom",
+        canonicalKey: null,
+        questionType: "declaration",
+        label: "I confirm the information in this registration is accurate and I have read the privacy notice",
+        helperText: null,
+        required: true,
+        enabled: true,
+        sortOrder: 0,
+        sectionKey: "declarations",
+        options: [],
+        documentPurpose: null,
+      },
+    ]),
+  ].map((item, index) => ({ ...item, sortOrder: index }));
+}
+
+export function isAdmissionsFormTemplate(value: string): value is AdmissionsFormTemplate {
+  return (ADMISSIONS_FORM_TEMPLATES as readonly string[]).includes(value);
+}
+
+export function formTemplateFor(
+  formType: AdmissionsFormType,
+  template: AdmissionsFormTemplate | null | undefined,
+): FormSectionDefinition[] {
+  if (formType === "application" && template === "registration") return registrationApplicationTemplate();
+  return defaultFormTemplate(formType);
+}
+
+/**
+ * Parts win when they were collected. A legacy legal-name string is never split.
+ */
+export function applicantLegalName(input: {
+  legalName?: string | null;
+  legalForename?: string | null;
+  legalSurname?: string | null;
+}): string {
+  const forename = input.legalForename?.trim() ?? "";
+  const surname = input.legalSurname?.trim() ?? "";
+  if (forename || surname) return [forename, surname].filter(Boolean).join(" ");
+  return input.legalName?.trim() ?? "";
+}
+
+const CHOICE_TYPES = new Set<AdmissionsQuestionType>(["single_choice", "multiple_choice"]);
+
+export function assertAdmissionsFormDefinition(sections: FormSectionDefinition[]): void {
+  if (!sections.length) {
+    throw new AppError(400, "validation_failed", "A form needs at least one section");
+  }
+  const sectionKeys = new Set<string>();
+  const fieldKeys = new Set<string>();
+  const canonicalKeys = new Set<string>();
+  for (const section of sections) {
+    const sectionKey = section.sectionKey.trim();
+    if (!sectionKey || sectionKeys.has(sectionKey)) {
+      throw new AppError(400, "validation_failed", "Section keys must be unique");
+    }
+    sectionKeys.add(sectionKey);
+    for (const field of section.fields) {
+      if (field.fieldKind === "canonical") {
+        if (!field.canonicalKey || !isCanonicalFieldKey(field.canonicalKey)) {
+          throw new AppError(400, "validation_failed", "Canonical field key is not allowed");
+        }
+        if (field.questionType !== canonicalTypeForKey(field.canonicalKey)) {
+          throw new AppError(400, "validation_failed", "Canonical field type cannot be changed");
+        }
+        if (field.fieldKey !== field.canonicalKey) {
+          throw new AppError(400, "validation_failed", "Canonical field key is not allowed");
+        }
+        if (canonicalKeys.has(field.canonicalKey)) {
+          throw new AppError(400, "validation_failed", "Each canonical field can be added once");
+        }
+        canonicalKeys.add(field.canonicalKey);
+      } else if (field.canonicalKey) {
+        throw new AppError(400, "validation_failed", "Custom questions cannot use a canonical key");
+      }
+      if (fieldKeys.has(field.fieldKey)) {
+        throw new AppError(400, "validation_failed", "Field keys must be unique");
+      }
+      fieldKeys.add(field.fieldKey);
+      if (
+        field.enabled &&
+        CHOICE_TYPES.has(field.questionType) &&
+        !STRUCTURE_CHOICE_KEYS.has(field.canonicalKey ?? "") &&
+        field.options.length === 0
+      ) {
+        throw new AppError(400, "validation_failed", `${field.label} needs at least one option`);
+      }
+      if (field.questionType === "file" && !field.documentPurpose) {
+        throw new AppError(400, "validation_failed", `${field.label} needs a document purpose`);
+      }
+    }
+  }
+}
+
 export function publicFormIsAccepting(input: {
   status: string;
   opensAt: string | Date | null;
@@ -533,10 +692,13 @@ function parseGuardian(value: unknown): GuardianValue | null {
   if (!fullName) return null;
   return {
     fullName,
+    title: sanitizePlainText(rec.title, 20) || undefined,
     relationship: sanitizePlainText(rec.relationship, 40) || undefined,
+    occupation: sanitizePlainText(rec.occupation, 120) || undefined,
     parentalResponsibility: rec.parentalResponsibility === true || rec.parental_responsibility === true,
     email: sanitizePlainText(rec.email, 120).toLowerCase() || undefined,
     phone: sanitizePlainText(rec.phone ?? rec.telephone, 40) || undefined,
+    phoneAlternative: sanitizePlainText(rec.phoneAlternative ?? rec.phone_alternative ?? rec.alternativeTelephone, 40) || undefined,
     primaryContact: rec.primaryContact === true || rec.primary_contact === true,
     address: parseAddress(rec.address),
   };
@@ -568,9 +730,12 @@ export function isValidUkPostcode(value: string): boolean {
 export function publicFieldRequiredMessage(field: FormFieldDefinition): string {
   const key = field.canonicalKey ?? field.fieldKey;
   if (key === "child.legal_name") return "Enter the child's legal name.";
+  if (key === "child.legal_forename") return "Enter the child's legal forename.";
+  if (key === "child.legal_surname") return "Enter the child's legal surname.";
   if (key === "child.date_of_birth") return "Enter the child's date of birth.";
   if (key === "child.intended_academic_year_id") return "Select the intended academic year.";
   if (key === "child.intended_year_group_id") return "Select the intended year group.";
+  if (key === "child.intended_term_id") return "Select the intended entry term.";
   if (key === "child.address") return "Enter the child's home address.";
   if (key === "guardians") return "Enter at least one parent or guardian.";
   if (key === "guardian.full_name") return "Enter the parent or guardian's name.";
@@ -645,18 +810,12 @@ export function validateFieldAnswer(field: FormFieldDefinition, raw: unknown): u
     case "single_choice": {
       const value = sanitizePlainText(raw, 80);
       if (field.options.length && !field.options.some((option) => option.value === value)) {
-        if (
-          field.canonicalKey !== "child.intended_academic_year_id" &&
-          field.canonicalKey !== "child.intended_year_group_id"
-        ) {
+        if (!STRUCTURE_CHOICE_KEYS.has(field.canonicalKey ?? "")) {
           fieldError(field, `${field.label} is not a valid choice`);
         }
         assertUuid(value, field);
       }
-      if (
-        field.canonicalKey === "child.intended_academic_year_id" ||
-        field.canonicalKey === "child.intended_year_group_id"
-      ) {
+      if (STRUCTURE_CHOICE_KEYS.has(field.canonicalKey ?? "")) {
         assertUuid(value, field);
       }
       return value;
@@ -804,6 +963,12 @@ export function mapAnswersToCanonical(
       case "child.legal_name":
         setChild("legalName", String(value));
         break;
+      case "child.legal_forename":
+        setChild("legalForename", String(value));
+        break;
+      case "child.legal_surname":
+        setChild("legalSurname", String(value));
+        break;
       case "child.preferred_name":
         setChild("preferredName", String(value));
         break;
@@ -813,6 +978,9 @@ export function mapAnswersToCanonical(
       case "child.gender":
         setChild("gender", String(value));
         break;
+      case "child.nationality":
+        setChild("nationality", String(value));
+        break;
       case "child.address":
         setChild("address", value as AddressValue);
         break;
@@ -821,6 +989,9 @@ export function mapAnswersToCanonical(
         break;
       case "child.intended_year_group_id":
         setChild("intendedYearGroupId", String(value));
+        break;
+      case "child.intended_term_id":
+        setChild("intendedTermId", String(value));
         break;
       case "child.proposed_start_date":
         setChild("proposedStartDate", String(value));
@@ -832,19 +1003,25 @@ export function mapAnswersToCanonical(
         setChild("previousSchool", String(value));
         break;
       case "guardian.full_name":
+      case "guardian.title":
       case "guardian.relationship":
+      case "guardian.occupation":
       case "guardian.parental_responsibility":
       case "guardian.address":
       case "guardian.email":
       case "guardian.phone":
+      case "guardian.phone_alternative":
       case "guardian.primary_contact": {
         const current = snapshot.guardians?.[0] ?? {};
         if (field.canonicalKey === "guardian.full_name") current.fullName = String(value);
+        if (field.canonicalKey === "guardian.title") current.title = String(value);
         if (field.canonicalKey === "guardian.relationship") current.relationship = String(value);
+        if (field.canonicalKey === "guardian.occupation") current.occupation = String(value);
         if (field.canonicalKey === "guardian.parental_responsibility") current.parentalResponsibility = value === true;
         if (field.canonicalKey === "guardian.address") current.address = value as AddressValue;
         if (field.canonicalKey === "guardian.email") current.email = String(value);
         if (field.canonicalKey === "guardian.phone") current.phone = String(value);
+        if (field.canonicalKey === "guardian.phone_alternative") current.phoneAlternative = String(value);
         if (field.canonicalKey === "guardian.primary_contact") current.primaryContact = value === true;
         snapshot.guardians = [current];
         break;
@@ -901,6 +1078,14 @@ export function mapAnswersToCanonical(
   }
 
   if (snapshot.guardians && !snapshot.guardians.length) delete snapshot.guardians;
+  if (snapshot.child) {
+    const composed = applicantLegalName({
+      legalName: snapshot.child.legalName,
+      legalForename: snapshot.child.legalForename,
+      legalSurname: snapshot.child.legalSurname,
+    });
+    if (composed) snapshot.child.legalName = composed;
+  }
   return snapshot;
 }
 

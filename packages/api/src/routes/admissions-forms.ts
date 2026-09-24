@@ -2,8 +2,11 @@ import type pg from "pg";
 import { z } from "zod";
 import {
   ADMISSIONS_DOCUMENT_PURPOSES,
+  ADMISSIONS_FORM_TEMPLATES,
   ADMISSIONS_FORM_TYPES,
   ADMISSIONS_QUESTION_TYPES,
+  type AdmissionsDocumentPurpose,
+  type AdmissionsQuestionType,
 } from "@schoolapp/domain";
 import {
   AppError,
@@ -19,8 +22,9 @@ import {
   canReadPublicSubmissions,
   computeCompleteness,
   createContinuationToken,
+  assertAdmissionsFormDefinition,
   declarationSnapshot,
-  defaultFormTemplate,
+  formTemplateFor,
   hashContinuationToken,
   isCanonicalFieldKey,
   mapAnswersToCanonical,
@@ -36,6 +40,7 @@ import {
   validatePublicAnswers,
   writeAudit,
   type FormFieldDefinition,
+  type FormSectionDefinition,
 } from "@schoolapp/core";
 import type { SchoolappApi } from "../types";
 import { requireUser } from "../auth-middleware";
@@ -46,6 +51,7 @@ import { queueAdmissionsFormAck } from "../admissions-mail";
 
 const formSchema = z.object({
   formType: z.enum(ADMISSIONS_FORM_TYPES),
+  template: z.enum(ADMISSIONS_FORM_TEMPLATES).optional(),
   name: z.string().min(1).max(120),
   slug: z.string().min(1).max(80).optional(),
   description: z.string().max(2000).optional(),
@@ -103,38 +109,92 @@ async function loadForm(client: pg.PoolClient, orgId: string, id: string) {
   return listed.rows[0] as Record<string, unknown>;
 }
 
+const REGISTRATION_PRIVACY_TEXT =
+  "We use the information in this registration to consider the application and to contact you about it.";
+
+type DefinitionSectionInput = {
+  sectionKey: string;
+  title: string;
+  helperText?: string | null;
+  sortOrder?: number;
+  enabled?: boolean;
+  fields: Array<{
+    fieldKey?: string;
+    fieldKind: "canonical" | "custom";
+    canonicalKey?: string | null;
+    questionType: AdmissionsQuestionType;
+    label: string;
+    helperText?: string | null;
+    required?: boolean;
+    enabled?: boolean;
+    sortOrder?: number;
+    options?: Array<{ value: string; label: string }> | null;
+    documentPurpose?: AdmissionsDocumentPurpose | null;
+  }>;
+};
+
+function definitionFromInput(sections: DefinitionSectionInput[]): FormSectionDefinition[] {
+  return sections.map((section, sectionIndex) => {
+    const sectionKey = sanitizePlainText(section.sectionKey, 80).toLowerCase().replace(/[^a-z0-9_]+/g, "_");
+    return {
+      sectionKey,
+      title: sanitizePlainText(section.title, 120),
+      helperText: sanitizeHelperText(section.helperText, 2000) || null,
+      sortOrder: section.sortOrder ?? sectionIndex,
+      enabled: section.enabled ?? true,
+      fields: section.fields.map((field, fieldIndex) => {
+        const canonical =
+          field.fieldKind === "canonical" && field.canonicalKey && isCanonicalFieldKey(field.canonicalKey)
+            ? field.canonicalKey
+            : null;
+        if (field.fieldKind === "canonical" && !canonical) {
+          throw new AppError(400, "validation_failed", "Canonical field key is not allowed");
+        }
+        const fieldKey =
+          field.fieldKind === "canonical" ? canonical! : normalizeCustomFieldKey(field.fieldKey ?? field.label);
+        const options = Array.isArray(field.options) ? field.options : [];
+        return {
+          fieldKey,
+          fieldKind: field.fieldKind,
+          canonicalKey: field.fieldKind === "canonical" ? canonical : null,
+          questionType: field.questionType,
+          label: sanitizePlainText(field.label, 200),
+          helperText: sanitizeHelperText(field.helperText, 2000) || null,
+          required: field.required ?? false,
+          enabled: field.enabled ?? true,
+          sortOrder: field.sortOrder ?? fieldIndex,
+          sectionKey,
+          options: options.map((option) => ({
+            value: sanitizePlainText(option.value, 80),
+            label: sanitizePlainText(option.label, 120),
+          })),
+          documentPurpose: field.documentPurpose ?? null,
+        };
+      }),
+    };
+  });
+}
+
 async function replaceFormDefinition(
   client: pg.PoolClient,
   orgId: string,
   formId: string,
-  sections: z.infer<typeof sectionSchema>[],
+  sections: DefinitionSectionInput[],
 ) {
+  const definition = definitionFromInput(sections);
+  assertAdmissionsFormDefinition(definition);
   await client.query("delete from admissions_form_sections where form_id = $1 and organisation_id = $2", [
     formId,
     orgId,
   ]);
-  for (const [sectionIndex, section] of sections.entries()) {
-    const sectionKey = sanitizePlainText(section.sectionKey, 80).toLowerCase().replace(/[^a-z0-9_]+/g, "_");
+  for (const section of definition) {
     const inserted = await client.query<{ id: string }>(
       `insert into admissions_form_sections (
          organisation_id, form_id, section_key, title, helper_text, sort_order, enabled
        ) values ($1,$2,$3,$4,$5,$6,$7) returning id`,
-      [
-        orgId,
-        formId,
-        sectionKey,
-        sanitizePlainText(section.title, 120),
-        sanitizeHelperText(section.helperText, 2000) || null,
-        section.sortOrder ?? sectionIndex,
-        section.enabled ?? true,
-      ],
+      [orgId, formId, section.sectionKey, section.title, section.helperText, section.sortOrder, section.enabled],
     );
-    for (const [fieldIndex, field] of section.fields.entries()) {
-      const canonical = field.canonicalKey && isCanonicalFieldKey(field.canonicalKey) ? field.canonicalKey : null;
-      const fieldKey =
-        field.fieldKind === "canonical" && canonical
-          ? canonical
-          : normalizeCustomFieldKey(field.fieldKey ?? field.label);
+    for (const field of section.fields) {
       await client.query(
         `insert into admissions_form_fields (
            organisation_id, form_id, section_id, field_key, field_kind, canonical_key,
@@ -144,22 +204,17 @@ async function replaceFormDefinition(
           orgId,
           formId,
           inserted.rows[0]!.id,
-          fieldKey,
+          field.fieldKey,
           field.fieldKind,
-          canonical,
+          field.canonicalKey,
           field.questionType,
-          sanitizePlainText(field.label, 200),
-          sanitizeHelperText(field.helperText, 2000) || null,
-          field.required ?? false,
-          field.enabled ?? true,
-          field.sortOrder ?? fieldIndex,
-          JSON.stringify(
-            (field.options ?? []).map((option) => ({
-              value: sanitizePlainText(option.value, 80),
-              label: sanitizePlainText(option.label, 120),
-            })),
-          ),
-          field.documentPurpose ?? null,
+          field.label,
+          field.helperText,
+          field.required,
+          field.enabled,
+          field.sortOrder,
+          JSON.stringify(field.options),
+          field.documentPurpose,
         ],
       );
     }
@@ -171,13 +226,14 @@ async function insertTemplate(
   orgId: string,
   formId: string,
   formType: z.infer<typeof formSchema>["formType"],
+  template: z.infer<typeof formSchema>["template"],
 ) {
-  const template = defaultFormTemplate(formType);
+  const templateSections = formTemplateFor(formType, template);
   await replaceFormDefinition(
     client,
     orgId,
     formId,
-    template.map((section) => ({
+    templateSections.map((section) => ({
       sectionKey: section.sectionKey,
       title: section.title,
       helperText: section.helperText,
@@ -282,6 +338,11 @@ export function registerAdmissionsFormRoutes(app: SchoolappApi) {
       const parsed = formSchema.safeParse(await c.req.json());
       if (!parsed.success) throw new AppError(400, "validation_failed", "Invalid form payload");
       const slug = normalizeFormSlug(parsed.data.slug ?? parsed.data.name);
+      const privacyText =
+        sanitizeHelperText(parsed.data.privacyNoticeText, 8000) ||
+        (parsed.data.formType === "application" && parsed.data.template === "registration"
+          ? REGISTRATION_PRIVACY_TEXT
+          : null);
       const inserted = await client.query<{ id: string }>(
         `insert into admissions_forms (
            organisation_id, slug, form_type, name, description, success_title, success_text,
@@ -298,7 +359,7 @@ export function registerAdmissionsFormRoutes(app: SchoolappApi) {
           sanitizePlainText(parsed.data.successTitle ?? "Thank you", 120),
           sanitizeHelperText(parsed.data.successText ?? "We have received your submission.", 4000),
           safePrivacyNoticeUrl(parsed.data.privacyNoticeUrl),
-          sanitizeHelperText(parsed.data.privacyNoticeText, 8000) || null,
+          privacyText,
           parsed.data.opensAt ?? null,
           parsed.data.closesAt ?? null,
           parsed.data.allowedAcademicYearIds ?? [],
@@ -306,7 +367,7 @@ export function registerAdmissionsFormRoutes(app: SchoolappApi) {
           userId,
         ],
       );
-      await insertTemplate(client, orgId, inserted.rows[0]!.id, parsed.data.formType);
+      await insertTemplate(client, orgId, inserted.rows[0]!.id, parsed.data.formType, parsed.data.template);
       await writeAudit(client, {
         organisationId: orgId,
         actorUserId: userId,
@@ -328,7 +389,29 @@ export function registerAdmissionsFormRoutes(app: SchoolappApi) {
     withSchoolActor(c, async ({ client, actor, orgId }) => {
       if (!canReadAdmissionsForms(actor)) throw new AppError(403, "forbidden", "Missing permission");
       const form = await loadForm(client, orgId, uuidRouteParam(c, "id"));
-      return c.json({ form: mapAdmissionsForm(form), sections: await loadDefinition(client, orgId, String(form.id)) });
+      const terms = await client.query<{
+        id: string;
+        name: string;
+        academic_year_id: string;
+        academic_year_name: string;
+      }>(
+        `select t.id, t.name, t.academic_year_id, y.name as academic_year_name
+         from terms t
+         join academic_years y on y.id = t.academic_year_id
+         where t.organisation_id = $1
+         order by y.starts_on desc, t.starts_on, t.sort_order`,
+        [orgId],
+      );
+      return c.json({
+        form: mapAdmissionsForm(form),
+        sections: await loadDefinition(client, orgId, String(form.id)),
+        terms: terms.rows.map((term) => ({
+          id: term.id,
+          name: term.name,
+          academicYearId: term.academic_year_id,
+          academicYearName: term.academic_year_name,
+        })),
+      });
     }),
   );
 

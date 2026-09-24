@@ -20,6 +20,7 @@ export default function AdmissionsFormsPage() {
   const [forms, setForms] = useState<FormRow[] | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [formType, setFormType] = useState("enquiry");
 
   async function load() {
     const body = await api<{ forms: FormRow[] }>("/api/v1/admissions/forms");
@@ -43,6 +44,7 @@ export default function AdmissionsFormsPage() {
           formType: form.get("formType"),
           name: form.get("name"),
           slug: form.get("slug") || undefined,
+          ...(form.get("formType") === "application" ? { template: form.get("template") || "registration" } : {}),
         }),
       });
       window.location.href = `/school/admissions/forms/${created.form.id}`;
@@ -65,7 +67,7 @@ export default function AdmissionsFormsPage() {
         </label>
         <label>
           Type
-          <select name="formType" defaultValue="enquiry">
+          <select name="formType" value={formType} onChange={(event) => setFormType(event.target.value)}>
             <option value="enquiry">Enquiry</option>
             <option value="application">Application</option>
             <option value="open_day">Open day</option>
@@ -75,6 +77,15 @@ export default function AdmissionsFormsPage() {
             <option value="nursery">Nursery</option>
           </select>
         </label>
+        {formType === "application" ? (
+          <label>
+            Starting template
+            <select name="template" defaultValue="registration">
+              <option value="registration">Registration / application</option>
+              <option value="standard">Standard application (includes medical and SEND)</option>
+            </select>
+          </label>
+        ) : null}
         <label>
           Slug
           <input name="slug" placeholder="year-3-enquiry" />

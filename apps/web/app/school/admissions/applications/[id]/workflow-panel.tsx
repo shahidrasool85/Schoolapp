@@ -70,6 +70,7 @@ export function ApplicationWorkflowPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [warning, setWarning] = useState("");
   const [fieldError, setFieldError] = useState("");
   const [waitlistOnDecline, setWaitlistOnDecline] = useState(false);
 
@@ -93,6 +94,7 @@ export function ApplicationWorkflowPanel({
     setBusy(true);
     setError("");
     setMessage("");
+    setWarning("");
     setFieldError("");
     try {
       const result = await work();
@@ -236,8 +238,16 @@ export function ApplicationWorkflowPanel({
         contactId: contact.id,
         portalAccess: payload.get(`portal-${contact.id}`) === "on",
       }));
-    await run("Applicant enrolled.", async () => {
-      const body = await api<{ studentProfileId: string }>(`/api/v1/admissions/applications/${app.id}/enrol`, {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    setWarning("");
+    setFieldError("");
+    try {
+      const body = await api<{
+        studentProfileId: string;
+        guardianMapping?: { status: string; message: string | null };
+      }>(`/api/v1/admissions/applications/${app.id}/enrol`, {
         method: "POST",
         body: JSON.stringify({
           academicYearId: payload.get("academicYearId") || undefined,
@@ -247,8 +257,21 @@ export function ApplicationWorkflowPanel({
           guardianLinks,
         }),
       });
-      return `Applicant enrolled. Pupil record ${body.studentProfileId} is ready.`;
-    });
+      setPanel(null);
+      await onReload();
+      if (body.guardianMapping?.status === "attention_required") {
+        setWarning(
+          body.guardianMapping.message ??
+            "The pupil was enrolled, but one or more parent or guardian links need attention.",
+        );
+      } else {
+        setMessage(`Applicant enrolled. Pupil record ${body.studentProfileId} is ready.`);
+      }
+    } catch (err) {
+      setError(userFacingError(err, "That action could not be completed."));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function onCorrection(event: FormEvent<HTMLFormElement>) {
@@ -368,6 +391,7 @@ export function ApplicationWorkflowPanel({
         {message ? (
           <Alert tone="success">{message}</Alert>
         ) : null}
+        {warning ? <Alert tone="warning">{warning}</Alert> : null}
         {error ? <Alert tone="danger">{error}</Alert> : null}
       </section>
 

@@ -928,21 +928,28 @@ export type AdmissionsDocumentPurpose = (typeof ADMISSIONS_DOCUMENT_PURPOSES)[nu
 
 export const ADMISSIONS_CANONICAL_FIELD_KEYS = [
   "child.legal_name",
+  "child.legal_forename",
+  "child.legal_surname",
   "child.preferred_name",
   "child.date_of_birth",
   "child.gender",
+  "child.nationality",
   "child.address",
   "child.intended_academic_year_id",
   "child.intended_year_group_id",
+  "child.intended_term_id",
   "child.proposed_start_date",
   "child.current_school",
   "child.previous_school",
   "guardian.full_name",
+  "guardian.title",
   "guardian.relationship",
+  "guardian.occupation",
   "guardian.parental_responsibility",
   "guardian.address",
   "guardian.email",
   "guardian.phone",
+  "guardian.phone_alternative",
   "guardian.primary_contact",
   "guardians",
   "previous_education.school_name",
@@ -962,6 +969,68 @@ export const ADMISSIONS_CANONICAL_FIELD_KEYS = [
   "application.notes",
 ] as const;
 export type AdmissionsCanonicalFieldKey = (typeof ADMISSIONS_CANONICAL_FIELD_KEYS)[number];
+
+/**
+ * Closed catalogue for the form builder. Question types are fixed.
+ * Year, year group, and term choices are supplied from the organisation,
+ * so those fields do not store their own options.
+ */
+export const ADMISSIONS_CANONICAL_FIELD_CATALOGUE: ReadonlyArray<{
+  key: AdmissionsCanonicalFieldKey;
+  label: string;
+  questionType: AdmissionsQuestionType;
+}> = [
+  { key: "child.legal_name", label: "Legal name", questionType: "short_text" },
+  { key: "child.legal_forename", label: "Legal forename(s)", questionType: "short_text" },
+  { key: "child.legal_surname", label: "Legal surname", questionType: "short_text" },
+  { key: "child.preferred_name", label: "Preferred name", questionType: "short_text" },
+  { key: "child.date_of_birth", label: "Date of birth", questionType: "date" },
+  { key: "child.gender", label: "Gender", questionType: "single_choice" },
+  { key: "child.nationality", label: "Nationality", questionType: "short_text" },
+  { key: "child.address", label: "Home address", questionType: "address_group" },
+  { key: "child.intended_academic_year_id", label: "Intended academic year", questionType: "single_choice" },
+  { key: "child.intended_year_group_id", label: "Intended year group", questionType: "single_choice" },
+  { key: "child.intended_term_id", label: "Intended entry term", questionType: "single_choice" },
+  { key: "child.proposed_start_date", label: "Proposed start date", questionType: "date" },
+  { key: "child.current_school", label: "Current school", questionType: "short_text" },
+  { key: "child.previous_school", label: "Previous school", questionType: "short_text" },
+  { key: "guardian.full_name", label: "Parent / guardian name", questionType: "short_text" },
+  { key: "guardian.title", label: "Title", questionType: "short_text" },
+  { key: "guardian.relationship", label: "Relationship to child", questionType: "short_text" },
+  { key: "guardian.occupation", label: "Occupation", questionType: "short_text" },
+  { key: "guardian.parental_responsibility", label: "Has parental responsibility", questionType: "yes_no" },
+  { key: "guardian.address", label: "Parent / guardian address", questionType: "address_group" },
+  { key: "guardian.email", label: "Email", questionType: "email" },
+  { key: "guardian.phone", label: "Telephone", questionType: "phone" },
+  { key: "guardian.phone_alternative", label: "Alternative / mobile telephone", questionType: "phone" },
+  { key: "guardian.primary_contact", label: "Primary contact", questionType: "yes_no" },
+  { key: "guardians", label: "Parents / guardians", questionType: "guardian_group" },
+  { key: "previous_education.school_name", label: "Current or previous school", questionType: "short_text" },
+  { key: "previous_education.start_date", label: "Dates attended (from)", questionType: "date" },
+  { key: "previous_education.end_date", label: "Dates attended (to)", questionType: "date" },
+  { key: "previous_education.report_details", label: "Previous report or reference details", questionType: "long_text" },
+  { key: "emergency.full_name", label: "Emergency contact name", questionType: "short_text" },
+  { key: "emergency.relationship", label: "Emergency contact relationship", questionType: "short_text" },
+  { key: "emergency.telephone", label: "Emergency telephone", questionType: "phone" },
+  { key: "emergency.authorised_collection", label: "Authorised to collect the child", questionType: "yes_no" },
+  { key: "medical.allergies", label: "Allergies", questionType: "long_text" },
+  { key: "medical.conditions", label: "Medical conditions", questionType: "long_text" },
+  { key: "medical.medication", label: "Medication", questionType: "long_text" },
+  { key: "medical.dietary", label: "Dietary requirements", questionType: "short_text" },
+  { key: "medical.send_notes", label: "SEND / additional support notes", questionType: "long_text" },
+  { key: "enquiry.notes", label: "Your question or note", questionType: "long_text" },
+  { key: "application.notes", label: "Anything else we should know", questionType: "long_text" },
+];
+
+/** Organisation choice fields whose options come from school structure, not the form definition. */
+export const ADMISSIONS_STRUCTURE_CHOICE_KEYS = [
+  "child.intended_academic_year_id",
+  "child.intended_year_group_id",
+  "child.intended_term_id",
+] as const;
+
+export const ADMISSIONS_FORM_TEMPLATES = ["standard", "registration"] as const;
+export type AdmissionsFormTemplate = (typeof ADMISSIONS_FORM_TEMPLATES)[number];
 
 export const PUBLIC_FORM_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const PUBLIC_FORM_SLUG_MAX = 80;

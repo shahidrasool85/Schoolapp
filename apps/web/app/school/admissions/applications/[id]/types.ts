@@ -1,22 +1,29 @@
 export type Canonical = {
   child?: {
     legalName?: string;
+    legalForename?: string;
+    legalSurname?: string;
+    nationality?: string;
     preferredName?: string;
     dateOfBirth?: string;
     gender?: string;
     address?: { line1?: string; line2?: string; town?: string; postcode?: string };
     intendedAcademicYearId?: string;
     intendedYearGroupId?: string;
+    intendedTermId?: string;
     proposedStartDate?: string;
     currentSchool?: string;
     previousSchool?: string;
   };
   guardians?: Array<{
     fullName?: string;
+    title?: string;
+    occupation?: string;
     relationship?: string;
     parentalResponsibility?: boolean;
     email?: string;
     phone?: string;
+    phoneAlternative?: string;
     primaryContact?: boolean;
     address?: { line1?: string; line2?: string; town?: string; postcode?: string };
   }>;
@@ -45,8 +52,11 @@ export type Canonical = {
 export type ApplicationContact = {
   id: string;
   fullName: string;
+  title: string | null;
   email: string | null;
   telephone: string | null;
+  alternativeTelephone: string | null;
+  occupation: string | null;
   relationship: string;
   isPrimary: boolean;
   hasParentalResponsibility: boolean;
@@ -109,6 +119,9 @@ export type ApplicationDetail = {
     reference: string;
     status: string;
     pupilLegalName: string;
+    pupilLegalForename: string | null;
+    pupilLegalSurname: string | null;
+    nationality: string | null;
     pupilPreferredName: string | null;
     dateOfBirth: string | null;
     gender: string | null;
@@ -120,6 +133,8 @@ export type ApplicationDetail = {
     intendedAcademicYearName: string | null;
     intendedYearGroupId: string | null;
     intendedYearGroupName: string | null;
+    intendedTermId: string | null;
+    intendedTermName: string | null;
     intendedEntryDate: string | null;
     previousSchool: string | null;
     currentSchool: string | null;
@@ -151,6 +166,11 @@ export type ApplicationDetail = {
   assessments: ApplicationAssessment[];
   offers: ApplicationOffer[];
   documents?: ApplicationDocument[];
+  guardianMapping?: {
+    status: "attention_required" | "complete" | "not_recorded";
+    unlinkedCount: number;
+    message: string | null;
+  } | null;
 };
 
 export type Option = { id: string; name: string };

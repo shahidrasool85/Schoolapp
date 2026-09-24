@@ -4,5 +4,5 @@ export { EmptyState, Alert, InviteTokenAlert, PageError, LoadingState, SkeletonB
 export { PageHeader, Card, StatCard, SectionCard } from "./layout";
 export { FilterBar, SearchInput, DataTable, Tabs } from "./data";
 export { FormField, FormSection, Input, Select, Textarea, Checkbox, Radio, Toggle } from "./forms";
-export { ConfirmationDialog, Dialog, UserAvatar, PersonSummary, Timeline } from "./dialog";
+export { ConfirmationDialog, Dialog, Drawer, UserAvatar, PersonSummary, Timeline } from "./dialog";
 export { WizardActions, WizardPanel, WizardProgress } from "./wizard";

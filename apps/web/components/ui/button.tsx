@@ -17,15 +17,13 @@ export const Button = forwardRef<
   return <button ref={ref} className={`${extra} ${className}`.trim()} {...props} />;
 });
 
-export function IconButton({
-  label,
-  className = "",
-  children,
-  ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; children: ReactNode }) {
+export const IconButton = forwardRef<
+  HTMLButtonElement,
+  ButtonHTMLAttributes<HTMLButtonElement> & { label: string; children: ReactNode }
+>(function IconButton({ label, className = "", children, ...props }, ref) {
   return (
-    <button type="button" className={`icon-btn ${className}`.trim()} aria-label={label} {...props}>
+    <button ref={ref} type="button" className={`icon-btn ${className}`.trim()} aria-label={label} {...props}>
       {children}
     </button>
   );
-}
+});

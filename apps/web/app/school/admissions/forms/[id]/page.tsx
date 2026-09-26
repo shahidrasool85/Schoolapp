@@ -30,7 +30,6 @@ import {
   applyQuestionToSections,
   applySectionDraft,
   availableCanonicalFields,
-  definitionPayload,
   definitionSnapshot,
   fieldIdentityLabel,
   isChoiceField,
@@ -38,14 +37,13 @@ import {
   moveQuestion,
   moveSection,
   nextExpandedKey,
+  planFormSave,
   questionCountLabel,
   questionDraft,
   removeDraftOption,
   rowTypeLabel,
   sectionDraft,
   settingsFromForm,
-  settingsRequestBody,
-  settingsSaveError,
   settingsSnapshot,
   toEditor,
   typeLabel,
@@ -71,6 +69,92 @@ const TABS: Array<{ id: EditorTab; label: string }> = [
   { id: "settings", label: "Settings" },
   { id: "share", label: "Share" },
 ];
+
+function ReorderMenu({
+  label,
+  canUp,
+  canDown,
+  onUp,
+  onDown,
+}: {
+  label: string;
+  canUp: boolean;
+  canDown: boolean;
+  onUp: () => void;
+  onDown: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const movable = canUp || canDown;
+
+  useEffect(() => {
+    if (!open) return;
+    menuRef.current?.querySelector<HTMLButtonElement>("[role='menuitem']:not(:disabled)")?.focus();
+    function onPointer(event: MouseEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      buttonRef.current?.focus();
+    }
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  function onMenuKey(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    const items = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>("[role='menuitem']:not(:disabled)") ?? [])];
+    if (!items.length) return;
+    const index = items.indexOf(document.activeElement as HTMLButtonElement);
+    const next = event.key === "ArrowDown" ? (index + 1) % items.length : (index - 1 + items.length) % items.length;
+    items[next]?.focus();
+  }
+
+  function choose(action: () => void) {
+    action();
+    setOpen(false);
+    buttonRef.current?.focus();
+  }
+
+  return (
+    <div className="reorder-menu" ref={rootRef}>
+      <IconButton
+        ref={buttonRef}
+        label={movable ? `Reorder ${label}` : `${label} is already in the only position`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={!movable}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span aria-hidden="true">↕</span>
+      </IconButton>
+      {open ? (
+        <div
+          ref={menuRef}
+          className="editor-more-menu reorder-menu-panel"
+          role="menu"
+          aria-label={`Reorder ${label}`}
+          onKeyDown={onMenuKey}
+        >
+          <button type="button" role="menuitem" className="editor-menu-item" disabled={!canUp} onClick={() => choose(onUp)}>
+            Move up
+          </button>
+          <button type="button" role="menuitem" className="editor-menu-item" disabled={!canDown} onClick={() => choose(onDown)}>
+            Move down
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export default function AdmissionsFormDetailPage() {
   const params = useParams<{ id: string }>();
@@ -168,6 +252,12 @@ export default function AdmissionsFormDetailPage() {
   }, [dirty]);
 
   useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 4500);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  useEffect(() => {
     if (!moreOpen) return;
     function onPointer(event: MouseEvent) {
       if (!moreRef.current?.contains(event.target as Node)) setMoreOpen(false);
@@ -194,53 +284,67 @@ export default function AdmissionsFormDetailPage() {
 
   async function saveAll(): Promise<boolean> {
     if (!settings || !savedSettings) return false;
+    setNotice(null);
     setError("");
-    let message = "Changes saved.";
-    if (settingsSnapshot(settings) !== settingsSnapshot(savedSettings)) {
-      const problem = settingsSaveError(settings, savedSettings);
-      if (problem) {
-        setError(problem);
-        setTab("settings");
-        return false;
-      }
-      try {
-        const saved = await api<{ form: FormMeta }>(`/api/v1/admissions/forms/${params.id}`, {
-          method: "PATCH",
-          body: JSON.stringify(settingsRequestBody(settings, savedSettings)),
-        });
-        const next = settingsFromForm(saved.form);
-        setSettings(next);
-        setSavedSettings(next);
-        setForm(saved.form);
-        const shareBody = await api<ShareInfo>(`/api/v1/admissions/forms/${params.id}/share`);
-        setShare(shareBody);
-        if (!settings.successTitle.trim() && saved.form.successTitle) {
-          message = "Changes saved. An empty success title stays as the previous title.";
-          setNotice({ tone: "info", text: message });
+    const plan = planFormSave({ sections, savedDefinition, settings, savedSettings });
+    if (!plan.ok) {
+      setError(plan.message);
+      setTab(plan.focus);
+      return false;
+    }
+    let questionsSaved = false;
+    let keptPreviousTitle = false;
+    for (const step of plan.steps) {
+      if (step.kind === "definition") {
+        try {
+          const saved = await api<FormDetail>(`/api/v1/admissions/forms/${params.id}/definition`, {
+            method: "PUT",
+            body: JSON.stringify(step.body),
+          });
+          const nextSections = toEditor(saved);
+          setSections(nextSections);
+          setSavedDefinition(definitionSnapshot(nextSections));
+          setForm(saved.form);
+          questionsSaved = true;
+        } catch (err) {
+          setError(
+            `Questions were not saved, and form settings were not changed. ${userFacingError(err, "Could not save the questions.")}`,
+          );
+          setTab("builder");
+          return false;
         }
-      } catch (err) {
-        setError(userFacingError(err, "Could not save this form."));
-        setTab("settings");
-        return false;
+      } else {
+        try {
+          const saved = await api<{ form: FormMeta }>(`/api/v1/admissions/forms/${params.id}`, {
+            method: "PATCH",
+            body: JSON.stringify(step.body),
+          });
+          const next = settingsFromForm(saved.form);
+          setSettings(next);
+          setSavedSettings(next);
+          setForm(saved.form);
+          const shareBody = await api<ShareInfo>(`/api/v1/admissions/forms/${params.id}/share`);
+          setShare(shareBody);
+          keptPreviousTitle = !settings.successTitle.trim() && Boolean(saved.form.successTitle);
+        } catch (err) {
+          const reason = userFacingError(err, "Could not save form settings.");
+          setError(
+            questionsSaved
+              ? `Questions were saved. Form settings were not saved. ${reason} Save changes again to store the settings.`
+              : reason,
+          );
+          setTab("settings");
+          return false;
+        }
       }
     }
-    if (definitionSnapshot(sections) !== savedDefinition) {
-      try {
-        const saved = await api<FormDetail>(`/api/v1/admissions/forms/${params.id}/definition`, {
-          method: "PUT",
-          body: JSON.stringify(definitionPayload(sections)),
-        });
-        const nextSections = toEditor(saved);
-        setSections(nextSections);
-        setSavedDefinition(definitionSnapshot(nextSections));
-        setForm(saved.form);
-      } catch (err) {
-        setError(userFacingError(err, "Could not save the questions."));
-        setTab("builder");
-        return false;
-      }
-    }
-    setNotice({ tone: "success", text: message });
+    setError("");
+    setNotice({
+      tone: keptPreviousTitle ? "info" : "success",
+      text: keptPreviousTitle
+        ? "Changes saved. An empty success title stays as the previous title."
+        : "Changes saved.",
+    });
     return true;
   }
 
@@ -512,7 +616,11 @@ export default function AdmissionsFormDetailPage() {
       </div>
 
       {error ? <Alert tone="danger">{error}</Alert> : null}
-      {notice ? <Alert tone={notice.tone}>{notice.text}</Alert> : null}
+      {notice ? (
+        <div className={`editor-toast alert alert-${notice.tone}`} role="status">
+          {notice.text}
+        </div>
+      ) : null}
 
       {tab === "builder" ? (
         <div role="tabpanel" id="form-editor-panel-builder" aria-labelledby="form-editor-tab-builder">
@@ -550,20 +658,13 @@ export default function AdmissionsFormDetailPage() {
                       </button>
                     </h3>
                     <div className="builder-section-tools">
-                      <IconButton
-                        label={`Move ${section.title || "section"} up`}
-                        disabled={sectionIndex === 0}
-                        onClick={() => setSections((current) => moveSection(current, sectionIndex, -1))}
-                      >
-                        ↑
-                      </IconButton>
-                      <IconButton
-                        label={`Move ${section.title || "section"} down`}
-                        disabled={sectionIndex === sections.length - 1}
-                        onClick={() => setSections((current) => moveSection(current, sectionIndex, 1))}
-                      >
-                        ↓
-                      </IconButton>
+                      <ReorderMenu
+                        label={section.title || "section"}
+                        canUp={sectionIndex > 0}
+                        canDown={sectionIndex < sections.length - 1}
+                        onUp={() => setSections((current) => moveSection(current, sectionIndex, -1))}
+                        onDown={() => setSections((current) => moveSection(current, sectionIndex, 1))}
+                      />
                       <Button
                         type="button"
                         variant="secondary"
@@ -596,27 +697,16 @@ export default function AdmissionsFormDetailPage() {
                               {field.enabled ? null : <Badge tone="neutral">Disabled</Badge>}
                             </div>
                             <div className="builder-question-actions">
-                              <IconButton
-                                label={`Move ${field.label || "question"} up`}
-                                disabled={fieldIndex === 0}
-                                onClick={() =>
-                                  setSections((current) => moveQuestion(current, sectionIndex, fieldIndex, -1))
-                                }
-                              >
-                                ↑
-                              </IconButton>
-                              <IconButton
-                                label={`Move ${field.label || "question"} down`}
-                                disabled={fieldIndex === section.fields.length - 1}
-                                onClick={() =>
-                                  setSections((current) => moveQuestion(current, sectionIndex, fieldIndex, 1))
-                                }
-                              >
-                                ↓
-                              </IconButton>
                               <Button type="button" variant="secondary" onClick={() => openQuestion(section.sectionKey, field)}>
                                 Edit <span className="visually-hidden">{field.label || "question"}</span>
                               </Button>
+                              <ReorderMenu
+                                label={field.label || "question"}
+                                canUp={fieldIndex > 0}
+                                canDown={fieldIndex < section.fields.length - 1}
+                                onUp={() => setSections((current) => moveQuestion(current, sectionIndex, fieldIndex, -1))}
+                                onDown={() => setSections((current) => moveQuestion(current, sectionIndex, fieldIndex, 1))}
+                              />
                             </div>
                           </div>
                         ))

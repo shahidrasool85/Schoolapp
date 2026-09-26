@@ -8,11 +8,13 @@ import {
   applyQuestionToSections,
   applySectionDraft,
   definitionPayload,
+  definitionSaveError,
   definitionSnapshot,
   moveQuestion,
   moveSection,
   nextExpandedKey,
   questionCountLabel,
+  planFormSave,
   questionDraft,
   removeDraftOption,
   settingsFromForm,
@@ -280,5 +282,92 @@ describe("admissions form editor", () => {
     expect(settingsRequestBody(next, settings).name).toBe("Registration");
     expect(settingsSaveError({ ...settings, opensAt: "" }, settings)).toMatch(/open date/i);
     expect(settingsSaveError({ ...settings, closesAt: "" }, settings)).toBeNull();
+  });
+
+  it("does not plan any save when the question definition is invalid, even if settings also changed", () => {
+    const sections = loaded();
+    const gender = sections[0]!.fields[2]!;
+    const cleared = applyQuestionToSections(sections, "child", "child.gender", {
+      ...questionDraft(gender),
+      options: [],
+    });
+    expect(cleared.ok).toBe(true);
+    if (!cleared.ok) return;
+    expect(definitionSaveError(cleared.value)).toMatch(/Gender needs at least one option/);
+
+    const settings = settingsFromForm(detail().form);
+    const plan = planFormSave({
+      sections: cleared.value,
+      savedDefinition: definitionSnapshot(sections),
+      settings: { ...settings, name: "Renamed form" },
+      savedSettings: settings,
+    });
+    expect(plan.ok).toBe(false);
+    if (plan.ok) return;
+    expect(plan.focus).toBe("builder");
+    expect(plan).not.toHaveProperty("steps");
+  });
+
+  it("plans the question definition before settings, and plans nothing when settings are invalid", () => {
+    const sections = loaded();
+    const renamed = applyQuestionToSections(sections, "child", "child.preferred_name", {
+      ...questionDraft(sections[0]!.fields[1]!),
+      label: "Known as",
+    });
+    expect(renamed.ok).toBe(true);
+    if (!renamed.ok) return;
+    const settings = settingsFromForm(detail().form);
+    const plan = planFormSave({
+      sections: renamed.value,
+      savedDefinition: definitionSnapshot(sections),
+      settings: { ...settings, name: "Registration" },
+      savedSettings: settings,
+    });
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.steps.map((step) => step.kind)).toEqual(["definition", "settings"]);
+    expect(definitionSaveError(renamed.value)).toBeNull();
+
+    const blocked = planFormSave({
+      sections: renamed.value,
+      savedDefinition: definitionSnapshot(sections),
+      settings: { ...settings, name: "" },
+      savedSettings: settings,
+    });
+    expect(blocked.ok).toBe(false);
+    if (blocked.ok) return;
+    expect(blocked.focus).toBe("settings");
+    expect(blocked).not.toHaveProperty("steps");
+  });
+
+  it("rejects definition problems the server would reject before a save is planned", () => {
+    const sections = loaded();
+    const duplicate = structuredClone(sections);
+    duplicate[1]!.fields.push({ ...duplicate[0]!.fields[0]! });
+    expect(definitionSaveError(duplicate)).toMatch(/canonical field can be added once/i);
+
+    const unknown = structuredClone(sections);
+    unknown[0]!.fields[0] = {
+      ...unknown[0]!.fields[0]!,
+      fieldKey: "child.secret_key",
+      canonicalKey: "child.secret_key",
+    };
+    expect(definitionSaveError(unknown)).toMatch(/Canonical field key is not allowed/);
+
+    const added = addCustomQuestion(sections, 0, "Passport", "file");
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+    const file = structuredClone(added.value);
+    file[0]!.fields.at(-1)!.documentPurpose = null;
+    expect(definitionSaveError(file)).toMatch(/Passport needs a document purpose/);
+
+    const disabledChoice = applyQuestionToSections(sections, "child", "child.gender", {
+      ...questionDraft(sections[0]!.fields[2]!),
+      enabled: false,
+      options: [],
+    });
+    expect(disabledChoice.ok).toBe(true);
+    if (!disabledChoice.ok) return;
+    expect(definitionSaveError(disabledChoice.value)).toBeNull();
   });
 });

@@ -1,6 +1,11 @@
 import {
   ADMISSIONS_CANONICAL_FIELD_CATALOGUE,
+  ADMISSIONS_DOCUMENT_PURPOSES,
+  ADMISSIONS_QUESTION_TYPES,
   ADMISSIONS_STRUCTURE_CHOICE_KEYS,
+  PUBLIC_FORM_SLUG_MAX,
+  PUBLIC_FORM_SLUG_PATTERN,
+  type AdmissionsCanonicalFieldKey,
   type AdmissionsQuestionType,
 } from "@schoolapp/domain";
 
@@ -21,6 +26,9 @@ export const CUSTOM_QUESTION_TYPES = [
 export type CustomQuestionType = (typeof CUSTOM_QUESTION_TYPES)[number];
 
 const STRUCTURE_KEYS = new Set<string>(ADMISSIONS_STRUCTURE_CHOICE_KEYS);
+const QUESTION_TYPES = new Set<string>(ADMISSIONS_QUESTION_TYPES);
+const DOCUMENT_PURPOSES = new Set<string>(ADMISSIONS_DOCUMENT_PURPOSES);
+const CATALOGUE_BY_KEY = new Map(ADMISSIONS_CANONICAL_FIELD_CATALOGUE.map((item) => [item.key, item]));
 
 const TYPE_LABELS: Record<string, string> = {
   short_text: "Short text",
@@ -286,8 +294,16 @@ export function settingsSnapshot(settings: FormSettings): string {
 }
 
 export function settingsSaveError(current: FormSettings, baseline: FormSettings): string | null {
-  if (!current.name.trim()) return "Enter a form name.";
+  const name = current.name.trim();
+  if (!name) return "Enter a form name.";
+  if (name.length > 120) return "Form name must be 120 characters or fewer.";
   if (!current.slug.trim()) return "Enter a slug.";
+  if (current.slug.trim().length > PUBLIC_FORM_SLUG_MAX || !PUBLIC_FORM_SLUG_PATTERN.test(normalizedSlug(current.slug))) {
+    return "Form slug must be a lowercase hyphenated label.";
+  }
+  if (current.successTitle.trim().length > 120) return "Success title must be 120 characters or fewer.";
+  if (current.successText.length > 4000) return "Success text must be 4,000 characters or fewer.";
+  if (current.privacyNoticeText.length > 8000) return "Privacy notice must be 8,000 characters or fewer.";
   if (!current.opensAt.trim() && baseline.opensAt.trim()) {
     return "The open date can be changed, but a saved open date cannot be removed.";
   }
@@ -301,6 +317,111 @@ export function settingsSaveError(current: FormSettings, baseline: FormSettings)
     return "Enter a valid close date.";
   }
   return null;
+}
+
+/**
+ * Same definition rules the save endpoint enforces, checked before either request is sent.
+ * Messages stay aligned with the server so an invalid question list never reaches the network.
+ */
+export function definitionSaveError(sections: EditorSection[]): string | null {
+  const payload = definitionPayload(sections);
+  if (!payload.sections.length) return "A form needs at least one section.";
+  const sectionKeys = new Set<string>();
+  const fieldKeys = new Set<string>();
+  const canonicalKeys = new Set<string>();
+  for (const section of payload.sections) {
+    const sectionKey = section.sectionKey.trim();
+    if (!sectionKey || sectionKey.length > 80) return "Each section needs a valid key.";
+    if (sectionKeys.has(sectionKey)) return "Section keys must be unique.";
+    sectionKeys.add(sectionKey);
+    const title = section.title.trim();
+    if (!title) return "Enter a title for every section.";
+    if (title.length > 120) return "Section titles must be 120 characters or fewer.";
+    if ((section.helperText ?? "").length > 2000) return "Section help text must be 2,000 characters or fewer.";
+    for (const field of section.fields) {
+      if (!QUESTION_TYPES.has(field.questionType)) return "A question uses a type this form cannot save.";
+      const label = field.label.trim();
+      if (!label) return "Enter a label for every question.";
+      if (label.length > 200) return "Question labels must be 200 characters or fewer.";
+      if ((field.helperText ?? "").length > 2000) return "Question help text must be 2,000 characters or fewer.";
+      if (field.fieldKind === "canonical") {
+        const catalogue = field.canonicalKey
+          ? CATALOGUE_BY_KEY.get(field.canonicalKey as AdmissionsCanonicalFieldKey)
+          : undefined;
+        if (!field.canonicalKey || !catalogue) return "Canonical field key is not allowed.";
+        if (field.questionType !== catalogue.questionType) return "Canonical field type cannot be changed.";
+        if (field.fieldKey !== field.canonicalKey) return "Canonical field key is not allowed.";
+        if (canonicalKeys.has(field.canonicalKey)) return "Each canonical field can be added once.";
+        canonicalKeys.add(field.canonicalKey);
+      } else if (field.canonicalKey) {
+        return "Custom questions cannot use a canonical key.";
+      }
+      const fieldKey = field.fieldKey.trim();
+      if (!fieldKey) return "Each question needs a valid key.";
+      if (fieldKeys.has(fieldKey)) return "Field keys must be unique.";
+      fieldKeys.add(fieldKey);
+      for (const option of field.options) {
+        if (!option.value.trim() || !option.label.trim() || option.value.trim().length > 80 || option.label.trim().length > 120) {
+          return `${label} has a choice that is too long.`;
+        }
+      }
+      if (
+        field.enabled &&
+        (field.questionType === "single_choice" || field.questionType === "multiple_choice") &&
+        !STRUCTURE_KEYS.has(field.canonicalKey ?? "") &&
+        field.options.length === 0
+      ) {
+        return `${label} needs at least one option.`;
+      }
+      if (field.questionType === "file" && (!field.documentPurpose || !DOCUMENT_PURPOSES.has(field.documentPurpose))) {
+        return `${label} needs a document purpose.`;
+      }
+    }
+  }
+  return null;
+}
+
+export type FormSaveStep =
+  | { kind: "definition"; body: DefinitionPayload }
+  | { kind: "settings"; body: Record<string, unknown> };
+
+export type FormSavePlan =
+  | { ok: false; focus: "builder" | "settings"; message: string }
+  | { ok: true; steps: FormSaveStep[] };
+
+/**
+ * One Save changes click. Nothing is returned for the network until both halves are valid.
+ * The question definition is first because that is the request the server is more likely to reject.
+ */
+export function planFormSave(input: {
+  sections: EditorSection[];
+  savedDefinition: string;
+  settings: FormSettings;
+  savedSettings: FormSettings;
+}): FormSavePlan {
+  const definitionDirty = definitionSnapshot(input.sections) !== input.savedDefinition;
+  const settingsDirty = settingsSnapshot(input.settings) !== settingsSnapshot(input.savedSettings);
+  if (definitionDirty) {
+    const problem = definitionSaveError(input.sections);
+    if (problem) return { ok: false, focus: "builder", message: problem };
+  }
+  if (settingsDirty) {
+    const problem = settingsSaveError(input.settings, input.savedSettings);
+    if (problem) return { ok: false, focus: "settings", message: problem };
+  }
+  const steps: FormSaveStep[] = [];
+  if (definitionDirty) steps.push({ kind: "definition", body: definitionPayload(input.sections) });
+  if (settingsDirty) steps.push({ kind: "settings", body: settingsRequestBody(input.settings, input.savedSettings) });
+  return { ok: true, steps };
+}
+
+function normalizedSlug(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, PUBLIC_FORM_SLUG_MAX);
 }
 
 export function settingsRequestBody(current: FormSettings, baseline: FormSettings): Record<string, unknown> {

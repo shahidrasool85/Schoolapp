@@ -2809,7 +2809,12 @@ tr.is-selected td {
 
 .builder-section.card {
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
+}
+
+.builder-section:has(.reorder-menu [aria-expanded="true"]) {
+  position: relative;
+  z-index: 6;
 }
 
 .builder-section.is-disabled,
@@ -3019,6 +3024,28 @@ button.editor-menu-item:hover {
   color: var(--ink);
 }
 
+button.editor-menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.reorder-menu { position: relative; }
+
+.reorder-menu-panel {
+  min-width: 8.75rem;
+  z-index: 7;
+}
+
+.editor-toast {
+  position: fixed;
+  z-index: 35;
+  right: 1rem;
+  bottom: 1rem;
+  width: min(22rem, calc(100vw - 2rem));
+  margin-bottom: 0;
+  box-shadow: var(--shadow);
+}
+
 .drawer-backdrop {
   position: fixed;
   inset: 0;
@@ -3101,10 +3128,15 @@ button.editor-menu-item:hover {
   .form-editor-page .editor-more { flex: 1 1 calc(50% - 0.5rem); }
 
   .form-editor-page .editor-more > button,
-  .builder-add-row > button,
-  .builder-question-actions { width: 100%; }
+  .builder-add-row > button { width: 100%; }
 
-  .builder-question-actions { margin-left: 0; }
+  .builder-question-actions {
+    width: auto;
+    margin-left: auto;
+    flex-wrap: nowrap;
+  }
+
+  .editor-toast { left: 1rem; right: 1rem; width: auto; }
 
   .editor-more-menu { left: 0; right: 0; }
 

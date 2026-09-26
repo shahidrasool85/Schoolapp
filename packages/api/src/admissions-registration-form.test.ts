@@ -986,6 +986,189 @@ describe("admissions registration form", () => {
     expect(statutory.rows[0]?.legal_forename ?? null).toBeNull();
     expect(statutory.rows[0]?.legal_surname ?? null).toBeNull();
   });
+
+  it("keeps builder edits for labels, help, required, enabled, choices, additions, and order", async () => {
+    const id = suffix();
+    const school = await createSchool(pools.owner, id);
+    const token = await login(app, school.adminEmail, "password-12x");
+    const hdrs = headers(token, school.orgId);
+    const created = (await (
+      await app.request("/api/v1/admissions/forms", {
+        method: "POST",
+        headers: hdrs,
+        body: JSON.stringify({
+          formType: "application",
+          template: "registration",
+          name: "Builder",
+          slug: `builder-${id}`,
+        }),
+      })
+    ).json()) as { form: { id: string }; sections: Section[] };
+
+    const sections = created.sections.map((section) => ({
+      ...section,
+      fields: section.fields.map((field) => {
+        if (field.fieldKey === "child.legal_forename") {
+          return {
+            ...field,
+            label: "Child's legal name",
+            helperText: "Birth certificate name",
+            required: true,
+            enabled: true,
+            options: field.options ?? [],
+          };
+        }
+        if (field.fieldKey === "child.preferred_name") {
+          return { ...field, enabled: false, required: true, options: field.options ?? [] };
+        }
+        if (field.fieldKey === "how_heard") {
+          return { ...field, options: [{ value: "open_morning", label: "Open morning" }] };
+        }
+        return { ...field, options: field.options ?? [] };
+      }),
+    }));
+    sections
+      .find((section) => section.sectionKey === "additional")
+      ?.fields.push({
+        fieldKey: "school_bus",
+        fieldKind: "custom",
+        canonicalKey: null,
+        questionType: "short_text",
+        label: "School bus",
+        helperText: "Optional",
+        required: false,
+        enabled: true,
+        options: [],
+        documentPurpose: null,
+      });
+    sections
+      .find((section) => section.sectionKey === "child")
+      ?.fields.push({
+        fieldKey: "medical.allergies",
+        fieldKind: "canonical",
+        canonicalKey: "medical.allergies",
+        questionType: "long_text",
+        label: "Allergies",
+        helperText: null,
+        required: false,
+        enabled: true,
+        options: [],
+        documentPurpose: null,
+      });
+    const ordered = [...sections].reverse().map((section, sectionIndex) => ({
+      ...section,
+      sortOrder: sectionIndex,
+      fields: [...section.fields].reverse().map((field, fieldIndex) => ({ ...field, sortOrder: fieldIndex })),
+    }));
+
+    const saved = await app.request(`/api/v1/admissions/forms/${created.form.id}/definition`, {
+      method: "PUT",
+      headers: hdrs,
+      body: JSON.stringify({ sections: ordered }),
+    });
+    expect(saved.status).toBe(200);
+    const body = (await saved.json()) as { sections: Section[] };
+    expect(body.sections.map((section) => section.sectionKey)).toEqual(ordered.map((section) => section.sectionKey));
+    const savedChild = body.sections.find((section) => section.sectionKey === "child");
+    const orderedChild = ordered.find((section) => section.sectionKey === "child");
+    expect(savedChild?.fields.map((field) => field.fieldKey)).toEqual(orderedChild?.fields.map((field) => field.fieldKey));
+    expect(savedChild?.fields.find((field) => field.fieldKey === "child.legal_forename")).toMatchObject({
+      label: "Child's legal name",
+      helperText: "Birth certificate name",
+      required: true,
+      enabled: true,
+      canonicalKey: "child.legal_forename",
+    });
+    expect(savedChild?.fields.find((field) => field.fieldKey === "child.preferred_name")).toMatchObject({
+      enabled: false,
+      required: true,
+    });
+    expect(body.sections.flatMap((section) => section.fields).find((field) => field.fieldKey === "how_heard")?.options).toEqual([
+      { value: "open_morning", label: "Open morning" },
+    ]);
+    expect(body.sections.flatMap((section) => section.fields).some((field) => field.fieldKey === "school_bus")).toBe(true);
+    expect(savedChild?.fields.some((field) => field.canonicalKey === "medical.allergies" && field.questionType === "long_text")).toBe(
+      true,
+    );
+
+    expect((await app.request(`/api/v1/admissions/forms/${created.form.id}/publish`, { method: "POST", headers: hdrs })).status).toBe(
+      200,
+    );
+    const published = (await (
+      await app.request(`/api/v1/public/admissions/forms/application/builder-${id}`, { headers: schoolHeaders(school.slug) })
+    ).json()) as { sections: Array<{ sectionKey: string; fields: Array<{ fieldKey: string }> }> };
+    const publicKeys = published.sections.flatMap((section) => section.fields).map((field) => field.fieldKey);
+    expect(publicKeys).not.toContain("child.preferred_name");
+    expect(publicKeys).toContain("school_bus");
+    expect(publicKeys).toContain("medical.allergies");
+    expect(published.sections.map((section) => section.sectionKey)).toEqual(ordered.map((section) => section.sectionKey));
+    expect(published.sections.find((section) => section.sectionKey === "child")?.fields.map((field) => field.fieldKey)).toEqual(
+      orderedChild?.fields.filter((field) => field.enabled).map((field) => field.fieldKey),
+    );
+
+    const duplicate = structuredClone(ordered);
+    const forename = duplicate.flatMap((section) => section.fields).find((field) => field.fieldKey === "child.legal_forename");
+    duplicate[0]?.fields.push({ ...forename! });
+    expect(
+      (
+        await app.request(`/api/v1/admissions/forms/${created.form.id}/definition`, {
+          method: "PUT",
+          headers: hdrs,
+          body: JSON.stringify({ sections: duplicate }),
+        })
+      ).status,
+    ).toBe(400);
+
+    const unknown = structuredClone(ordered);
+    unknown[0]?.fields.push({
+      fieldKey: "child.secret_key",
+      fieldKind: "canonical",
+      canonicalKey: "child.secret_key",
+      questionType: "short_text",
+      label: "Secret",
+      helperText: null,
+      required: false,
+      enabled: true,
+      sortOrder: 99,
+      options: [],
+      documentPurpose: null,
+    });
+    expect(
+      (
+        await app.request(`/api/v1/admissions/forms/${created.form.id}/definition`, {
+          method: "PUT",
+          headers: hdrs,
+          body: JSON.stringify({ sections: unknown }),
+        })
+      ).status,
+    ).toBe(400);
+
+    const emptied = ordered.map((section) => ({
+      ...section,
+      fields: section.fields.map((field) => (field.fieldKey === "how_heard" ? { ...field, options: [] } : field)),
+    }));
+    expect(
+      (
+        await app.request(`/api/v1/admissions/forms/${created.form.id}/definition`, {
+          method: "PUT",
+          headers: hdrs,
+          body: JSON.stringify({ sections: emptied }),
+        })
+      ).status,
+    ).toBe(400);
+    const still = (await (
+      await app.request(`/api/v1/public/admissions/forms/application/builder-${id}`, { headers: schoolHeaders(school.slug) })
+    ).json()) as { sections: Section[] };
+    expect(still.sections.flatMap((section) => section.fields).find((field) => field.fieldKey === "how_heard")?.options).toEqual([
+      { value: "open_morning", label: "Open morning" },
+    ]);
+
+    const other = await createSchool(pools.owner, `${id}q`);
+    const otherToken = await login(app, other.adminEmail, "password-12x");
+    expect(
+      (await app.request(`/api/v1/admissions/forms/${created.form.id}`, { headers: headers(otherToken, other.orgId) })).status,
+    ).toBe(404);
+  });
 });
 
 async function applicationIdForReference(

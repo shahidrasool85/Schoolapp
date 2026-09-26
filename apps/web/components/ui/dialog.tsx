@@ -197,6 +197,109 @@ export function Dialog({
   );
 }
 
+export function Drawer({
+  open,
+  title,
+  description,
+  onClose,
+  children,
+  footer,
+}: {
+  open: boolean;
+  title: string;
+  description?: string;
+  onClose: () => void;
+  children: ReactNode;
+  footer?: ReactNode;
+}) {
+  const headingId = useId();
+  const descriptionId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function focusables() {
+      return Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []).filter(
+        (el) => !el.hasAttribute("disabled") && el.getAttribute("aria-hidden") !== "true",
+      );
+    }
+
+    const preferred = dialogRef.current?.querySelector<HTMLElement>("input, select, textarea");
+    (preferred ?? focusables()[0])?.focus();
+
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const tabItems = focusables();
+      if (tabItems.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = tabItems[0]!;
+      const last = tabItems[tabItems.length - 1]!;
+      const active = document.activeElement;
+      if (event.shiftKey) {
+        if (active === first || !dialogRef.current?.contains(active)) {
+          event.preventDefault();
+          last.focus();
+        }
+      } else if (active === last || !dialogRef.current?.contains(active)) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previousOverflow;
+      previous?.focus();
+    };
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <div className="drawer-backdrop" onClick={() => onCloseRef.current()}>
+      <div
+        ref={dialogRef}
+        className="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={headingId}
+        aria-describedby={description ? descriptionId : undefined}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="drawer-header">
+          <div>
+            <h2 id={headingId}>{title}</h2>
+            {description ? (
+              <p id={descriptionId} className="muted">
+                {description}
+              </p>
+            ) : null}
+          </div>
+          <button type="button" className="icon-btn" onClick={() => onCloseRef.current()} aria-label="Close">
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
+        <div className="drawer-body">{children}</div>
+        {footer ? <div className="drawer-footer">{footer}</div> : null}
+      </div>
+    </div>
+  );
+}
+
 export function UserAvatar({ name }: { name?: string | null }) {
   const initials = (name ?? "?")
     .split(" ")
